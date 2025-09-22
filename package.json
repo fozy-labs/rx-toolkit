@@ -1,0 +1,28 @@
+{
+  "name": "@fozy-labs/rx-toolkit",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "version": "0.4.1",
+  "type": "module",
+  "scripts": {
+    "build": "rimraf ./dist && tsc && tsc-alias",
+    "build:watch": "tsc && tsc-alias && (concurrently \"tsc -w\" \"tsc-alias -w\")",
+    "ts-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@reatom/devtools": "0.13.1"
+  },
+  "devDependencies": {
+    "rimraf": "6.0.1",
+    "tsc-alias": "^1.8.16",
+    "tsconfig-paths": "4.2.0",
+    "concurrently": "9.2.0",
+    "typescript": "5.9.2",
+    "zod": "4.1.11"
+  },
+  "peerDependencies": {
+    "react": "19.1.1",
+    "rxjs": "7.8.2",
+    "zod": "4.1.11"
+  }
+}
