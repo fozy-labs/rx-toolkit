@@ -19,7 +19,6 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
                 isSuccess: false,
                 isError: false,
                 error: undefined,
-                errorString: undefined,
                 data: undefined,
                 args: undefined as D["Args"],
             };
@@ -31,7 +30,6 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
             isSuccess: currState.isSuccess,
             isError: currState.isError,
             error: currState.error ?? undefined,
-            errorString: currState.error ? String(currState.error) : undefined,
             data: currState.data ?? undefined,
             args: currState.arg as D["Args"],
         };

@@ -1,5 +1,5 @@
+import { ReadableSignalLike } from "signal";
 import { FallbackOnNever } from "query/types/shared.types";
-import { ReadableSignalLike } from "../../signal";
 import { ResourceDefinition, ResourceInstance } from "./Resource.types";
 
 /**
@@ -97,10 +97,8 @@ export type OperationQueryState<D extends OperationDefinition> = {
     isError: boolean;
     /** Оригинал ошибки, если есть */
     error: unknown | undefined;
-    /** Попытка привести ошибку к строке (если есть) */
-    errorString: string | undefined;
     /** Результат выполнения операции */
-    data: D["Result"] | undefined;
+    data: D["Data"] | undefined;
     /** Аргументы операции */
     args: D["Args"];
 }
