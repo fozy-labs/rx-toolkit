@@ -1,12 +1,12 @@
 {
   "name": "@fozy-labs/rx-toolkit",
+  "version": "0.4.1",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "version": "0.4.1",
   "type": "module",
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias",
-    "build:watch": "tsc && tsc-alias && (concurrently \"tsc -w\" \"tsc-alias -w\")",
+    "build:watch": "rimraf ./dist && (concurrently \"tsc -w\" \"tsc-alias -w\")",
     "ts-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,5 +24,34 @@
     "react": "19.1.1",
     "rxjs": "7.8.2",
     "zod": "4.1.11"
-  }
+  },
+  "description": "Набор инструментов для реактивного управления состоянием, построенный поверх RxJS.",
+  "author": "Vladimir Panev <vova6255@gmail.com>",
+  "homepage": "https://github.com/fozy-labs/rx-toolkit",
+  "license": "MIT",
+  "keywords": ["react", "rxjs", "toolkit", "state-management"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fozy-labs/rx-toolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fozy-labs/rx-toolkit/issues"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "preferGlobal": false
 }
