@@ -17,5 +17,4 @@ export interface UnaryFunction<T, R> {
 
 export type SignalOperatorFn<T, R> = UnaryFunction<ReadableSignalLike<T>, ReadableSignalLike<R>>;
 export type MonoTypeSignalOperatorFn<T> = SignalOperatorFn<T, T>
-export type ObservableToSignalFn<T> = UnaryFunction<Observable<T>, ReadableSignalLike<T>>;
 

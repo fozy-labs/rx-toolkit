@@ -67,20 +67,24 @@ sub.unsubscribe();
 // TODO убрать zod из core, добавить возможность передавать "driver".
 
 ```typescript
+import { z } from 'zod/v4';
 import { LocalSignal } from '@fozy-labs/rx-toolkit';
 
+enum FILTER {
+    ALL = 'all',
+    CHANNELS = 'channels',
+    CHATS = 'chats',
+    MEETINGS = 'meetings',
+}
+
 const selectedFilter$ = new LocalSignal({
-    key: 'projects-list-selected-filter',
+    key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
     zodSchema: z.enum(FILTER),
 });
 ```
 
 ## Operators (Операторы)
-
-### batched
-Группирует несколько обновлений в одну транзакцию для оптимизации производительности.
-// TODO: проверить, тк не используется в fozy, добавить пример использования
 
 ### mapSignals
 // TODO: добавить описание
@@ -91,9 +95,8 @@ const selectedFilter$ = new LocalSignal({
 Преобразует Observable в Signal.
 
 ```typescript
-import { signalize } from '@fozy-labs/rx-toolkit';
 import { interval } from 'rxjs';
-import { Effect } from "src/signal/base/Effect";
+import { signalize, Effect } from '@fozy-labs/rx-toolkit';
 
 // Создаем Observable, который эмитит значение каждую секунду
 const timer$ = interval(1000).pipe(

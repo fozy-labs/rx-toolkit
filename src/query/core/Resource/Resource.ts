@@ -119,7 +119,7 @@ class ResourceQueryState {
 }
 
 export class Resource<D extends ResourceDefinition> implements ResourceInstance<D> {
-    readonly _queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>('res');
+    readonly _queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>('Resource');
 
     constructor(
         private readonly _options: ResourceCreateOptions<D>) {

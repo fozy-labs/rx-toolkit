@@ -1,5 +1,5 @@
 import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
-import { Signal } from "../../signal";
+import { Signal } from "signals";
 
 type Options<VALUE> = {
     /**
@@ -63,7 +63,7 @@ export class ReactiveCache<VALUE> {
      */
     constructor(options: Options<VALUE>) {
         this._cacheLifeTime = options.cacheLifeTime || 60_000;
-        this._state$ = new Signal(options.initialState);
+        this._state$ = new Signal(options.initialState, { disableDevtools: true });
         this._value = options.initialState;
 
         this.spy$ = this._state$.pipe(

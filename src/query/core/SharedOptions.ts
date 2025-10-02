@@ -1,6 +1,6 @@
-import { Devtools } from '@reatom/devtools';
+import { DevtoolsLike } from "query/types/devtools";
 
 export class SharedOptions {
-    static DEVTOOLS: Devtools | null = null
+    static DEVTOOLS: DevtoolsLike | null = null
     static onError: ((error: unknown) => void) | null = null;
 }

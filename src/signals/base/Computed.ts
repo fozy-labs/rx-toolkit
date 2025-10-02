@@ -1,5 +1,5 @@
 import { SubscriptionLike } from "rxjs";
-import { ReadableSignalLike } from "signal/base/types";
+import { ReadableSignalLike } from "./types";
 import { Signal } from "./Signal";
 import { Effect } from "./Effect";
 
@@ -9,7 +9,7 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
 
     constructor(
         computeFn: () => T,
-        doLog = false,
+        options?: { disableDevtools?: boolean, devtoolsName?: string }
     ) {
         let initialValue: T | Symbol = Computed._EMPTY;
 
@@ -19,10 +19,14 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
                 return;
             }
 
+            this._rang = effect._rang;
             this.value = computeFn();
-        }, doLog);
+        });
 
-        super(initialValue as T);
+        super(initialValue as T, {
+            devtoolsName: 'Computed',
+            ...options,
+        });
         this._effect = effect;
     }
 

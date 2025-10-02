@@ -79,7 +79,7 @@ class OperationQueryState {
 }
 
 export class Operation<D extends OperationDefinition> implements OperationInstance<D> {
-    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>('opr');
+    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>('Operation');
     private _links: LinkOptions<D, any>[] = [];
 
     constructor(

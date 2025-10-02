@@ -1,7 +1,7 @@
 import { type TruthyTypesOf } from "rxjs";
 import { createOperatorSubscriber } from "rxjs/internal/operators/OperatorSubscriber";
 import type { MonoTypeSignalOperatorFn, SignalOperatorFn } from "../base";
-import { ReadonlySignal } from "signal/base/ReadonlySignal";
+import { ReadonlySignal } from "../base";
 
 export function filterUpdates<T, S extends T>(predicate: (value: T, index: number) => value is S): SignalOperatorFn<T, S>;
 export function filterUpdates<T>(predicate: BooleanConstructor): SignalOperatorFn<T, TruthyTypesOf<T>>;

@@ -6,11 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias",
-    "build:watch": "rimraf ./dist && (concurrently \"tsc -w\" \"tsc-alias -w\")",
+    "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w\")",
     "ts-check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@reatom/devtools": "0.13.1"
   },
   "devDependencies": {
     "rimraf": "6.0.1",
