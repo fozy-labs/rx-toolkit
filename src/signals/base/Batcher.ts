@@ -1,6 +1,7 @@
 const Scheduled = {
     map: new Map<number, Set<() => void>>(),
     lowestRang: -1,
+    isLocked: false,
     set(rang: number, fn: () => void) {
         if (rang < this.lowestRang) this.lowestRang = rang;
         if (!this.map.has(rang)) {
@@ -34,14 +35,17 @@ export const Batcher = {
     scheduler(rang: number) {
         return {
             schedule: (fn: () => void) => {
+                if (!Scheduled.isLocked) return fn();
                 Scheduled.set(rang, fn);
             }
         }
     },
     batch<T>(fn: () => T) {
-        if (Scheduled.lowestRang !== -1) return fn();
+        if (Scheduled.isLocked) return fn();
+        Scheduled.isLocked = true;
         const v = fn();
         Scheduled.run();
+        Scheduled.isLocked = false;
         return v;
     },
 }
