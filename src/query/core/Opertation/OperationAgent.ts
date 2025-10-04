@@ -1,11 +1,12 @@
-import { Computed, Signal } from "signal";
+import type { ReactiveCache } from "query/lib/ReactiveCache";
 import { OperationAgentInstanse, OperationDefinition } from "query/types/Operation.types";
+import { Computed, Signal } from "signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
     private _operations$ = new Signal({
-        current$: null as import("query/lib/ReactiveCache").ReactiveCache<CoreOperationQueryState<D>> | null,
-    });
+        current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
+    }, { disableDevtools: true });
 
     state$ = new Computed(() => {
         const operations = this._operations$.value;
@@ -33,13 +34,13 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
             data: currState.data ?? undefined,
             args: currState.arg as D["Args"],
         };
-    });
+    }, { disableDevtools: true });
 
     constructor(
         private _operation: Operation<D>,
     ) {}
 
-    private _next(newCache: import("query/lib/ReactiveCache").ReactiveCache<CoreOperationQueryState<D>>): void {
+    private _next(newCache: ReactiveCache<CoreOperationQueryState<D>>): void {
         this._operations$.next({
             current$: newCache,
         });

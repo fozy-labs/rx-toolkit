@@ -1,5 +1,5 @@
 import { ReactiveCache } from "query/lib/ReactiveCache";
-import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse } from "query/types/Resource.types";
+import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse, ResourceTransaction } from "query/types/Resource.types";
 
 import { QueriesCache } from "../QueriesCache";
 import { SharedOptions } from "../SharedOptions";
@@ -7,8 +7,10 @@ import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
 
 export type CoreResourceQueryState<D extends ResourceDefinition> = {
+    transactions: ResourceTransaction[] | null;
     abortController: AbortController | null;
     args: D['Args'] | null;
+    savedData: D['Data'] | null;
     data: D['Data'] | null;
     error: unknown | null;
     isError: boolean;
@@ -26,6 +28,8 @@ export type CoreResourceQueryCache<D extends ResourceDefinition> = ReactiveCache
 class ResourceQueryState {
     static create<D extends ResourceDefinition>(): CoreResourceQueryState<D> {
         return {
+            transactions: null,
+            savedData: null,
             abortController: null,
             args: null,
             data: null,
@@ -60,6 +64,8 @@ class ResourceQueryState {
     ): CoreResourceQueryState<D> {
         return {
             ...state,
+            savedData: null,
+            transactions: null,
             data,
             isLoading: false,
             isReloading: false,
@@ -107,19 +113,37 @@ class ResourceQueryState {
         }
     }
 
+    static update<D extends ResourceDefinition>(
+        state: CoreResourceQueryState<D>,
+        data: D['Data'],
+        savedData: D['Data'] | null,
+        transactions: ResourceTransaction[] | null,
+    ): CoreResourceQueryState<D> {
+        return {
+            ...state,
+            transactions,
+            savedData,
+            data
+        }
+    }
+
+    /**
+     * @deprecated
+     */
     static setData<D extends ResourceDefinition>(
         state: CoreResourceQueryState<D>,
         data: D['Data']
     ): CoreResourceQueryState<D> {
         return {
             ...state,
+            transactions: null,
             data
         }
     }
 }
 
 export class Resource<D extends ResourceDefinition> implements ResourceInstance<D> {
-    readonly _queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>('res');
+    readonly _queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>('Resource');
 
     constructor(
         private readonly _options: ResourceCreateOptions<D>) {
@@ -159,11 +183,15 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         return cache;
     }
 
-    updateData(args: D['Args'], updateFn: (data: D['Data']) => D['Data'], options?: { cache?: CoreResourceQueryCache<D> }) {
+    /**
+     * @deprecated
+     */
+    updateData_legacy(args: D['Args'], updateFn: (data: D['Data']) => D['Data'], options?: { cache?: CoreResourceQueryCache<D> }) {
         let cache = options?.cache ?? this.getQueryCache(args);
         if (!cache) {
             return null;
         }
+
         const cacheValue = cache.value;
 
         if (!cacheValue.isDone) {
@@ -174,6 +202,36 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         cache.next(ResourceQueryState.setData(cache.value, newData));
         return cache;
     }
+
+    update(
+        args: D['Args'],
+        updateFn: (
+            data: D['Data'],
+            savedData: D['Data'] | null,
+            transactions: ResourceTransaction[] | null,
+        ) => {
+            data: D['Data'],
+            transactions: ResourceTransaction[] | null,
+            savedData: D['Data'] | null
+        },
+        options?: { cache?: CoreResourceQueryCache<D> }
+    ) {
+        let cache = options?.cache ?? this.getQueryCache(args);
+        if (!cache) {
+            return null;
+        }
+
+        const cacheValue = cache.value;
+
+        if (!cacheValue.isDone) {
+            return cache;
+        }
+
+        const { data, transactions, savedData } = updateFn(cacheValue.data!, cacheValue.savedData, cacheValue.transactions);
+        cache.next(ResourceQueryState.update(cache.value, data, savedData, transactions));
+        return cache;
+    }
+
 
     initiate(args: D['Args'], options?: { cache?: CoreResourceQueryCache<D> }): CoreResourceQueryCache<D> {
         let cache = options?.cache ?? this._queriesCache.getQueryCache(args);

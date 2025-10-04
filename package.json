@@ -1,22 +1,19 @@
 {
   "name": "@fozy-labs/rx-toolkit",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias",
-    "build:watch": "rimraf ./dist && (concurrently \"tsc -w\" \"tsc-alias -w\")",
+    "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w\")",
     "ts-check": "tsc --noEmit"
   },
-  "dependencies": {
-    "@reatom/devtools": "0.13.1"
-  },
   "devDependencies": {
+    "concurrently": "9.2.0",
     "rimraf": "6.0.1",
     "tsc-alias": "^1.8.16",
     "tsconfig-paths": "4.2.0",
-    "concurrently": "9.2.0",
     "typescript": "5.9.2",
     "zod": "4.1.11"
   },
@@ -29,7 +26,12 @@
   "author": "Vladimir Panev <vova6255@gmail.com>",
   "homepage": "https://github.com/fozy-labs/rx-toolkit",
   "license": "MIT",
-  "keywords": ["react", "rxjs", "toolkit", "state-management"],
+  "keywords": [
+    "react",
+    "rxjs",
+    "toolkit",
+    "state-management"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fozy-labs/rx-toolkit.git"
@@ -53,5 +55,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "preferGlobal": false
+  "preferGlobal": false,
+  "dependencies": {
+    "immer": "^10.1.3"
+  }
 }

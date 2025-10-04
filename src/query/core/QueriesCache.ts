@@ -1,5 +1,6 @@
 import { IndirectMap } from "query/lib/IndirectMap";
 import { ReactiveCache } from "query/lib/ReactiveCache";
+import { Indexer } from "signals/base/Indexer";
 import { SharedOptions } from "./SharedOptions";
 
 export class QueriesCache<KEY, VALUE> {
@@ -17,14 +18,19 @@ export class QueriesCache<KEY, VALUE> {
             initialState,
         });
 
-        const devtoolsState = SharedOptions.DEVTOOLS?.state;
+        const stateDevtools = SharedOptions.DEVTOOLS?.state;
 
-        if (devtoolsState) {
-            const randomId = Math.random().toString(36).substring(2, 16);
-            const key = `rxt:${this._logname}:${JSON.stringify(args)}:${randomId}`;
+        if (stateDevtools) {
+            const key = `${this._logname}:${JSON.stringify(args)}:i=${Indexer.getIndex()}`;
+            let devtools = stateDevtools(key, initialState);
 
             cache.spy$.subscribe((state) => {
-                devtoolsState(key, state);
+                if (state === initialState) return;
+                devtools(state);
+            });
+
+            cache.onClean$.subscribe(() => {
+                devtools('$CLEANED' as any);
             });
         }
 

@@ -1,8 +1,8 @@
-import { Devtools } from "@reatom/devtools";
+import { DevtoolsLike } from "query/types/devtools";
 import { SharedOptions } from "query/core/SharedOptions";
 
 type Update = Partial<{
-    DEVTOOLS: Devtools | null;
+    DEVTOOLS: DevtoolsLike | null;
     onError: (error: unknown) => void;
 }>
 

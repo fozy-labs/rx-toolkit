@@ -27,14 +27,15 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - 🔧 **Framework-agnostic** — Стройте систему и описывайте логику в изолированном месте.
 - ⚡ **Built on RxJS** — Наследует всю мощь RxJS.
 - 💾 **Кеш-менеджер** — Предоставляет Query реализацию для работы с данными.
-- 🔷 **TypeScript-first** — Полная типизация из коробки.
-- 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS. 
-Для React предоставляет хуки из коробки.
+- 🔷 **TypeScript-first** — Полная типизация.
+- 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS.
+ Поставляется с React-хуками из коробки.
 
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
 - [**RxQuery**](./docs/query/README.md) - кеш-менеджер для работы с данными
 - [**React**](./docs/usage/react/README.md) - интеграция с React
+- [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
 
 ## 🌟 Примеры
 
@@ -59,20 +60,26 @@ count$ = toSignal(store.count$);
 // Angular pipe
 {{ store.count$ | async }}
 
+// SolidJS
+const count$ = from(store.count$)
+
 // Svelte
 $: count = store.count$;
 ```
 
 ###### Работаем с RxJS
+
 ```typescript
 // Создаем Observable
+
 const clicker$ = fromEvent(document, 'click').pipe(
     debounceTime(300),
-    scan(count => count + 1, 0)
+    scan(count => count + 1, 0),
+    startWith(0),
 );
 
 // Получаем сигнал из Observable
-const clickCount$ = new ReadonlySignal(clicker$);
+const clickCount$ = signalize(clicker$);
 const doubled$ = new Computed(() => clickCount$.value * 2);
 
 console.log(doubled$.value); // Всегда актуальное значение
@@ -84,7 +91,7 @@ const on10click$ = doubled$.pipe(
 );
 
 on10click$.subscribe(() => {
-    console.log('Great! That you first reached 10 clicks');
+    console.log('Great! That you first reached 10 clicks!');
 });
 
 ```
@@ -92,40 +99,39 @@ on10click$.subscribe(() => {
 ###### RxQuery (Корзина покупок)
 ```tsx
 const getCart = createResource({
-  queryFn: fetchCart,
+    queryFn: fetchCart,
 });
 
 const toggleCardItem = createOperation({
-    queryFn: fetchToggleItem,
-  link(add) {
-      add({
-          resource: getCart,
-          forwardArgs: () => undefined,
-          optimisticUpdate: ({ draft, data, args }) => {
-              const item = draft.items.find(i => i.id === data.id);
-              if (!item) return;
-              item.enabled = args.enabled;
-          }
-      })
-  }  
+    queryFn: fetchToggleCardItem,
+    link(add) {
+        add({
+            resource: getCart,
+            forwardArgs: () => undefined,
+            optimisticUpdate: ({ draft, data, args }) => {
+                const item = draft.items.find(i => i.id === data.id);
+                if (!item) return;
+                item.enabled = args.enabled;
+            }
+        })
+    }
 });
 
 function ShoppingCart() {
-  const cartQuery = useResourceAgent(getCart);
-  const [toggleItem] = useOperationAgent(toggleCardItem);
-  const cart = cartQuery.data;
-  
-  return (
-    <Container isLoading={cartQuery.isLoading}>
-      {cart?.items.map(item => (
-        <CartItem 
-          key={item.id}
-          item={item}
-          onToggle={() => toggleItem({ id: item.id, enabled: !item.enabled })}
-        />
-      ))}
-      <Total amount={cart?.total} />
-    </Container>
-  );
+    const cartQuery = useResourceAgent(getCart);
+    const [toggleItem] = useOperationAgent(toggleCardItem);
+    const cart = cartQuery.data;
+
+    return (
+        <Container isLoading={cartQuery.isLoading}>
+            {cart?.items.map(item => (
+                <CartItem
+                    key={item.id}
+                    item={item}
+                    onToggle={() => toggleItem({ id: item.id, enabled: !item.enabled })}
+                />
+            ))}
+        </Container>
+    );
 }
 ```

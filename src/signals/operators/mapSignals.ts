@@ -1,6 +1,6 @@
 import { createOperatorSubscriber } from "rxjs/internal/operators/OperatorSubscriber";
 import type { SignalOperatorFn } from "../base";
-import { ReadonlySignal } from "signal/base/ReadonlySignal";
+import { ReadonlySignal } from "../base";
 
 
 export function mapSignals<T, R, A>(project: (this: A, value: T, index: number) => R): SignalOperatorFn<T, R>;

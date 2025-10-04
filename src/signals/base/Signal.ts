@@ -1,18 +1,40 @@
+import { SharedOptions } from "query/core/SharedOptions";
 import { BehaviorSubject, Observable } from "rxjs";
+import { Batcher } from "./Batcher";
+import { Indexer } from "./Indexer";
 import { Tracker } from "./Tracker";
 import { type ReadableSignalLike, UnaryFunction } from "./types";
 
+type SignalOptions = {
+    disableDevtools?: boolean,
+    devtoolsName?: string,
+}
+
 export class Signal<T> extends BehaviorSubject<T> implements ReadableSignalLike<T> {
-    constructor(initialValue: T) {
+    private readonly _devtools;
+    protected _rang = 0;
+
+    constructor(initialValue: T, options?: SignalOptions) {
         super(initialValue);
+
+        const stateDevtools = SharedOptions.DEVTOOLS?.state;
+
+        if (stateDevtools && options?.disableDevtools !== true) {
+            const id = Indexer.getIndex();
+            const key = `${options?.devtoolsName || 'Signal'}:i=${id}`;
+            this._devtools = stateDevtools(key, initialValue);
+        }
     }
 
     protected _onChange(value: T): void {
-        super.next(value);
+        Batcher.batch(() => {
+            this._devtools?.(value);
+            super.next(value);
+        });
     }
 
     get value(): T {
-        Tracker.next(this);
+        Tracker.next(this._rang, this);
         return super.value;
     }
 
@@ -25,7 +47,7 @@ export class Signal<T> extends BehaviorSubject<T> implements ReadableSignalLike<
     }
 
     peek(): T {
-                return super.value;
+        return super.value;
     }
 
     /**
@@ -33,6 +55,13 @@ export class Signal<T> extends BehaviorSubject<T> implements ReadableSignalLike<
      */
     get() {
         return this.value;
+    }
+
+    /**
+     * @deprecated use `peek()` instead.
+     */
+    getValue(): T {
+        return super.getValue();
     }
 
     /**

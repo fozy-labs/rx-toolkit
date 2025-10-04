@@ -1,4 +1,5 @@
 import { ReactiveCache } from "query/lib/ReactiveCache";
+import { ResourceTransaction } from "query/types/Resource.types";
 import { FallbackOnNever } from "query/types/shared.types";
 import { LinkOptions, OperationCreateOptions, OperationDefinition, OperationInstance } from "query/types/Operation.types";
 
@@ -79,7 +80,7 @@ class OperationQueryState {
 }
 
 export class Operation<D extends OperationDefinition> implements OperationInstance<D> {
-    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>('opr');
+    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>('Operation');
     private _links: LinkOptions<D, any>[] = [];
 
     constructor(
@@ -119,15 +120,16 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
         const linksMeta = this._links.map(link => {
             const forwardedArgs = link.forwardArgs(args);
             const ref = link.resource.createRef(forwardedArgs);
-            return { link, ref, state: {} as { unlocker?: { unlock: () => void }, patch?: { rollback: () => void } } };
+            return { link, ref, state: {} as { unlocker?: { unlock: () => void }, patch: ResourceTransaction | null } };
         });
 
         linksMeta.forEach(({ link, ref, state }) => {
             if (link.lock) {
                 state.unlocker = ref.lock();
             }
+
             if (link.optimisticUpdate && ref.has) {
-                state.patch = ref.update((draft) => {
+                state.patch = ref.patch((draft) => {
                     return link.optimisticUpdate!({ draft, args });
                 });
             }
@@ -143,7 +145,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                 /**
                  * Обновляем связанные ресурсы
                  */
-                linksMeta.forEach(({ link, ref }) => {
+                linksMeta.forEach(({ link, ref, state }) => {
                     if (link.update && ref.has) {
                         ref.update((draft) => {
                             return link.update!({ draft, args, data });
@@ -153,6 +155,8 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                     if (link.create && !ref.has) {
                         ref.create(link.create({ args, data }));
                     }
+
+                    state.patch?.commit();
                 });
             })
             .catch((error) => {
@@ -163,7 +167,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                  * Обновляем связанные ресурсы
                  */
                 linksMeta.forEach(({ state }) => {
-                    state.patch?.rollback();
+                    state.patch?.abort();
                 });
             })
             .finally(() => {

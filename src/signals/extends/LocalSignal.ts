@@ -1,7 +1,7 @@
-import { signalize } from "signal/operators";
 import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
-import { Computed } from "signal/base";
+import { Computed } from "../base";
+import { signalize } from "../operators";
 
 type Options<T> = {
     zodSchema?: ZodType<T>
@@ -61,7 +61,7 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
         const subKey = options.userId ? `user:${options.userId}` : 'common';
         data[subKey] = value;
 
-                LocalSignal.DRIVER.setItem(storageKey, JSON.stringify(data));
+        LocalSignal.DRIVER.setItem(storageKey, JSON.stringify(data));
     }
 
     constructor(private _options: Options<T>) {
@@ -88,7 +88,7 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
             }
 
             return value;
-        });
+        }, { devtoolsName: 'LocalSignal' } );
     }
 
     protected _onChange(value: T) {
