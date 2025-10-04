@@ -1,5 +1,6 @@
 import { ReadableSignalLike } from "signals";
 import { FallbackOnNever } from "query/types/shared.types";
+import { Patch as ImmerPatch } from "immer";
 
 /**
  * Функция создания ресурса
@@ -84,6 +85,17 @@ export type ResourceQueryState<D extends ResourceDefinition> = {
 }
 
 /**
+ * Транзакция ресурса
+ */
+export type ResourceTransaction = {
+    patches: ImmerPatch[]
+    inversePatches: ImmerPatch[]
+    status: 'pending' | 'committed' | 'aborted'
+    abort(): void
+    commit(): void
+}
+
+/**
  * Эте не ссылка в "классическом" понимании, а абстракция
  * для работы с элементом кеша ресурса.
  */
@@ -91,7 +103,11 @@ export type ResourceRefInstanse<D extends ResourceDefinition> = {
     get has(): boolean;
     lock(): { unlock: () => void };
     unlockOne(): void;
+    /**
+     * @deprecated
+     */
     update(updateFn: (data: D['Data']) => D['Data']): { rollback: () => void };
+    patch(patchFn: (data: D['Data']) => void): ResourceTransaction | null;
     invalidate(): void;
     create(data: D['Data']): void;
 }
