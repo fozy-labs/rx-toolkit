@@ -35,6 +35,7 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
 - [**RxQuery**](./docs/query/README.md) - кеш-менеджер для работы с данными
 - [**React**](./docs/usage/react/README.md) - интеграция с React
+- [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
 
 ## 🌟 Примеры
 
@@ -58,6 +59,9 @@ count$ = toSignal(store.count$);
 
 // Angular pipe
 {{ store.count$ | async }}
+
+// SolidJS
+const count$ = from(store.count$)
 
 // Svelte
 $: count = store.count$;
@@ -127,7 +131,6 @@ function ShoppingCart() {
                     onToggle={() => toggleItem({ id: item.id, enabled: !item.enabled })}
                 />
             ))}
-            <Total amount={cart?.total}/>
         </Container>
     );
 }
