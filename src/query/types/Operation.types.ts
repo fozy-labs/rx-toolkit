@@ -29,24 +29,71 @@ export type OperationCreateOptions<D extends OperationDefinition> = {
  * Настройки связи операции с ресурсом
  */
 export type LinkOptions<D extends OperationDefinition, RD extends ResourceDefinition> = {
-    resource: ResourceInstance<RD>,
-    forwardArgs: (args: D["Args"]) => RD["Args"],
-    invalidate?: boolean,
-    lock?: boolean,
+    /**
+     * Целевой ресурс, с которым связывается операция
+     * @required
+     */
+    resource: ResourceInstance<RD>;
+
+    /**
+     * Функция для получения аргументов ресурса из аргументов операции.
+     * Используется для определения какой именно элемент в кэше ресурса нужно обновить
+     * @required
+     */
+    forwardArgs: (args: D["Args"]) => RD["Args"];
+
+    /**
+     * Флаг для инвалидации (очистки) кэша ресурса после выполнения операции.
+     * При true - кэш будет очищен и ресурс будет перезагружен при следующем обращении
+     * @optional @default false
+     */
+    invalidate?: boolean;
+
+    /**
+     * Флаг для блокировки ресурса во время выполнения операции.
+     * При true - ресурс будет заблокирован и не сможет выполнять новые запросы
+     * @optional @default false
+     */
+    lock?: boolean;
+
+    /**
+     * Функция для обновления кэша ресурса после успешного выполнения операции.
+     * Получает draft объект для мутации, аргументы операции и результат операции
+     * @optional
+     */
     update?: (tools: {
-        draft: RD["Data"],
-        args: D["Args"]
-        data: D["Data"]
-    }) => void | RD["Data"] | Promise<RD["Data"]>,
+        /** Immer draft объект для мутации кэша ресурса */
+        draft: RD["Data"];
+        /** Аргументы, с которыми была вызвана операция */
+        args: D["Args"];
+        /** Результат выполнения операции */
+        data: D["Data"];
+        }) => void | RD["Data"] | Promise<RD["Data"]>;
+
+    /**
+     * Функция для оптимистичного обновления кэша ресурса ДО выполнения операции.
+     * Позволяет обновить UI немедленно, до получения ответа от сервера
+     * @optional
+     */
     optimisticUpdate?: (tools: {
-        draft: RD["Data"],
-        args: D["Args"]
-    }) => void | RD["Data"] | Promise<D["Data"]>
+        /** Immer draft объект для мутации кэша ресурса */
+        draft: RD["Data"];
+        /** Аргументы, с которыми была вызвана операция */
+        args: D["Args"];
+        }) => void | RD["Data"] | Promise<RD["Data"]>;
+
+    /**
+     * Функция для создания нового элемента в кэше ресурса.
+     * Используется когда операция создает новую сущность, которую нужно добавить в кэш
+     * @optional
+     */
     create?: (tools: {
-        args: D["Args"]
-        data: D["Data"]
-    }) => RD["Data"] | Promise<RD["Data"]>
-}
+        /** Аргументы, с которыми была вызвана операция */
+        args: D["Args"];
+        /** Результат выполнения операции */
+        data: D["Data"];
+    }) => RD["Data"] | Promise<RD["Data"]>;
+};
 
 /**
  * Определение типов операции
