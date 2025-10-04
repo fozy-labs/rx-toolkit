@@ -207,14 +207,14 @@ body {
 }
 
 .total {
-  background: #3182ce;
-  color: white;
-  padding: 1rem;
-  border-radius: 0.375rem;
-  text-align: center;
-  font-size: 1.25rem;
-  font-weight: bold;
-  margin-top: 1rem;
+    background: #3182ce;
+    color: white;
+    padding: 1rem;
+    border-radius: 0.375rem;
+    text-align: center;
+    font-size: 1.25rem;
+    font-weight: bold;
+    margin-top: 1rem;
 }
 
 /* Состояния загрузки и ошибок */
@@ -282,6 +282,7 @@ body {
   color: #4a5568;
   font-size: 1rem;
   margin: 0;
+  flex: 1;
 }
 
 /* Вкладки */
@@ -292,30 +293,222 @@ body {
 }
 
 .tab {
-  background: white;
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: #4a5568;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.filter-buttons button {
+  padding: 0.5rem 1rem;
   border: 1px solid #e2e8f0;
+  background: white;
   color: #4a5568;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.375rem;
+  border-radius: 0.25rem;
   cursor: pointer;
   font-size: 0.875rem;
-  font-weight: 500;
-  transition: all 0.2s;
+  margin: 0;
 }
 
-.tab:hover {
+.filter-buttons button:hover {
   background: #f7fafc;
-  border-color: #cbd5e0;
+  transform: none;
 }
 
-.tab.active {
+.filter-buttons button.active {
   background: #3182ce;
   color: white;
   border-color: #3182ce;
 }
 
-.full-width {
-  grid-column: 1 / -1;
+.add-button {
+  background: #38a169 !important;
+  color: white !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+  margin: 0 !important;
+}
+
+.add-button:hover {
+  background: #2f855a !important;
+}
+
+.todo-list {
+  padding: 1rem;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 0.375rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s;
+}
+
+.todo-item:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.todo-item.completed {
+  opacity: 0.7;
+}
+
+.todo-item.completed .todo-text {
+  text-decoration: line-through;
+  color: #a0aec0;
+}
+
+.todo-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.priority-selector select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  background: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.patches-panel {
+  background: #f8fafc;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  padding: 1.5rem;
+  height: fit-content;
+}
+
+.patches-panel h3 {
+  margin: 0 0 0.5rem 0;
+  color: #1a202c;
+}
+
+.patches-panel p {
+  margin: 0 0 1.5rem 0;
+  color: #4a5568;
+  font-size: 0.875rem;
+}
+
+.no-patches {
+  text-align: center;
+  color: #a0aec0;
+  font-style: italic;
+  padding: 2rem;
+}
+
+.patch-item {
+  background: white;
+  border-radius: 0.375rem;
+  border: 1px solid #e2e8f0;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  transition: all 0.2s;
+}
+
+.patch-item.pending {
+  border-left: 4px solid #f6ad55;
+}
+
+.patch-item.committed {
+  border-left: 4px solid #48bb78;
+}
+
+.patch-item.aborted {
+  border-left: 4px solid #f56565;
+}
+
+.patch-info {
+  margin-bottom: 0.75rem;
+}
+
+.patch-name {
+  display: block;
+  font-weight: 500;
+  color: #2d3748;
+  margin-bottom: 0.25rem;
+}
+
+.patch-status {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+}
+
+.patch-status.pending {
+  background: #fef5e7;
+  color: #c05621;
+}
+
+.patch-status.committed {
+  background: #f0fff4;
+  color: #276749;
+}
+
+.patch-status.aborted {
+  background: #fed7d7;
+  color: #c53030;
+}
+
+.patch-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.patch-actions button {
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  margin: 0;
+  border-radius: 0.25rem;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.commit-button {
+  background: #48bb78;
+  color: white;
+  border-color: #48bb78;
+}
+
+.commit-button:hover {
+  background: #38a169;
+  transform: none;
+}
+
+.abort-button {
+  background: #f56565;
+  color: white;
+  border-color: #f56565;
+}
+
+.abort-button:hover {
+  background: #e53e3e;
+  transform: none;
+}
+
+.remove-button {
+  background: white;
+  color: #a0aec0;
+  border-color: #e2e8f0;
+}
+
+.remove-button:hover {
+  background: #f7fafc;
+  color: #4a5568;
+  transform: none;
 }
 
 /* Адаптивность */

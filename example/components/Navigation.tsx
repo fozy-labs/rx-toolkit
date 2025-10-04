@@ -22,6 +22,12 @@ export function Navigation() {
         >
           Операции и запросы
         </Link>
+        <Link
+          to="/patches"
+          className={`nav-link ${isActive('/patches') ? 'active' : ''}`}
+        >
+          Патчи ресурсов
+        </Link>
       </div>
     </nav>
   );
