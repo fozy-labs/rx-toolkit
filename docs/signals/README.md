@@ -17,7 +17,7 @@ const age = new Signal(25);
 // Подписка на изменения
 const subscription = name.subscribe(newName => {
   console.log(`Name changed to: ${newName}`);
-});
+}); // Выведет: "Name changed to: John" при инициализации
 
 name.value = 'Jane'; // Выведет: "Name changed to: Jane"
 

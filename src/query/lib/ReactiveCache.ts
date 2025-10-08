@@ -1,5 +1,5 @@
 import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
-import { Signal } from "signals";
+import { Signal } from "@/signals";
 
 type Options<VALUE> = {
     /**

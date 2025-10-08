@@ -1,4 +1,4 @@
-import { shallowEqual } from "query/lib/shallowEqual";
+import { shallowEqual } from "./shallowEqual";
 
 type CompareFn<T> = (a: T, b: T) => boolean;
 

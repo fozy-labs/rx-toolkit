@@ -1,7 +1,6 @@
-import { SKIP } from "query/SKIP_TOKEN";
-import { ResourceDefinition, ResourceInstance, ResourceRefInstanse } from "query/types/Resource.types";
-import { Prettify } from "query/types/shared.types";
 import React from "react";
+import { SKIP } from "@/query/SKIP_TOKEN";
+import type { Prettify, ResourceDefinition, ResourceInstance, ResourceRefInstanse } from "@/query/types";
 
 type Result<D extends ResourceDefinition> = Prettify<ResourceRefInstanse<D>> | null;
 

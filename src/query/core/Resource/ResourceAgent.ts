@@ -1,5 +1,5 @@
-import { Computed, Signal } from "signals";
-import { ResourceAgentInstance, ResourceDefinition } from "query/types/Resource.types";
+import { Computed, Signal } from "@/signals";
+import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {

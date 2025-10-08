@@ -1,4 +1,4 @@
-import { DevtoolsLike } from "query/types/devtools";
+import { DevtoolsLike } from "./types";
 
 export function combineDevtools(...devtools: DevtoolsLike[]): DevtoolsLike {
     return {
