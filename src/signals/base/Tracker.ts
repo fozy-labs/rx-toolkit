@@ -6,12 +6,6 @@ type TrackedValue = {
 }
 
 export const Tracker = {
-    /** @deprecated */
-    tracked_legacy$: new Subject<Observable<unknown>>(),
-    /** @deprecated */
-    next_legacy(value: Observable<unknown>) {
-        Tracker.tracked_legacy$.next(value);
-    },
     tracked$: new Subject<TrackedValue>(),
     next(rang: number, observable: Observable<unknown>) {
         Tracker.tracked$.next({ rang, obsv$: observable, });

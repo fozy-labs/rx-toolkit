@@ -1,5 +1,5 @@
-import { DevtoolsLike } from "query/types/devtools";
-import { SharedOptions } from "query/core/SharedOptions";
+import type { DevtoolsLike } from "@/devtools";
+import { SharedOptions } from "./SharedOptions";
 
 type Update = Partial<{
     DEVTOOLS: DevtoolsLike | null;

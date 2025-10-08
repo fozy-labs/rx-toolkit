@@ -1,5 +1,5 @@
-import type { ResourceCreateFn, ResourceCreateOptions, ResourceDefinition } from "query/types/Resource.types";
-import { Resource } from "query/core/Resource/Resource";
+import type { ResourceCreateFn, ResourceCreateOptions, ResourceDefinition } from "@/query/types";
+import { Resource } from "@/query/core/Resource/Resource";
 
 export const createResource = (
     <ARGS, RESULT, SELECTED = never>(

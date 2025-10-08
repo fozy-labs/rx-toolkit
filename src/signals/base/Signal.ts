@@ -1,16 +1,16 @@
-import { SharedOptions } from "query/core/SharedOptions";
 import { BehaviorSubject, Observable } from "rxjs";
+import { SharedOptions } from "@/options/SharedOptions";
 import { Batcher } from "./Batcher";
 import { Indexer } from "./Indexer";
 import { Tracker } from "./Tracker";
-import { type ReadableSignalLike, UnaryFunction } from "./types";
+import type { ReadableSignalLike, SignalLike, UnaryFunction } from "./types";
 
 type SignalOptions = {
     disableDevtools?: boolean,
     devtoolsName?: string,
 }
 
-export class Signal<T> extends BehaviorSubject<T> implements ReadableSignalLike<T> {
+export class Signal<T> extends BehaviorSubject<T> implements SignalLike<T> {
     private readonly _devtools;
     protected _rang = 0;
 

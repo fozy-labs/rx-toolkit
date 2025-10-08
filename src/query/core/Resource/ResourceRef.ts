@@ -1,8 +1,6 @@
-import {
-    applyPatches, enablePatches, produceWithPatches
-} from "immer";
+import { applyPatches, enablePatches, produceWithPatches } from "immer";
+import { ResourceDefinition, ResourceRefInstanse, ResourceTransaction } from "@/query/types";
 import { CoreResourceQueryCache, Resource } from "./Resource";
-import { ResourceDefinition, ResourceRefInstanse, ResourceTransaction } from "../../types/Resource.types";
 
 enablePatches();
 

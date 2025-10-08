@@ -1,6 +1,6 @@
-import type { ReactiveCache } from "query/lib/ReactiveCache";
-import { OperationAgentInstanse, OperationDefinition } from "query/types/Operation.types";
-import { Computed, Signal } from "signals";
+import type { ReactiveCache } from "@/query/lib/ReactiveCache";
+import { OperationAgentInstanse, OperationDefinition } from "@/query/types";
+import { Computed, Signal } from "@/signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {

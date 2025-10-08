@@ -1,10 +1,12 @@
-import { ReactiveCache } from "query/lib/ReactiveCache";
-import { ResourceTransaction } from "query/types/Resource.types";
-import { FallbackOnNever } from "query/types/shared.types";
-import { LinkOptions, OperationCreateOptions, OperationDefinition, OperationInstance } from "query/types/Operation.types";
+import { SharedOptions } from "@/options/SharedOptions";
+
+import type { ReactiveCache } from "@/query/lib/ReactiveCache";
+import type {
+    FallbackOnNever, ResourceTransaction, LinkOptions,
+    OperationCreateOptions, OperationDefinition, OperationInstance,
+} from "@/query/types";
 
 import { QueriesCache } from "../QueriesCache";
-import { SharedOptions } from "../SharedOptions";
 import { OperationAgent } from "./OperationAgent";
 
 export type CoreOperationQueryState<D extends OperationDefinition> = {

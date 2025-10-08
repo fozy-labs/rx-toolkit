@@ -1,9 +1,8 @@
 import React from "react";
-import { useConstant, useSignal } from "react-hooks";
-import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "../types/Resource.types";
-import { shallowEqual } from "../lib/shallowEqual";
-import { Prettify } from "../types/shared.types";
-import { SKIP } from "../SKIP_TOKEN";
+import { useConstant, useSignal } from "@/react";
+import { Prettify, ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
+import { shallowEqual } from "@/query/lib/shallowEqual";
+import { SKIP } from "@/query/SKIP_TOKEN";
 
 type WithAgent<D extends ResourceDefinition> = {
     createAgent: () => ResourceAgentInstance<D>;
