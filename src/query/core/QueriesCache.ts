@@ -1,4 +1,4 @@
-import { SharedOptions } from "@/options/SharedOptions";
+import { SharedOptions } from "@/common/options/SharedOptions";
 import { Indexer } from "@/signals/base/Indexer";
 import { IndirectMap } from "@/query/lib/IndirectMap";
 import { ReactiveCache } from "@/query/lib/ReactiveCache";

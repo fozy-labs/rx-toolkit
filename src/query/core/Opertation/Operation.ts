@@ -1,4 +1,4 @@
-import { SharedOptions } from "@/options/SharedOptions";
+import { SharedOptions } from "@/common/options/SharedOptions";
 
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
 import type {

@@ -1,5 +1,5 @@
 import { BehaviorSubject, Observable } from "rxjs";
-import { SharedOptions } from "@/options/SharedOptions";
+import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "./Batcher";
 import { Indexer } from "./Indexer";
 import { Tracker } from "./Tracker";

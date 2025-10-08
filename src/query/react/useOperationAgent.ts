@@ -1,4 +1,5 @@
-import { useConstant, useEventHandler, useSignal } from "@/react";
+import { useConstant, useEventHandler } from "@/common/react";
+import { useSignal } from "@/signals/react";
 import type { Prettify, OperationAgentInstanse, OperationDefinition, OperationQueryState } from "@/query/types";
 
 type WithAgent<D extends OperationDefinition> = {

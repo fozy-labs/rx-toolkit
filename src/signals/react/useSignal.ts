@@ -1,6 +1,6 @@
 import React from "react";
 import { ReadableSignalLike } from "@/signals";
-import { useEventHandler } from "./useEventHandler";
+import { useEventHandler } from "@/common/react";
 
 export function useSignal<T>(signal$: ReadableSignalLike<T>): T {
     const subscribe = React.useCallback((update: () => void) => {
