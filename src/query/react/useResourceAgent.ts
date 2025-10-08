@@ -1,5 +1,6 @@
 import React from "react";
-import { useConstant, useSignal } from "@/react";
+import { useConstant } from "@/common/react";
+import { useSignal } from "@/signals/react";
 import { Prettify, ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
 import { shallowEqual } from "@/query/lib/shallowEqual";
 import { SKIP } from "@/query/SKIP_TOKEN";

@@ -1,5 +1,5 @@
 import { Observable, Subscriber, TeardownLogic } from "rxjs";
-import { SharedOptions } from "@/options/SharedOptions";
+import { SharedOptions } from "@/common/options/SharedOptions";
 import type { ReadableSignalLike } from "./types";
 import { SyncObservable } from "./SyncObservable";
 import { Tracker } from "./Tracker";

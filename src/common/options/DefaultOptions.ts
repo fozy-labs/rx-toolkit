@@ -1,4 +1,4 @@
-import type { DevtoolsLike } from "@/devtools";
+import type { DevtoolsLike } from "@/common/devtools";
 import { SharedOptions } from "./SharedOptions";
 
 type Update = Partial<{
