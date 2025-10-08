@@ -10,6 +10,17 @@ export interface ReadableSignalLike<T = unknown> extends Observable<T> {
     get(): T;
 }
 
+export interface SignalLike<T = unknown> extends ReadableSignalLike<T> {
+    set value(value: T);
+    next(value: T): void;
+
+    asReadonly(): ReadableSignalLike<T>;
+
+    /**
+     * @deprecated use `value` instead.
+     */
+    set(value: T): void;
+}
 
 export interface UnaryFunction<T, R> {
     (source: T): R;

@@ -1,7 +1,7 @@
 import React from 'react'
-import { useEventHandler } from "react-hooks/useEventHandler";
 import { BehaviorSubject, Observable } from 'rxjs'
-import { useConstant } from "react-hooks/useConstant";
+import { useConstant } from "./useConstant"
+import { useEventHandler } from "./useEventHandler"
 
 const NONE = Symbol('NONE')
 

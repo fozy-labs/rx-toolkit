@@ -1,7 +1,7 @@
-import { IndirectMap } from "query/lib/IndirectMap";
-import { ReactiveCache } from "query/lib/ReactiveCache";
-import { Indexer } from "signals/base/Indexer";
-import { SharedOptions } from "./SharedOptions";
+import { SharedOptions } from "@/common/options/SharedOptions";
+import { Indexer } from "@/signals/base/Indexer";
+import { IndirectMap } from "@/query/lib/IndirectMap";
+import { ReactiveCache } from "@/query/lib/ReactiveCache";
 
 export class QueriesCache<KEY, VALUE> {
     private readonly _cache = new IndirectMap<KEY, ReactiveCache<VALUE>>();

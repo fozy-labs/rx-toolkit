@@ -1,4 +1,3 @@
-
 export function shallowEqual(
     a: unknown,
     b: unknown,

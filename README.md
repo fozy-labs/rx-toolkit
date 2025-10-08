@@ -41,11 +41,11 @@ RxToolkit решает эти проблемы, предоставляя сво�
 
 ###### Создаем сигнал
 ```typescript
-// Описываете логику в обычном JavaScript
+// Описываем логику в обычном JavaScript
 const store = {
-  count$: new Signal(0),
-  doubled$: new Computed(() => store.count$.value * 2),
-  increment: () => store.count$.next(store.count$.value + 1)
+    count$: new Signal(0),
+    doubled$: new Computed(() => store.count$.value * 2),
+    increment: () => store.count$.value++,
 };
 ```
 
@@ -71,7 +71,6 @@ $: count = store.count$;
 
 ```typescript
 // Создаем Observable
-
 const clicker$ = fromEvent(document, 'click').pipe(
     debounceTime(300),
     scan(count => count + 1, 0),

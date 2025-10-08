@@ -1,8 +1,9 @@
-import { ReactiveCache } from "query/lib/ReactiveCache";
-import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse, ResourceTransaction } from "query/types/Resource.types";
+import { SharedOptions } from "@/common/options/SharedOptions";
 
-import { QueriesCache } from "../QueriesCache";
-import { SharedOptions } from "../SharedOptions";
+import { ReactiveCache } from "@/query/lib/ReactiveCache";
+import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse, ResourceTransaction } from "@/query/types";
+import { QueriesCache } from "@/query/core/QueriesCache";
+
 import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
 

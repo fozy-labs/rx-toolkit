@@ -1,5 +1,5 @@
-import { DevtoolsLike } from "query/types/devtools";
-import { Batcher } from "signals";
+import { Batcher } from "@/signals";
+import { DevtoolsLike } from "./types";
 
 export function reduxDevtools(): DevtoolsLike {
     let state = {};

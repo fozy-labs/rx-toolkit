@@ -13,7 +13,10 @@
     "noEmitOnError": true,
     "outDir": "./dist",
     "declaration": true,
-    "baseUrl": "./src",
+    "baseUrl": "./",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "jsx": "react-jsx"
   },
   "include": ["src/**/*"],

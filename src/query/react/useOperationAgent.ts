@@ -1,6 +1,6 @@
-import { useConstant, useEventHandler, useSignal } from "react-hooks";
-import { OperationAgentInstanse, OperationDefinition, OperationQueryState } from "../types/Operation.types";
-import { Prettify } from "../types/shared.types";
+import { useConstant, useEventHandler } from "@/common/react";
+import { useSignal } from "@/signals/react";
+import type { Prettify, OperationAgentInstanse, OperationDefinition, OperationQueryState } from "@/query/types";
 
 type WithAgent<D extends OperationDefinition> = {
     createAgent: () => OperationAgentInstanse<D>;

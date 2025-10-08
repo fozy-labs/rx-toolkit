@@ -1,5 +1,5 @@
-import { ReadableSignalLike } from "signals";
-import { FallbackOnNever } from "query/types/shared.types";
+import { ReadableSignalLike } from "@/signals";
+import { FallbackOnNever } from "./shared.types";
 import { ResourceDefinition, ResourceInstance } from "./Resource.types";
 
 /**

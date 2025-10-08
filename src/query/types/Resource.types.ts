@@ -1,6 +1,6 @@
-import { ReadableSignalLike } from "signals";
-import { FallbackOnNever } from "query/types/shared.types";
 import { Patch as ImmerPatch } from "immer";
+import { ReadableSignalLike } from "@/signals";
+import { FallbackOnNever } from "./shared.types";
 
 /**
  * Функция создания ресурса
