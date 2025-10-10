@@ -1,3 +1,4 @@
+import { PromiseResolver } from "@/common/utils";
 import { SharedOptions } from "@/common/options/SharedOptions";
 
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
@@ -212,26 +213,8 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
 
         resolver.promise.finally(() => {
             subscription.unsubscribe();
-        })
+        });
 
         return resolver.promise;
-    }
-}
-
-class PromiseResolver<T> {
-    private _resolve!: (value: T) => void;
-    private _reject!: (reason?: any) => void;
-
-    promise: Promise<T> = new Promise((resolve, reject) => {
-        this._resolve = resolve;
-        this._reject = reject;
-    });
-
-    resolve(value: T): void {
-        this._resolve(value);
-    }
-
-    reject(reason?: any): void {
-        this._reject(reason);
     }
 }
