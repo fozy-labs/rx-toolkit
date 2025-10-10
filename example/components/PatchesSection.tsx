@@ -41,15 +41,16 @@ export function PatchesSection() {
     const todoQuery = useResourceAgent(todoListResource, undefined);
     const todoRef = useResourceRef(todoListResource, undefined);
     const [patches, setPatches] = useState<PatchDemoItem[]>([]);
-    const [nextId, setNextId] = useState(1);
+    const nextIdRef = React.useRef(1);
 
     const createPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
         if (!todoRef) throw new Error('Resource reference is not available');
         const transaction = todoRef.patch(patchFn);
         if (!transaction) return;
 
+        const nextId = nextIdRef.current;
+        nextIdRef.current += 1;
         const patchId = `patch-${nextId}`;
-        setNextId(prev => prev + 1);
 
         const newPatch: PatchDemoItem = {
             id: patchId,
@@ -64,7 +65,9 @@ export function PatchesSection() {
     const commitPatch = (patchId: string) => {
         setPatches(prev => prev.filter(patch => {
             if (patch.id === patchId) {
-                patch.transaction.commit();
+                queueMicrotask(() => {
+                    patch.transaction.commit();
+                });
                 return false;
             }
             return true;
@@ -72,13 +75,17 @@ export function PatchesSection() {
     };
 
     const abortPatch = (patchId: string) => {
-        setPatches(prev => prev.filter(patch => {
-            if (patch.id === patchId) {
-                patch.transaction.abort();
-                return false;
-            }
-            return true;
-        }));
+        React.startTransition(() => {
+            setPatches(prev => prev.filter(patch => {
+                if (patch.id === patchId) {
+                    queueMicrotask(() => {
+                        patch.transaction.abort();
+                    });
+                    return false;
+                }
+                return true;
+            }));
+        });
     };
 
     const handleToggleItem = (tm: TodoItem) => {
