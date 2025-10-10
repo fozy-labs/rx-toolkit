@@ -1,10 +1,29 @@
 import { Batcher } from "@/signals";
 import { DevtoolsLike } from "./types";
 
-export function reduxDevtools(): DevtoolsLike {
+interface ReduxDevtoolsExtension {
+    connect(options: { name: string }): ReduxDevtoolsConnection;
+}
+
+interface ReduxDevtoolsConnection {
+    init(state: any): void;
+    send(action: any, state: any): void;
+}
+
+type Options = {
+    name?: string;
+    driver?: ReduxDevtoolsExtension;
+}
+
+export function reduxDevtools(options: Options = {}): DevtoolsLike {
+    const devtools = options.driver ?? (window as any).__REDUX_DEVTOOLS_EXTENSION__ as ReduxDevtoolsExtension | undefined;
+
+    if (!devtools) {
+        throw new Error('Redux Devtools extension is not installed');
+    }
+
     let state = {};
-    // @ts-ignore
-    const reduxDevtools = window.__REDUX_DEVTOOLS_EXTENSION__!.connect({ name: 'RxToolkit' });
+    const reduxDevtools = devtools!.connect({ name: options.name ?? 'RxToolkit' });
     reduxDevtools.init(state);
     const scheduler = Batcher.scheduler(Infinity);
 
