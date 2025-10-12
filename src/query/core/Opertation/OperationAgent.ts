@@ -10,7 +10,7 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
 
     state$ = new Computed(() => {
         const operations = this._operations$.value;
-        const currState = operations.current$?.value;
+        const currState = operations.current$?.value$.value;
 
         // Нет текущего состояния — дефолт
         if (!currState) {

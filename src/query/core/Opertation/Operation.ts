@@ -83,7 +83,10 @@ class OperationQueryState {
 }
 
 export class Operation<D extends OperationDefinition> implements OperationInstance<D> {
-    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>('Operation');
+    readonly _queriesCache = new QueriesCache<D['Args'], CoreOperationQueryState<D>>(
+        60_000,
+        'Operation'
+    );
     private _links: LinkOptions<D, any>[] = [];
 
     constructor(
@@ -150,9 +153,10 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                  */
                 linksMeta.forEach(({ link, ref, state }) => {
                     if (link.update && ref.has) {
-                        ref.update((draft) => {
+                        // TODO подумать, нужно ли добавлять обработку, если patch() -> null (и в принце про работу patch)
+                        ref.patch((draft) => {
                             return link.update!({ draft, args, data });
-                        })
+                        })?.commit();
                     }
 
                     if (link.create && !ref.has) {

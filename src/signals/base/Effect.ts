@@ -20,10 +20,11 @@ export class Effect implements SubscriptionLike {
         effectFn: (ctx: (fn: () => void) => void) => void,
         isAsyncRun = false,
     ) {
-        // Отписываемся от предыдущих подписок
+        let prevSubscriptions;
+
         if (!isAsyncRun) {
             this._rang = 0;
-            this._subscriptions.forEach((sub) => sub.unsubscribe());
+            prevSubscriptions = this._subscriptions;
             this._subscriptions = [];
         }
 
@@ -59,6 +60,7 @@ export class Effect implements SubscriptionLike {
         trackerSub.unsubscribe();
         isTrackedContext = false;
         scheduler = Batcher.scheduler(this._rang);
+        prevSubscriptions?.forEach((sub) => sub.unsubscribe());
     }
 
     public unsubscribe() {
