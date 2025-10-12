@@ -1,5 +1,5 @@
-import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
-import { Signal } from "@/signals";
+import { BehaviorSubject, finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
+import { ReadableSignalLike, signalize } from "@/signals";
 
 type Options<VALUE> = {
     /**
@@ -8,9 +8,11 @@ type Options<VALUE> = {
     initialState: VALUE;
     /**
      * Время жизни кэша в миллисекундах (пока нет подписок на кеш)
+     * Если указано `false`, кэш не будет очищаться автоматически.
+     * Если указано `0` или меньше, кэш будет очищаться сразу после отписки от него.
      * @default 60_000 (1 минута)
      */
-    cacheLifeTime?: number;
+    cacheLifeTime?: number | false;
 }
 
 /**
@@ -21,28 +23,15 @@ type Options<VALUE> = {
  */
 export class ReactiveCache<VALUE> {
     /**
-     * Время жизни кэша в миллисекундах.
-     * Если значение больше 0, то кэш очищается через указанное время после отписки.
-     * @private
-     */
-    private readonly _cacheLifeTime: number;
-
-    /**
      * Внутренний `BehaviorSubject`, хранящий текущее состояние кэша.
      * @private
      */
-    private _state$: Signal<VALUE>;
-
-    /**
-     * Текущее значение.
-     * @private
-     */
-    private _value: VALUE;
+    private _state$: BehaviorSubject<VALUE>;
 
     /**
      * Реактивное значене (Observable)
      */
-    public value$: Observable<VALUE>;
+    public value$: ReadableSignalLike<VALUE>;
 
     /**
      * Значение без сайд-эффектов (для использования в DevTools)
@@ -62,47 +51,41 @@ export class ReactiveCache<VALUE> {
      * @param options.cacheLifeTime Время жизни кэша в миллисекундах (по умолчанию 60_000).
      */
     constructor(options: Options<VALUE>) {
-        this._cacheLifeTime = options.cacheLifeTime || 60_000;
-        this._state$ = new Signal(options.initialState, { disableDevtools: true });
-        this._value = options.initialState;
+        const cacheLifeTime = options.cacheLifeTime ?? 60_000;
+        this._state$ = new BehaviorSubject(options.initialState);
 
         this.spy$ = this._state$.pipe(
             takeUntil(this.onClean$)
         );
 
-        this.value$ = this._state$.pipe(
+        this.value$ = signalize(this._state$.pipe(
             finalize(() => {
                 this.complete();
             }),
             share({
                 connector: () => new ReplaySubject(1),
-                /**
-                 * Если lifetime больше 0,
-                 * то очистим кэш значения по истечении этого времени,
-                 * иначе очищаем сразу после отписки.
-                 */
-                resetOnRefCountZero: this._cacheLifeTime > 0
-                    ? () => timer(this._cacheLifeTime)
-                    : true,
+                resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
                 resetOnComplete: true,
-            }),
+            }))
         );
     }
 
-    /**
-     * Возвращает текущее значение кэша.
-     * @returns {VALUE} Текущее значение кэша.
-     */
-    get value(): VALUE {
-        return this._state$.value;
+    private _getOnRefCountZero(cacheLifeTime: number | false) {
+        if (cacheLifeTime === false) {
+            return false;
+        }
+
+        if (cacheLifeTime <= 0) {
+            return true;
+        }
+
+        return () => {
+            return timer(cacheLifeTime)
+        };
     }
 
-    /**
-     * Возвращает текущее значение кэша.
-     * @returns {VALUE} Текущее значение кэша.
-     */
-    peek(): VALUE {
-        return this._value;
+    get value(): VALUE {
+        return this._state$.value;
     }
 
     /**
@@ -111,7 +94,6 @@ export class ReactiveCache<VALUE> {
      * @param value Новое значение для кэша.
      */
     next(value: VALUE): void {
-        this._value = value;
         this._state$.next(value);
     }
 
@@ -120,7 +102,7 @@ export class ReactiveCache<VALUE> {
      */
     complete() {
         this._state$.complete();
-        this.onClean$.next(this._value);
+        this.onClean$.next(this._state$.value);
         this.onClean$.complete();
     }
 }

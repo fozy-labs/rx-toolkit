@@ -17,6 +17,35 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
     select?: (data: D["Result"]) => D["Selected"];
     /** Функция запроса данных */
     queryFn: (args: D["Args"], tools: ResourceQueryFnTools) => Promise<D["Result"]>;
+    /**
+     * Время жизни кеша в миллисекундах. По умолчанию 60_000 (1 минута).
+     * Если указано false - кеш не удаляется автоматически.
+     */
+    cacheLifetime?: number | false;
+
+    // Хуки
+    onCacheEntryAdded?: (args: D["Args"], tools: CacheEntryAddedTools<D>) => void
+    onQueryStarted?: (args: D["Args"], tools: QueryStartedTools<D>) => void
+}
+
+export type CacheEntryAddedTools<D extends ResourceDefinition> = {
+    /** Функция для ожидания загрузки данных в кеш */
+    $cacheDataLoaded: Promise<void>
+    /** Функция для ожидания удаления кеша */
+    $cacheEntryRemoved: Promise<void>
+}
+
+export type QueryStartedTools<D extends ResourceDefinition> = {
+    /** Функция для уведомления об успешном завершении запроса */
+    $queryFulfilled: Promise<{
+        data: D["Result"],
+        error: undefined
+        isError: false
+    } | {
+        data: undefined,
+        error: unknown
+        isError: true
+    }>;
 }
 
 /**
@@ -54,8 +83,8 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
     state$: ReadableSignalLike<ResourceQueryState<D>>;
     /** Инициирует запрос с указанными аргументами */
     initiate(args: D["Args"], force?: boolean): void;
-    /** Создает новый агент */
-    createAgent(): ResourceAgentInstance<D>;
+    /** Завершает работу агента, позволяя освободить ресурсы */
+    complete(): void;
 }
 
 /**
@@ -103,10 +132,6 @@ export type ResourceRefInstanse<D extends ResourceDefinition> = {
     get has(): boolean;
     lock(): { unlock: () => void };
     unlockOne(): void;
-    /**
-     * @deprecated
-     */
-    update(updateFn: (data: D['Data']) => D['Data']): { rollback: () => void };
     patch(patchFn: (data: D['Data']) => void): ResourceTransaction | null;
     invalidate(): void;
     create(data: D['Data']): void;

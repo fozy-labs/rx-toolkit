@@ -11,7 +11,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     state$ = new Computed(() => {
         const resources = this._resources$.value;
         let prevState;
-        const currState = resources.current$?.value;
+        const currState = resources.current$?.value$.value;
 
         if (!currState?.isDone) {
             prevState = resources.previous$?.value;
@@ -98,8 +98,8 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         }
     }
 
-
-    createAgent = (): ResourceAgentInstance<D> => {
-        return this;
+    complete() {
+        this.state$.complete();
+        this._resources$.complete();
     }
 }

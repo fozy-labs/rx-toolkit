@@ -36,26 +36,6 @@ export class ResourceRef<D extends ResourceDefinition> implements ResourceRefIns
         this._cacheItem = this._resource.decrementLock(this._args, { cache: this._cacheItem! });
     }
 
-    update(updateFn: (data: D["Data"]) => D["Data"]) {
-        const cacheItem = this._cacheItem ?? this._resource.getQueryCache(this._args);
-
-        if (!cacheItem) {
-            console.warn('Trying to update non-existing cache item');
-            return {
-                rollback: () => {}
-            }
-        }
-
-        const value = cacheItem.value;
-        this._resource.updateData_legacy(this._args, updateFn, { cache: cacheItem });
-
-        return {
-            rollback: () => {
-                this._resource.updateData_legacy(this._args, () => value.data, { cache: cacheItem });
-            }
-        }
-    }
-
     patch(patchFn: (data: D["Data"]) => void): ResourceTransaction | null {
         let isSkipped = true;
 
@@ -73,13 +53,16 @@ export class ResourceRef<D extends ResourceDefinition> implements ResourceRefIns
             // Все pending - применяем и оставляем в очереди
             // Все commited (которые после pending) - применяем, но оставляем в очереди
             // Все aborted (которые после pending) - откатываем, но оставляем в очереди
+            // Если после aborted нет pending - пропускаем и убираем из очереди
             // Те после применения всех транзакций, очередь должна начинаться с первой pending транзакции (если есть), включая все, что после неё.
             let newSavedData = savedData ?? data;
             let currentData = savedData ?? data;
             const remainingTransactions: ResourceTransaction[] = [];
             let foundPending = false;
 
-            transactions.forEach((transaction) => {
+            const lastPendingIndex = transactions.findLastIndex(t => t.status === 'pending');
+
+            transactions.forEach((transaction, index) => {
                 if (transaction.status === 'pending') {
                     foundPending = true;
                     // Применяем pending транзакцию и оставляем в очереди
@@ -92,9 +75,14 @@ export class ResourceRef<D extends ResourceDefinition> implements ResourceRefIns
                         currentData = applyPatches(currentData, transaction.patches);
                         remainingTransactions.push(transaction);
                     } else if (transaction.status === 'aborted') {
-                        // Откатываем и оставляем в очереди
-                        currentData = applyPatches(currentData, transaction.inversePatches);
-                        remainingTransactions.push(transaction);
+                        // Проверяем, есть ли pending после текущей aborted
+                        const hasPendingAfter = index < lastPendingIndex;
+
+                        if (hasPendingAfter) {
+                            currentData = applyPatches(currentData, transaction.inversePatches);
+                            remainingTransactions.push(transaction);
+                        }
+                        // Если pending нет - пропускаем и убираем из очереди
                     }
                 } else {
                     // До первой pending транзакции
