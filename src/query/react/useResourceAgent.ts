@@ -1,18 +1,19 @@
 import React from "react";
 import { useConstant } from "@/common/react";
 import { useSignal } from "@/signals/react";
-import { Prettify, ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
+import {
+    Prettify,
+    ResourceDefinition,
+    ResourceInstance,
+    ResourceQueryState
+} from "@/query/types";
 import { shallowEqual } from "@/query/lib/shallowEqual";
 import { SKIP } from "@/query/SKIP_TOKEN";
-
-type WithAgent<D extends ResourceDefinition> = {
-    createAgent: () => ResourceAgentInstance<D>;
-}
 
 type Result<D extends ResourceDefinition> = Prettify<ResourceQueryState<D>>
 
 export function useResourceAgent<D extends ResourceDefinition>(
-    res: WithAgent<D>,
+    res: ResourceInstance<D>,
     ...argss: D['Args'] extends void ? [] | [typeof SKIP] : [D['Args'] | typeof SKIP]
 ): Result<D>{
     const args = (argss[0] === SKIP ? SKIP : argss[0]) as D['Args'] | typeof SKIP;
@@ -39,6 +40,10 @@ export function useResourceAgent<D extends ResourceDefinition>(
 
         agent.initiate(args);
     }, [args]);
+
+    React.useEffect(() => () => {
+        agent.complete();
+    }, []);
 
     return useSignal(agent.state$);
 }

@@ -36,26 +36,6 @@ export class ResourceRef<D extends ResourceDefinition> implements ResourceRefIns
         this._cacheItem = this._resource.decrementLock(this._args, { cache: this._cacheItem! });
     }
 
-    update(updateFn: (data: D["Data"]) => D["Data"]) {
-        const cacheItem = this._cacheItem ?? this._resource.getQueryCache(this._args);
-
-        if (!cacheItem) {
-            console.warn('Trying to update non-existing cache item');
-            return {
-                rollback: () => {}
-            }
-        }
-
-        const value = cacheItem.value;
-        this._resource.updateData_legacy(this._args, updateFn, { cache: cacheItem });
-
-        return {
-            rollback: () => {
-                this._resource.updateData_legacy(this._args, () => value.data, { cache: cacheItem });
-            }
-        }
-    }
-
     patch(patchFn: (data: D["Data"]) => void): ResourceTransaction | null {
         let isSkipped = true;
 
