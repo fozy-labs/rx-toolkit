@@ -22,6 +22,19 @@ const fetchToggleItem = async (args: { id: number; enabled: boolean }) => {
 
 export const getCartResource = createResource({
     queryFn: fetchCart,
+    cacheLifetime: 0,
+    async onQueryStarted(args, { $queryFulfilled }) {
+        console.log('onQueryStarted', { args });
+        const result = await $queryFulfilled;
+        console.log('$queryFulfilled:', { args, result });
+    },
+    async onCacheEntryAdded(args, { $cacheDataLoaded, $cacheEntryRemoved }) {
+        console.log('onCacheEntryAdded', { args });
+        await $cacheDataLoaded;
+        console.log('$cacheDataLoaded', { args });
+        await $cacheEntryRemoved;
+        console.log('$cacheEntryRemoved', { args });
+    }
 });
 
 export const toggleCartItem = createOperation({
@@ -48,6 +61,10 @@ export function ShoppingCartSection() {
     const handleToggleItem = (id: number, enabled: boolean) => {
         toggleItem({ id, enabled });
     };
+
+    React.useEffect(() => ()=> {
+        console.log('ShoppingCartSection unmounted');
+    }, []);
 
     const total = cartQuery.data?.items.reduce((sum: number, item: any) => item.enabled ? sum + item.price : sum, 0) || 0;
 

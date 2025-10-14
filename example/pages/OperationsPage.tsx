@@ -5,6 +5,19 @@ import { CodeBlock } from '../components/CodeBlock';
 const operationsCode = `
 export const getCartResource = createResource({
     queryFn: fetchCart,
+    cacheLifetime: 0,
+    async onQueryStarted(args, { $queryFulfilled }) {
+        console.log('onQueryStarted', { args });
+        const result = await $queryFulfilled;
+        console.log('$queryFulfilled:', { args, result });
+    },
+    async onCacheEntryAdded(args, { $cacheDataLoaded, $cacheEntryRemoved }) {
+        console.log('onCacheEntryAdded', { args });
+        await $cacheDataLoaded;
+        console.log('$cacheDataLoaded', { args });
+        await $cacheEntryRemoved;
+        console.log('$cacheEntryRemoved', { args });
+    }
 });
 
 export const toggleCartItem = createOperation({

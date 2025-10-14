@@ -13,7 +13,7 @@ const PatchesPage = React.lazy(() => import('./pages/PatchesPage').then(module =
 
 DefaultOptions.update({
     DEVTOOLS: combineDevtools(
-        reduxDevtools(),
+        reduxDevtools({ name: 'Rx Toolkit Example' }),
         reatomDevtools({
             initVisibility: true,
         }),
