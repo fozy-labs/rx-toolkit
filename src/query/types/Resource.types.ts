@@ -1,6 +1,10 @@
 import { Patch as ImmerPatch } from "immer";
 import { ReadableSignalLike } from "@/signals";
-import { FallbackOnNever } from "./shared.types";
+import {
+    FallbackOnNever,
+    OnCacheEntryAdded,
+    OnQueryStarted,
+} from "./shared.types";
 
 /**
  * Функция создания ресурса
@@ -22,30 +26,19 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
      * Если указано false - кеш не удаляется автоматически.
      */
     cacheLifetime?: number | false;
-
-    // Хуки
-    onCacheEntryAdded?: (args: D["Args"], tools: CacheEntryAddedTools<D>) => void
-    onQueryStarted?: (args: D["Args"], tools: QueryStartedTools<D>) => void
-}
-
-export type CacheEntryAddedTools<D extends ResourceDefinition> = {
-    /** Функция для ожидания загрузки данных в кеш */
-    $cacheDataLoaded: Promise<void>
-    /** Функция для ожидания удаления кеша */
-    $cacheEntryRemoved: Promise<void>
-}
-
-export type QueryStartedTools<D extends ResourceDefinition> = {
-    /** Функция для уведомления об успешном завершении запроса */
-    $queryFulfilled: Promise<{
-        data: D["Result"],
-        error: undefined
-        isError: false
-    } | {
-        data: undefined,
-        error: unknown
-        isError: true
-    }>;
+    /**
+     * Хук, вызываемый при добавлении нового элемента в кеш.
+     * Также позволяет отследить:
+     *  - когда данные были загружены (впервые)
+     *  - когда элемент был удален из кеша
+     */
+    onCacheEntryAdded?: OnCacheEntryAdded<D["Args"], D["Data"]>;
+    /**
+     * Хук, вызываемый при старте запроса.
+     * Также позволяет отследить:
+     * - завершение запроса с результатом или ошибкой
+     */
+    onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
 }
 
 /**
