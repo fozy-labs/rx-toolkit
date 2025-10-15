@@ -21,6 +21,8 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
 
             this._rang = effect._rang;
             this.value = computeFn();
+        }, () => {
+            this.complete();
         });
 
         super(initialValue as T, {
@@ -35,6 +37,7 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
     }
 
     complete() {
+        if (this.closed) return;
         this._effect.unsubscribe();
         super.complete();
     }
