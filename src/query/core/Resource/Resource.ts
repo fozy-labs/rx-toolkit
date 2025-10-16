@@ -1,10 +1,8 @@
-import { PromiseResolver } from "@/common/utils";
-import { SharedOptions } from "@/common/options/SharedOptions";
-
 import { ReactiveCache } from "@/query/lib/ReactiveCache";
 import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse, ResourceTransaction } from "@/query/types";
-import { QueriesCache } from "@/query/core/QueriesCache";
 
+import { QueriesCache } from "../QueriesCache";
+import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
 import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
 
@@ -144,86 +142,18 @@ class ResourceQueryState {
     }
 }
 
-// TODO вынести и унифицировать; как-то организовать глобальные хуки и devtools через хуки
-class QueryHooks<D extends ResourceDefinition> {
-    private onCacheEntryAddedListeners: Array<NonNullable<ResourceCreateOptions<D>['onCacheEntryAdded']>> = [];
-    private onQueryStartedListeners: Array<NonNullable<ResourceCreateOptions<D>['onQueryStarted']>> = [];
-
-    constructor(
-        private readonly _options: ResourceCreateOptions<D> | undefined
-    ) {
-        if (_options?.onCacheEntryAdded) {
-            this.onCacheEntryAddedListeners.push(_options.onCacheEntryAdded);
-        }
-        if (_options?.onQueryStarted) {
-            this.onQueryStartedListeners.push(_options.onQueryStarted);
-        }
-    }
-
-    onCacheEntryAdded = (args: D['Args']) => {
-        const cacheDataLoadedResolver = new PromiseResolver<void>();
-        const cacheEntryRemovedResolver = new PromiseResolver<void>();
-
-        this.onCacheEntryAddedListeners.forEach((listener) => {
-            listener(args, {
-                $cacheDataLoaded: cacheDataLoadedResolver.promise,
-                $cacheEntryRemoved: cacheEntryRemovedResolver.promise,
-            });
-        });
-
-        return {
-            cacheDataLoaded: () => cacheDataLoadedResolver.resolve(),
-            cacheEntryRemoved: () => cacheEntryRemovedResolver.resolve(),
-        };
-    }
-
-    onQueryStarted = (args: D['Args']) => {
-        const queryFulfilledResolver = new PromiseResolver<{
-            data: D["Result"],
-            error: undefined
-            isError: false
-        } | {
-            data: undefined,
-            error: unknown
-            isError: true
-        }>();
-
-        this.onQueryStartedListeners.forEach((listener) => {
-            listener(args, {
-                $queryFulfilled: queryFulfilledResolver.promise
-            });
-        });
-
-        return {
-            fulfilledSuccess: (data: D['Result']) => {
-                queryFulfilledResolver.resolve({
-                    data,
-                    error: undefined,
-                    isError: false
-                });
-            },
-            fulfilledError: (error: unknown) => {
-                queryFulfilledResolver.resolve({
-                    data: undefined,
-                    error,
-                    isError: true
-                });
-            }
-        };
-    }
-}
-
 export class Resource<D extends ResourceDefinition> implements ResourceInstance<D> {
     private readonly _queriesCache;
     private readonly _hooks;
 
+    private _DEFAULT_CACHE_LIFETIME = 60_000;
+
     constructor(
         private readonly _options: ResourceCreateOptions<D>
     ) {
-        this._hooks = new QueryHooks<D>(_options);
+        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Result']>(_options, 'Resource');
         this._queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>(
-            _options.cacheLifetime,
-            'Resource'
+            _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
     }
 
@@ -239,8 +169,8 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         return this._queriesCache.getQueryCache(args);
     }
 
-    createQueryCache(args: D['Args']): CoreResourceQueryCache<D> {
-        const cache = this._queriesCache.createQueryCache(args, ResourceQueryState.create<D>());
+    createQueryCache(args: D['Args'], state = ResourceQueryState.create<D>()): CoreResourceQueryCache<D> {
+        const cache = this._queriesCache.createQueryCache(args, state);
 
         const hookResolvers = this._hooks.onCacheEntryAdded(args);
 
@@ -248,6 +178,10 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
             if (!state.isDone) return;
             hookResolvers.cacheDataLoaded();
             spySub.unsubscribe();
+        });
+
+        cache.spy$.subscribe((data) => {
+            hookResolvers.dataChanged$.next(data);
         });
 
         cache.onClean$.subscribe(() => {
@@ -310,10 +244,11 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         const state = ResourceQueryState.load(cache?.value, args);
 
         if (!cache) {
-            cache = this.createQueryCache(args);
+            cache = this.createQueryCache(args, state);
+        } else {
+            cache.next(state);
         }
 
-        cache.next(state);
 
         let abortController = state.abortController;
         abortController?.abort();
@@ -324,25 +259,24 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         const hookResolvers = this._hooks.onQueryStarted(args);
 
         query
-            .then((data) => {
+            .then((result) => {
                 if (abortController.signal.aborted) {
                     return;
                 }
 
-                hookResolvers.fulfilledSuccess(data);
+                const data = this._options.select ? result._options.select(result) : result;
+                cache.next(ResourceQueryState.success(state, data));
 
-                const selectedData = this._options.select ? this._options.select(data) : data;
-                cache.next(ResourceQueryState.success(state, selectedData));
+                hookResolvers.fulfilledSuccess(data);
             })
             .catch((error) => {
                 if (abortController.signal.aborted) {
                     return;
                 }
 
-                hookResolvers.fulfilledError(error);
-
-                SharedOptions.onError?.(error); // TODO перенести в хуки
                 cache.next(ResourceQueryState.error(state, error));
+
+                hookResolvers.fulfilledError(error);
             });
 
         return cache;

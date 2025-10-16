@@ -6,7 +6,6 @@ export class QueriesCache<KEY, VALUE> {
 
     constructor(
         private _cacheLifeTime: number | false = 60_000,
-        private _logname = 'query',
     ) {
     }
 

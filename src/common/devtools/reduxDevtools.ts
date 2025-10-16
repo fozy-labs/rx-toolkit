@@ -22,25 +22,38 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
         throw new Error('Redux Devtools extension is not installed');
     }
 
-    let state = {};
+    let state = {} as Record<string, any>;
     const reduxDevtools = devtools!.connect({ name: options.name ?? 'RxToolkit' });
     reduxDevtools.init(state);
     const scheduler = Batcher.scheduler(Infinity);
+    let isCreated = false;
 
     const updateFn = () => {
-        reduxDevtools.send({ type: 'update' }, state);
+        reduxDevtools.send({ type: isCreated ? 'create' : 'update' }, state);
+        isCreated = false;
+    }
+
+    const clearFn = () => {
+        reduxDevtools.send({ type: 'clear' }, state);
     }
 
     const createFn = () => {
-        reduxDevtools.send({ type: 'create' }, state);
+        isCreated = true;
+        return updateFn;
     }
 
     return {
         state(name, initState) {
             state = { ...state, [name]: initState };
-            scheduler.schedule(createFn);
+            scheduler.schedule(createFn());
 
             return (newState) => {
+                if (newState === '$COMPLETE' || newState === '$CLEANED') {
+                    delete state[name];
+                    clearFn();
+                    return;
+                }
+
                 state = { ...state, [name]: newState };
                 scheduler.schedule(updateFn);
             }

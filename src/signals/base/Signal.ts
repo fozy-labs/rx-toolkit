@@ -71,6 +71,11 @@ export class Signal<T> extends BehaviorSubject<T> implements SignalLike<T> {
         return this.next(value);
     }
 
+    complete() {
+        this._devtools?.('$COMPLETE' as any);
+        super.complete();
+    }
+
     pipe(): Signal<T>;
     pipe<A extends Observable<any>>(op1: UnaryFunction<ReadableSignalLike<T>, A>): A
 

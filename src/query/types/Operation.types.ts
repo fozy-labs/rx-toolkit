@@ -1,5 +1,5 @@
 import { ReadableSignalLike } from "@/signals";
-import { FallbackOnNever } from "./shared.types";
+import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
 import { ResourceDefinition, ResourceInstance } from "./Resource.types";
 
 /**
@@ -23,6 +23,24 @@ export type OperationCreateOptions<D extends OperationDefinition> = {
     queryFn: (args: D["Args"]) => Promise<D["Result"]>;
     /** Связанные ресурсы */
     link?: (link: <RD extends ResourceDefinition>(options: LinkOptions<D, RD>) => void) => void;
+    /**
+     * Время жизни кеша в миллисекундах. По умолчанию 1_000 (1 секунда).
+     * Если указано false - кеш не удаляется автоматически.
+     */
+    cacheLifetime?: number | false;
+    /**
+     * Хук, вызываемый при добавлении нового элемента в кеш.
+     * Также позволяет отследить:
+     *  - когда данные были загружены (впервые)
+     *  - когда элемент был удален из кеша
+     */
+    onCacheEntryAdded?: OnCacheEntryAdded<D["Args"], D["Data"]>;
+    /**
+     * Хук, вызываемый при старте запроса.
+     * Также позволяет отследить:
+     * - завершение запроса с результатом или ошибкой
+     */
+    onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
 }
 
 /**

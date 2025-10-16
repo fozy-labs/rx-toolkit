@@ -9,6 +9,7 @@ export class Effect implements SubscriptionLike {
 
     constructor(
         effectFn: (ctx: (fn: () => void) => void) => void,
+        private _onComplete?: () => void,
     ) {
         this._runInTrackedContext(effectFn, false);
     }
@@ -37,20 +38,29 @@ export class Effect implements SubscriptionLike {
         }
 
         // Подписываемся на Tracker. Во время выполнения подпишемся на все tracked наблюдатели.
-        const trackerSub = Tracker.tracked$.subscribe((tracked) => {
-            if (!isTrackedContext) return;
+        const trackerSub = Tracker.tracked$.subscribe({
+            next: (tracked) => {
+                if (!isTrackedContext) return;
 
-            if (tracked.rang <= this._rang) {
-                this._rang = tracked.rang + 1;
-            }
-
-            this._subscriptions.push(tracked.obsv$.subscribe(() => {
-                if (isTrackedContext) {
-                    return;
+                if (tracked.rang <= this._rang) {
+                    this._rang = tracked.rang + 1;
                 }
 
-                scheduler!.schedule(scheduledFn);
-            }));
+                this._subscriptions.push(tracked.obsv$.subscribe(() => {
+                    if (isTrackedContext) {
+                        return;
+                    }
+
+                    scheduler!.schedule(scheduledFn);
+                }));
+            },
+            complete: () => {
+                this.unsubscribe();
+            },
+            error: (err) => {
+                console.error(err);
+                this.unsubscribe();
+            },
         });
 
         effectFn((fn) => {
@@ -64,7 +74,13 @@ export class Effect implements SubscriptionLike {
     }
 
     public unsubscribe() {
+        this.complete();
+    }
+
+    public complete() {
+                if (this.closed) return;
         this.closed = true;
         this._subscriptions.forEach((sub) => sub.unsubscribe());
+        this._onComplete?.();
     }
 }
