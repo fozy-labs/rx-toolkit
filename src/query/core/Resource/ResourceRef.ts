@@ -167,10 +167,10 @@ export class ResourceRef<D extends ResourceDefinition> implements ResourceRefIns
     }
 
     create(data: D["Data"]): void {
-        throw new Error("Method not implemented.");
+        this._cacheItem = this._resource.createWithData(this._args, data, { cache: this._cacheItem ?? undefined });
     }
 
     invalidate(): void {
-        throw new Error("Method not implemented.");
+        this._cacheItem = this._resource.initiate(this._args, { cache: this._cacheItem ?? undefined });
     }
 }
