@@ -51,6 +51,7 @@ class ResourceQueryState {
     ): CoreResourceQueryState<D> {
         return {
             ...state,
+            abortController: new AbortController(),
             args: args,
             isLoading: !state.isDone,
             isReloading: state.isDone,
@@ -64,6 +65,7 @@ class ResourceQueryState {
     ): CoreResourceQueryState<D> {
         return {
             ...state,
+            abortController: null,
             savedData: null,
             transactions: null,
             data,
@@ -82,6 +84,7 @@ class ResourceQueryState {
     ): CoreResourceQueryState<D> {
         return {
             ...state,
+            abortController: null,
             isLoading: false,
             isReloading: false,
             isDone: true,
@@ -127,18 +130,26 @@ class ResourceQueryState {
         }
     }
 
-    /**
-     * @deprecated
-     */
-    static setData<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D>,
-        data: D['Data']
+    static createWithData<D extends ResourceDefinition>(
+        data: D['Data'],
+        args: D['Args'],
     ): CoreResourceQueryState<D> {
         return {
-            ...state,
+            savedData: null,
             transactions: null,
-            data
-        }
+            data,
+            isLoading: false,
+            isReloading: false,
+            isDone: true,
+            isSuccess: true,
+            isError: false,
+            error: null,
+            abortController: null,
+            args,
+            isInitiated: false,
+            isLocked: false,
+            lockCount: 0
+        };
     }
 }
 
@@ -238,9 +249,30 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         return cache;
     }
 
+    createWithData(
+        args: D['Args'],
+        data: D['Data'],
+        options?: { cache?: CoreResourceQueryCache<D> }
+    ) {
+        let cache = options?.cache ?? this.getQueryCache(args);
+        const state = ResourceQueryState.createWithData(data, args);
+
+        if (!cache) {
+            cache = this.createQueryCache(args, state);
+
+        // Только обновляем кэш новыми данными, если он еще не был инициализирован.
+        // Это предотвращает перезапись уже инициализированного кэша.
+        } else if (!cache.value.isInitiated) {
+            cache.next(state);
+        }
+
+        return cache;
+    }
 
     initiate(args: D['Args'], options?: { cache?: CoreResourceQueryCache<D> }): CoreResourceQueryCache<D> {
         let cache = options?.cache ?? this.getQueryCache(args);
+        const prevAbortController = cache?.value.abortController ?? null;
+
         const state = ResourceQueryState.load(cache?.value, args);
 
         if (!cache) {
@@ -249,10 +281,8 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
             cache.next(state);
         }
 
-
-        let abortController = state.abortController;
-        abortController?.abort();
-        abortController = new AbortController();
+        prevAbortController?.abort();
+        const abortController = state.abortController!;
 
         const query = this._options.queryFn(args, { abortSignal: abortController.signal });
 
@@ -264,7 +294,7 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
                     return;
                 }
 
-                const data = this._options.select ? result._options.select(result) : result;
+                                const data = this._options.select ? this._options.select(result) : result;
                 cache.next(ResourceQueryState.success(state, data));
 
                 hookResolvers.fulfilledSuccess(data);
