@@ -194,6 +194,10 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                             ref.create(link.create({ args, data }));
                         }
 
+                        if (link.invalidate) {
+                            ref.invalidate();
+                        }
+
                         state.patch?.commit();
                     });
 
