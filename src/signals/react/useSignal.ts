@@ -3,15 +3,26 @@ import { ReadableSignalLike } from "@/signals";
 import { useEventHandler } from "@/common/react";
 
 export function useSignal<T>(signal$: ReadableSignalLike<T>): T {
+    const doUpdateRef = React.useRef(false);
+
     const subscribe = React.useCallback((update: () => void) => {
-        const subscription = signal$.subscribe(update)
+        const subscription = signal$.subscribe(() => {
+            doUpdateRef.current = true;
+            queueMicrotask(() => {
+                if (!doUpdateRef.current) return;
+                update();
+            });
+        });
 
         return () => {
-            subscription.unsubscribe()
+            subscription.unsubscribe();
         }
-    }, [signal$])
+    }, [signal$]);
 
-    const getSnapshot = useEventHandler(() => signal$.peek());
+    const getSnapshot = useEventHandler(() => {
+        doUpdateRef.current = false;
+        return signal$.peek();
+    });
 
-    return React.useSyncExternalStore(subscribe, getSnapshot)
+    return React.useSyncExternalStore(subscribe, getSnapshot);
 }
