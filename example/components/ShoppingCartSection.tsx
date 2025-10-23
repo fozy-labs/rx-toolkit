@@ -68,6 +68,14 @@ export function ShoppingCartSection() {
 
     const total = cartQuery.data?.items.reduce((sum: number, item: any) => item.enabled ? sum + item.price : sum, 0) || 0;
 
+    console.log('SoppingCartSection render', {
+        isLoading: cartQuery.isLoading,
+        isError: cartQuery.isError,
+        isSuccess: cartQuery.isSuccess,
+        data: cartQuery.data,
+        toggleLoading: toggleState.isLoading,
+    });
+
     return (
         <div className="demo-section">
             {cartQuery.isLoading && (

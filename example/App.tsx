@@ -9,6 +9,7 @@ import { Navigation } from './components/Navigation';
 const SignalsPage = React.lazy(() => import('./pages/SignalsPage').then(module => ({ default: module.SignalsPage })));
 const OperationsPage = React.lazy(() => import('./pages/OperationsPage').then(module => ({ default: module.OperationsPage })));
 const PatchesPage = React.lazy(() => import('./pages/PatchesPage').then(module => ({ default: module.PatchesPage })));
+const ResourcePage = React.lazy(() => import('./pages/ResourcePage').then(module => ({ default: module.ResourcePage })));
 
 
 DefaultOptions.update({
@@ -31,6 +32,7 @@ export function App() {
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/operations" element={<OperationsPage />} />
             <Route path="/patches" element={<PatchesPage />} />
+            <Route path="/resource" element={<ResourcePage />} />
           </Routes>
         </main>
       </div>

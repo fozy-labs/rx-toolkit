@@ -23,6 +23,12 @@ export function Navigation() {
           Операции и запросы
         </Link>
         <Link
+          to="/resource"
+          className={`nav-link ${isActive('/resource') ? 'active' : ''}`}
+        >
+          Динамические ресурсы
+        </Link>
+        <Link
           to="/patches"
           className={`nav-link ${isActive('/patches') ? 'active' : ''}`}
         >
