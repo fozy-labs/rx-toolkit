@@ -30,9 +30,7 @@ export function useResourceAgent<D extends ResourceDefinition>(
         return agent;
     });
 
-    const state = agent.state$.peek();
-
-    if (state.isInitiated && args !== SKIP && !shallowEqual(args, prevArgsRef.current)) {
+    if (args !== SKIP && !shallowEqual(args, prevArgsRef.current)) {
         prevArgsRef.current = args;
 
         agent.initiate(args);
