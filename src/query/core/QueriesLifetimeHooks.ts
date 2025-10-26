@@ -33,7 +33,7 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
                 this.onCacheEntryAddedListeners.push(async (args, { $cacheEntryRemoved, dataChanged$ }) => {
                     const key = `${devtoolName}:${JSON.stringify(args)}:i=${Indexer.getIndex()}`;
 
-                   let devtools: DevtoolsStateLike | null = null;
+                    let devtools: DevtoolsStateLike | null = null;
 
                     dataChanged$.subscribe((state) => {
                         if (!devtools) {
@@ -51,13 +51,10 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
             }
         }
 
-        if (SharedOptions.onError) {
-            this.onQueryStartedListeners.push(async (args, { $queryFulfilled }) => {
-                try {
-                    await $queryFulfilled;
-                } catch (error) {
-                    SharedOptions.onError!(error);
-                }
+        if (SharedOptions.onQueryError) {
+            this.onQueryStartedListeners.push(async (_, { $queryFulfilled }) => {
+                const result = await $queryFulfilled;
+                if (result.isError) SharedOptions.onQueryError!(result.error);
             });
         }
     }
