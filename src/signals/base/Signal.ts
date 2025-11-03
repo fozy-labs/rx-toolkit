@@ -1,4 +1,4 @@
-import { BehaviorSubject, Observable } from "rxjs";
+import { BehaviorSubject, Observable, SubscriptionLike } from "rxjs";
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "./Batcher";
 import { Indexer } from "./Indexer";
@@ -10,7 +10,7 @@ type SignalOptions = {
     devtoolsName?: string,
 }
 
-export class Signal<T> extends BehaviorSubject<T> implements SignalLike<T> {
+export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, SignalLike<T> {
     private readonly _devtools;
     protected _rang = 0;
 
@@ -74,6 +74,17 @@ export class Signal<T> extends BehaviorSubject<T> implements SignalLike<T> {
     complete() {
         this._devtools?.('$COMPLETE' as any);
         super.complete();
+    }
+
+    /**
+     * @deprecated use `complete()` instead.
+     */
+    unsubscribe() {
+        this.complete();
+    }
+
+    asReadonly(): ReadableSignalLike<T> {
+        return this;
     }
 
     pipe(): Signal<T>;
@@ -224,10 +235,6 @@ export class Signal<T> extends BehaviorSubject<T> implements SignalLike<T> {
 
     pipe(...operations: UnaryFunction<any, any>[]): unknown {
         return operations.reduce(pipeReducer, this as any);
-    }
-
-    asReadonly(): ReadableSignalLike<T> {
-        return this;
     }
 }
 

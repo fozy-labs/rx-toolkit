@@ -32,13 +32,16 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
         this._effect = effect;
     }
 
-    unsubscribe() {
-        this.complete();
-    }
-
     complete() {
         if (this.closed) return;
-        this._effect.unsubscribe();
+        this._effect.complete();
         super.complete();
+    }
+
+    /**
+     * @deprecated use 'complete()' instead
+     */
+    unsubscribe() {
+        this.complete();
     }
 }
