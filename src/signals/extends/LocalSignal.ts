@@ -13,6 +13,7 @@ type Options<T> = {
     validator$?: Observable<(value: T) => boolean>;
     checkEffect?: (value: T) => boolean;
     defaultValue: T;
+    devtoolsName?: string;
 }
 
 const NullOrString = z.string().nullable();
@@ -88,7 +89,7 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
             }
 
             return value;
-        }, { devtoolsName: 'LocalSignal' } );
+        }, { devtoolsName: _options.devtoolsName ?? 'LocalSignal' } );
     }
 
     protected _onChange(value: T) {
