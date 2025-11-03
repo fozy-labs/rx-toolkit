@@ -96,7 +96,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
             this._options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
 
-        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Data']>(_options, 'Operation');
+        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Data']>(_options, _options.devtoolsName ?? 'Operation');
 
         this._createLinks();
     }

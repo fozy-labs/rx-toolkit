@@ -41,6 +41,10 @@ export type OperationCreateOptions<D extends OperationDefinition> = {
      * - завершение запроса с результатом или ошибкой
      */
     onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
+    /**
+     * Имя для инструментов разработчика (DevTools)
+     */
+    devtoolsName?: string | undefined | null;
 }
 
 /**

@@ -55,11 +55,11 @@ export class Effect implements SubscriptionLike {
                 }));
             },
             complete: () => {
-                this.unsubscribe();
+                this.complete();
             },
             error: (err) => {
                 console.error(err);
-                this.unsubscribe();
+                this.complete();
             },
         });
 
@@ -73,14 +73,17 @@ export class Effect implements SubscriptionLike {
         prevSubscriptions?.forEach((sub) => sub.unsubscribe());
     }
 
-    public unsubscribe() {
-        this.complete();
-    }
-
-    public complete() {
-                if (this.closed) return;
+    complete() {
+        if (this.closed) return;
         this.closed = true;
         this._subscriptions.forEach((sub) => sub.unsubscribe());
         this._onComplete?.();
+    }
+
+    /**
+     * @deprecated Use `complete()` method instead.
+     */
+    unsubscribe() {
+        this.complete();
     }
 }
