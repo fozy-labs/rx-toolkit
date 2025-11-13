@@ -40,9 +40,9 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
      */
     onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
     /**
-     * Имя ресурса в инструментах разработчика
+     * Настройка отображения в devtools
      */
-    devtoolsName?: string | undefined | null;
+    devtoolsName?: string | false;
 }
 
 /**

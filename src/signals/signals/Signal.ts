@@ -1,34 +1,23 @@
 import { BehaviorSubject, Observable, SubscriptionLike } from "rxjs";
-import { SharedOptions } from "@/common/options/SharedOptions";
-import { Batcher } from "./Batcher";
-import { Indexer } from "./Indexer";
-import { Tracker } from "./Tracker";
-import type { ReadableSignalLike, SignalLike, UnaryFunction } from "./types";
-
-type SignalOptions = {
-    disableDevtools?: boolean,
-    devtoolsName?: string,
-}
+import { Batcher, Tracker, Devtools, ReadableSignalLike, SignalLike, UnaryFunction } from "../base";
+import { StateDevtoolsOptions } from "@/common/devtools";
 
 export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, SignalLike<T> {
-    private readonly _devtools;
+    private readonly _stateDevtools;
     protected _rang = 0;
 
-    constructor(initialValue: T, options?: SignalOptions) {
+    constructor(initialValue: T, options?: StateDevtoolsOptions) {
         super(initialValue);
 
-        const stateDevtools = SharedOptions.DEVTOOLS?.state;
-
-        if (stateDevtools && options?.disableDevtools !== true) {
-            const id = Indexer.getIndex();
-            const key = `${options?.devtoolsName || 'Signal'}:i=${id}`;
-            this._devtools = stateDevtools(key, initialValue);
-        }
+        this._stateDevtools = Devtools.createState(initialValue, {
+            base: 'Signals',
+            ...(typeof options === 'string' ? { name: options } : options)
+        });
     }
 
     protected _onChange(value: T): void {
         Batcher.batch(() => {
-            this._devtools?.(value);
+            this._stateDevtools?.(value);
             super.next(value);
         });
     }
@@ -72,7 +61,7 @@ export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, S
     }
 
     complete() {
-        this._devtools?.('$COMPLETE' as any);
+        this._stateDevtools?.('$COMPLETE' as any);
         super.complete();
     }
 

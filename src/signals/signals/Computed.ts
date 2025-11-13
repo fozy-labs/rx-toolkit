@@ -1,7 +1,8 @@
 import { SubscriptionLike } from "rxjs";
-import { ReadableSignalLike } from "./types";
+import { ReadableSignalLike } from "../base";
 import { Signal } from "./Signal";
 import { Effect } from "./Effect";
+import { StateDevtoolsOptions } from "@/common/devtools";
 
 export class Computed<T> extends Signal<T> implements SubscriptionLike, ReadableSignalLike<T> {
     private static _EMPTY = Symbol('empty');
@@ -9,7 +10,7 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
 
     constructor(
         computeFn: () => T,
-        options?: { disableDevtools?: boolean, devtoolsName?: string }
+        options?: StateDevtoolsOptions
     ) {
         let initialValue: T | Symbol = Computed._EMPTY;
 
@@ -26,8 +27,8 @@ export class Computed<T> extends Signal<T> implements SubscriptionLike, Readable
         });
 
         super(initialValue as T, {
-            devtoolsName: 'Computed',
-            ...options,
+            base: 'Computed',
+            ...(typeof options === 'string' ? { name: options } : options)
         });
         this._effect = effect;
     }

@@ -6,7 +6,7 @@ import type { CoreOperationQueryState, Operation } from "./Operation";
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
     private _operations$ = new Signal({
         current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
-    }, { disableDevtools: true });
+    }, { isDisabled: true });
 
     state$ = new Computed(() => {
         const operations = this._operations$.value;
@@ -34,7 +34,7 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
             data: currState.data ?? undefined,
             args: currState.arg as D["Args"],
         };
-    }, { disableDevtools: true });
+    }, { isDisabled: true });
 
     constructor(
         private _operation: Operation<D>,

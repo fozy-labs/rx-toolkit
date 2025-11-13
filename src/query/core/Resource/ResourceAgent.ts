@@ -6,7 +6,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     private _resources$ = new Signal({
         previous$: null as CoreResourceQueryCache<D> | null,
         current$: null as CoreResourceQueryCache<D> | null,
-    }, { disableDevtools: true })
+    }, { isDisabled: true })
 
     state$ = new Computed(() => {
         const resources = this._resources$.value;
@@ -48,7 +48,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
             data: isShowPrev ? prevState!.data ?? undefined : currState.data ?? undefined,
             args: currState.args ?? undefined,
         };
-    }, { disableDevtools: true });
+    }, { isDisabled: true });
 
     constructor(
         private _resource: Resource<D>,

@@ -1,6 +1,5 @@
 import { SubscriptionLike } from "rxjs";
-import { Batcher } from "./Batcher";
-import { Tracker } from "./Tracker";
+import { Batcher, Tracker } from "../base";
 
 export class Effect implements SubscriptionLike {
     private _subscriptions: SubscriptionLike[] = [];

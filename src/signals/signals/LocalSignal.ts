@@ -1,6 +1,6 @@
 import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
-import { Computed } from "../base";
+import { Computed } from "../signals";
 import { signalize } from "../operators";
 
 type Options<T> = {
@@ -13,7 +13,7 @@ type Options<T> = {
     validator$?: Observable<(value: T) => boolean>;
     checkEffect?: (value: T) => boolean;
     defaultValue: T;
-    devtoolsName?: string;
+    devtoolsName?: string | false
 }
 
 const NullOrString = z.string().nullable();
@@ -69,6 +69,7 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
         const validator$ = _options.validator$;
         const checkEffect = _options.checkEffect;
         const defaultValue = _options.defaultValue;
+        const devtoolsName = _options.devtoolsName;
 
         const validatorSignal$ = validator$ && signalize(validator$);
 
@@ -89,7 +90,11 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
             }
 
             return value;
-        }, { devtoolsName: _options.devtoolsName ?? 'LocalSignal' } );
+        }, {
+            isDisabled: devtoolsName === false,
+            base: 'LocalSignals',
+            name: devtoolsName || undefined,
+        });
     }
 
     protected _onChange(value: T) {
