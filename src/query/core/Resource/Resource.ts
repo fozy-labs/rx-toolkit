@@ -162,7 +162,11 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
     constructor(
         private readonly _options: ResourceCreateOptions<D>
     ) {
-        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Result']>(_options, _options.devtoolsName ?? 'Resource');
+        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Result']>({
+            onCacheEntryAdded: _options.onCacheEntryAdded,
+            onQueryStarted: _options.onQueryStarted,
+            devtoolsName: _options.devtoolsName,
+        });
         this._queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>(
             _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );

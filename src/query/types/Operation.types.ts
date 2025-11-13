@@ -42,9 +42,9 @@ export type OperationCreateOptions<D extends OperationDefinition> = {
      */
     onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
     /**
-     * Имя для инструментов разработчика (DevTools)
+     * Настройка отображения в devtools
      */
-    devtoolsName?: string | undefined | null;
+    devtoolsName?: string | false
 }
 
 /**

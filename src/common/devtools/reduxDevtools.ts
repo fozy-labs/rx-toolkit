@@ -44,7 +44,9 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
 
     return {
         state(name, initState) {
-            state = { ...state, [name]: initState };
+            const keys = name.split('/');
+
+            state = applyState(keys, initState, state);
             scheduler.schedule(createFn());
 
             return (newState) => {
@@ -54,9 +56,26 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
                     return;
                 }
 
-                state = { ...state, [name]: newState };
+                state = applyState(keys, newState, state);
                 scheduler.schedule(updateFn);
             }
         }
     }
+}
+
+
+function applyState(keys: string[], newState: any, state: any) {
+    const acc = {...state};
+    let current = acc;
+
+    keys.forEach((key, i, arr) => {
+        if (i === arr.length - 1) {
+            current[key] = newState;
+        } else {
+            current[key] = { ...(current[key] ?? {}) };
+            current = current[key];
+        }
+    });
+
+    return acc;
 }

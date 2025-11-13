@@ -2,12 +2,13 @@ import { Subject } from "rxjs";
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { PromiseResolver } from "@/common/utils";
 import { DevtoolsStateLike } from "@/common/devtools";
-import { Indexer } from "@/signals/base/Indexer";
 import { OnCacheEntryAdded, OnQueryStarted } from "@/query/types";
+import { Devtools } from "@/signals";
 
 type Options<ARGS, DATA> = {
     onCacheEntryAdded?: OnCacheEntryAdded<ARGS, DATA>;
     onQueryStarted?: OnQueryStarted<ARGS, DATA>;
+    devtoolsName?: string | false;
 }
 
 export class QueriesLifetimeHooks<ARGS, DATA> {
@@ -16,39 +17,37 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
 
     constructor(
         options: Options<ARGS, DATA> | undefined,
-        devtoolName: string | undefined,
     ) {
         if (options?.onCacheEntryAdded) {
             this.onCacheEntryAddedListeners.push(options.onCacheEntryAdded);
         }
+
         if (options?.onQueryStarted) {
             this.onQueryStartedListeners.push(options.onQueryStarted);
         }
 
-        if (devtoolName) {
-            const stateDevtools = SharedOptions.DEVTOOLS?.state;
+        const devtoolsName = options?.devtoolsName;
 
-            if (stateDevtools) {
+        if (devtoolsName !== false && Devtools.hasDevtools) {
+            this.onCacheEntryAddedListeners.push(async (_, { $cacheEntryRemoved, dataChanged$ }) => {
+                let stateDevtools: DevtoolsStateLike | null = null;
 
-                this.onCacheEntryAddedListeners.push(async (args, { $cacheEntryRemoved, dataChanged$ }) => {
-                    const key = `${devtoolName}:${JSON.stringify(args)}:i=${Indexer.getIndex()}`;
+                dataChanged$.subscribe((state) => {
+                    if (!stateDevtools) {
+                        stateDevtools = Devtools.createState(state, {
+                            base: 'Queries',
+                            name: devtoolsName || '',
+                        });
+                        return;
+                    }
 
-                    let devtools: DevtoolsStateLike | null = null;
-
-                    dataChanged$.subscribe((state) => {
-                        if (!devtools) {
-                            devtools = stateDevtools(key, state);
-                            return;
-                        }
-
-                        devtools!(state);
-                    });
-
-                    $cacheEntryRemoved.then(() => {
-                        devtools!('$CLEANED' as any);
-                    });
+                    stateDevtools(state);
                 });
-            }
+
+                $cacheEntryRemoved.then(() => {
+                    stateDevtools!('$CLEANED' as any);
+                });
+            });
         }
 
         if (SharedOptions.onQueryError) {
