@@ -1,0 +1,28 @@
+import { Tabs, Tab } from "@heroui/react";
+import { LiveExample } from "../components/index.ts";
+import { Query } from "../examples";
+
+# Запросы (операции и ресурсы)
+
+## Примеры
+
+<Tabs>
+ <Tab key="cart" title="Корзина покупок">
+     <LiveExample
+         title="Корзина с оптимистичными обновлениями"
+         initialCode={Query.examples.shoppingCart}
+     />
+ </Tab>
+ <Tab key="profile" title="Профиль пользователя">
+     <LiveExample
+         title="Динамические запросы с кешированием"
+         initialCode={Query.examples.userProfile}
+     />
+ </Tab>
+ <Tab key="patches" title="Патчи ресурсов">
+     <LiveExample
+         title="Временные изменения с commit/abort"
+         initialCode={Query.examples.todoPatches}
+     />
+ </Tab>
+</Tabs>

@@ -1,0 +1,151 @@
+import React, { useState } from 'react';
+import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
+import { themes } from 'prism-react-renderer';
+import {
+    Computed,
+    Effect,
+    Signal,
+    useSignal,
+    createResource,
+    createOperation,
+    useResourceAgent,
+    useResourceRef,
+    useOperationAgent,
+    SKIP
+} from '@fozy-labs/rx-toolkit';
+import {
+    Button,
+    Card,
+    CardBody,
+    CardHeader,
+    Divider,
+    Chip,
+    Switch,
+    Checkbox,
+    Select,
+    SelectItem
+} from '@heroui/react';
+import { fetches } from '../utils/fetches';
+
+function processExample(code: string): string {
+    code = code.replace(/^import .+ from .+;$/gm, '');
+
+    if (code.includes('export ')) {
+        code = code.replace(/^export /gm, '');
+    }
+
+    if (code.includes('function Base')) {
+        code = code + '\n\nrender(Base);';
+    }
+
+    return code;
+}
+
+interface PlaygroundProps {
+    initialCode: string;
+    scope?: Record<string, any>;
+    noInline?: boolean;
+    title?: string
+}
+
+export function LiveExample({
+    initialCode: dryInitialCode,
+    scope = {},
+    noInline = true,
+    title,
+}: PlaygroundProps) {
+    const initialCode = React.useMemo(() => processExample(dryInitialCode).trim(), [dryInitialCode]);
+    const [code, setCode] = React.useState(initialCode);
+
+    const defaultScope = {
+        React,
+        useState,
+        Signal,
+        Computed,
+        Effect,
+        useSignal,
+        createResource,
+        createOperation,
+        useResourceAgent,
+        useResourceRef,
+        useOperationAgent,
+        SKIP,
+        Button,
+        Card,
+        CardHeader,
+        CardBody,
+        Divider,
+        Chip,
+        Switch,
+        Checkbox,
+        Select,
+        SelectItem,
+        fetches,
+        ...scope
+    };
+
+    const handleReset = () => {
+        setCode((oldCode) => {
+            if (oldCode === initialCode) {
+                return initialCode + ' '; // Force re-render
+            }
+
+            return initialCode;
+        });
+    };
+
+    return (
+        <Card className="my-4 not-prose">
+            <CardHeader className="flex-row justify-between border-b border-divider">
+                <div className="font-medium text-lg">
+                    {title}
+                </div>
+
+                <Button
+                    size="sm"
+                    variant="flat"
+                    onPress={handleReset}
+                >
+                    Reset
+                </Button>
+            </CardHeader>
+            <CardBody className="p-0">
+                <LiveProvider
+                    code={code}
+                    scope={defaultScope}
+                    theme={themes.nightOwl}
+                    noInline={noInline}
+                >
+                    <div className="flex flex-col">
+
+
+                        <div className="min-h-[400px]">
+                            <div
+                                className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-divider">
+                                <div>
+                                    <LiveEditor
+                                        className="live-editor"
+                                        style={{
+                                            fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                                            fontSize: '15px',
+                                            minHeight: '400px',
+                                            overflowX: "auto",
+                                            overflowY: "auto",
+                                            whiteSpace: 'pre',
+                                        }}
+                                    />
+                                </div>
+                                <div className="p-6">
+                                    <LivePreview/>
+                                    <LiveError
+                                        className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </LiveProvider>
+            </CardBody>
+        </Card>
+    );
+}
+
