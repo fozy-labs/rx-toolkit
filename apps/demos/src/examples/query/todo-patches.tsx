@@ -155,7 +155,7 @@ export function Base() {
     };
 
     return (
-        <div className="flex flex-col lg:flex-row gap-4 max-w-6xl">
+        <div className="flex flex-col gap-4">
             {/* Список задач */}
             <Card className="flex-1">
                 <CardHeader className="flex justify-between items-center">
@@ -179,6 +179,7 @@ export function Base() {
                                 {item.text}
                             </span>
                             <Select
+                                aria-label="Приоритет"
                                 size="sm"
                                 className="w-32"
                                 selectedKeys={[item.priority]}

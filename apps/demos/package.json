@@ -7,6 +7,7 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@fozy-labs/rx-toolkit": "file:../..",
     "@heroui/react": "2.8.5",
     "@mdx-js/react": "3.1.1",

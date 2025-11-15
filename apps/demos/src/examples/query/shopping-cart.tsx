@@ -27,12 +27,6 @@ export function Base() {
     const cartQuery = useResourceAgent(getCart, undefined);
     const [toggleItem, toggleState] = useOperationAgent(toggleCartItem);
 
-    console.log(cartQuery.isLoading)
-
-    const total = cartQuery.data?.items.reduce(
-        (sum: number, item: any) => item.enabled ? sum + item.price : sum, 0
-    ) || 0;
-
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
@@ -41,14 +35,8 @@ export function Base() {
             <Divider />
             <CardBody className="space-y-4">
                 {cartQuery.isLoading && (
-                    <div className="text-center py-8">
-                        <div className="text-lg">⏳ Загрузка корзины...</div>
-                    </div>
-                )}
-
-                {cartQuery.isError && (
-                    <div className="text-center py-8 text-danger">
-                        ❌ Ошибка загрузки корзины: {String(cartQuery.error)}
+                    <div className="text-center py-8 text-lg">
+                        ⏳ Загрузка корзины...
                     </div>
                 )}
 
@@ -59,16 +47,17 @@ export function Base() {
                                 <div
                                     key={item.id}
                                     className="flex items-center justify-between p-3 bg-default-100 rounded-lg"
+                                    style={{ opacity: item.enabled ? 1 : 0.5 }}
                                 >
                                     <div>
                                         <p className="font-semibold">{item.name}</p>
                                         <p className="text-sm text-default-500">{item.price}₽</p>
                                     </div>
                                     <Button
-                                        color={item.enabled ? "danger" : "success"}
+                                        isIconOnly
                                         onPress={() => toggleItem({ id: item.id, enabled: !item.enabled })}
                                     >
-                                        {item.enabled ? 'Удалить' : 'Добавить'}
+                                        {item.enabled ? '🗑️' : '➕'}
                                     </Button>
                                 </div>
                             ))}
@@ -79,7 +68,7 @@ export function Base() {
                         <div className="flex justify-between items-center">
                             <span className="text-xl font-bold">Итого:</span>
                             <Chip size="lg" color="primary" variant="flat">
-                                <span className="text-xl font-bold">{total}₽</span>
+                                <span className="">{getTotal(cartQuery.data!.items)}₽</span>
                             </Chip>
                         </div>
 
@@ -95,3 +84,8 @@ export function Base() {
     );
 }
 
+function getTotal(items: any[]) {
+    return items.reduce(
+        (sum: number, item: any) => item.enabled ? sum + item.price : sum, 0
+    );
+}

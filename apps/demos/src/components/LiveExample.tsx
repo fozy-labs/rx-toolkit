@@ -96,7 +96,7 @@ export function LiveExample({
 
     return (
         <Card className="my-4 not-prose">
-            <CardHeader className="flex-row justify-between border-b border-divider">
+            <CardHeader className="flex-row justify-between">
                 <div className="font-medium text-lg">
                     {title}
                 </div>
@@ -109,29 +109,25 @@ export function LiveExample({
                     Reset
                 </Button>
             </CardHeader>
+            <Divider />
             <CardBody className="p-0">
                 <LiveProvider
                     code={code}
                     scope={defaultScope}
-                    theme={themes.nightOwl}
+                    theme={themes.oneLight}
                     noInline={noInline}
                 >
                     <div className="flex flex-col">
-
-
                         <div className="min-h-[400px]">
                             <div
-                                className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-divider">
+                                className="grid grid-cols-2 divide-y divide-x divide-divider">
                                 <div>
                                     <LiveEditor
                                         className="live-editor"
                                         style={{
-                                            fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-                                            fontSize: '15px',
+                                            fontFamily: 'JetBrains Mono, Consolas, "Liberation Mono", monospace',
+                                            fontSize: '14px',
                                             minHeight: '400px',
-                                            overflowX: "auto",
-                                            overflowY: "auto",
-                                            whiteSpace: 'pre',
                                         }}
                                     />
                                 </div>

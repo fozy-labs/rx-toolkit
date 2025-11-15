@@ -1,5 +1,5 @@
 import { Signal, Computed, useSignal } from "@fozy-labs/rx-toolkit";
-import { Button, Card, CardBody, CardHeader, Divider } from "@heroui/react";
+import { Button, Card, CardBody } from "@heroui/react";
 
 class CounterStore {
     count$ = new Signal(0);
@@ -19,25 +19,16 @@ export function Base() {
     const squared = useSignal(counterStore.squared$);
 
     return (
-        <Card className="max-w-2xl">
-            <CardHeader>
-                <h3 className="text-xl font-bold">📊 Счетчик с вычисляемыми значениями</h3>
-            </CardHeader>
-            <Divider />
+        <Card className="pt-4">
             <CardBody className="space-y-4">
                 <div className="text-4xl font-bold text-center text-primary">
                     {count}
                 </div>
 
-                <div className="space-y-2">
-                    <p className="text-sm text-default-500">
-                        <strong>Вычисляемые значения:</strong>
-                    </p>
-                    <ul className="list-disc list-inside space-y-1 text-sm">
-                        <li>Удвоенное: <span className="font-semibold text-secondary">{doubled}</span></li>
-                        <li>В квадрате: <span className="font-semibold text-secondary">{squared}</span></li>
-                    </ul>
-                </div>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                    <li>Удвоенное: <span className="font-semibold text-secondary">{doubled}</span></li>
+                    <li>В квадрате: <span className="font-semibold text-secondary">{squared}</span></li>
+                </ul>
 
                 <div className="flex gap-2 justify-center">
                     <Button color="success" onPress={counterStore.increment}>
