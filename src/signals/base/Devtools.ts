@@ -28,6 +28,11 @@ function createKey(name: string | undefined, base: string | undefined) {
 
     let key = '';
 
+    if (name?.includes('{scope}')) {
+        const scopeName = SharedOptions.getScopeName?.() || '#global';
+        name = name.replace('{scope}', scopeName);
+    }
+
     if (base && name) key += name.replace('{base}', base);
     else if (!base && name) key += name;
     else if (base && !name) key += `${base}/`;
