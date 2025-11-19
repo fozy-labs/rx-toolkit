@@ -1,10 +1,14 @@
 import { BehaviorSubject, Observable, SubscriptionLike } from "rxjs";
 import { Batcher, Tracker, Devtools, ReadableSignalLike, SignalLike, UnaryFunction } from "../base";
 import { StateDevtoolsOptions } from "@/common/devtools";
+import { SharedOptions } from "@/common/options/SharedOptions";
 
 export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, SignalLike<T> {
     private readonly _stateDevtools;
     protected _rang = 0;
+    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$()?.subscribe(() => {
+        this.complete();
+    });
 
     constructor(initialValue: T, options?: StateDevtoolsOptions) {
         super(initialValue);
@@ -62,6 +66,7 @@ export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, S
 
     complete() {
         this._stateDevtools?.('$COMPLETE' as any);
+        this._scopeDestroyedSub?.unsubscribe();
         super.complete();
     }
 

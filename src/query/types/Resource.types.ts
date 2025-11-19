@@ -90,8 +90,10 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
 export type ResourceQueryState<D extends ResourceDefinition> = {
     /** Инициализирован ли хотя бы один запрос */
     isInitiated: boolean;
-    /** Первая загрузка */
+    /** Загрузка */
     isLoading: boolean;
+    /** Первая загрузка */
+    isInitialLoading: boolean;
     /** Завершен ли запрос */
     isDone: boolean;
     /** Успешно ли завершен последний запрос (false по умолчанию) */
