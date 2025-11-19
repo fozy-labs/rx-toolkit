@@ -1,8 +1,12 @@
 import { SubscriptionLike } from "rxjs";
 import { Batcher, Tracker } from "../base";
+import { SharedOptions } from "@/common/options/SharedOptions";
 
 export class Effect implements SubscriptionLike {
     private _subscriptions: SubscriptionLike[] = [];
+    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$()?.subscribe(() => {
+        this.complete();
+    });
     closed = false;
     _rang = 0;
 
@@ -76,6 +80,7 @@ export class Effect implements SubscriptionLike {
         if (this.closed) return;
         this.closed = true;
         this._subscriptions.forEach((sub) => sub.unsubscribe());
+        this._scopeDestroyedSub?.unsubscribe();
         this._onComplete?.();
     }
 

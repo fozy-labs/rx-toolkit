@@ -22,6 +22,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
             return {
                 isInitiated: false,
                 isLoading: false,
+                isInitialLoading: false,
                 isDone: false,
                 isSuccess: false,
                 isError: false,
@@ -39,6 +40,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         return {
             isInitiated: currState.isInitiated || !!prevState,
             isLoading: currState.isLoading,
+            isInitialLoading: currState.isLoading && !currState.isDone && !prevState?.isDone,
             isDone: currState.isDone,
             isSuccess: currState.isSuccess,
             isError: currState.isError,
