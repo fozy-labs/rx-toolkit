@@ -50,8 +50,8 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
             scheduler.schedule(createFn());
 
             return (newState) => {
-                if (newState === '$COMPLETE' || newState === '$CLEANED') {
-                    delete state[name];
+                if (newState === '$COMPLETED' || newState === '$CLEANED') {
+                    state = deleteState(keys, state);
                     clearFn();
                     return;
                 }
@@ -62,7 +62,6 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
         }
     }
 }
-
 
 function applyState(keys: string[], newState: any, state: any) {
     const acc = {...state};
@@ -77,5 +76,39 @@ function applyState(keys: string[], newState: any, state: any) {
         }
     });
 
+    return acc;
+}
+
+// Идем по ключам и удалаем последний, если оставется пустой объект, удаляем его рекурсивно
+function deleteState(keys: string[], state: any) {
+    if (keys.length === 0) return state;
+
+    const acc = {...state};
+
+    // Рекурсивная функция для удаления с очисткой пустых объектов
+    const deleteRecursive = (obj: any, pathKeys: string[], index: number): boolean => {
+        const key = pathKeys[index];
+
+        if (!obj || !obj.hasOwnProperty(key)) {
+            return false;
+        }
+
+        if (index === pathKeys.length - 1) {
+            delete obj[key];
+        } else {
+            obj[key] = {...obj[key]};
+            deleteRecursive(obj[key], pathKeys, index + 1);
+
+            // Если объект стал пустым, удаляем его
+            if (Object.keys(obj[key]).length === 0) {
+                delete obj[key];
+            }
+        }
+
+        return true;
+    };
+
+    deleteRecursive(acc, keys, 0);
+    console.log('deleteState', keys, state, acc);
     return acc;
 }

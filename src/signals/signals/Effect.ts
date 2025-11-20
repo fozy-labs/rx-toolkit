@@ -4,7 +4,7 @@ import { SharedOptions } from "@/common/options/SharedOptions";
 
 export class Effect implements SubscriptionLike {
     private _subscriptions: SubscriptionLike[] = [];
-    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$()?.subscribe(() => {
+    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$?.()?.subscribe(() => {
         this.complete();
     });
     closed = false;
