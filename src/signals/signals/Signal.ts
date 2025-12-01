@@ -6,7 +6,7 @@ import { SharedOptions } from "@/common/options/SharedOptions";
 export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, SignalLike<T> {
     private readonly _stateDevtools;
     protected _rang = 0;
-    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$()?.subscribe(() => {
+    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$?.()?.subscribe(() => {
         this.complete();
     });
 
@@ -65,7 +65,7 @@ export class Signal<T> extends BehaviorSubject<T> implements SubscriptionLike, S
     }
 
     complete() {
-        this._stateDevtools?.('$COMPLETE' as any);
+        this._stateDevtools?.('$COMPLETED' as any);
         this._scopeDestroyedSub?.unsubscribe();
         super.complete();
     }
