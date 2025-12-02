@@ -1,4 +1,4 @@
-import { Computed, Signal } from "@/signals";
+import { Computed, Effect, Signal } from "@/signals";
 import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
@@ -6,7 +6,26 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     private _resources$ = new Signal({
         previous$: null as CoreResourceQueryCache<D> | null,
         current$: null as CoreResourceQueryCache<D> | null,
-    }, { isDisabled: true })
+    }, { isDisabled: true });
+
+    private _effect = new Effect(() => {
+        const current$ = this._resources$.value.current$;
+        const args = current$?.value.args!;
+
+        // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
+        const sub = current$?.onClean$.subscribe(() => {
+            this._resources$.next({
+                previous$: null,
+                current$: null,
+            });
+
+            this.initiate(args);
+        });
+
+        return () => {
+            sub?.unsubscribe();
+        }
+    })
 
     state$ = new Computed(() => {
         const resources = this._resources$.value;
@@ -56,6 +75,35 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         private _resource: Resource<D>,
     ) {}
 
+    initiate(args: D["Args"], force = false): void {
+        const current = this._resources$.value.current$;
+        const cache = this._resource.getQueryCache(args);
+
+        if (!cache) {
+            const newCache = this._resource.initiate(args);
+            this._next(newCache);
+            return;
+        }
+
+        if (force || !(cache.value.isDone || cache.value.isLoading)) {
+            this._resource.initiate(args, { cache });
+        }
+
+        if (current !== cache) {
+            this._next(cache);
+        }
+    }
+
+    compareArgs(args: D["Args"], otherArgs: D["Args"]): boolean {
+        return this._resource.compareArgs(args, otherArgs);
+    }
+
+    complete() {
+        this._effect.complete();
+        this.state$.complete();
+        this._resources$.complete();
+    }
+
     private _next(newCache: CoreResourceQueryCache<D>): void {
         const { previous$, current$ } = this._resources$.value;
 
@@ -79,29 +127,5 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
             previous$: current$,
             current$: newCache,
         });
-    }
-
-    initiate(args: D["Args"], force = false): void {
-        const current = this._resources$.value.current$;
-        const cache = this._resource.getQueryCache(args);
-
-        if (!cache) {
-            const newCache = this._resource.initiate(args);
-            this._next(newCache);
-            return;
-        }
-
-        if (force || !(cache.value.isDone || cache.value.isLoading)) {
-            this._resource.initiate(args, { cache });
-        }
-
-        if (current !== cache) {
-            this._next(cache);
-        }
-    }
-
-    complete() {
-        this.state$.complete();
-        this._resources$.complete();
     }
 }

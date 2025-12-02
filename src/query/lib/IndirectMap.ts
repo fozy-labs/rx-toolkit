@@ -1,4 +1,4 @@
-import { shallowEqual } from "./shallowEqual";
+import { shallowEqual } from "@/common/utils";
 
 type CompareFn<T> = (a: T, b: T) => boolean;
 
@@ -106,6 +106,10 @@ export class IndirectMap<KEY, VALUE> {
             return this._map.has(cachedKey);
         }
 
-                return has;
+        return has;
+    }
+
+    get values(): IterableIterator<VALUE> {
+        return this._map.values();
     }
 }

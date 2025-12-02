@@ -7,7 +7,6 @@ import {
     ResourceInstance,
     ResourceQueryState
 } from "@/query/types";
-import { shallowEqual } from "@/query/lib/shallowEqual";
 import { SKIP } from "@/query/SKIP_TOKEN";
 
 type Result<D extends ResourceDefinition> = Prettify<ResourceQueryState<D>>
@@ -30,7 +29,7 @@ export function useResourceAgent<D extends ResourceDefinition>(
         return agent;
     });
 
-    if (args !== SKIP && !shallowEqual(args, prevArgsRef.current)) {
+    if (args !== SKIP && !agent.compareArgs(args, prevArgsRef.current)) {
         prevArgsRef.current = args;
 
         agent.initiate(args);

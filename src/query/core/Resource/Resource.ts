@@ -1,15 +1,23 @@
 import { ReactiveCache } from "@/query/lib/ReactiveCache";
-import type { ResourceCreateOptions, ResourceDefinition, ResourceInstance, ResourceRefInstanse, ResourceTransaction } from "@/query/types";
+import type {
+    ResourceCreateOptions,
+    ResourceDefinition,
+    ResourceInstance,
+    ResourceRefInstanse,
+    ResourceTransaction
+} from "@/query/types";
 
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
+import { CleanAllResourcesSignal } from "../CleanAllResourcesSignal";
 import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
+import { SharedOptions } from "@/common/options/SharedOptions";
 
 export type CoreResourceQueryState<D extends ResourceDefinition> = {
     transactions: ResourceTransaction[] | null;
     abortController: AbortController | null;
-    args: D['Args'] | null;
+    args: D['Args'];
     savedData: D['Data'] | null;
     data: D['Data'] | null;
     error: unknown | null;
@@ -26,12 +34,12 @@ export type CoreResourceQueryState<D extends ResourceDefinition> = {
 export type CoreResourceQueryCache<D extends ResourceDefinition> = ReactiveCache<CoreResourceQueryState<D>>;
 
 class ResourceQueryState {
-    static create<D extends ResourceDefinition>(): CoreResourceQueryState<D> {
+    static create<D extends ResourceDefinition>(args: D['Args']): CoreResourceQueryState<D> {
         return {
             transactions: null,
             savedData: null,
             abortController: null,
-            args: null,
+            args,
             data: null,
             error: null,
             isError: false,
@@ -46,9 +54,11 @@ class ResourceQueryState {
     }
 
     static load<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D> = ResourceQueryState.create<D>(),
+        state: CoreResourceQueryState<D> | undefined | null,
         args: D['Args'],
     ): CoreResourceQueryState<D> {
+        state = state ?? ResourceQueryState.create<D>(args);
+
         return {
             ...state,
             abortController: new AbortController(),
@@ -170,6 +180,10 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         this._queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>(
             _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
+
+        CleanAllResourcesSignal.clean$.subscribe(() => {
+            this._queriesCache.clear();
+        });
     }
 
     createAgent = () => {
@@ -184,7 +198,7 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         return this._queriesCache.getQueryCache(args);
     }
 
-    createQueryCache(args: D['Args'], state = ResourceQueryState.create<D>()): CoreResourceQueryCache<D> {
+    createQueryCache(args: D['Args'], state = ResourceQueryState.create<D>(args)): CoreResourceQueryCache<D> {
         const cache = this._queriesCache.createQueryCache(args, state);
 
         const hookResolvers = this._hooks.onCacheEntryAdded(args);
@@ -298,7 +312,7 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
                     return;
                 }
 
-                                const data = this._options.select ? this._options.select(result) : result;
+                const data = this._options.select ? this._options.select(result) : result;
                 cache.next(ResourceQueryState.success(state, data));
 
                 hookResolvers.fulfilledSuccess(data);
@@ -314,6 +328,11 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
             });
 
         return cache;
+    }
+
+    compareArgs(args1: D['Args'], args2: D['Args']): boolean {
+        const compareFn = this._options.compareArgsFn ?? SharedOptions.defaultCompareArgs;
+        return compareFn(args1, args2);
     }
 }
 
