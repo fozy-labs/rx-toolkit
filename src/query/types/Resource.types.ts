@@ -43,6 +43,10 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
      * Настройка отображения в devtools
      */
     devtoolsName?: string | false;
+    /**
+     * Сравнение аргументов между собой
+     */
+    compareArgsFn?: (args1: D["Args"], args2: D["Args"]) => boolean;
 }
 
 /**
@@ -82,6 +86,8 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
     initiate(args: D["Args"], force?: boolean): void;
     /** Завершает работу агента, позволяя освободить ресурсы */
     complete(): void;
+    /** Сравнивает аргументы между собой */
+    compareArgs(args1: D["Args"], args2: D["Args"]): unknown;
 }
 
 /**

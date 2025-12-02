@@ -4,6 +4,7 @@ import { SharedOptions } from "@/common/options/SharedOptions";
 
 export class Effect implements SubscriptionLike {
     private _subscriptions: SubscriptionLike[] = [];
+    private _teardown?: () => void;
     protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$?.()?.subscribe(() => {
         this.complete();
     });
@@ -11,7 +12,7 @@ export class Effect implements SubscriptionLike {
     _rang = 0;
 
     constructor(
-        effectFn: (ctx: (fn: () => void) => void) => void,
+        effectFn: (ctx: (fn: () => void) => void) => void | (() => void),
         private _onComplete?: () => void,
     ) {
         this._runInTrackedContext(effectFn, false);
@@ -21,12 +22,16 @@ export class Effect implements SubscriptionLike {
      * Выполняет функцию в tracked-контексте, подписываясь на Tracker.
      */
     private _runInTrackedContext(
-        effectFn: (ctx: (fn: () => void) => void) => void,
+        effectFn: (ctx: (fn: () => void) => void) => void | (() => void),
         isAsyncRun = false,
     ) {
         let prevSubscriptions;
 
         if (!isAsyncRun) {
+            // Вызываем teardown перед перезапуском эффекта
+            this._teardown?.();
+            this._teardown = undefined;
+
             this._rang = 0;
             prevSubscriptions = this._subscriptions;
             this._subscriptions = [];
@@ -66,9 +71,14 @@ export class Effect implements SubscriptionLike {
             },
         });
 
-        effectFn((fn) => {
+        const teardown = effectFn((fn) => {
             this._runInTrackedContext(fn, true);
         });
+
+        // Сохраняем teardown функцию, если она была возвращена
+        if (typeof teardown === 'function') {
+            this._teardown = teardown;
+        }
 
         trackerSub.unsubscribe();
         isTrackedContext = false;
@@ -79,6 +89,11 @@ export class Effect implements SubscriptionLike {
     complete() {
         if (this.closed) return;
         this.closed = true;
+
+        // Вызываем teardown перед завершением эффекта
+        this._teardown?.();
+        this._teardown = undefined;
+
         this._subscriptions.forEach((sub) => sub.unsubscribe());
         this._scopeDestroyedSub?.unsubscribe();
         this._onComplete?.();

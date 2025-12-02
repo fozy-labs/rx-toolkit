@@ -109,6 +109,5 @@ function deleteState(keys: string[], state: any) {
     };
 
     deleteRecursive(acc, keys, 0);
-    console.log('deleteState', keys, state, acc);
     return acc;
 }

@@ -43,6 +43,8 @@ export class ReactiveCache<VALUE> {
      */
     public onClean$ = new Subject<VALUE>();
 
+    public closed = false;
+
     /**
      * Создает новый экземпляр `ReactiveCacheItem`.
      *
@@ -66,8 +68,8 @@ export class ReactiveCache<VALUE> {
                 connector: () => new ReplaySubject(1),
                 resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
                 resetOnComplete: true,
-            }))
-        );
+            }),
+        ));
     }
 
     private _getOnRefCountZero(cacheLifeTime: number | false) {
@@ -80,7 +82,7 @@ export class ReactiveCache<VALUE> {
         }
 
         return () => {
-            return timer(cacheLifeTime)
+            return timer(cacheLifeTime);
         };
     }
 
@@ -101,6 +103,8 @@ export class ReactiveCache<VALUE> {
      * Завершает работу кэша, закрывая все потоки и уведомляя об очистке.
      */
     complete() {
+        if (this.closed) return;
+        this.closed = true;
         this._state$.complete();
         this.onClean$.next(this._state$.value);
         this.onClean$.complete();
