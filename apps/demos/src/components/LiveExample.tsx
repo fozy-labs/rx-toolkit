@@ -12,7 +12,7 @@ import {
     useResourceRef,
     useOperationAgent,
     SKIP,
-    cleanAllResources
+    cleanAllQueriesCache
 } from '@fozy-labs/rx-toolkit';
 import {
     Button,
@@ -71,7 +71,7 @@ export function LiveExample({
         Divider,
         Effect,
         fetches,
-        cleanAllResources,
+        cleanAllQueriesCache,
         React,
         Select,
         SelectItem,
