@@ -1,12 +1,27 @@
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
 import { OperationAgentInstanse, OperationDefinition } from "@/query/types";
-import { Computed, Signal } from "@/signals";
+import { Computed, Effect, Signal } from "@/signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
     private _operations$ = new Signal({
         current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
     }, { isDisabled: true });
+
+    private _effect = new Effect(() => {
+        const current$ = this._operations$.value.current$;
+
+        // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
+        const sub = current$?.onClean$.subscribe(() => {
+            this._operations$.next({
+                current$: null,
+            });
+        });
+
+        return () => {
+            sub?.unsubscribe();
+        }
+    });
 
     state$ = new Computed(() => {
         const operations = this._operations$.value;
@@ -62,5 +77,11 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
 
     createAgent(): OperationAgentInstanse<D> {
         return new OperationAgent(this._operation);
+    }
+
+    complete(): void {
+        this._effect.complete();
+        this._operations$.complete();
+        this.state$.complete();
     }
 }

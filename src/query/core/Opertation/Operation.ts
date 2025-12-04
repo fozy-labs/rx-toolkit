@@ -9,6 +9,7 @@ import type {
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
 import { OperationAgent } from "./OperationAgent";
+import { CleanAllQueriesSignal } from "@/query/core/CleanAllQueriesSignal";
 
 export type CoreOperationQueryState<D extends OperationDefinition> = {
     arg: D['Args'] | null;
@@ -103,6 +104,10 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
         });
 
         this._createLinks();
+
+        CleanAllQueriesSignal.clean$.subscribe(() => {
+            this._queriesCache.clear();
+        });
     }
 
     private _createLinks() {

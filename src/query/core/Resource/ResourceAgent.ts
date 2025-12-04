@@ -25,7 +25,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         return () => {
             sub?.unsubscribe();
         }
-    })
+    });
 
     state$ = new Computed(() => {
         const resources = this._resources$.value;

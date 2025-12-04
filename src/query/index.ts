@@ -1,6 +1,6 @@
 export * from './api/createResource';
 export * from './api/createOperation';
-export * from './api/cleanAllResources';
+export * from './api/cleanAllQueriesCache';
 
 export * from './SKIP_TOKEN';
 

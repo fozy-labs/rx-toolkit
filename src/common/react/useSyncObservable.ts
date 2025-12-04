@@ -2,6 +2,7 @@ import React from 'react'
 import { BehaviorSubject, Observable } from 'rxjs'
 import { useConstant } from "./useConstant";
 import { useEventHandler } from "./useEventHandler";
+import { useUnmount } from "@/common/react/useUnmount";
 
 const NONE = Symbol('NONE')
 
@@ -24,7 +25,6 @@ export function useSyncObservable<T>(
     const { subject$, subscription } = useConstant(() => {
         const subject = new BehaviorSubject<T | typeof NONE>(NONE)
 
-
         /**
          * Check if the Observable synchronously returns a value,
          *  like BehaviorSubject or etc.
@@ -38,11 +38,9 @@ export function useSyncObservable<T>(
         }
     }, [input$])
 
-    React.useEffect(() => {
-        return () => {
-            subscription.unsubscribe()
-            subject$.complete()
-        }
+    useUnmount(() => {
+        subscription.unsubscribe()
+        subject$.complete()
     }, [subject$])
 
     const subscribe = React.useCallback((updateStore: () => void) => {
