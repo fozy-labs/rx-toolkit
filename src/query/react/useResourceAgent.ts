@@ -1,5 +1,5 @@
 import React from "react";
-import { useConstant } from "@/common/react";
+import { useConstant, useUnmount } from "@/common/react";
 import { useSignal } from "@/signals/react";
 import {
     Prettify,
@@ -17,7 +17,7 @@ export function useResourceAgent<D extends ResourceDefinition>(
 ): Result<D>{
     const args = (argss[0] === SKIP ? SKIP : argss[0]) as D['Args'] | typeof SKIP;
 
-    const prevArgsRef = React.useRef<D['Args'] | typeof SKIP>(args);
+    const prevArgsRef = React.useRef<D['Args'] | typeof SKIP>(SKIP);
 
     const agent = useConstant(() => {
         const agent = res.createAgent();
@@ -35,9 +35,9 @@ export function useResourceAgent<D extends ResourceDefinition>(
         agent.initiate(args);
     }
 
-    React.useEffect(() => () => {
+    useUnmount(() => {
         agent.complete();
-    }, []);
+    });
 
     return useSignal(agent.state$);
 }

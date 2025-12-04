@@ -1,3 +1,4 @@
+import { SharedOptions } from "@/common/options/SharedOptions";
 import { ReactiveCache } from "@/query/lib/ReactiveCache";
 import type {
     ResourceCreateOptions,
@@ -9,10 +10,9 @@ import type {
 
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
-import { CleanAllResourcesSignal } from "../CleanAllResourcesSignal";
+import { CleanAllQueriesSignal } from "../CleanAllQueriesSignal";
 import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
-import { SharedOptions } from "@/common/options/SharedOptions";
 
 export type CoreResourceQueryState<D extends ResourceDefinition> = {
     transactions: ResourceTransaction[] | null;
@@ -177,11 +177,12 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
             onQueryStarted: _options.onQueryStarted,
             devtoolsName: _options.devtoolsName,
         });
+
         this._queriesCache = new QueriesCache<D['Args'], CoreResourceQueryState<D>>(
             _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
 
-        CleanAllResourcesSignal.clean$.subscribe(() => {
+        CleanAllQueriesSignal.clean$.subscribe(() => {
             this._queriesCache.clear();
         });
     }

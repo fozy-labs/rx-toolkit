@@ -1,4 +1,4 @@
-import { useConstant, useEventHandler } from "@/common/react";
+import { useConstant, useEventHandler, useUnmount } from "@/common/react";
 import { useSignal } from "@/signals/react";
 import type { Prettify, OperationAgentInstanse, OperationDefinition, OperationQueryState } from "@/query/types";
 
@@ -29,6 +29,10 @@ export function useOperationAgent<D extends OperationDefinition>(op: WithAgent<D
            });
         });
     });
+
+    useUnmount(() => {
+        agent.complete();
+    }, [agent])
 
     return [trigger, state] as const
 }
