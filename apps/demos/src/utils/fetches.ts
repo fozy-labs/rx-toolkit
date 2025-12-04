@@ -1,5 +1,17 @@
 
 export const fetches = {
+    getItems: async () => {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return {
+            items: [
+                { id: 1, name: 'Задача 1', description: 'Реализовать новую функцию' },
+                { id: 2, name: 'Задача 2', description: 'Исправить баги в коде' },
+                { id: 3, name: 'Задача 3', description: 'Написать документацию' },
+                { id: 4, name: 'Задача 4', description: 'Провести код-ревью' },
+                { id: 5, name: 'Задача 5', description: 'Оптимизировать производительность' }
+            ],
+        };
+    },
     getCart: async () => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {

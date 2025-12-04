@@ -1,6 +1,7 @@
 import { createOperation, createResource, useOperationAgent, useResourceAgent } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Chip, Divider } from '@heroui/react';
 import { fetches } from '../../utils/fetches';
+import React from "react";
 
 export const getCart = createResource({
     queryFn: fetches.getCart,

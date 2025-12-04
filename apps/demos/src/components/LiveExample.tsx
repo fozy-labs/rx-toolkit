@@ -11,7 +11,8 @@ import {
     useResourceAgent,
     useResourceRef,
     useOperationAgent,
-    SKIP
+    SKIP,
+    cleanAllResources
 } from '@fozy-labs/rx-toolkit';
 import {
     Button,
@@ -58,29 +59,30 @@ export function LiveExample({
     const [code, setCode] = React.useState(initialCode);
 
     const defaultScope = {
-        React,
-        useState,
-        Signal,
-        Computed,
-        Effect,
-        useSignal,
-        createResource,
-        createOperation,
-        useResourceAgent,
-        useResourceRef,
-        useOperationAgent,
-        SKIP,
         Button,
         Card,
-        CardHeader,
         CardBody,
-        Divider,
-        Chip,
-        Switch,
+        CardHeader,
         Checkbox,
+        Chip,
+        Computed,
+        createOperation,
+        createResource,
+        Divider,
+        Effect,
+        fetches,
+        cleanAllResources,
+        React,
         Select,
         SelectItem,
-        fetches,
+        Signal,
+        SKIP,
+        Switch,
+        useOperationAgent,
+        useResourceAgent,
+        useResourceRef,
+        useSignal,
+        useState,
         ...scope
     };
 
