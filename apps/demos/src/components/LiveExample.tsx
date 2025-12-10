@@ -2,29 +2,33 @@ import React, { useState } from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
+    cleanAllQueriesCache,
     Computed,
-    Effect,
-    Signal,
-    useSignal,
-    createResource,
     createOperation,
+    createResource,
+    Effect,
+    LazyComputed,
+    LazySignal,
+    Signal,
+    SKIP,
+    useOperationAgent,
     useResourceAgent,
     useResourceRef,
-    useOperationAgent,
-    SKIP,
-    cleanAllQueriesCache
+    useSignal,
+    useSignalValue,
 } from '@fozy-labs/rx-toolkit';
 import {
     Button,
     Card,
     CardBody,
     CardHeader,
-    Divider,
-    Chip,
-    Switch,
     Checkbox,
+    Chip,
+    Divider,
+    Input,
     Select,
-    SelectItem
+    SelectItem,
+    Switch,
 } from '@heroui/react';
 import { fetches } from '../utils/fetches';
 
@@ -65,13 +69,16 @@ export function LiveExample({
         CardHeader,
         Checkbox,
         Chip,
+        cleanAllQueriesCache,
         Computed,
         createOperation,
         createResource,
         Divider,
         Effect,
         fetches,
-        cleanAllQueriesCache,
+        Input,
+        LazyComputed,
+        LazySignal,
         React,
         Select,
         SelectItem,
@@ -82,6 +89,7 @@ export function LiveExample({
         useResourceAgent,
         useResourceRef,
         useSignal,
+        useSignalValue,
         useState,
         ...scope
     };

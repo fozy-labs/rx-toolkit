@@ -6,7 +6,10 @@ class CounterStore {
     doubled$ = new Computed(() => this.count$.value * 2);
     squared$ = new Computed(() => (this.doubled$.value / 2) ** 2);
 
-    increment = () => this.count$.value++;
+    increment = () => {
+        console.log('INCREMENT');
+        this.count$.value++
+    };
     decrement = () => this.count$.value--;
     reset = () => this.count$.value = 0;
 }

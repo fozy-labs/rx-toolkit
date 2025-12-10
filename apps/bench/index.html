@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⚡</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RX-Toolkit Benchmarks</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 3rem;
+        text-align: center;
+        margin-bottom: 1rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      }
+
+      .subtitle {
+        text-align: center;
+        font-size: 1.2rem;
+        margin-bottom: 3rem;
+        opacity: 0.9;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      }
+
+      h2 {
+        font-size: 1.8rem;
+        margin-top: 0;
+        margin-bottom: 1rem;
+      }
+
+      .command {
+        background: rgba(0,0,0,0.3);
+        padding: 1rem;
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        margin: 1rem 0;
+      }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin: 2rem 0;
+      }
+
+      .feature {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1.5rem;
+        border-radius: 12px;
+      }
+
+      .feature h3 {
+        margin-top: 0;
+        font-size: 1.3rem;
+      }
+
+      .emoji {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+      }
+
+      button {
+        background: white;
+        color: #667eea;
+        border: none;
+        padding: 1rem 2rem;
+        font-size: 1.1rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>⚡ RX-Toolkit Benchmarks</h1>
+      <p class="subtitle">
+        Комплексное тестирование производительности библиотеки реактивного программирования
+      </p>
+
+      <div class="card">
+        <h2>🎯 Что тестируется</h2>
+        <div class="features">
+          <div class="feature">
+            <div class="emoji">📦</div>
+            <h3>Реактивные Сторы</h3>
+            <ul>
+              <li>rx-toolkit Signal</li>
+              <li>rx-toolkit LazySignal</li>
+              <li>Redux Toolkit</li>
+            </ul>
+          </div>
+
+          <div class="feature">
+            <div class="emoji">🔄</div>
+            <h3>Query Менеджеры</h3>
+            <ul>
+              <li>rx-toolkit Resources</li>
+              <li>rx-toolkit Operations</li>
+              <li>RTK Query</li>
+            </ul>
+          </div>
+
+          <div class="feature">
+            <div class="emoji">⚛️</div>
+            <h3>React Integration</h3>
+            <ul>
+              <li>Hooks overhead</li>
+              <li>Re-render optimization</li>
+              <li>State subscriptions</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🚀 Запуск бенчмарков</h2>
+
+        <h3>Vanilla JS бенчмарки:</h3>
+        <div class="command">npm run bench:vanilla</div>
+
+        <h3>React бенчмарки:</h3>
+        <div class="command">npm run bench:react</div>
+
+        <h3>Все бенчмарки:</h3>
+        <div class="command">npm run bench:all</div>
+      </div>
+
+      <div class="card">
+        <h2>📊 Сценарии тестирования</h2>
+
+        <h3>1. Базовые операции</h3>
+        <ul>
+          <li>Создание и уничтожение примитивов</li>
+          <li>Чтение и запись значений</li>
+          <li>Подписки и отписки</li>
+        </ul>
+
+        <h3>2. Производные значения</h3>
+        <ul>
+          <li>Computed signals</li>
+          <li>Цепочки зависимостей</li>
+          <li>Diamond dependency graph</li>
+        </ul>
+
+        <h3>3. Реальные сценарии</h3>
+        <ul>
+          <li>Todo List (50-100 элементов)</li>
+          <li>Shopping Cart</li>
+          <li>User Profile управление</li>
+        </ul>
+
+        <h3>4. Stress тесты</h3>
+        <ul>
+          <li>Множественные подписчики (10-100)</li>
+          <li>Массовые обновления (100-1000 операций)</li>
+          <li>Параллельные запросы</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>🛠️ Технологии</h2>
+        <ul>
+          <li><strong>Benchmark Engine:</strong> Tinybench (микробенчмарки)</li>
+          <li><strong>Test Runner:</strong> TSX (TypeScript execution)</li>
+          <li><strong>React Testing:</strong> React 19 + React DOM</li>
+          <li><strong>Comparisons:</strong> Redux Toolkit & RTK Query</li>
+        </ul>
+      </div>
+    </div>
+  </body>
+</html>
+

@@ -1,3 +1,4 @@
+import { Tab, Tabs } from "@heroui/react";
 import { LiveExample } from "../components";
 import { Signals } from "../examples";
 
@@ -5,7 +6,18 @@ import { Signals } from "../examples";
 
 ## Примеры
 
-<LiveExample
-    title="Реактивный счетчик"
-    initialCode={Signals.examples.counterStore}
-/>
+<Tabs>
+    <Tab key="store" title="Счетчик">
+        <LiveExample
+            title="Реактивный счетчик"
+            initialCode={Signals.examples.counterStore}
+        />
+    </Tab>
+    <Tab key="lazy" title="LazySignal">
+        <LiveExample
+            title="LazySignal + useSignalValue"
+            initialCode={Signals.examples.lazySignal}
+        />
+    </Tab>
+</Tabs>
+
