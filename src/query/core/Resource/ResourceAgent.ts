@@ -1,5 +1,5 @@
 import { Computed, Effect, Signal } from "@/signals";
-import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
+import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
@@ -74,6 +74,42 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     constructor(
         private _resource: Resource<D>,
     ) {}
+
+    getState(values: D["Args"]): ResourceQueryState<D> {
+        const cache = this._resource.getQueryCache(values);
+
+        if (!cache) {
+            return {
+                isInitiated: false,
+                isLoading: false,
+                isInitialLoading: false,
+                isDone: false,
+                isSuccess: false,
+                isError: false,
+                isLocked: false,
+                isReloading: false,
+                error: undefined,
+                data: undefined,
+                args: undefined as D["Args"],
+            };
+        }
+
+        const state = cache.value;
+
+        return {
+            isInitiated: state.isInitiated,
+            isLoading: state.isLoading,
+            isInitialLoading: state.isLoading && !state.isDone,
+            isDone: state.isDone,
+            isSuccess: state.isSuccess,
+            isError: state.isError,
+            isLocked: state.isLocked,
+            isReloading: state.isReloading,
+            error: state.error ?? undefined,
+            data: state.data ?? undefined,
+            args: state.args ?? undefined,
+        };
+    }
 
     initiate(args: D["Args"], force = false): void {
         const current = this._resources$.value.current$;

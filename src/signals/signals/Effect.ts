@@ -1,19 +1,18 @@
-import { SubscriptionLike } from "rxjs";
+import { Observable, SubscriptionLike } from "rxjs";
 import { Batcher, Tracker } from "../base";
-import { SharedOptions } from "@/common/options/SharedOptions";
+
+type Teardown = () => void
+type RunInContext = (fn: () => void) => void
+type EffectFn = (ctx: RunInContext) => void | Teardown
 
 export class Effect implements SubscriptionLike {
-    private _subscriptions: SubscriptionLike[] = [];
+    private _subscriptions = new Map<Observable<any>, SubscriptionLike>();
     private _teardown?: () => void;
-    protected readonly _scopeDestroyedSub = SharedOptions.getScopeDestroyed$?.()?.subscribe(() => {
-        this.complete();
-    });
     closed = false;
-    _rang = 0;
+    private _rang = 0;
 
     constructor(
-        effectFn: (ctx: (fn: () => void) => void) => void | (() => void),
-        private _onComplete?: () => void,
+        effectFn: () => void | Teardown,
     ) {
         this._runInTrackedContext(effectFn, false);
     }
@@ -22,10 +21,10 @@ export class Effect implements SubscriptionLike {
      * Выполняет функцию в tracked-контексте, подписываясь на Tracker.
      */
     private _runInTrackedContext(
-        effectFn: (ctx: (fn: () => void) => void) => void | (() => void),
+        effectFn: EffectFn,
         isAsyncRun = false,
     ) {
-        let prevSubscriptions;
+        let legacySubscriptions: Map<Observable<any>, SubscriptionLike> | undefined;
 
         if (!isAsyncRun) {
             // Вызываем teardown перед перезапуском эффекта
@@ -33,8 +32,8 @@ export class Effect implements SubscriptionLike {
             this._teardown = undefined;
 
             this._rang = 0;
-            prevSubscriptions = this._subscriptions;
-            this._subscriptions = [];
+            legacySubscriptions = this._subscriptions;
+            this._subscriptions = new Map();
         }
 
         let isTrackedContext = true;
@@ -54,20 +53,31 @@ export class Effect implements SubscriptionLike {
                     this._rang = tracked.rang + 1;
                 }
 
-                this._subscriptions.push(tracked.obsv$.subscribe(() => {
+                if (this._subscriptions.has(tracked.obsv$)) {
+                    return;
+                }
+
+                const legacySub = legacySubscriptions?.get(tracked.obsv$);
+
+                if (legacySub) {
+                    legacySubscriptions!.delete(tracked.obsv$);
+                    this._subscriptions.set(tracked.obsv$, legacySub);
+                    return;
+                }
+
+                const obs$ = tracked.obsv$;
+                const sub = obs$.subscribe(() => {
                     if (isTrackedContext) {
                         return;
                     }
 
                     scheduler!.schedule(scheduledFn);
-                }));
-            },
-            complete: () => {
-                this.complete();
+                });
+
+                this._subscriptions.set(obs$, sub);
             },
             error: (err) => {
                 console.error(err);
-                this.complete();
             },
         });
 
@@ -83,10 +93,10 @@ export class Effect implements SubscriptionLike {
         trackerSub.unsubscribe();
         isTrackedContext = false;
         scheduler = Batcher.scheduler(this._rang);
-        prevSubscriptions?.forEach((sub) => sub.unsubscribe());
+        legacySubscriptions?.forEach((sub) => sub.unsubscribe());
     }
 
-    complete() {
+    unsubscribe() {
         if (this.closed) return;
         this.closed = true;
 
@@ -95,14 +105,16 @@ export class Effect implements SubscriptionLike {
         this._teardown = undefined;
 
         this._subscriptions.forEach((sub) => sub.unsubscribe());
-        this._scopeDestroyedSub?.unsubscribe();
-        this._onComplete?.();
+    }
+
+    _getRang() {
+        return this._rang;
     }
 
     /**
-     * @deprecated Use `complete()` method instead.
+     * @deprecated Use `unsubscribe()` method instead.
      */
-    unsubscribe() {
-        this.complete();
+    complete() {
+        this.unsubscribe();
     }
 }
