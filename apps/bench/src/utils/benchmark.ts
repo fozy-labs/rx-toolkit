@@ -57,10 +57,10 @@ export class BenchmarkRunner {
   constructor(suiteName: string, options: BenchmarkOptions = {}) {
     this.suiteName = suiteName;
     this.options = {
-      time: options.time ?? 1000,
-      iterations: options.iterations ?? 10,
-      warmupIterations: options.warmupIterations ?? 100, // Увеличено с 5 до 100 для прогрева V8 JIT
-      runs: options.runs ?? 3,
+      time: options.time ?? 1500,
+      iterations: options.iterations ?? 8,
+      warmupIterations: options.warmupIterations ?? 10,
+      runs: options.runs ?? 5,
       maxWorkers: options.maxWorkers ?? Math.min(cpus().length, 4),
       randomizeOrder: options.randomizeOrder ?? true,
       useWorkers: options.useWorkers ?? false, // По умолчанию false
@@ -123,12 +123,12 @@ export class BenchmarkRunner {
       if (global.gc) {
         for (let i = 0; i < 3; i++) {
           global.gc();
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise(resolve => setTimeout(resolve, 150));
         }
       }
 
       // Пауза для стабилизации
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 250));
 
       const memoryBefore = this.getMemoryStats();
 
@@ -147,10 +147,10 @@ export class BenchmarkRunner {
       const sortedSamples = [...samples].sort((a, b) => a - b);
 
       // Пауза и GC для точного замера памяти
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 150));
       if (global.gc) {
         global.gc();
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
       const memoryAfter = this.getMemoryStats();
 

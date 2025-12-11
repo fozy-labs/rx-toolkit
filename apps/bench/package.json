@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "bench:vanilla": "tsx src/benchmarks/vanilla/runner.ts",
-    "bench:test": "tsx --expose-gc src/benchmarks/vanilla/test-new-system.ts"
+    "bench:vanilla": "tsx src/benchmarks/vanilla/runner.ts"
   },
   "dependencies": {
     "@fozy-labs/rx-toolkit": "file:../..",
