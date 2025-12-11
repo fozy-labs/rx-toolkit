@@ -38,8 +38,12 @@ export async function runStoreComparisonBench() {
             lastValue = new Signal(0);
             lastValue.complete();
         })
-        .add('rx-toolkit LazySignal', () => {
+        .add('rx-toolkit LazySignal (fn)', () => {
             lastValue = LazySignal.create(0);
+            // LazySignal не требует явного unsubscribe
+        })
+        .add('rx-toolkit LazySignal (class)', () => {
+            lastValue = new LazySignal(0);
             // LazySignal не требует явного unsubscribe
         })
         .add('Redux Toolkit Store', () => {
@@ -57,7 +61,6 @@ export async function runStoreComparisonBench() {
             });
 
             injectReducer(lastValue.reducerPath, lastValue.reducer);
-            // Удаление редьюсера в Redux Toolkit не типично, поэтому пропускаем этот шаг
         })
         .run();
 
@@ -77,6 +80,13 @@ export async function runStoreComparisonBench() {
                 lastValue = baseLazySignal();
                 setValue(lastValue);
                 lastValue = baseLazySignal();
+            }
+        })
+        .add('rx-toolkit LazySignal peek()', () => {
+            for (let i = 0; i < 1000; i++) {
+                lastValue = baseLazySignal.peek();
+                setValue(lastValue);
+                lastValue = baseLazySignal.peek();
             }
         })
         .add('Redux Toolkit Store', () => {
@@ -369,9 +379,9 @@ export async function runStoreComparisonBench() {
         completed: boolean;
       }
 
-      const todos = new LazySignal<Todo[]>([]);
-      const completedCount = new LazyComputed(() =>
-        todos.get().filter(t => t.completed).length
+      const todos = LazySignal.create<Todo[]>([]);
+      const completedCount = LazyComputed.create(() =>
+        todos().filter(t => t.completed).length
       );
 
       let updates = 0;
