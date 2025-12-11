@@ -1,7 +1,7 @@
 import { BehaviorSubject } from "rxjs";
-import { Batcher, Tracker, Devtools } from "../base";
 import { DevtoolsStateLike, StateDevtoolsOptions } from "@/common/devtools";
 import { LazySignalFn } from "@/signals/types";
+import { Batcher, DependencyTracker, Devtools } from "../base";
 
 export class LazySignal<T> {
     private readonly _stateDevtools;
@@ -23,7 +23,7 @@ export class LazySignal<T> {
         });
 
         if (this._stateDevtools) {
-            LazySignal.finalizationRegistry.register(this, this._stateDevtools);
+            LazySignal._finalizationRegistry.register(this, this._stateDevtools);
         }
     }
 
@@ -36,7 +36,10 @@ export class LazySignal<T> {
     }
 
     get() {
-        Tracker.next(this._rang, this.bs$);
+        DependencyTracker.track({
+            rang: this._rang,
+            obsv$: this.obsv$,
+        });
         return this.bs$.value;
     }
 
@@ -49,14 +52,14 @@ export class LazySignal<T> {
     }
 
     /**
-     * @deprecated use `peek()` or () instead.
+     * @deprecated use `peek()` or get() instead.
      */
     get value(): T {
         return this.get();
     }
 
     /**
-     * @deprecated use `peek()` or () instead.
+     * @deprecated use `peek()` or get() instead.
      */
     getValue(): T {
         return this.bs$.getValue();
@@ -83,7 +86,7 @@ export class LazySignal<T> {
         });
     }
 
-    private static finalizationRegistry = new FinalizationRegistry((heldValue: DevtoolsStateLike) => {
+    private static _finalizationRegistry = new FinalizationRegistry((heldValue: DevtoolsStateLike) => {
         heldValue('$COMPLETED' as any);
     });
 
@@ -94,7 +97,11 @@ export class LazySignal<T> {
             return ls.get();
         }
 
-        Object.setPrototypeOf(signalFn, ls);
+        signalFn.peek = () => ls.peek();
+        signalFn.set = (value: T) => ls.set(value);
+        signalFn.get = () => ls.get();
+        signalFn.obsv$ = ls.obsv$;
+        signalFn._setRang = (rang: number) => ls._setRang(rang);
 
         return signalFn as (LazySignal<T> & (() => T));
     }

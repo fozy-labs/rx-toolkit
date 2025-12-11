@@ -1,23 +1,18 @@
+import { Observable } from "rxjs";
+
 export type LazySignalFn <T> = {
     (): T,
     set(value: T): void
     peek(): T
-
-    /** @deprecated */
-    next(v: T): void
-    /** @deprecated */
-    value: T
-    /** @deprecated */
     get(): T
+    obsv$: Observable<T>
+    _setRang(rang: number): void;
 };
 
 
 export type LazyComputedFn <T> = {
     (): T,
     peek(): T
-
-    /** @deprecated */
+    obsv$: Observable<T>
     get(): T
-    /** @deprecated */
-    value: T
 };

@@ -1,15 +1,15 @@
-import { StateDevtoolsOptions } from "@/common/devtools";
-import { LazySignal } from "@/signals";
-import { Effect } from "./Effect";
 import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs";
+import { StateDevtoolsOptions } from "@/common/devtools";
 import { LazyComputedFn } from "@/signals/types";
+import { LazySignal } from "@/signals";
+import { FastEffect } from "./FastEffect";
 
 export class LazyComputed<T> {
     private static _EMPTY = Symbol('empty');
 
     private _ls;
     readonly obsv$;
-    private _effect: Effect | null = null;
+    private _effect: FastEffect | null = null;
 
     get isStarted() {
         return this._ls.peek() !== LazyComputed._EMPTY;
@@ -46,10 +46,10 @@ export class LazyComputed<T> {
         );
     }
 
-    private _start() {
+    private _start(): T {
         let initialValue: T | symbol = LazyComputed._EMPTY;
 
-        this._effect = new Effect(() => {
+        this._effect = new FastEffect(() => {
             if (initialValue === LazyComputed._EMPTY) {
                 initialValue = this._computeFn();
                 return;
@@ -63,7 +63,7 @@ export class LazyComputed<T> {
             throw new Error('Computed value is not initialized');
         }
 
-        return initialValue;
+        return initialValue as T;
     }
 
     private _stop() {
@@ -107,7 +107,9 @@ export class LazyComputed<T> {
             return lc.get();
         }
 
-        Object.setPrototypeOf(computedFn, lc);
+        computedFn.peek = () => lc.peek();
+        computedFn.get = () => lc.get();
+        computedFn.obsv$ = lc.obsv$;
 
         return computedFn as (LazyComputed<T> & (() => T));
     }
