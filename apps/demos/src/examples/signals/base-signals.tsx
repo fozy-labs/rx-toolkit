@@ -2,10 +2,10 @@ import { Signal, Computed, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody } from "@heroui/react";
 
 const counter$ = new Signal(0);
-const doubled$ = new Computed(() => counter$.value * 2);
+const doubled$ = new Computed(() => counter$.get() * 2);
 
 function increment() {
-    counter$.value += 1;
+    counter$.set(counter$.peek() + 1);
 }
 
 export function Base() {

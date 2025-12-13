@@ -1,6 +1,6 @@
-import { createResource, useResourceAgent, useResourceRef } from '@fozy-labs/rx-toolkit';
-import { useState } from 'react';
+import React from 'react';
 import { Button, Card, CardBody, CardHeader, Checkbox, Divider, Select, SelectItem } from '@heroui/react';
+import { createResource, useResourceAgent, useResourceRef } from '@fozy-labs/rx-toolkit';
 
 interface TodoItem {
     id: number;
@@ -43,7 +43,7 @@ let nextIdRef = { current: 1 };
 export function Base() {
     const todoQuery = useResourceAgent(todoListResource, undefined);
     const todoRef = useResourceRef(todoListResource, undefined);
-    const [patches, setPatches] = useState<PatchDemoItem[]>([]);
+    const [patches, setPatches] = React.useState<PatchDemoItem[]>([]);
 
     const createPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
         if (!todoRef) throw new Error('Resource reference is not available');

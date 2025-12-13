@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
@@ -7,15 +7,12 @@ import {
     createOperation,
     createResource,
     Effect,
-    LazyComputed,
-    LazySignal,
     Signal,
     SKIP,
     useOperationAgent,
     useResourceAgent,
     useResourceRef,
     useSignal,
-    useSignalValue,
 } from '@fozy-labs/rx-toolkit';
 import {
     Button,
@@ -77,8 +74,6 @@ export function LiveExample({
         Effect,
         fetches,
         Input,
-        LazyComputed,
-        LazySignal,
         React,
         Select,
         SelectItem,
@@ -89,8 +84,6 @@ export function LiveExample({
         useResourceAgent,
         useResourceRef,
         useSignal,
-        useSignalValue,
-        useState,
         ...scope
     };
 

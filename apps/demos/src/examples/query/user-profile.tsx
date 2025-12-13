@@ -1,6 +1,6 @@
 import { createResource, useResourceAgent, SKIP } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider, Switch } from '@heroui/react';
-import { useState } from 'react';
+import React from 'react';
 import { fetches } from "../../utils/fetches.ts";
 
 export const getUserResource = createResource({
@@ -35,9 +35,9 @@ export const getUserStatsResource = createResource({
 });
 
 export function Base() {
-    const [selectedUserId, setSelectedUserId] = useState<number>(1);
-    const [period, setPeriod] = useState<string>('daily');
-    const [enableStats, setEnableStats] = useState(true);
+    const [selectedUserId, setSelectedUserId] = React.useState<number>(1);
+    const [period, setPeriod] = React.useState<string>('daily');
+    const [enableStats, setEnableStats] = React.useState(true);
 
     const userQuery = useResourceAgent(
         getUserResource,
