@@ -35,9 +35,5 @@ export function useResourceAgent<D extends ResourceDefinition>(
         agent.initiate(args);
     }
 
-    useUnmount(() => {
-        agent.complete();
-    });
-
     return useSignal(agent.state$);
 }

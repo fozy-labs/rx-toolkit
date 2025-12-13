@@ -8,29 +8,29 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         current$: null as CoreResourceQueryCache<D> | null,
     }, { isDisabled: true });
 
-    private _effect = new Effect(() => {
-        const current$ = this._resources$.value.current$;
-        const args = current$?.value.args!;
-
-        // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
-        const sub = current$?.onClean$.subscribe(() => {
-            this._resources$.next({
-                previous$: null,
-                current$: null,
-            });
-
-            this.initiate(args);
-        });
-
-        return () => {
-            sub?.unsubscribe();
-        }
-    });
+    // private _effect = new Effect(() => {
+    //     const current$ = this._resources$.get().current$;
+    //     const args = current$?.value.args!;
+    //
+    //     // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
+    //     const sub = current$?.onClean$.subscribe(() => {
+    //         this._resources$.set({
+    //             previous$: null,
+    //             current$: null,
+    //         });
+    //
+    //         this.initiate(args);
+    //     });
+    //
+    //     return () => {
+    //         sub?.unsubscribe();
+    //     }
+    // });
 
     state$ = new Computed(() => {
-        const resources = this._resources$.value;
+        const resources = this._resources$.get();
         let prevState;
-        const currState = resources.current$?.value$.value;
+        const currState = resources.current$?.value$.get();
 
         if (!currState?.isDone) {
             prevState = resources.previous$?.value;
@@ -112,7 +112,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     }
 
     initiate(args: D["Args"], force = false): void {
-        const current = this._resources$.value.current$;
+        const current = this._resources$.peek().current$;
         const cache = this._resource.getQueryCache(args);
 
         if (!cache) {
@@ -134,32 +134,26 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         return this._resource.compareArgs(args, otherArgs);
     }
 
-    complete() {
-        this._effect.complete();
-        this.state$.complete();
-        this._resources$.complete();
-    }
-
     private _next(newCache: CoreResourceQueryCache<D>): void {
-        const { previous$, current$ } = this._resources$.value;
+        const { previous$, current$ } = this._resources$.peek();
 
         if (!current$) {
-            this._resources$.next({
+            this._resources$.set({
                 previous$: null,
                 current$: newCache,
             });
             return;
         }
 
-        if (!current$.value.isDone && previous$?.value.isDone) {
-            this._resources$.next({
+        if (!current$.value$.peek().isDone && previous$?.value$.peek().isDone) {
+            this._resources$.set({
                 previous$: previous$,
                 current$: newCache,
             });
             return;
         }
 
-        this._resources$.next({
+        this._resources$.set({
             previous$: current$,
             current$: newCache,
         });

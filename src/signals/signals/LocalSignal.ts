@@ -1,7 +1,11 @@
 import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
-import { Computed } from "../signals";
+import { SignalFn } from "@/signals/types";
+import { StateDevtoolsOptions } from "@/common/devtools";
 import { signalize } from "../operators";
+import { Signal } from "./Signal";
+import { Computed } from "./Computed";
+
 
 type Options<T> = {
     zodSchema?: ZodType<T>
@@ -13,18 +17,88 @@ type Options<T> = {
     validator$?: Observable<(value: T) => boolean>;
     checkEffect?: (value: T) => boolean;
     defaultValue: T;
-    devtoolsName?: string | false
+    devtoolsOptions?: StateDevtoolsOptions;
 }
 
 const NullOrString = z.string().nullable();
 
 const NONE = Symbol('NONE');
 
-export class LocalSignal<T = string | null | number | undefined> extends Computed<T> {
+export class LocalSignal<T = string | null | number | undefined> {
+    private _signal;
+    private _computed;
+    private readonly _options;
+
+    constructor(options: Options<T>) {
+        let initialValue = LocalSignal._getStorageValue(options);
+
+        if (initialValue === NONE) {
+            initialValue = options.defaultValue;
+        }
+
+        this._signal = new Signal<T>(initialValue, { isDisabled: true });
+
+        const validatorSignal$ = options.validator$ && signalize(options.validator$);
+
+        this._computed = new Computed<T>(() => {
+            const value = this._signal.get();
+
+            if (validatorSignal$) {
+                const validator = validatorSignal$.get();
+
+                if (!validator(value)) {
+                    return options.defaultValue;
+                }
+            }
+
+            if (options.checkEffect) {
+                return options.checkEffect(value) ? value : options.defaultValue;
+            }
+
+            return value;
+        }, options.devtoolsOptions);
+
+        this._options = options;
+    }
+
+    set(value: T) {
+        LocalSignal._setStorageValue(this._options, value);
+        this._signal.set(value);
+    }
+
+    peek() {
+        return this._computed.peek();
+    }
+
+    get() {
+        return this._computed.get();
+    }
+
+    obsv$(): Observable<T> {
+        return this._computed.obsv$;
+    }
+
+    // === static ===
+
     static KEY_PREFIX = '__LSValue__'
     static DRIVER = localStorage;
 
-    private static _getStorageValue(options: Options<any>) {
+    static create<T = string | null | number | undefined>(options: Options<T>): SignalFn<T> {
+        const localSignal = new LocalSignal<T>(options);
+
+        function signalFn() {
+            return localSignal.get();
+        }
+
+        signalFn.peek = () => localSignal.peek();
+        signalFn.get = () => localSignal.get();
+        signalFn.set = (value: T) => localSignal.set(value);
+        signalFn.obsv$ = localSignal.obsv$;
+
+        return signalFn as unknown as SignalFn<T>;
+    }
+
+    static _getStorageValue(options: Options<any>) {
         const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
         const item = LocalSignal.DRIVER.getItem(storageKey);
 
@@ -63,42 +137,5 @@ export class LocalSignal<T = string | null | number | undefined> extends Compute
         data[subKey] = value;
 
         LocalSignal.DRIVER.setItem(storageKey, JSON.stringify(data));
-    }
-
-    constructor(private _options: Options<T>) {
-        const validator$ = _options.validator$;
-        const checkEffect = _options.checkEffect;
-        const defaultValue = _options.defaultValue;
-        const devtoolsName = _options.devtoolsName;
-
-        const validatorSignal$ = validator$ && signalize(validator$);
-
-        super(() => {
-            const value = LocalSignal._getStorageValue(_options);
-            if (value === NONE) return defaultValue;
-
-            if (validatorSignal$) {
-                const validator = validatorSignal$.value;
-
-                if (!validator(value)) {
-                    return defaultValue;
-                }
-            }
-
-            if (checkEffect) {
-                return checkEffect(value) ? value : defaultValue;
-            }
-
-            return value;
-        }, {
-            isDisabled: devtoolsName === false,
-            base: 'LocalSignals',
-            name: devtoolsName || undefined,
-        });
-    }
-
-    protected _onChange(value: T) {
-        LocalSignal._setStorageValue(this._options, value);
-        return super._onChange(value);
     }
 }

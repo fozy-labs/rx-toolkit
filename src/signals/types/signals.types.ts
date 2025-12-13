@@ -1,18 +1,20 @@
 import { Observable } from "rxjs";
 
-export type LazySignalFn <T> = {
+export interface ReadableSignalLike<T> {
+    readonly obsv$: Observable<T>;
+    peek(): T;
+    get(): T;
+}
+
+export interface WriteableSignalLike<T> {
+    set(value: T): void;
+}
+
+export interface SignalFn<T> extends ReadableSignalLike<T>, WriteableSignalLike<T> {
     (): T,
-    set(value: T): void
-    peek(): T
-    get(): T
-    obsv$: Observable<T>
-    _setRang(rang: number): void;
-};
+}
 
 
-export type LazyComputedFn <T> = {
+export interface ComputedFn<T> extends ReadableSignalLike<T> {
     (): T,
-    peek(): T
-    obsv$: Observable<T>
-    get(): T
-};
+}

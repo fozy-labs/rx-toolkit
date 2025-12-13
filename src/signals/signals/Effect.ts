@@ -1,9 +1,8 @@
 import { Observable, SubscriptionLike } from "rxjs";
-import { Batcher, Tracker } from "../base";
+import { Batcher, DependencyTracker } from "../base";
 
 type Teardown = () => void
-type RunInContext = (fn: () => void) => void
-type EffectFn = (ctx: RunInContext) => void | Teardown
+type EffectFn = () => void | Teardown
 
 export class Effect implements SubscriptionLike {
     private _subscriptions = new Map<Observable<any>, SubscriptionLike>();
@@ -12,88 +11,79 @@ export class Effect implements SubscriptionLike {
     private _rang = 0;
 
     constructor(
-        effectFn: () => void | Teardown,
+        effectFn: EffectFn,
     ) {
-        this._runInTrackedContext(effectFn, false);
+        this._runInTrackedContext(effectFn);
     }
 
     /**
      * Выполняет функцию в tracked-контексте, подписываясь на Tracker.
      */
-    private _runInTrackedContext(
-        effectFn: EffectFn,
-        isAsyncRun = false,
-    ) {
-        let legacySubscriptions: Map<Observable<any>, SubscriptionLike> | undefined;
+    private _runInTrackedContext(effectFn: EffectFn) {
+        this._callTeardown();
 
-        if (!isAsyncRun) {
-            // Вызываем teardown перед перезапуском эффекта
-            this._teardown?.();
-            this._teardown = undefined;
+        this._rang = 0;
+        const legacySubscriptions = this._subscriptions;
+        this._subscriptions = new Map();
 
-            this._rang = 0;
-            legacySubscriptions = this._subscriptions;
-            this._subscriptions = new Map();
-        }
-
-        let isTrackedContext = true;
-        // TODO подумать как организовать планировщик при асинхронном запуске
         let scheduler: ReturnType<typeof Batcher.scheduler> | undefined;
 
+        // Стабильная функция для планирования выполнения эффекта
         const scheduledFn = () => {
             this._runInTrackedContext(effectFn);
         }
 
-        // Подписываемся на Tracker. Во время выполнения подпишемся на все tracked наблюдатели.
-        const trackerSub = Tracker.tracked$.subscribe({
-            next: (tracked) => {
-                if (!isTrackedContext) return;
+        // Функция для проверки и создания подписки на зависимость
+        const checkSubscription = (obsv$: Observable<unknown>) => {
+            if (this._subscriptions.has(obsv$)) {
+                return;
+            }
 
-                if (tracked.rang <= this._rang) {
-                    this._rang = tracked.rang + 1;
-                }
+            const legacySub = legacySubscriptions.get(obsv$);
 
-                if (this._subscriptions.has(tracked.obsv$)) {
+            if (legacySub) {
+                legacySubscriptions!.delete(obsv$);
+                this._subscriptions.set(obsv$, legacySub);
+                return;
+            }
+
+            const sub = obsv$.subscribe(() => {
+                if (isTrackedContext) {
                     return;
                 }
 
-                const legacySub = legacySubscriptions?.get(tracked.obsv$);
+                scheduler!.schedule(scheduledFn);
+            });
 
-                if (legacySub) {
-                    legacySubscriptions!.delete(tracked.obsv$);
-                    this._subscriptions.set(tracked.obsv$, legacySub);
-                    return;
-                }
+            this._subscriptions.set(obsv$, sub);
+            return sub;
+        };
 
-                const obs$ = tracked.obsv$;
-                const sub = obs$.subscribe(() => {
-                    if (isTrackedContext) {
-                        return;
-                    }
+        let isTrackedContext = true;
+        const stopTracking = DependencyTracker.start((dependency) => {
+            checkSubscription(dependency.obsv$);
 
-                    scheduler!.schedule(scheduledFn);
-                });
+            const dependencyRang = dependency.getRang();
 
-                this._subscriptions.set(obs$, sub);
-            },
-            error: (err) => {
-                console.error(err);
-            },
+            if (dependencyRang >= this._rang) {
+                this._rang = dependencyRang + 1;
+            }
         });
 
-        const teardown = effectFn((fn) => {
-            this._runInTrackedContext(fn, true);
-        });
+        const optionalTeardown = effectFn();
+
+        stopTracking();
+        isTrackedContext = false;
 
         // Сохраняем teardown функцию, если она была возвращена
-        if (typeof teardown === 'function') {
-            this._teardown = teardown;
+        if (typeof optionalTeardown === 'function') {
+            this._teardown = optionalTeardown;
         }
 
-        trackerSub.unsubscribe();
-        isTrackedContext = false;
         scheduler = Batcher.scheduler(this._rang);
-        legacySubscriptions?.forEach((sub) => sub.unsubscribe());
+        legacySubscriptions?.forEach((sub) => {
+            sub.unsubscribe();
+        });
     }
 
     unsubscribe() {
@@ -101,8 +91,7 @@ export class Effect implements SubscriptionLike {
         this.closed = true;
 
         // Вызываем teardown перед завершением эффекта
-        this._teardown?.();
-        this._teardown = undefined;
+        this._callTeardown();
 
         this._subscriptions.forEach((sub) => sub.unsubscribe());
     }
@@ -116,5 +105,16 @@ export class Effect implements SubscriptionLike {
      */
     complete() {
         this.unsubscribe();
+    }
+
+    private _callTeardown() {
+        if (this._teardown) {
+            this._teardown();
+            this._teardown = undefined;
+        }
+    }
+
+    static create(effectFn: EffectFn) {
+        return new Effect(effectFn);
     }
 }

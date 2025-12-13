@@ -253,7 +253,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
         const cache = this.initiate(args);
         const resolver = new PromiseResolver<D['Data']>();
 
-        const subscription = cache.value$.subscribe((state) => {
+        const subscription = cache.value$.obsv$.subscribe((state) => {
             if (!state.isInitiated || state.isLoading || state.isRepeating) return;
 
             if (state.isError) {

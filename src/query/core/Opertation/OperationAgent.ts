@@ -1,6 +1,6 @@
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
 import { OperationAgentInstanse, OperationDefinition } from "@/query/types";
-import { Computed, Effect, Signal } from "@/signals";
+import { Computed, Signal } from "@/signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
@@ -8,24 +8,9 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
         current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
     }, { isDisabled: true });
 
-    private _effect = new Effect(() => {
-        const current$ = this._operations$.value.current$;
-
-        // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
-        const sub = current$?.onClean$.subscribe(() => {
-            this._operations$.next({
-                current$: null,
-            });
-        });
-
-        return () => {
-            sub?.unsubscribe();
-        }
-    });
-
     state$ = new Computed(() => {
-        const operations = this._operations$.value;
-        const currState = operations.current$?.value$.value;
+        const operations = this._operations$.get();
+        const currState = operations.current$?.value$.get();
 
         // Нет текущего состояния — дефолт
         if (!currState) {
@@ -56,7 +41,7 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
     ) {}
 
     private _next(newCache: ReactiveCache<CoreOperationQueryState<D>>): void {
-        this._operations$.next({
+        this._operations$.set({
             current$: newCache,
         });
     }
@@ -77,11 +62,5 @@ export class OperationAgent<D extends OperationDefinition> implements OperationA
 
     createAgent(): OperationAgentInstanse<D> {
         return new OperationAgent(this._operation);
-    }
-
-    complete(): void {
-        this._effect.complete();
-        this._operations$.complete();
-        this.state$.complete();
     }
 }

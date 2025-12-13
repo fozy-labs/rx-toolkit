@@ -1,4 +1,4 @@
-import { ReadableSignalLike } from "@/signals";
+import { ReadableSignalLike } from "@/signals/types";
 import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
 import { ResourceDefinition, ResourceInstance } from "./Resource.types";
 
@@ -150,8 +150,6 @@ export type OperationAgentInstanse<D extends OperationDefinition> = {
     initiate(args: D["Args"]): void;
     /** Создает новый агент операции */
     createAgent(): OperationAgentInstanse<D>;
-    /** Завершает все текущие выполнения операции и очищает ресурсы */
-    complete(): void;
 }
 
 /**

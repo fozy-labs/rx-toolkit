@@ -1,8 +1,16 @@
 import { Observable } from "rxjs";
 
-type DependencyRecord = {
-    rang: number;
+export type DependencyRecord = {
+    /**
+     * Правило: getRang() должен вызываться только ПОСЛЕ подписки на obsv$,
+     * чтобы гарантировать корректный порядок рангов при ленивой инициализации.
+     */
+    getRang(): number;
     obsv$: Observable<unknown>;
+    /**
+     * Зарезервировано для отладки и логирования.
+     */
+    meta?: any;
 }
 
 export class DependencyTracker {
@@ -13,14 +21,12 @@ export class DependencyTracker {
     }
 
     static start(handler: (arg: DependencyRecord) => void) {
-        if (this._currentHandler !== null) {
-            throw new Error("DependencyCollector is already started.");
-        }
+        let prevHandler = this._currentHandler;
 
         this._currentHandler = handler;
 
         return () => {
-            this._currentHandler = null;
+            this._currentHandler = prevHandler;
         };
     }
 }
