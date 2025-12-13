@@ -1,8 +1,8 @@
 import { BehaviorSubject } from "rxjs";
 import { DevtoolsStateLike, StateDevtoolsOptions } from "@/common/devtools";
 import { SignalFn } from "@/signals/types";
-import { Batcher, DependencyTracker, Devtools } from "../base";
 import { Computed, Effect } from "@/signals";
+import { Batcher, DependencyTracker, Devtools } from "../base";
 
 export class Signal<T> {
     private readonly _stateDevtools;

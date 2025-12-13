@@ -31,11 +31,7 @@ export class QueriesCache<KEY, VALUE> {
         return cache;
     }
 
-    clear() {
-        // Делаем именно так, тк при очистке могут синхронно добавляться новые кеши
-        const values = Array.from(this._cache.values);
-        values.forEach(c => {
-            c.complete()
-        });
+    values() {
+        return this._cache.values();
     }
 }

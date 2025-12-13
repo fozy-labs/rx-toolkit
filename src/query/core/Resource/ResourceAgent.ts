@@ -8,29 +8,32 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         current$: null as CoreResourceQueryCache<D> | null,
     }, { isDisabled: true });
 
-    // private _effect = new Effect(() => {
-    //     const current$ = this._resources$.get().current$;
-    //     const args = current$?.value.args!;
-    //
-    //     // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
-    //     const sub = current$?.onClean$.subscribe(() => {
-    //         this._resources$.set({
-    //             previous$: null,
-    //             current$: null,
-    //         });
-    //
-    //         this.initiate(args);
-    //     });
-    //
-    //     return () => {
-    //         sub?.unsubscribe();
-    //     }
-    // });
-
     state$ = new Computed(() => {
         const resources = this._resources$.get();
         let prevState;
         const currState = resources.current$?.value$.get();
+
+        // Отлавливаем кейс, когда ресурс был спрошен.
+        // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
+        //  но в будущем могут быть и другие причины, что потребует доработку.
+        if (currState && !currState.isInitiated) {
+            this._resource.initiate(currState.args!, { cache: resources.current$! });
+            return {
+                isInitiated: true,
+                isLoading: true,
+                isInitialLoading: true,
+                isDone: false,
+                isSuccess: false,
+                isError: false,
+                isReloading: false,
+                error: undefined,
+                data: undefined,
+                // TODO вообще нет точного представлния, как блокировака доложна работать.
+                //  Мб тут стоит брать currState.isLocked.
+                isLocked: false,
+                args: currState.args!,
+            }
+        }
 
         if (!currState?.isDone) {
             prevState = resources.previous$?.value;

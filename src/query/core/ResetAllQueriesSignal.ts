@@ -1,14 +1,14 @@
 import { Subject } from "rxjs";
 import { Batcher } from "@/signals";
 
-export class CleanAllQueriesSignal {
+export class ResetAllQueriesSignal {
     private static subject$ = new Subject<void>();
 
-    static clean$ = CleanAllQueriesSignal.subject$;
+    static clean$ = ResetAllQueriesSignal.subject$;
 
     static clean() {
         Batcher.batch(() => {
-            CleanAllQueriesSignal.subject$.next();
+            ResetAllQueriesSignal.subject$.next();
         });
     }
 }

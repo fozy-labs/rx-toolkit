@@ -9,7 +9,7 @@ import type {
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
 import { OperationAgent } from "./OperationAgent";
-import { CleanAllQueriesSignal } from "@/query/core/CleanAllQueriesSignal";
+import { ResetAllQueriesSignal } from "@/query/core/ResetAllQueriesSignal";
 
 export type CoreOperationQueryState<D extends OperationDefinition> = {
     arg: D['Args'] | null;
@@ -105,8 +105,11 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
 
         this._createLinks();
 
-        CleanAllQueriesSignal.clean$.subscribe(() => {
-            this._queriesCache.clear();
+        ResetAllQueriesSignal.clean$.subscribe(() => {
+            const caches = Array.from(this._queriesCache.values());
+            caches.forEach((cache) => {
+                cache.next(OperationQueryState.create<D>());
+            });
         });
     }
 
