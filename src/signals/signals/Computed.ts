@@ -13,9 +13,10 @@ export class Computed<T> {
         private _computeFn: () => T,
         private options?: StateDevtoolsOptions
     ) {
-        const lsOptions = {
+        const lsOptions: StateDevtoolsOptions = {
             base: Computed.name,
-            ...(typeof options === 'string' ? { name: options } : options)
+            ...(typeof options === 'string' ? { name: options } : options),
+            _skipValues: [Computed._EMPTY],
         };
 
         this._ls = new Signal<symbol | T>(Computed._EMPTY, lsOptions);

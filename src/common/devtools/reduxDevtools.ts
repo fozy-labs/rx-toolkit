@@ -10,9 +10,114 @@ interface ReduxDevtoolsConnection {
     send(action: any, state: any): void;
 }
 
+/**
+ * Стратегия батчинга обновлений:
+ * - 'sync' - синхронное выполнение без батчинга (каждое обновление отправляется немедленно)
+ * - 'microtask' - пакование в микротаске (queueMicrotask), все обновления в текущем синхронном потоке объединяются
+ * - 'task' - пакование в макротаске (setTimeout), с настраиваемой задержкой
+ */
+export type BatchStrategy = 'sync' | 'microtask' | 'task';
+
 type Options = {
     name?: string;
     driver?: ReduxDevtoolsExtension;
+    /**
+     * Стратегия батчинга обновлений
+     * @default 'microtask'
+     */
+    batchStrategy?: BatchStrategy;
+    /**
+     * Задержка для стратегии 'task' (в миллисекундах)
+     * @default 0
+     */
+    taskDelay?: number;
+}
+
+/**
+ * Создает планировщик обновлений с указанной стратегией батчинга.
+ *
+ * Планировщик гарантирует:
+ * - Объединение множественных обновлений в один вызов flush
+ * - Порядок: сначала все pending обновления, затем flush
+ * - Отмену запланированного flush при новых обновлениях (для task стратегии)
+ */
+function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
+    // Для sync режима используем Batcher.scheduler(Infinity),
+    // чтобы обновления devtools происходили в конце батча сигналов
+    const batcherScheduler = Batcher.scheduler(Infinity);
+
+    let isPending = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pendingFlush: (() => void) | null = null;
+
+    const executePending = () => {
+        isPending = false;
+        timeoutId = null;
+        if (pendingFlush) {
+            const fn = pendingFlush;
+            pendingFlush = null;
+            fn();
+        }
+    };
+
+    const scheduleExecution = () => {
+        if (isPending) return; // Уже запланировано
+        isPending = true;
+
+        switch (strategy) {
+            case 'sync':
+                // Используем Batcher — выполнится в конце текущего батча сигналов
+                // или сразу, если батч не активен
+                batcherScheduler.schedule(executePending);
+                break;
+            case 'microtask':
+                queueMicrotask(executePending);
+                break;
+            case 'task':
+                timeoutId = setTimeout(executePending, taskDelay);
+                break;
+        }
+    };
+
+    return {
+        /**
+         * Планирует выполнение flush функции.
+         * Множественные вызовы schedule до выполнения батча объединяются в один flush.
+         */
+        schedule(flushFn: () => void): void {
+            pendingFlush = flushFn;
+
+            scheduleExecution();
+        },
+
+        /**
+         * Отменяет запланированный flush (полезно при cleanup)
+         */
+        cancel(): void {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            isPending = false;
+            pendingFlush = null;
+        },
+
+        /**
+         * Принудительно выполняет pending flush синхронно
+         */
+        flush(): void {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            if (pendingFlush) {
+                isPending = false;
+                const fn = pendingFlush;
+                pendingFlush = null;
+                fn();
+            }
+        }
+    };
 }
 
 export function reduxDevtools(options: Options = {}): DevtoolsLike {
@@ -22,45 +127,48 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
         throw new Error('Redux Devtools extension is not installed');
     }
 
+    const batchStrategy = options.batchStrategy ?? 'microtask';
+    const taskDelay = options.taskDelay ?? 0;
+
     let state = {} as Record<string, any>;
-    const reduxDevtools = devtools!.connect({ name: options.name ?? 'RxToolkit' });
-    reduxDevtools.init(state);
-    const scheduler = Batcher.scheduler(Infinity);
-    let isCreated = false;
+    const connection = devtools.connect({ name: options.name ?? 'RxToolkit' });
+    connection.init(state);
 
-    const updateFn = () => {
-        reduxDevtools.send({ type: isCreated ? 'create' : 'update' }, state);
-        isCreated = false;
-    }
+    const scheduler = createBatchScheduler(batchStrategy, taskDelay);
 
-    const clearFn = () => {
-        reduxDevtools.send({ type: 'clear' }, state);
-    }
+    // Отслеживаем тип последнего действия для правильного action type в devtools
+    let pendingActionType: 'create' | 'update' | 'clear' = 'update';
 
-    const createFn = () => {
-        isCreated = true;
-        return updateFn;
-    }
+    const flushToDevtools = () => {
+        connection.send({ type: pendingActionType }, state);
+        pendingActionType = 'update'; // Сбрасываем на дефолт после отправки
+    };
 
     return {
         state(name, initState) {
             const keys = name.split('/');
 
             state = applyState(keys, initState, state);
-            scheduler.schedule(createFn());
+            pendingActionType = 'create';
+            scheduler.schedule(flushToDevtools);
 
             return (newState) => {
                 if (newState === '$COMPLETED' || newState === '$CLEANED') {
                     state = deleteState(keys, state);
-                    clearFn();
+                    pendingActionType = 'clear';
+                    scheduler.schedule(flushToDevtools);
                     return;
                 }
 
                 state = applyState(keys, newState, state);
-                scheduler.schedule(updateFn);
-            }
+                // Не перезаписываем 'create' на 'update' если create еще не отправлен
+                if (pendingActionType !== 'create') {
+                    pendingActionType = 'update';
+                }
+                scheduler.schedule(flushToDevtools);
+            };
         }
-    }
+    };
 }
 
 function applyState(keys: string[], newState: any, state: any) {
