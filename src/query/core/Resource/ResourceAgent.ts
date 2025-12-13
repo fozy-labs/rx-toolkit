@@ -1,4 +1,4 @@
-import { Computed, Effect, Signal } from "@/signals";
+import { Computed, Signal } from "@/signals";
 import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
