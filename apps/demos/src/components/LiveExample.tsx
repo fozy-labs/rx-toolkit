@@ -2,11 +2,11 @@ import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
-    cleanAllQueriesCache,
     Computed,
     createOperation,
     createResource,
     Effect,
+    resetAllQueriesCache,
     Signal,
     SKIP,
     useOperationAgent,
@@ -66,7 +66,6 @@ export function LiveExample({
         CardHeader,
         Checkbox,
         Chip,
-        cleanAllQueriesCache,
         Computed,
         createOperation,
         createResource,
@@ -75,6 +74,7 @@ export function LiveExample({
         fetches,
         Input,
         React,
+        resetAllQueriesCache,
         Select,
         SelectItem,
         Signal,

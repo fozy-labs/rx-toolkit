@@ -1,4 +1,4 @@
-import { createResource, useResourceAgent, cleanAllQueriesCache } from '@fozy-labs/rx-toolkit';
+import { createResource, useResourceAgent, resetAllQueriesCache } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
 import { fetches } from '../../utils/fetches';
 
@@ -21,7 +21,7 @@ export function Base() {
     const itemsQuery = useResourceAgent(getItems, undefined);
 
     const handleInvalidateAll = () => {
-        cleanAllQueriesCache();
+        resetAllQueriesCache();
         console.log('🔄 Все ресурсы сброшены!');
     };
 
@@ -64,7 +64,7 @@ export function Base() {
                         </Button>
 
                         <p className="text-xs text-default-400 text-center">
-                            Нажмите кнопку, чтобы вызвать cleanAllQueriesCache() и сбросить все кеши
+                            Нажмите кнопку, чтобы вызвать resetAllQueriesCache() и сбросить все кеши
                         </p>
                     </>
                 )}
