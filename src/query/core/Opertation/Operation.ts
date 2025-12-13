@@ -9,7 +9,7 @@ import type {
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
 import { OperationAgent } from "./OperationAgent";
-import { CleanAllQueriesSignal } from "@/query/core/CleanAllQueriesSignal";
+import { ResetAllQueriesSignal } from "@/query/core/ResetAllQueriesSignal";
 
 export type CoreOperationQueryState<D extends OperationDefinition> = {
     arg: D['Args'] | null;
@@ -105,8 +105,11 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
 
         this._createLinks();
 
-        CleanAllQueriesSignal.clean$.subscribe(() => {
-            this._queriesCache.clear();
+        ResetAllQueriesSignal.clean$.subscribe(() => {
+            const caches = Array.from(this._queriesCache.values());
+            caches.forEach((cache) => {
+                cache.next(OperationQueryState.create<D>());
+            });
         });
     }
 
@@ -147,7 +150,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
     }
 
     initiate(args: D['Args'], options?: { cache?: ReactiveCache<CoreOperationQueryState<D>> }): ReactiveCache<CoreOperationQueryState<D>> {
-        return Batcher.batch(() => this._initiate(args, options));
+        return Batcher.run(() => this._initiate(args, options));
     }
 
     private _initiate(args: D['Args'], options?: { cache?: ReactiveCache<CoreOperationQueryState<D>> }): ReactiveCache<CoreOperationQueryState<D>> {
@@ -184,7 +187,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
 
         query
             .then((result) => {
-                Batcher.batch(() => {
+                Batcher.run(() => {
                     const data: D['Data'] = this._options.select ? this._options.select(result) : result;
                     cache.next(OperationQueryState.success(state, data));
 
@@ -221,7 +224,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
                 });
             })
             .catch((error) => {
-                Batcher.batch(() => {
+                Batcher.run(() => {
                     cache.next(OperationQueryState.error(state, error));
 
                     /**
@@ -253,7 +256,7 @@ export class Operation<D extends OperationDefinition> implements OperationInstan
         const cache = this.initiate(args);
         const resolver = new PromiseResolver<D['Data']>();
 
-        const subscription = cache.value$.subscribe((state) => {
+        const subscription = cache.value$.obs.subscribe((state) => {
             if (!state.isInitiated || state.isLoading || state.isRepeating) return;
 
             if (state.isError) {

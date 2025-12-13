@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/400-italic.css";
+@plugin '@tailwindcss/typography';
+@plugin './hero.ts';
+
+@source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@custom-variant dark (&:is(.dark *));
+
+
+.prism-code {
+    overflow: auto;
+    max-height: 700px;
+
+    .token-line {
+        text-wrap: nowrap;
+    }
+
+    &::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: darkgray;
+        border-radius: 20px;
+    }
+
+
+    &::-webkit-scrollbar-thumb:hover {
+        background: gray;
+        cursor: default;
+    }
+}

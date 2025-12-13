@@ -1,5 +1,5 @@
-import { Computed, Effect, Signal } from "@/signals";
-import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
+import { Computed, Signal } from "@/signals";
+import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
@@ -8,29 +8,32 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         current$: null as CoreResourceQueryCache<D> | null,
     }, { isDisabled: true });
 
-    private _effect = new Effect(() => {
-        const current$ = this._resources$.value.current$;
-        const args = current$?.value.args!;
-
-        // Если ресурс который мы слушаем очистился, то инициируем его заново с теми же аргументами
-        const sub = current$?.onClean$.subscribe(() => {
-            this._resources$.next({
-                previous$: null,
-                current$: null,
-            });
-
-            this.initiate(args);
-        });
-
-        return () => {
-            sub?.unsubscribe();
-        }
-    });
-
     state$ = new Computed(() => {
-        const resources = this._resources$.value;
+        const resources = this._resources$.get();
         let prevState;
-        const currState = resources.current$?.value$.value;
+        const currState = resources.current$?.value$.get();
+
+        // Отлавливаем кейс, когда ресурс был спрошен.
+        // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
+        //  но в будущем могут быть и другие причины, что потребует доработку.
+        if (currState && !currState.isInitiated) {
+            this._resource.initiate(currState.args!, { cache: resources.current$! });
+            return {
+                isInitiated: true,
+                isLoading: true,
+                isInitialLoading: true,
+                isDone: false,
+                isSuccess: false,
+                isError: false,
+                isReloading: false,
+                error: undefined,
+                data: undefined,
+                // TODO вообще нет точного представлния, как блокировака доложна работать.
+                //  Мб тут стоит брать currState.isLocked.
+                isLocked: false,
+                args: currState.args!,
+            }
+        }
 
         if (!currState?.isDone) {
             prevState = resources.previous$?.value;
@@ -75,8 +78,44 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         private _resource: Resource<D>,
     ) {}
 
+    getState(values: D["Args"]): ResourceQueryState<D> {
+        const cache = this._resource.getQueryCache(values);
+
+        if (!cache) {
+            return {
+                isInitiated: false,
+                isLoading: false,
+                isInitialLoading: false,
+                isDone: false,
+                isSuccess: false,
+                isError: false,
+                isLocked: false,
+                isReloading: false,
+                error: undefined,
+                data: undefined,
+                args: undefined as D["Args"],
+            };
+        }
+
+        const state = cache.value;
+
+        return {
+            isInitiated: state.isInitiated,
+            isLoading: state.isLoading,
+            isInitialLoading: state.isLoading && !state.isDone,
+            isDone: state.isDone,
+            isSuccess: state.isSuccess,
+            isError: state.isError,
+            isLocked: state.isLocked,
+            isReloading: state.isReloading,
+            error: state.error ?? undefined,
+            data: state.data ?? undefined,
+            args: state.args ?? undefined,
+        };
+    }
+
     initiate(args: D["Args"], force = false): void {
-        const current = this._resources$.value.current$;
+        const current = this._resources$.peek().current$;
         const cache = this._resource.getQueryCache(args);
 
         if (!cache) {
@@ -98,32 +137,26 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         return this._resource.compareArgs(args, otherArgs);
     }
 
-    complete() {
-        this._effect.complete();
-        this.state$.complete();
-        this._resources$.complete();
-    }
-
     private _next(newCache: CoreResourceQueryCache<D>): void {
-        const { previous$, current$ } = this._resources$.value;
+        const { previous$, current$ } = this._resources$.peek();
 
         if (!current$) {
-            this._resources$.next({
+            this._resources$.set({
                 previous$: null,
                 current$: newCache,
             });
             return;
         }
 
-        if (!current$.value.isDone && previous$?.value.isDone) {
-            this._resources$.next({
+        if (!current$.value$.peek().isDone && previous$?.value$.peek().isDone) {
+            this._resources$.set({
                 previous$: previous$,
                 current$: newCache,
             });
             return;
         }
 
-        this._resources$.next({
+        this._resources$.set({
             previous$: current$,
             current$: newCache,
         });

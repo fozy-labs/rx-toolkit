@@ -8,5 +8,6 @@ export interface DevtoolsLike {
 export type StateDevtoolsOptions = {
     isDisabled?: boolean,
     name?: string,
-    base?: string
+    base?: string,
+    _skipValues?: any[],
 } | string

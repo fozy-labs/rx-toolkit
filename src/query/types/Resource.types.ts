@@ -1,5 +1,5 @@
 import { Patch as ImmerPatch } from "immer";
-import { ReadableSignalLike } from "@/signals";
+import { ReadableSignalLike } from "@/signals/types";
 import {
     FallbackOnNever,
     OnCacheEntryAdded,
@@ -84,8 +84,6 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
     state$: ReadableSignalLike<ResourceQueryState<D>>;
     /** Инициирует запрос с указанными аргументами */
     initiate(args: D["Args"], force?: boolean): void;
-    /** Завершает работу агента, позволяя освободить ресурсы */
-    complete(): void;
     /** Сравнивает аргументы между собой */
     compareArgs(args1: D["Args"], args2: D["Args"]): unknown;
 }

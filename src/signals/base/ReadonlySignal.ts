@@ -1,28 +1,39 @@
 import { Observable, Subscriber, TeardownLogic } from "rxjs";
-import type { ReadableSignalLike } from "./types";
+import { ReadableSignalFnLike, ReadableSignalLike } from "@/signals/types";
 import { SyncObservable } from "./SyncObservable";
-import { Tracker } from "./Tracker";
+import { DependencyTracker } from "./DependencyTracker";
 
-export class ReadonlySignal<T> extends SyncObservable<T> implements ReadableSignalLike<T> {
+export class ReadonlySignal<T> implements ReadableSignalLike<T> {
     protected rang = 0;
+    readonly obs;
 
     constructor(subscribe?: (this: Observable<T>, subscriber: Subscriber<T>) => TeardownLogic) {
-        super(subscribe);
+        this.obs = new SyncObservable<T>(subscribe);
     }
 
-    get value(): T {
-        Tracker.next(this.rang, this);
-        return super.value;
+    get(): T {
+        DependencyTracker.track({
+            getRang: () => this.rang,
+            obs: this.obs,
+        });
+        return this.obs.value;
     }
 
     peek(): T {
-        return super.value;
+        return this.obs.value;
     }
 
-    /**
-     * @deprecated
-     */
-    get(): T {
-        return this.value;
+    static create<T>(subscribe?: (this: Observable<T>, subscriber: Subscriber<T>) => TeardownLogic): ReadableSignalFnLike<T> {
+        const signal = new ReadonlySignal<T>(subscribe);
+
+        function readonlySignalFn(): T {
+            return signal.get();
+        }
+
+        readonlySignalFn.obs = signal.obs;
+        readonlySignalFn.peek = () => signal.peek();
+        readonlySignalFn.get = () => signal.get();
+
+        return readonlySignalFn;
     }
 }

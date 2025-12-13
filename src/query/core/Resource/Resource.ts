@@ -10,7 +10,7 @@ import type {
 
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
-import { CleanAllQueriesSignal } from "../CleanAllQueriesSignal";
+import { ResetAllQueriesSignal } from "../ResetAllQueriesSignal";
 import { ResourceAgent } from "./ResourceAgent";
 import { ResourceRef } from "./ResourceRef";
 
@@ -182,8 +182,12 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
             _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
 
-        CleanAllQueriesSignal.clean$.subscribe(() => {
-            this._queriesCache.clear();
+        ResetAllQueriesSignal.clean$.subscribe(() => {
+            const caches = Array.from(this._queriesCache.values());
+            caches.forEach((cache) => {
+                cache.value.abortController?.abort();
+                cache.next(ResourceQueryState.create<D>(cache.value.args));
+            });
         });
     }
 

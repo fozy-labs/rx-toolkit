@@ -13,7 +13,7 @@ npm install @fozy-labs/rx-toolkit rxjs
 
 ## 🎯 Цель
 
-RxJS действительно мощный инструмент реактивного программирования, 
+RxJS действительно мощный инструмент реактивного программирования,
 он удобен когда мы работаем с потоком событий, но когда речь заходит о состоянии приложения,
 из-за асинхронной природы rx'а, его использование становится сложным и громоздким, не говоря уже о кешировании данных
 (хотя некоторые разработчики "продают" rxjs, как альтернативу Query библиотекам,
@@ -29,42 +29,42 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - 💾 **Кеш-менеджер** — Предоставляет Query реализацию для работы с данными.
 - 🔷 **TypeScript-first** — Полная типизация.
 - 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS.
- Поставляется с React-хуками из коробки.
+  Поставляется с React-хуками из коробки.
 
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
 - [**RxQuery**](./docs/query/README.md) - кеш-менеджер для работы с данными
 - [**React**](./docs/usage/react/README.md) - интеграция с React
 - [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
+- [**Changelog**](./docs/CHANGELOG.md) - история изменений
+- [**DefaultOptions**](./docs/options/README.md) - глобальные настройки
 
 ## 🌟 Примеры
 
 ###### Создаем сигнал
 ```typescript
 // Описываем логику в обычном JavaScript
-const store = {
-    count$: new Signal(0),
-    doubled$: new Computed(() => store.count$.value * 2),
-    increment: () => store.count$.value++,
-};
+const count$ = Signal.create(0);
+const doubled$ = Signal.compute(() => count$() * 2);
+const increment = () => count$.set(count$.peek() + 1);
 ```
 
 ###### Подключаем к фреймворку
 ```typescript
 // React
-const count = useSignal(store.count$);
+const count = useSignal(count$);
 
 // Angular signal
-count$ = toSignal(store.count$);
+public readonly count = toSignal(count$.obs);
 
 // Angular pipe
-{{ store.count$ | async }}
+{{ count$.obs | async }}
 
 // SolidJS
-const count$ = from(store.count$)
+const count = from(count$.obs)
 
 // Svelte
-$: count = store.count$;
+$: count = count$.obs;
 ```
 
 ###### Работаем с RxJS
@@ -79,20 +79,21 @@ const clicker$ = fromEvent(document, 'click').pipe(
 
 // Получаем сигнал из Observable
 const clickCount$ = signalize(clicker$);
-const doubled$ = new Computed(() => clickCount$.value * 2);
+const doubled$ = Signal.compute(() => clickCount$() * 2);
 
-console.log(doubled$.value); // Всегда актуальное значение
+console.log(doubled$.peek()); // Всегда актуальное значение
 
 // Или наоборот, получаем событие из сигнала
-const on10click$ = doubled$.pipe(
+const on10click$ = doubled$.obs.pipe(
     filter(value => value === 10),
     take(1)
 );
 
-on10click$.subscribe(() => {
+const sub = on10click$.subscribe(() => {
     console.log('Great! That you first reached 10 clicks!');
 });
-
+// Не забываем отписаться
+sub.unsubscribe();
 ```
 
 ###### RxQuery (Корзина покупок)
@@ -107,8 +108,8 @@ const toggleCardItem = createOperation({
         add({
             resource: getCart,
             forwardArgs: () => undefined,
-            optimisticUpdate: ({ draft, data, args }) => {
-                const item = draft.items.find(i => i.id === data.id);
+            optimisticUpdate: ({ draft, args }) => {
+                const item = draft.items.find(i => i.id === args.id);
                 if (!item) return;
                 item.enabled = args.enabled;
             }

@@ -40,7 +40,7 @@ export const Batcher = {
             }
         }
     },
-    batch<T>(fn: () => T) {
+    run<T>(fn: () => T) {
         if (Scheduled.isLocked) return fn();
         Scheduled.isLocked = true;
         const v = fn();

@@ -1,0 +1,25 @@
+{
+  "name": "rx-toolkit-bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench:vanilla": "tsx src/benchmarks/vanilla/runner.ts",
+    "bench:stress": "tsx src/benchmarks/vanilla/stress-runner.ts"
+  },
+  "dependencies": {
+    "@fozy-labs/rx-toolkit": "file:../..",
+    "@reduxjs/toolkit": "^2.2.0",
+    "jotai": "^2.16.0",
+    "react-redux": "^9.0.0",
+    "rxjs": "^7.8.1",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "benchmark": "^2.1.4",
+    "tinybench": "^2.9.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.9.2"
+  }
+}

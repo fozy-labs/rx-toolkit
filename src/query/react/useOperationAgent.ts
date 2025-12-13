@@ -1,4 +1,4 @@
-import { useConstant, useEventHandler, useUnmount } from "@/common/react";
+import { useConstant, useEventHandler } from "@/common/react";
 import { useSignal } from "@/signals/react";
 import type { Prettify, OperationAgentInstanse, OperationDefinition, OperationQueryState } from "@/query/types";
 
@@ -17,7 +17,7 @@ export function useOperationAgent<D extends OperationDefinition>(op: WithAgent<D
         agent.initiate(args);
 
         return new Promise((resolve, reject) => {
-           const sub = agent.state$.subscribe((s) => {
+           const sub = agent.state$.obs.subscribe((s) => {
                 if (s.isDone && !s.isLoading) {
                     sub.unsubscribe();
                     if (s.isSuccess) {
@@ -29,10 +29,6 @@ export function useOperationAgent<D extends OperationDefinition>(op: WithAgent<D
            });
         });
     });
-
-    useUnmount(() => {
-        agent.complete();
-    }, [agent])
 
     return [trigger, state] as const
 }

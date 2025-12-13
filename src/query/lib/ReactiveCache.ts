@@ -1,5 +1,6 @@
 import { BehaviorSubject, finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
-import { ReadableSignalLike, signalize } from "@/signals";
+import { signalize } from "@/signals";
+import { ReadableSignalLike } from "@/signals/types";
 
 type Options<VALUE> = {
     /**
@@ -87,7 +88,7 @@ export class ReactiveCache<VALUE> {
     }
 
     get value(): VALUE {
-        return this._state$.value;
+        return this._state$.getValue();
     }
 
     /**
@@ -106,7 +107,7 @@ export class ReactiveCache<VALUE> {
         if (this.closed) return;
         this.closed = true;
         this._state$.complete();
-        this.onClean$.next(this._state$.value);
+        this.onClean$.next(this._state$.getValue());
         this.onClean$.complete();
     }
 }

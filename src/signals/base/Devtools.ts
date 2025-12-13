@@ -16,7 +16,23 @@ export const Devtools = {
 
         const key = createKey(options.name, options.base);
 
-        return createStateDevtools(key, initialValue);
+        let stateDevtools =
+            options._skipValues?.includes(initialValue)
+                ? null
+                : createStateDevtools<T>(key, initialValue)
+
+        return (newState: T) => {
+            if (options._skipValues?.includes(newState)) {
+                return;
+            }
+
+            if (!stateDevtools) {
+                stateDevtools = createStateDevtools(key, newState);
+                return;
+            }
+
+            stateDevtools(newState);
+        }
     },
     get hasDevtools() {
         return !!SharedOptions.DEVTOOLS?.state;

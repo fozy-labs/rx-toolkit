@@ -109,7 +109,7 @@ export class IndirectMap<KEY, VALUE> {
         return has;
     }
 
-    get values(): IterableIterator<VALUE> {
+    values() {
         return this._map.values();
     }
 }

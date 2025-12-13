@@ -1,5 +1,5 @@
 import React from "react";
-import { useConstant, useUnmount } from "@/common/react";
+import { useConstant } from "@/common/react";
 import { useSignal } from "@/signals/react";
 import {
     Prettify,
@@ -34,10 +34,6 @@ export function useResourceAgent<D extends ResourceDefinition>(
 
         agent.initiate(args);
     }
-
-    useUnmount(() => {
-        agent.complete();
-    });
 
     return useSignal(agent.state$);
 }
