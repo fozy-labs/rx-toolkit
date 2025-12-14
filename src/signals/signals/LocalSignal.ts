@@ -20,14 +20,13 @@ type Options<T> = {
     devtoolsOptions?: StateDevtoolsOptions;
 }
 
-const NullOrString = z.string().nullable();
-
 const NONE = Symbol('NONE');
 
 export class LocalSignal<T = string | null | number | undefined> {
     private _signal;
     private _computed;
     private readonly _options;
+    readonly obs;
 
     constructor(options: Options<T>) {
         let initialValue = LocalSignal._getStorageValue(options);
@@ -58,6 +57,8 @@ export class LocalSignal<T = string | null | number | undefined> {
             return value;
         }, options.devtoolsOptions);
 
+        this.obs = this._computed.obs;
+
         this._options = options;
     }
 
@@ -72,10 +73,6 @@ export class LocalSignal<T = string | null | number | undefined> {
 
     get() {
         return this._computed.get();
-    }
-
-    obs(): Observable<T> {
-        return this._computed.obs;
     }
 
     // === static ===
@@ -104,7 +101,7 @@ export class LocalSignal<T = string | null | number | undefined> {
 
         if (!item) return NONE;
 
-        const schema = z.record(z.string(), options.zodSchema || NullOrString);
+        const schema = z.record(z.string(), options.zodSchema || z.any());
         const parsed = schema.safeParse(JSON.parse(item));
 
         if (!parsed.success) {
@@ -125,7 +122,7 @@ export class LocalSignal<T = string | null | number | undefined> {
         const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
         const item = LocalSignal.DRIVER.getItem(storageKey) || '{}';
 
-        const schema = z.record(z.string(), options.zodSchema || NullOrString);
+        const schema = z.record(z.string(), options.zodSchema || z.any());
         const parsed = schema.safeParse(JSON.parse(item));
         let data = parsed.data ?? {};
 
