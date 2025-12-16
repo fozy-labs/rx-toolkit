@@ -8,9 +8,15 @@ type SignalLike<T> = {
 };
 
 export function useSignal<T>(signal$: SignalLike<T>): T {
+    const doUpdateRef = React.useRef(true);
+
     const subscribe = React.useCallback((update: () => void) => {
         const subscription = signal$.obs.subscribe(() => {
-            update();
+            doUpdateRef.current = true;
+            queueMicrotask(() => {
+                if (!doUpdateRef.current) return;
+                update();
+            });
         });
 
         return () => {
@@ -19,6 +25,7 @@ export function useSignal<T>(signal$: SignalLike<T>): T {
     }, [signal$]);
 
     const getSnapshot = useEventHandler(() => {
+        doUpdateRef.current = false;
         return signal$.peek();
     });
 
