@@ -1,17 +1,22 @@
 import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs";
 import { StateDevtoolsOptions } from "@/common/devtools";
 import { ComputeFn } from "@/signals/types";
-import { DependencyTracker, Signal } from "@/signals";
+import { ComputeCache, DependencyTracker } from "../base";
 import { Effect } from "./Effect";
+import { Signal } from "./Signal";
 
 export class Computed<T> {
     private _ls;
     readonly obs;
     private _effect: Effect | null = null;
+    /**
+     * Кеш для хранения вычисленного значения (без подписки) и его зависимостей
+     */
+    private _computeCache = new ComputeCache<T>();
 
     constructor(
         private _computeFn: () => T,
-        private options?: StateDevtoolsOptions
+        options?: StateDevtoolsOptions
     ) {
         const lsOptions: StateDevtoolsOptions = {
             base: Computed.name,
@@ -50,22 +55,18 @@ export class Computed<T> {
                 return this._effect!._getRang();
             },
             obs: this.obs,
+            peek: () => this.peek(),
         });
 
-        const v = this._ls.peek();
-
-        if (v === Computed._EMPTY) {
-            return this._computeFn();
-        }
-
-        return v as T;
+        return this.peek();
     }
 
     peek() {
         const v = this._ls.peek();
 
         if (v === Computed._EMPTY) {
-            return this._computeFn();
+            // Используем кеш для вычисления без создания подписки
+            return this._computeCache.getOrCompute(this._computeFn);
         }
 
         return v as T;
@@ -83,6 +84,8 @@ export class Computed<T> {
 
             this._ls.set(this._computeFn());
         });
+
+        this._computeCache.clear();
 
         if (initialValue === Computed._EMPTY) {
             throw new Error('Computed value is not initialized');

@@ -7,6 +7,7 @@ export type DependencyRecord = {
      */
     getRang(): number;
     obs: Observable<unknown>;
+    peek: () => unknown;
     /**
      * Зарезервировано для отладки и логирования.
      */

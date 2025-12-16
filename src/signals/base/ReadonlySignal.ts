@@ -15,6 +15,7 @@ export class ReadonlySignal<T> implements ReadableSignalLike<T> {
         DependencyTracker.track({
             getRang: () => this.rang,
             obs: this.obs,
+            peek: () => this.peek(),
         });
         return this.obs.value;
     }

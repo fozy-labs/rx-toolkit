@@ -32,22 +32,23 @@ export class Signal<T> {
     }
 
     set(value: T) {
-        return this._onChange(value);
+        if (value === this.bs$.value) {
+            return;
+        }
+
+        Batcher.run(() => {
+            this._stateDevtools?.(value);
+            this.bs$.next(value);
+        });
     }
 
     get() {
         DependencyTracker.track({
             getRang: () => this._rang,
             obs: this.obs,
+            peek: () => this.peek(),
         });
         return this.bs$.getValue();
-    }
-
-    protected _onChange(value: T): void {
-        Batcher.run(() => {
-            this._stateDevtools?.(value);
-            this.bs$.next(value);
-        });
     }
 
     // === static ===
