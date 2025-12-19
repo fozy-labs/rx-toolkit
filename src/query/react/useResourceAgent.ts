@@ -8,19 +8,15 @@ import {
     ResourceQueryState
 } from "@/query/types";
 import { SKIP } from "@/query/SKIP_TOKEN";
-import { ResourceDuplicatorAgent } from "@/query/core/Resource/ResourceDuplicatorAgent";
-import { DuplicatorDefinition } from "@/query/core/Resource/ResourceDuplicator";
+import { DuplicatorDefinition, ResourceDuplicator } from "@/query/core/Resource/ResourceDuplicator";
 import { ReadableSignalLike } from "@/signals/types";
 
 type Result<D extends ResourceDefinition> = Prettify<ResourceQueryState<D>>
-type WithCreateAgent<D extends ResourceDefinition> = {
-    createAgent: () => ResourceAgentInstance<D> | ResourceDuplicatorAgent<DuplicatorDefinition<D>>
-}
 
 export function useResourceAgent<D extends ResourceDefinition>(
-    res: WithCreateAgent<D>,
+    res: ResourceInstance<D> | ResourceDuplicator<DuplicatorDefinition<D>>,
     ...argss: D['Args'] extends void ? [] | [typeof SKIP] : [D['Args'] | typeof SKIP]
-): Result<D>{
+): Result<D> {
     const args = (argss[0] === SKIP ? SKIP : argss[0]) as D['Args'] | typeof SKIP;
 
     const prevArgsRef = React.useRef<D['Args'] | typeof SKIP>(SKIP);

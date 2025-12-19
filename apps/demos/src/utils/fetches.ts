@@ -38,7 +38,7 @@ export const fetches = {
         ];
         return users.find(user => user.id === userId) || null;
     },
-    getUserStats: async (args: { userId: number; period: string }) => {
+    getUserStats: async (args: { userId: number; period: string }): Promise<{ commits: number; pullRequests: number; reviews: number }> => {
         await new Promise(resolve => setTimeout(resolve, 800));
         const userStats = {
             1: { daily: [12, 3, 5], weekly: [67, 15, 28], monthly: [234, 48, 112] },
