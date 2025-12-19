@@ -34,7 +34,9 @@ export function useResourceAgent<D extends ResourceDefinition>(
     if (!compare(args, prevArgsRef.current, agent)) {
         prevArgsRef.current = args;
 
-        agent.initiate(args as D['Args']);
+        if (args !== SKIP) {
+            agent.initiate(args);
+        }
     }
 
     return useSignal(agent.state$ as ReadableSignalLike<Result<D>>);
