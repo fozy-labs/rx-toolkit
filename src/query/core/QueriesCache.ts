@@ -7,7 +7,7 @@ export class QueriesCache<KEY, VALUE> {
 
     constructor(
         private _cacheLifeTime: number | false = 60_000,
-        compareArgsFn = shallowEqual,
+        compareArgsFn: ((a: KEY, b: KEY) => boolean) = shallowEqual,
     ) {
         this._cache = new IndirectMap<KEY, ReactiveCache<VALUE>>(compareArgsFn);
     }

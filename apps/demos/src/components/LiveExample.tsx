@@ -5,6 +5,7 @@ import {
     Computed,
     createOperation,
     createResource,
+    createResourceDuplicator,
     Effect,
     LocalSignal,
     resetAllQueriesCache,
@@ -27,6 +28,8 @@ import {
     Select,
     SelectItem,
     Switch,
+    Tab,
+    Tabs,
 } from '@heroui/react';
 import { fetches } from '../utils/fetches';
 
@@ -70,6 +73,7 @@ export function LiveExample({
         Computed,
         createOperation,
         createResource,
+        createResourceDuplicator,
         Divider,
         Effect,
         fetches,
@@ -82,6 +86,8 @@ export function LiveExample({
         Signal,
         SKIP,
         Switch,
+        Tab,
+        Tabs,
         useOperationAgent,
         useResourceAgent,
         useResourceRef,

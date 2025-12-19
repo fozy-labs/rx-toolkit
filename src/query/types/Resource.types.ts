@@ -52,7 +52,11 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
 /**
  * Определение типов ресурса
  */
-export type ResourceDefinition<A = any, R = any, S = any> = {
+export type ResourceDefinition<
+    A = any,
+    R = any,
+    S = any,
+> = {
     Args: A;
     Result: R;
     Selected: S;
@@ -85,7 +89,7 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
     /** Инициирует запрос с указанными аргументами */
     initiate(args: D["Args"], force?: boolean): void;
     /** Сравнивает аргументы между собой */
-    compareArgs(args1: D["Args"], args2: D["Args"]): unknown;
+    compareArgs(args1: D["Args"], args2: D["Args"]): boolean;
 }
 
 /**

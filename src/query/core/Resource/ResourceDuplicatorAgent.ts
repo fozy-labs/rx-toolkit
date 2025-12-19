@@ -1,11 +1,15 @@
 import { Computed, Signal } from "@/signals";
-import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
-import type { CoreResourceQueryCache, Resource } from "./Resource"
+import { ResourceAgentInstance } from "@/query/types";
+import {
+    CoreResourceDuplicatorCache,
+    ResourceDuplicator,
+    DuplicatorDefinition
+} from "@/query/core/Resource/ResourceDuplicator";
 
-export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
+export class ResourceDuplicatorAgent<D extends DuplicatorDefinition> implements ResourceAgentInstance<D['RESOURCE_DEFINITION']> {
     private _resources$ = new Signal({
-        previous$: null as CoreResourceQueryCache<D> | null,
-        current$: null as CoreResourceQueryCache<D> | null,
+        previous$: null as CoreResourceDuplicatorCache<D> | null,
+        current$: null as CoreResourceDuplicatorCache<D> | null,
     }, { isDisabled: true });
 
     state$ = new Computed(() => {
@@ -17,7 +21,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
         //  но в будущем могут быть и другие причины, что потребует доработку.
         if (currState && !currState.isInitiated) {
-            this._resource.initiate(currState.args!, { cache: resources.current$! });
+            this._resource.initiate(currState.args!, resources.current$!);
             return {
                 isInitiated: true,
                 isLoading: true,
@@ -52,7 +56,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
                 isReloading: false,
                 error: undefined,
                 data: undefined,
-                args: undefined as D["Args"],
+                args: undefined as unknown as D['ARGS_ITEM'][],
             };
         }
 
@@ -75,10 +79,10 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
     }, { isDisabled: true });
 
     constructor(
-        private _resource: Resource<D>,
+        private _resource: ResourceDuplicator<D>,
     ) {}
 
-    initiate(args: D["Args"], force = false): void {
+    initiate(args: D['ARGS_ITEM'][], force = false): void {
         const current = this._resources$.peek().current$;
         const cache = this._resource.getQueryCache(args);
 
@@ -89,7 +93,7 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         }
 
         if (force || !(cache.value.isDone || cache.value.isLoading)) {
-            this._resource.initiate(args, { cache });
+            this._resource.initiate(args, cache);
         }
 
         if (current !== cache) {
@@ -97,11 +101,11 @@ export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgen
         }
     }
 
-    compareArgs(args: D["Args"], otherArgs: D["Args"]): boolean {
+    compareArgs(args: D['ARGS_ITEM'][], otherArgs: D['ARGS_ITEM'][]): boolean {
         return this._resource.compareArgs(args, otherArgs);
     }
 
-    private _next(newCache: CoreResourceQueryCache<D>): void {
+    private _next(newCache: CoreResourceDuplicatorCache<D>): void {
         const { previous$, current$ } = this._resources$.peek();
 
         if (!current$) {
