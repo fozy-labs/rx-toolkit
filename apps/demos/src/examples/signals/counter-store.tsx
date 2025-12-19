@@ -8,9 +8,9 @@ class CounterStore {
 
     increment = () => {
         console.log('INCREMENT');
-        this.count$.set(this.count$.peek() + 1);
+        this.count$.set(this.count$() + 1);
     };
-    decrement = () => this.count$.set(this.count$.peek() - 1);
+    decrement = () => this.count$.set(this.count$() - 1);
     reset = () => this.count$.set(0);
 }
 

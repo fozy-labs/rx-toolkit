@@ -246,8 +246,8 @@ class CounterStore {
     count$ = Signal.create(0, 'counter');
     doubled$ = Signal.compute(() => this.count$() * 2);
     
-    increment = () => this.count$.set(this.count$.peek() + 1);
-    decrement = () => this.count$.set(this.count$.peek() - 1);
+    increment = () => this.count$.set(this.count$() + 1);
+    decrement = () => this.count$.set(this.count$() - 1);
     reset = () => this.count$.set(0);
 }
 

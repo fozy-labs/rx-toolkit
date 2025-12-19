@@ -46,7 +46,7 @@ RxToolkit решает эти проблемы, предоставляя сво�
 // Описываем логику в обычном JavaScript
 const count$ = Signal.create(0);
 const doubled$ = Signal.compute(() => count$() * 2);
-const increment = () => count$.set(count$.peek() + 1);
+const increment = () => count$.set(count$() + 1);
 ```
 
 ###### Подключаем к фреймворку
@@ -81,7 +81,7 @@ const clicker$ = fromEvent(document, 'click').pipe(
 const clickCount$ = signalize(clicker$);
 const doubled$ = Signal.compute(() => clickCount$() * 2);
 
-console.log(doubled$.peek()); // Всегда актуальное значение
+console.log(doubled$()); // Всегда актуальное значение
 
 // Или наоборот, получаем событие из сигнала
 const on10click$ = doubled$.obs.pipe(

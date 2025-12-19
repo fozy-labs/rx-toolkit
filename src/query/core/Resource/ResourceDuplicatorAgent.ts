@@ -7,12 +7,12 @@ import {
 } from "@/query/core/Resource/ResourceDuplicator";
 
 export class ResourceDuplicatorAgent<D extends DuplicatorDefinition> implements ResourceAgentInstance<D['RESOURCE_DEFINITION']> {
-    private _resources$ = new Signal({
+    private _resources$ = Signal.create({
         previous$: null as CoreResourceDuplicatorCache<D> | null,
         current$: null as CoreResourceDuplicatorCache<D> | null,
     }, { isDisabled: true });
 
-    state$ = new Computed(() => {
+    state$ = Computed.create(() => {
         const resources = this._resources$.get();
         let prevState;
         const currState = resources.current$?.value$.get();

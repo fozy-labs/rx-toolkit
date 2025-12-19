@@ -74,7 +74,7 @@ DefaultOptions.update({
 ```
 
 **Может пригодиться:**
-- Если в вашей среде неудобно или проблематично установить браузерное расширение
+- Если в вашей среде невозможно установить браузерное расширение
 - Для мобильной отладки
 
 ---
@@ -206,7 +206,7 @@ interface DevtoolsLike {
 }
 
 interface DevtoolsStateLike<T = any> {
-    (newState: T): void;
+    (newState: T | '$COMPLETED' | '$CLEANED'): void;
 }
 ```
 

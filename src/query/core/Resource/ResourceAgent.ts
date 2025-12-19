@@ -3,12 +3,12 @@ import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
-    private _resources$ = new Signal({
+    private _resources$ = Signal.create({
         previous$: null as CoreResourceQueryCache<D> | null,
         current$: null as CoreResourceQueryCache<D> | null,
     }, { isDisabled: true });
 
-    state$ = new Computed(() => {
+    state$ = Computed.create(() => {
         const resources = this._resources$.get();
         let prevState;
         const currState = resources.current$?.value$.get();

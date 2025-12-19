@@ -42,7 +42,7 @@ DefaultOptions.update({
         // Логирование
         console.error('[RxToolkit Query Error]', error);
         
-        // Отправка в систему мониторинга
+        // Отправка в абстакную систему мониторинга
         Sentry.captureException(error, {
             tags: { source: 'rx-toolkit-query' }
         });
@@ -64,26 +64,27 @@ DefaultOptions.update({
 **Тип:** `(() => string | null) | null`  
 **По умолчанию:** `null`
 
-Функция для получения имени текущего scope. Полезно для SSR, изоляции данных между запросами или многопользовательских приложений.
+Функция для получения имени текущего scope.
+Можено, например, подключить к DI систему, для раширенного devtools нейминга.
 
 ```typescript
 import { DefaultOptions } from '@fozy-labs/rx-toolkit';
 
-// SSR: изоляция данных между запросами
-let currentRequestId: string | null = null;
-
 DefaultOptions.update({
-    getScopeName: () => currentRequestId
+    getScopeName: () => MyDiAbsractDi.getCurrentScopeName(),
 });
 
-// В middleware сервера
-app.use((req, res, next) => {
-    currentRequestId = req.id;
-    res.on('finish', () => {
-        currentRequestId = null;
-    });
-    next();
-});
+// Объявляем класс
+class Counter {
+    value$ = Signal.create(0, '{scope}/Counter/value$');
+}
+
+// В другом месте приложения
+function ChannelCounter() {
+    const counter = MyDiAbsractDi.resolve<Counter>('Counter', 'ChannelScope');
+    console.log(counter.value$()); // Devtools покажет имя сигнала как "ChannelScope/Counter/value$"
+    return null;
+} 
 ```
 
 ---

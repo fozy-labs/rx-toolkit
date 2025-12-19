@@ -4,11 +4,11 @@ import { Computed, Signal } from "@/signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
-    private _operations$ = new Signal({
+    private _operations$ = Signal.create({
         current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
     }, { isDisabled: true });
 
-    state$ = new Computed(() => {
+    state$ = Computed.create(() => {
         const operations = this._operations$.get();
         const currState = operations.current$?.value$.get();
 

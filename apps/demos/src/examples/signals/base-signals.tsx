@@ -5,7 +5,7 @@ const counter$ = new Signal(0);
 const doubled$ = new Computed(() => counter$.get() * 2);
 
 function increment() {
-    counter$.set(counter$.peek() + 1);
+    counter$.set(counter$() + 1);
 }
 
 export function Base() {

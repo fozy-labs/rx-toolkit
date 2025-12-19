@@ -35,7 +35,7 @@ export function Base() {
                     <div className="flex gap-2">
                         <Button
                             color="primary"
-                            onPress={() => count$.set(count$.peek() + 1)}
+                            onPress={() => count$.set(count$() + 1)}
                         >
                             +1
                         </Button>

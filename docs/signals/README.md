@@ -19,11 +19,11 @@ RxSignals — это реактивная система управления с
 ```typescript
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-const name = new Signal('John');
-const age = new Signal(25);
+const name = Signal.create('John');
+const age = Signal.create(25);
 
 // Чтение значения (с отслеживанием зависимостей)
-console.log(name.get()); // "John"
+console.log(name()); // "John"
 
 // Чтение значения без отслеживания
 console.log(name.peek()); // "John"
@@ -41,7 +41,7 @@ subscription.unsubscribe();
 ```
 
 **API Signal:**
-- `get()` — получить значение и зарегистрировать зависимость (для использования внутри Computed/Effect)
+- `()`|`get()` — получить значение и зарегистрировать зависимость (для использования внутри Computed/Effect)
 - `peek()` — получить значение без регистрации зависимости
 - `set(value)` — установить новое значение
 - `obs` — RxJS Observable для подписки на изменения
@@ -51,58 +51,42 @@ subscription.unsubscribe();
 Создает вычисляемое значение, которое автоматически обновляется при изменении зависимостей.
 
 ```typescript
-import { Signal, Computed } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
 
-const firstName = new Signal('John');
-const lastName = new Signal('Doe');
+const firstName = Signal.create('John');
+const lastName = Signal.create('Doe');
 
-const fullName = new Computed(() => `${firstName.get()} ${lastName.get()}`);
+const fullName = Signal.compute(() => `${firstName()} ${lastName()}`);
 
-console.log(fullName.get()); // "John Doe"
+console.log(fullName()); // "John Doe"
 
 firstName.set('Jane');
-console.log(fullName.get()); // "Jane Doe"
+console.log(fullName()); // "Jane Doe"
 
 // Подписка на изменения
 fullName.obs.subscribe(name => console.log(name));
 ```
 
 **API Computed:**
-- `get()` — получить вычисленное значение с регистрацией зависимости
+- `()`|`get()` — получить вычисленное значение с регистрацией зависимости
 - `peek()` — получить значение без регистрации зависимости
 - `obs` — RxJS Observable для подписки на изменения
 
 Также на данный момент Computed 
-
-+Важно: отличие от RxJS
-+
-+ - Computed: по умолчанию `Computed.obs` применяет `distinctUntilChanged()` — это значит, что подписчики не будут получать повторных эмиссий, если новое значение строго равно (`===`) предыдущему. Такое поведение предотвращает лишние рендеры и обработки, когда значение фактически не изменилось.
-+ - Signal: базовый `Signal` использует `BehaviorSubject` и при вызове `set()` будет эмитить значение независимо от того, изменилось оно или нет (если вам нужно предотвратить повторные эмиссии для сигнала, применяйте операторы RxJS к `signal.obs`, например `signal.obs.pipe(distinctUntilChanged())`).
-+
-+Пример: если у вас есть `const total = Signal.compute(() => a.get() + b.get())`, то при изменении `a` или `b` `total.obs` сработает только если новое значение суммы отличается от предыдущего (по `===`). Если нужен особый критерий сравнения, используйте `distinctUntilChanged` с собственной функцией сравнения:
-+
-+```ts
-+import { distinctUntilChanged } from 'rxjs';
-+
-+total.obs.pipe(distinctUntilChanged((prev, next) => /* ваша логика */));
-+```
-+
-+Рекомендация: рассчитывайте на то, что `Computed` избавляет от лишних эмиссий по-умолчанию; если вам нужно другое поведение, применяйте RxJS-операторы к `obs` или создавайте `Computed`, возвращающий другую форму данных (например объект с версией) для более тонкого контроля.
-+
 
 ### Effect
 
 Создает побочный эффект, который автоматически выполняется при изменении используемых сигналов.
 
 ```typescript
-import { Signal, Effect } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
 
-const count = new Signal(0);
-const message = new Signal('Hello');
+const count = Signal.create(0);
+const message = Signal.create('Hello');
 
-const effect = new Effect(() => {
+const effect = Signal.effect(() => {
   // Выведет: "Hello: 0" при инициализации
-  console.log(`${message.get()}: ${count.get()}`);
+  console.log(`${message()}: ${count()}`);
 });
 
 count.set(1); // Выведет: "Hello: 1"
@@ -117,8 +101,9 @@ effect.unsubscribe();
 Effect поддерживает возврат функции очистки, которая вызывается перед следующим выполнением или при отписке:
 
 ```typescript
-const effect = new Effect(() => {
-  const timer = setInterval(() => console.log(count.get()), 1000);
+const effect = Signal.effect(() => {
+  count(); // Создаем подписку на count (тк не работает при асинхронных операциях)
+  const timer = setInterval(() => count(), 1000);
   
   // Cleanup - вызывается перед повторным выполнением эффекта
   return () => {
@@ -127,43 +112,35 @@ const effect = new Effect(() => {
 });
 ```
 
-## Функциональный стиль API
+## Функциональный vs классовый стиль
 
-Для более компактного синтаксиса доступны статические методы `Signal.create()`, `Signal.compute()` и `Signal.effect()`:
+RxSignals поддерживает как функциональный, так и классовый стили создания сигналов, позволяя выбрать подход в зависимости от предпочтений и архитектуры приложения.
+#### Функциональный стиль (рекомендуемый)
 
-```typescript
+Используйте статические методы `Signal.create`,`Signal.compute` и `Signal.effect` для создания сигналов. 
+Этот стиль лаконичен, похож на SolidJS и подходит для большинства случаев:
+
+```tszz
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-class CounterStore {
-    // Создание сигнала в функциональном стиле (вызывается как функция)
-    count$ = Signal.create(0);
-    
-    // Computed в функциональном стиле
-    doubled$ = Signal.compute(() => this.count$() * 2);
-    squared$ = Signal.compute(() => (this.doubled$() / 2) ** 2);
-
-    increment = () => this.count$.set(this.count$.peek() + 1);
-    decrement = () => this.count$.set(this.count$.peek() - 1);
-    reset = () => this.count$.set(0);
-}
-
-const store = new CounterStore();
-
-// Чтение значения - вызов как функции
-console.log(store.count$()); // 0
-console.log(store.doubled$()); // 0
-
-store.increment();
-console.log(store.count$()); // 1
-console.log(store.doubled$()); // 2
-console.log(store.squared$()); // 1
+const count = Signal.create(0);
+const doubled = Signal.compute(() => count() * 2);
+const logEffect = Signal.effect(() => console.log(doubled()));
 ```
 
-**API функциональных сигналов:**
-- `signal$()` — вызов как функции возвращает значение (аналог `get()`)
-- `signal$.peek()` — получить значение без отслеживания
-- `signal$.set(value)` — установить значение
-- `signal$.obs` — RxJS Observable
+#### Классовый стиль
+
+Создавайте экземпляры классов Signal, Computed и Effect напрямую.
+Этот стиль более явный, похож на RxJs и полезен для наследования или сложной логики,
+учтите, что вызов `()` недоступен и нужно использовать `get()`:
+
+```ts
+import { Signal, Computed, Effect } from '@fozy-labs/rx-toolkit';
+
+const count = new Signal(0);
+const doubled = new Computed(() => count.get() * 2);
+const logEffect = new Effect(() => console.log(doubled.get()));
+```
 
 ### ReadonlySignal
 
