@@ -1,9 +1,8 @@
 import { ResourceDefinition } from "@/query/types";
 import { CoreResourceQueryCache, CoreResourceQueryState, Resource } from "./Resource";
 import { Signal, signalize } from "@/signals";
-import { ReadableSignalFnLike, ReadableSignalLike } from "@/signals/types";
-import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, tap, timer } from "rxjs";
-import { ResourceAgent } from "@/query/core/Resource/ResourceAgent";
+import { ReadableSignalLike } from "@/signals/types";
+import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
 import { ResourceDuplicatorAgent } from "./ResourceDuplicatorAgent";
 
 export type DuplicatorOptions<D extends DuplicatorDefinition> = {
@@ -90,8 +89,6 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
 
         const uninitiatedCaches = new Set<CoreResourceQueryCache<D['RESOURCE_DEFINITION']>>();
 
-        console.log({ uninitiatedCaches, fis: this._fis });
-
         args.forEach(arg => {
             const argKey = this._options.getArgKey(arg);
             let fi = this._fis.get(argKey);
@@ -138,7 +135,9 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
             releasedCaches.add(fi.cache);
         });
 
-        const queryCache = this._resource.createQueryCache(unreleasedArgs);
+        const queryCache = unreleasedArgs?.length > 0
+            ? this._resource.createQueryCache(unreleasedArgs)
+            : null;
 
         unreleasedArgs.forEach(arg => {
             const argKey = this._options.getArgKey(arg);
@@ -146,7 +145,7 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
             if (!fi) {
                 fi = {
                     k: 1,
-                    cache: queryCache,
+                    cache: queryCache!,
                 };
                 this._fis.set(argKey, fi);
             }
@@ -154,9 +153,11 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
 
         return {
             value$: Signal.compute<State<D>>(() => {
-                const itemsAcc: State<D>[] = [
-                    queryCache.value$.get(),
-                ];
+                const itemsAcc: State<D>[] = [];
+
+                if (queryCache) {
+                    itemsAcc.push(queryCache.value$.get());
+                }
 
                 for (const rc of releasedCaches) {
                     itemsAcc.push(rc.value$.get());

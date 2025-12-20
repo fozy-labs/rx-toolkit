@@ -143,7 +143,7 @@ export function LiveExample({
                                     />
                                 </div>
                                 <div className="p-6">
-                                    <LivePreview/>
+                                    <LivePreview />
                                     <LiveError
                                         className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"/>
                                 </div>

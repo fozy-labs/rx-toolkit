@@ -50,6 +50,7 @@ function createTab(name: string, data: number[]) {
 const Tab1 = createTab('Tab1 (IDs: 1, 2, 3)', [1, 2, 3]);
 const Tab2 = createTab('Tab2 (IDs: 4, 5, 6)', [4, 5, 6]);
 const Tab3 = createTab('Tab3 (IDs: 1, 4, 7)', [1, 4, 7]);
+const Tab4 = createTab('Tab4 (IDs: 1, 3, 5)', [1, 3, 5]);
 
 export function Base() {
     const [skip, setSkip] = React.useState(false);
@@ -65,6 +66,9 @@ export function Base() {
                 </Tab>
                 <Tab key="tab3" title={Tab3.__name}>
                     <Tab3 skip={skip} />
+                </Tab>
+                <Tab key="tab4" title={Tab4.__name}>
+                    <Tab4 skip={skip} />
                 </Tab>
             </Tabs>
             <Button
