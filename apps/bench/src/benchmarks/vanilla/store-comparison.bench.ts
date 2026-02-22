@@ -25,7 +25,7 @@ export async function runStoreComparisonBench() {
         }
     };
 
-    const baseSignal = Signal.create(0);
+    const baseSignal = Signal.state(0);
     let lastValue: any;
     let testValue: any;
 
@@ -36,7 +36,7 @@ export async function runStoreComparisonBench() {
     // 1. Создание и уничтожение примитивов
     await createBenchmark('Store Comparison: Создание примитива')
         .add('rx-toolkit Signal (fn)', () => {
-            lastValue = Signal.create(0);
+            lastValue = Signal.state(0);
             // Signal не требует явного unsubscribe
         })
         .add('rx-toolkit Signal (class)', () => {
@@ -145,7 +145,7 @@ export async function runStoreComparisonBench() {
     // 4. Подписки (20 подписчиков, 200 обновлений)
     await createBenchmark('Store Comparison: 20 подписчиков + 200 обновлений')
         .add('rx-toolkit Signal', () => {
-            const counter = Signal.create(0);
+            const counter = Signal.state(0);
 
             let callCount = 0;
 
@@ -236,7 +236,7 @@ export async function runStoreComparisonBench() {
     // 5. Производные значения (computed) без подписок
     await createBenchmark('Store Comparison: Computed без подписчиков (500 обновлений)')
         .add('rx-toolkit Signal + Computed', () => {
-            const count = Signal.create(0);
+            const count = Signal.state(0);
             const doubled = Computed.create(() => count() * 2);
             const quadrupled = Computed.create(() => doubled() * 2);
 
@@ -327,7 +327,7 @@ export async function runStoreComparisonBench() {
     // 6. Производные значения (computed) с подписчиками
     await createBenchmark('Store Comparison: Computed с 50 подписчиками (500 обновлений)')
         .add('rx-toolkit Signal + Computed', () => {
-            const count = Signal.create(0);
+            const count = Signal.state(0);
             const doubled = Computed.create(() => count() * 2);
             const quadrupled = Computed.create(() => doubled() * 2);
 
@@ -429,7 +429,7 @@ export async function runStoreComparisonBench() {
                 completed: boolean;
             }
 
-            const todos = Signal.create<Todo[]>([]);
+            const todos = Signal.state<Todo[]>([]);
             const completedCount = Computed.create(() =>
                 todos().filter(t => t.completed).length
             );
@@ -584,9 +584,9 @@ export async function runStoreComparisonBench() {
     // 9. Сложный граф зависимостей (Diamond Problem)
     await createBenchmark('Store Comparison: Diamond граф с подписчиками (500 обновлений)')
         .add('rx-toolkit Signal', () => {
-            const a = Signal.create(1);
-            const b = Signal.create(2);
-            const c = Signal.create(3);
+            const a = Signal.state(1);
+            const b = Signal.state(2);
+            const c = Signal.state(3);
 
             const ab = Computed.create(() => a() + b());
             const bc = Computed.create(() => b() + c());
@@ -701,7 +701,7 @@ export async function runStoreComparisonBench() {
     // 10. Stress Test - множественные подписчики
     await createBenchmark('Store Comparison: Stress Test (75 подписчиков, 500 обновлений)')
         .add('rx-toolkit Signal', () => {
-            const counter = Signal.create(0);
+            const counter = Signal.state(0);
             const doubled = Computed.create(() => counter() * 2);
             let totalCalls = 0;
 

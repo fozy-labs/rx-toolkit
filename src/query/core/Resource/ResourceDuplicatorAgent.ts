@@ -7,7 +7,7 @@ import {
 } from "@/query/core/Resource/ResourceDuplicator";
 
 export class ResourceDuplicatorAgent<D extends DuplicatorDefinition> implements ResourceAgentInstance<D['RESOURCE_DEFINITION']> {
-    private _resources$ = Signal.create({
+    private _resources$ = Signal.state({
         previous$: null as CoreResourceDuplicatorCache<D> | null,
         current$: null as CoreResourceDuplicatorCache<D> | null,
     }, { isDisabled: true });

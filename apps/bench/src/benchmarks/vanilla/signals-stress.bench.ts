@@ -7,10 +7,10 @@ export async function runSignalsStressBench() {
     // 1. Computed Hell - простая цепочка (глубина 100)
     await createBenchmark('Computed Hell: Простая цепочка (глубина 100)')
         .add('Signal + Computed + Effect', () => {
-            const source = Signal.create(0);
+            const source = Signal.state(0);
 
             // Создаем цепочку из 100 computed
-            let current: ReturnType<typeof Signal.create<number>> | ReturnType<typeof Computed.create<number>> = source;
+            let current: ReturnType<typeof Signal.state<number>> | ReturnType<typeof Computed.create<number>> = source;
             const computeds: ReturnType<typeof Computed.create<number>>[] = [];
 
             for (let i = 0; i < 100; i++) {
@@ -38,7 +38,7 @@ export async function runSignalsStressBench() {
     // 2. Computed Hell - Diamond pattern (1 -> 10 -> 100 -> 10 -> 1)
     await createBenchmark('Computed Hell: Diamond pattern (1→10→100→10→1)')
         .add('Signal + Computed + Effect', () => {
-            const source = Signal.create(0);
+            const source = Signal.state(0);
 
             // Слой 1: 10 computed от источника
             const layer1 = Array.from({ length: 10 }, () =>
@@ -90,7 +90,7 @@ export async function runSignalsStressBench() {
     await createBenchmark('Computed Hell: Grid 10x10 (100 взаимосвязанных computed)')
         .add('Signal + Computed + Effect', () => {
             const size = 10;
-            const sources = Array.from({ length: size }, () => Signal.create(0));
+            const sources = Array.from({ length: size }, () => Signal.state(0));
 
             // Создаем матрицу computed, где каждый зависит от соседей
             const grid: ReturnType<typeof Computed.create<number>>[][] = [];
@@ -138,7 +138,7 @@ export async function runSignalsStressBench() {
     // 4. Computed Hell - Wide dependencies (1 источник -> 200 computed)
     await createBenchmark('Computed Hell: Wide (1 источник → 200 computed → 1 финал)')
         .add('Signal + Computed + Effect', () => {
-            const source = Signal.create(0);
+            const source = Signal.state(0);
 
             // 200 computed от одного источника
             const computeds = Array.from({ length: 200 }, (_, i) =>
@@ -171,7 +171,7 @@ export async function runSignalsStressBench() {
     // 5. Computed Hell - Multiple sources (10 источников, 100 computed зависят от случайных)
     await createBenchmark('Computed Hell: Multiple sources (10 источников, 100 mixed computed)')
         .add('Signal + Computed + Effect', () => {
-            const sources = Array.from({ length: 10 }, () => Signal.create(0));
+            const sources = Array.from({ length: 10 }, () => Signal.state(0));
 
             // 100 computed с случайными зависимостями от источников
             const computeds = Array.from({ length: 100 }, (_, i) => {
@@ -208,10 +208,10 @@ export async function runSignalsStressBench() {
     // 6. Computed Hell - Extreme (глубокая цепочка 150)
     await createBenchmark('Computed Hell: Extreme chain (глубина 150)')
         .add('Signal + Computed + Effect', () => {
-            const source = Signal.create(0);
+            const source = Signal.state(0);
 
             // Создаем цепочку из 150 computed
-            let current: ReturnType<typeof Signal.create<number>> | ReturnType<typeof Computed.create<number>> = source;
+            let current: ReturnType<typeof Signal.state<number>> | ReturnType<typeof Computed.create<number>> = source;
             const computeds: ReturnType<typeof Computed.create<number>>[] = [];
 
             for (let i = 0; i < 150; i++) {

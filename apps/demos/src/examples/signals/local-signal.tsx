@@ -1,12 +1,12 @@
 import { LocalSignal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody, Input } from "@heroui/react";
 
-const name$ = LocalSignal.create({
+const name$ = LocalSignal.state({
     key: "userName",
     defaultValue: "",
 });
 
-const count$ = LocalSignal.create({
+const count$ = LocalSignal.state({
     key: "userCount",
     defaultValue: 0,
 });

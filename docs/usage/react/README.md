@@ -11,7 +11,7 @@ RxToolkit предоставляет набор React хуков для эффе
 ```tsx
 import { Signal, Computed, useSignal } from '@fozy-labs/rx-toolkit';
 
-const counter$ = Signal.create(0);
+const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
 
 function Counter() {
@@ -243,7 +243,7 @@ function TodoItem({ todo }: { todo: Todo }) {
 import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
 
 class CounterStore {
-    count$ = Signal.create(0, 'counter');
+    count$ = Signal.state(0, 'counter');
     doubled$ = Signal.compute(() => this.count$() * 2);
     
     increment = () => this.count$.set(this.count$() + 1);

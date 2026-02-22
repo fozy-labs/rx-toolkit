@@ -4,7 +4,7 @@ import { Computed, Signal } from "@/signals";
 import type { CoreOperationQueryState, Operation } from "./Operation";
 
 export class OperationAgent<D extends OperationDefinition> implements OperationAgentInstanse<D> {
-    private _operations$ = Signal.create({
+    private _operations$ = Signal.state({
         current$: null as ReactiveCache<CoreOperationQueryState<D>> | null,
     }, { isDisabled: true });
 

@@ -1,9 +1,9 @@
 import { Computed, Signal } from "@/signals";
-import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
+import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
 import type { CoreResourceQueryCache, Resource } from "./Resource"
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
-    private _resources$ = Signal.create({
+    private _resources$ = Signal.state({
         previous$: null as CoreResourceQueryCache<D> | null,
         current$: null as CoreResourceQueryCache<D> | null,
     }, { isDisabled: true });

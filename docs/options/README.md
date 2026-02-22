@@ -76,7 +76,7 @@ DefaultOptions.update({
 
 // Объявляем класс
 class Counter {
-    value$ = Signal.create(0, '{scope}/Counter/value$');
+    value$ = Signal.state(0, '{scope}/Counter/value$');
 }
 
 // В другом месте приложения
