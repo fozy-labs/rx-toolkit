@@ -1,8 +1,8 @@
-import { Signal, Computed, useSignal } from "@fozy-labs/rx-toolkit";
+import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody } from "@heroui/react";
 
-const counter$ = new Signal(0);
-const doubled$ = new Computed(() => counter$.get() * 2);
+const counter$ = Signal.state(0);
+const doubled$ = Signal.compute(() => counter$() * 2);
 
 function increment() {
     counter$.set(counter$() + 1);

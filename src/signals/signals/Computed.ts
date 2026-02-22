@@ -6,7 +6,7 @@ import { Effect } from "./Effect";
 import { Signal } from "./Signal";
 
 export class Computed<T> {
-    private _ls;
+    private _state$;
     readonly obs;
     private _effect: Effect | null = null;
     /**
@@ -24,9 +24,9 @@ export class Computed<T> {
             _skipValues: [Computed._EMPTY],
         };
 
-        this._ls = new Signal<symbol | T>(Computed._EMPTY, lsOptions);
+        this._state$ = Signal.state<symbol | T>(Computed._EMPTY, lsOptions);
 
-        this.obs = this._ls.obs.pipe(
+        this.obs = this._state$.obs.pipe(
             map((value) => {
                 if (value === Computed._EMPTY) {
                     return this._start();
@@ -62,7 +62,7 @@ export class Computed<T> {
     }
 
     peek() {
-        const v = this._ls.peek();
+        const v = this._state$.peek();
 
         if (v === Computed._EMPTY) {
             // Используем кеш для вычисления без создания подписки
@@ -78,11 +78,11 @@ export class Computed<T> {
         this._effect = new Effect(() => {
             if (initialValue === Computed._EMPTY) {
                 initialValue = this._computeFn();
-                this._ls.set(initialValue);
+                this._state$.set(initialValue);
                 return;
             }
 
-            this._ls.set(this._computeFn());
+            this._state$.set(this._computeFn());
         });
 
         this._computeCache.clear();
@@ -100,7 +100,7 @@ export class Computed<T> {
             this._effect = null;
         }
 
-        this._ls.set(Computed._EMPTY);
+        this._state$.set(Computed._EMPTY);
     }
 
     // === static ===

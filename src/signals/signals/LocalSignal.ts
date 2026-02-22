@@ -3,8 +3,8 @@ import { Observable } from "rxjs";
 import { SignalFn } from "@/signals/types";
 import { StateDevtoolsOptions } from "@/common/devtools";
 import { signalize } from "../operators";
-import { Signal } from "./Signal";
 import { Computed } from "./Computed";
+import { State } from "@/signals/signals/State";
 
 
 type Options<T> = {
@@ -23,7 +23,7 @@ type Options<T> = {
 const NONE = Symbol('NONE');
 
 export class LocalSignal<T = string | null | number | undefined> {
-    private _signal;
+    private _state$;
     private _computed;
     private readonly _options;
     readonly obs;
@@ -35,12 +35,12 @@ export class LocalSignal<T = string | null | number | undefined> {
             initialValue = options.defaultValue;
         }
 
-        this._signal = new Signal<T>(initialValue, { isDisabled: true });
+        this._state$ = new State<T>(initialValue, { isDisabled: true });
 
         const validatorSignal$ = options.validator$ && signalize(options.validator$);
 
         this._computed = new Computed<T>(() => {
-            const value = this._signal.get();
+            const value = this._state$.get();
 
             if (validatorSignal$) {
                 const validator = validatorSignal$.get();
@@ -64,7 +64,7 @@ export class LocalSignal<T = string | null | number | undefined> {
 
     set(value: T) {
         LocalSignal._setStorageValue(this._options, value);
-        this._signal.set(value);
+        this._state$.set(value);
     }
 
     peek() {
