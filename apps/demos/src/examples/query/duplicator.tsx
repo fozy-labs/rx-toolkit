@@ -18,7 +18,7 @@ const itemsApi = createResourceDuplicator({
     cacheLifetime: 10_000,
     getArgKey: (id: number) => id,
     getDataKey: (item: { id: number }) => item.id,
-})
+});
 
 function createTab(name: string, data: number[]) {
     function Tab({ skip }: { skip?: boolean }) {

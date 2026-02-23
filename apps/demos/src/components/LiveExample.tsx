@@ -21,12 +21,14 @@ import {
     Card,
     CardBody,
     CardHeader,
+    CardFooter,
     Checkbox,
     Chip,
     Divider,
     Input,
     Select,
     SelectItem,
+    Slider,
     Switch,
     Tab,
     Tabs,
@@ -68,6 +70,7 @@ export function LiveExample({
         Card,
         CardBody,
         CardHeader,
+        CardFooter,
         Checkbox,
         Chip,
         Computed,
@@ -85,6 +88,7 @@ export function LiveExample({
         SelectItem,
         Signal,
         SKIP,
+        Slider,
         Switch,
         Tab,
         Tabs,
@@ -145,7 +149,8 @@ export function LiveExample({
                                 <div className="p-6">
                                     <LivePreview />
                                     <LiveError
-                                        className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"/>
+                                        className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"
+                                    />
                                 </div>
                             </div>
                         </div>

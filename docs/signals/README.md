@@ -173,7 +173,7 @@ enum FILTER {
     MEETINGS = 'meetings',
 }
 
-const selectedFilter$ = LocalSignal.state({
+const selectedFilter$ = LocalSignal.create({
     key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
     zodSchema: z.nativeEnum(FILTER), // Опционально: валидация через Zod

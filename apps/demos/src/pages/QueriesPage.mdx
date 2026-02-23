@@ -1,12 +1,12 @@
-import { Tab, Tabs } from "@heroui/react";
-import { LiveExample } from "../components/index.ts";
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components/index.ts";
 import { Query } from "../examples";
 
 # Запросы (операции и ресурсы)
 
 ## Примеры
 
-<Tabs>
+<QueryTabs>
     <Tab key="invalidate" title="Инвалидация кеша">
         <LiveExample
             title="Простой список с resetAllQueriesCache()"
@@ -37,4 +37,4 @@ import { Query } from "../examples";
             initialCode={Query.examples.duplicator}
         />
     </Tab>
-</Tabs>
+</QueryTabs>

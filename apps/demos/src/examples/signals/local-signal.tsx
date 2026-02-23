@@ -1,58 +1,48 @@
 import { LocalSignal, useSignal } from "@fozy-labs/rx-toolkit";
-import { Button, Card, CardBody, Input } from "@heroui/react";
+import { Button, Card, CardBody, CardFooter, CardHeader, Slider } from "@heroui/react";
 
-const name$ = LocalSignal.state({
-    key: "userName",
-    defaultValue: "",
-});
-
-const count$ = LocalSignal.state({
-    key: "userCount",
-    defaultValue: 0,
+const volume$ = LocalSignal.create({
+    key: "user-volume",
+    defaultValue: 1,
 });
 
 export function Base() {
-    const name = useSignal(name$);
-    const count = useSignal(count$);
+    const count = useSignal(volume$);
 
     return (
-        <Card className="max-w-96">
-            <CardBody className="space-y-4">
-                <div className="space-y-2">
-                    <Input
-                        label="Имя"
-                        placeholder="Введите имя"
-                        value={name}
-                        onValueChange={(value) => name$.set(value)}
+        <div>
+            <Card className="max-w-96">
+                <CardHeader className="font-bold text-lg">
+                    Настройки звука
+                </CardHeader>
+                <CardBody>
+                    <Slider
+                        label="Громкость"
+                        minValue={0}
+                        maxValue={2}
+                        step={0.01}
+                        showTooltip
+                        formatOptions={{
+                            style: 'percent',
+                        }}
+                        value={count}
+                        onChange={value => volume$.set(Array.isArray(value) ? value[0] : value)}
                     />
-                    <p className="text-sm text-gray-600">
-                        {name ? `Привет, ${name}!` : "Введите имя"}
-                    </p>
-                </div>
+                </CardBody>
+                <CardFooter className="justify-end">
+                    <Button
+                        color="default"
+                        onPress={() => volume$.clear()}
+                    >
+                        Сбросить
+                    </Button>
+                </CardFooter>
+            </Card>
 
-                <div className="space-y-2">
-                    <p>Счётчик: {count}</p>
-                    <div className="flex gap-2">
-                        <Button
-                            color="primary"
-                            onPress={() => count$.set(count$() + 1)}
-                        >
-                            +1
-                        </Button>
-                        <Button
-                            color="default"
-                            onPress={() => count$.set(0)}
-                        >
-                            Сбросить
-                        </Button>
-                    </div>
-                </div>
-
-                <p className="text-xs text-gray-500">
-                    💾 Данные сохраняются в localStorage
-                </p>
-            </CardBody>
-        </Card>
+            <p className="text-xs text-gray-500">
+                💾 Данные сохраняются в localStorage
+            </p>
+        </div>
     );
 }
 

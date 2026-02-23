@@ -1,12 +1,12 @@
-import { Tab, Tabs } from "@heroui/react";
-import { LiveExample } from "../components";
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components";
 import { Signals } from "../examples";
 
 # Сигналы
 
 ## Примеры
 
-<Tabs>
+<QueryTabs>
     <Tab key="store" title="Счетчик">
         <LiveExample
             title="Реактивный счетчик"
@@ -19,5 +19,5 @@ import { Signals } from "../examples";
             initialCode={Signals.examples.localSignal}
         />
     </Tab>
-</Tabs>
+</QueryTabs>
 

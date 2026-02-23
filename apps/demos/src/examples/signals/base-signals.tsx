@@ -4,9 +4,7 @@ import { Button, Card, CardBody } from "@heroui/react";
 const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
 
-function increment() {
-    counter$.set(counter$() + 1);
-}
+const increment = () => counter$.set(counter$() + 1);
 
 export function Base() {
     const count = useSignal(counter$);

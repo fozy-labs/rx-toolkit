@@ -6,10 +6,7 @@ class CounterStore {
     doubled$ = Signal.compute(() => this.count$() * 2);
     squared$ = Signal.compute(() => (this.doubled$() / 2) ** 2);
 
-    increment = () => {
-        console.log('INCREMENT');
-        this.count$.set(this.count$() + 1);
-    };
+    increment = () => this.count$.set(this.count$() + 1);
     decrement = () => this.count$.set(this.count$() - 1);
     reset = () => this.count$.set(0);
 }

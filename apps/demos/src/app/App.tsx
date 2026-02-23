@@ -28,17 +28,17 @@ export default function App() {
                 <NavbarContent className="gap-4" justify="center">
                     <NavbarItem isActive={location.pathname === '/'}>
                         <Link to="/" className={location.pathname === '/' ? 'text-primary' : 'text-foreground'}>
-                            Главная
+                            Home
                         </Link>
                     </NavbarItem>
                     <NavbarItem isActive={location.pathname === '/signals'}>
                         <Link to="/signals" className={location.pathname === '/signals' ? 'text-primary' : 'text-foreground'}>
-                            Сигналы
+                            Signals
                         </Link>
                     </NavbarItem>
                     <NavbarItem isActive={location.pathname === '/queries'}>
                         <Link to="/queries" className={location.pathname === '/queries' ? 'text-primary' : 'text-foreground'}>
-                            Запросы
+                            Query
                         </Link>
                     </NavbarItem>
                 </NavbarContent>
