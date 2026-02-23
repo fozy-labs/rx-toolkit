@@ -1,11 +1,16 @@
 import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
-import { SignalFn } from "@/signals/types";
-import { StateDevtoolsOptions } from "@/common/devtools";
+import { type StatefulSignalFn } from "@/signals/types";
+import { type StateDevtoolsOptions } from "@/common/devtools";
 import { signalize } from "../operators";
 import { Computed } from "./Computed";
 import { State } from "@/signals/signals/State";
 
+type StorageLike = {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+}
 
 type Options<T> = {
     zodSchema?: ZodType<T>
@@ -16,6 +21,7 @@ type Options<T> = {
      */
     validator$?: Observable<(value: T) => boolean>;
     checkEffect?: (value: T) => boolean;
+    driver?: StorageLike;
     defaultValue: T;
     devtoolsOptions?: StateDevtoolsOptions;
 }
@@ -28,8 +34,14 @@ export class LocalSignal<T = string | null | number | undefined> {
     private readonly _options;
     readonly obs;
 
+    private get _driver() {
+        return this._options.driver || LocalSignal.DEFAULT_DRIVER;
+    }
+
     constructor(options: Options<T>) {
-        let initialValue = LocalSignal._getStorageValue(options);
+        this._options = options;
+
+        let initialValue = this._getStorageValue(options);
 
         if (initialValue === NONE) {
             initialValue = options.defaultValue;
@@ -58,12 +70,10 @@ export class LocalSignal<T = string | null | number | undefined> {
         }, options.devtoolsOptions);
 
         this.obs = this._computed.obs;
-
-        this._options = options;
     }
 
     set(value: T) {
-        LocalSignal._setStorageValue(this._options, value);
+        this._setStorageValue(this._options, value);
         this._state$.set(value);
     }
 
@@ -75,29 +85,14 @@ export class LocalSignal<T = string | null | number | undefined> {
         return this._computed.get();
     }
 
-    // === static ===
-
-    static KEY_PREFIX = '__LSValue__'
-    static DRIVER = localStorage;
-
-    static create<T = string | null | number | undefined>(options: Options<T>): SignalFn<T> {
-        const localSignal = new LocalSignal<T>(options);
-
-        function signalFn() {
-            return localSignal.get();
-        }
-
-        signalFn.peek = () => localSignal.peek();
-        signalFn.get = () => localSignal.get();
-        signalFn.set = (value: T) => localSignal.set(value);
-        signalFn.obs = localSignal.obs;
-
-        return signalFn as unknown as SignalFn<T>;
+    clear() {
+        this._deleteStorageValue(this._options);
+        this._state$.set(this._options.defaultValue);
     }
 
-    static _getStorageValue(options: Options<any>) {
+    private _getStorageValue(options: Options<any>) {
         const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
-        const item = LocalSignal.DRIVER.getItem(storageKey);
+        const item = this._driver.getItem(storageKey);
 
         if (!item) return NONE;
 
@@ -118,9 +113,9 @@ export class LocalSignal<T = string | null | number | undefined> {
         return parsed.data[subKey];
     }
 
-    private static _setStorageValue<T>(options: Options<T>, value: T) {
+    private _setStorageValue<T>(options: Options<T>, value: T) {
         const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
-        const item = LocalSignal.DRIVER.getItem(storageKey) || '{}';
+        const item = this._driver.getItem(storageKey) || '{}';
 
         const schema = z.record(z.string(), options.zodSchema || z.any());
         const parsed = schema.safeParse(JSON.parse(item));
@@ -133,6 +128,56 @@ export class LocalSignal<T = string | null | number | undefined> {
         const subKey = options.userId ? `user:${options.userId}` : 'common';
         data[subKey] = value;
 
-        LocalSignal.DRIVER.setItem(storageKey, JSON.stringify(data));
+        this._driver.setItem(storageKey, JSON.stringify(data));
+    }
+
+    private _deleteStorageValue(options: Options<any>) {
+        const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
+        const item = this._driver.getItem(storageKey);
+
+        if (!item) return;
+
+        const schema = z.record(z.string(), options.zodSchema || z.any());
+        const parsed = schema.safeParse(JSON.parse(item));
+        let data = parsed.data ?? {};
+
+        if (!parsed.success) {
+            this._driver.removeItem(storageKey);
+            return;
+        }
+
+        const subKey = options.userId ? `user:${options.userId}` : 'common';
+
+        if (!data[subKey]) return;
+
+        delete data[subKey];
+
+        if (Object.keys(data).length === 0) {
+            this._driver.removeItem(storageKey);
+            return;
+        }
+
+        this._driver.setItem(storageKey, JSON.stringify(data));
+    }
+
+    // === static ===
+
+    static KEY_PREFIX = '__LSValue__'
+    static DEFAULT_DRIVER = localStorage;
+
+    static create<T = string | null | number | undefined>(options: Options<T>): StatefulSignalFn<T> {
+        const localSignal = new LocalSignal<T>(options);
+
+        function signalFn() {
+            return localSignal.get();
+        }
+
+        signalFn.peek = () => localSignal.peek();
+        signalFn.get = () => localSignal.get();
+        signalFn.set = (value: T) => localSignal.set(value);
+        signalFn.clear = () => localSignal.clear();
+        signalFn.obs = localSignal.obs;
+
+        return signalFn as unknown as StatefulSignalFn<T>;
     }
 }

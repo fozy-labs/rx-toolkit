@@ -180,8 +180,12 @@ const selectedFilter$ = LocalSignal.state({
 });
 
 // Использование
-console.log(selectedFilter$.peek()); // Значение из localStorage или FILTER.ALL
+console.log(selectedFilter$()); // Значение из localStorage или FILTER.ALL
 selectedFilter$.set(FILTER.CHANNELS); // Сохраняется в localStorage
+
+function logout() {
+    selectedFilter$.clear(); // Удаляет значение из localStorage (сбрасывает на defaultValue)
+}
 ```
 
 **Опции LocalSignal:**
@@ -191,6 +195,7 @@ selectedFilter$.set(FILTER.CHANNELS); // Сохраняется в localStorage
 - `userId` — опциональный идентификатор пользователя для изоляции данных
 - `checkEffect` — функция валидации значения
 - `devtoolsOptions` — настройки для devtools
+- `driver` — драйвер для хранения (по умолчанию localStorage, можно заменить на кастомный драйвер)
 
 ## Операторы
 
