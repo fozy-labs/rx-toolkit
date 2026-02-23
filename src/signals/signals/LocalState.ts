@@ -28,14 +28,14 @@ type Options<T> = {
 
 const NONE = Symbol('NONE');
 
-export class LocalSignal<T = string | null | number | undefined> {
+export class LocalState<T = string | null | number | undefined> {
     private _state$;
     private _computed;
     private readonly _options;
     readonly obs;
 
     private get _driver() {
-        return this._options.driver || LocalSignal.DEFAULT_DRIVER;
+        return this._options.driver || LocalState.DEFAULT_DRIVER;
     }
 
     constructor(options: Options<T>) {
@@ -91,7 +91,7 @@ export class LocalSignal<T = string | null | number | undefined> {
     }
 
     private _getStorageValue(options: Options<any>) {
-        const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
+        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey);
 
         if (!item) return NONE;
@@ -114,7 +114,7 @@ export class LocalSignal<T = string | null | number | undefined> {
     }
 
     private _setStorageValue<T>(options: Options<T>, value: T) {
-        const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
+        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey) || '{}';
 
         const schema = z.record(z.string(), options.zodSchema || z.any());
@@ -132,7 +132,7 @@ export class LocalSignal<T = string | null | number | undefined> {
     }
 
     private _deleteStorageValue(options: Options<any>) {
-        const storageKey = `${LocalSignal.KEY_PREFIX}:${options.key}`;
+        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey);
 
         if (!item) return;
@@ -166,18 +166,23 @@ export class LocalSignal<T = string | null | number | undefined> {
     static DEFAULT_DRIVER = localStorage;
 
     static create<T = string | null | number | undefined>(options: Options<T>): StatefulSignalFn<T> {
-        const localSignal = new LocalSignal<T>(options);
+        const localState = new LocalState<T>(options);
 
         function signalFn() {
-            return localSignal.get();
+            return localState.get();
         }
 
-        signalFn.peek = () => localSignal.peek();
-        signalFn.get = () => localSignal.get();
-        signalFn.set = (value: T) => localSignal.set(value);
-        signalFn.clear = () => localSignal.clear();
-        signalFn.obs = localSignal.obs;
+        signalFn.peek = () => localState.peek();
+        signalFn.get = () => localState.get();
+        signalFn.set = (value: T) => localState.set(value);
+        signalFn.clear = () => localState.clear();
+        signalFn.obs = localState.obs;
 
         return signalFn as unknown as StatefulSignalFn<T>;
     }
 }
+
+/**
+ * @deprecated use LocalState instead
+ */
+export const LocalSignal = LocalState;

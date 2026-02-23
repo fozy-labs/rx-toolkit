@@ -3,4 +3,4 @@ export * from './State';
 export * from './Computed';
 export * from './Effect';
 export * from './Signal';
-export * from './LocalSignal';
+export * from './LocalState';

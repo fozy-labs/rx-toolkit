@@ -18,6 +18,6 @@ export interface ClearableSignalLike<T> {
     clear(): void;
 }
 
-export interface StatefulSignalFn<T> extends ReadableSignalLike<T>, WriteableSignalLike<T>, ClearableSignalLike<T> {}
+export interface StatefulSignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T>, ClearableSignalLike<T> {}
 export interface SignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T> {}
 export interface ComputeFn<T> extends ReadableSignalFnLike<T> {}
