@@ -102,7 +102,7 @@ const getCart = createResource({
     queryFn: fetchCart,
 });
 
-const toggleCardItem = createOperation({
+const toggleCardItem = createCommand({
     queryFn: fetchToggleCardItem,
     link(add) {
         add({
@@ -119,7 +119,7 @@ const toggleCardItem = createOperation({
 
 function ShoppingCart() {
     const cartQuery = useResourceAgent(getCart);
-    const [toggleItem] = useOperationAgent(toggleCardItem);
+    const [toggleItem] = useCommandAgent(toggleCardItem);
     const cart = cartQuery.data;
 
     return (

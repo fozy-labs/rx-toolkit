@@ -31,7 +31,9 @@ DefaultOptions.update({
 **Тип:** `(error: unknown) => void | null`  
 **По умолчанию:** `null`
 
-Глобальный обработчик ошибок для всех запросов (Resources и Operations). Вызывается при каждой ошибке запроса.
+Глобальный обработчик ошибок для всех запросов (Resources и Commands). Вызывается при каждой ошибке запроса.
+
+> **Note:** Старое имя `Operations` является deprecated-алиасом для `Commands` и будет удалено в v0.6.0.
 
 ```typescript
 import { DefaultOptions } from '@fozy-labs/rx-toolkit';

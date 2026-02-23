@@ -149,7 +149,7 @@ export async function runQueryComparisonBench() {
     // // 4. Mutations/Operations (одиночная операция)
     // await createBenchmark('Query Comparison: Одна Mutation/Operation')
     //   .add('rx-toolkit Operation', async () => {
-    //     const updateUserOp = createOperation({
+    //     const updateUserOp = createCommand({
     //       queryFn: async ({ id, name }: { id: number; name: string }) =>
     //         mockApi.updateUser(id, { name }),
     //       cacheLifetime: false,
@@ -187,13 +187,13 @@ export async function runQueryComparisonBench() {
     //
     // // 5. Invalidation (запрос + mutation с инвалидацией)
     // await createBenchmark('Query Comparison: Query + Mutation с Invalidation')
-    //   .add('rx-toolkit Operation с invalidate', async () => {
+    //   .add('rx-toolkit Command с invalidate', async () => {
     //     const userResource = createResource({
     //       queryFn: async ({ id }: { id: number }) => mockApi.getUser(id),
     //       cacheLifetime: 60000,
     //     });
     //
-    //     const updateUserOp = createOperation({
+    //     const updateUserOp = createCommand({
     //       queryFn: async ({ id, name }: { id: number; name: string }) =>
     //         mockApi.updateUser(id, { name }),
     //       link: (link) => {

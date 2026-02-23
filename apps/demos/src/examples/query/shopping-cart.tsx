@@ -1,4 +1,4 @@
-import { createOperation, createResource, useOperationAgent, useResourceAgent } from '@fozy-labs/rx-toolkit';
+import { createCommand, createResource, useCommandAgent, useResourceAgent } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Chip, Divider } from '@heroui/react';
 import { fetches } from '../../utils/fetches';
 import React from "react";
@@ -8,7 +8,7 @@ export const getCart = createResource({
     devtoolsName: 'shopping-cart/getCart'
 });
 
-export const toggleCartItem = createOperation({
+export const toggleCartItem = createCommand({
     queryFn: fetches.toggleCartItem,
     link(add) {
         add({
@@ -26,7 +26,7 @@ export const toggleCartItem = createOperation({
 
 export function Base() {
     const cartQuery = useResourceAgent(getCart, undefined);
-    const [toggleItem, toggleState] = useOperationAgent(toggleCartItem);
+    const [toggleItem, toggleState] = useCommandAgent(toggleCartItem);
 
     return (
         <Card>
