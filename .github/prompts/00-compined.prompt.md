@@ -120,7 +120,7 @@ Approved, Redraft or Timeout.
 
 No additional text.
 
-Limit = 10 retries (10 minutes).
+Limit = 10 retries (10 minutes) for DRAFT and 25 retries (25 minutes) for REVIEW before returning Timeout.
 
 ---
 
@@ -215,13 +215,13 @@ All artifacts are already written to `.thoughts/`.
 
 Your job:
 
-1. Run Research agent
+1. Run Research agents
 2. Wait for approval
-3. Run Design agent
+3. Run Design agents
 4. Wait for approval
-5. Run Plan agent
+5. Run Plan agents
 6. Wait for approval
-7. Run Implement agent
+7. Run Implement agents
 8. Wait for approval
 9. Exit with short message
 
