@@ -64,9 +64,9 @@ Create these files in the working directory:
 ```markdown
 # Исследование: <Feature Name>
 
-- **Дата**: <YYYY-MM-DD>
-- **Статус**: Черновик
-- **Фича**: <feature description>
+- **Date**: <YYYY-MM-DD>
+- **Status**: Draft
+- **Feature**: <feature description>
 
 ## Резюме
 <2-3 абзаца — что найдено, ключевые инсайты, критические решения впереди>

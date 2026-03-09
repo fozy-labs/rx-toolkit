@@ -51,10 +51,10 @@ Create a todo list and produce:
 ```markdown
 # План имплементации: <Feature Name>
 
-- **Дата**: <YYYY-MM-DD>
-- **Статус**: Черновик
-- **Исследование**: [01-research](../01-research/README.md)
-- **Дизайн**: [02-design](../02-design/README.md)
+- **Date**: <YYYY-MM-DD>
+- **Status**: Draft
+- **Research**: [01-research](../01-research/README.md)
+- **Design**: [02-design](../02-design/README.md)
 
 ## Обзор
 <Краткое описание того, что будет реализовано>

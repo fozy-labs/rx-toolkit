@@ -43,7 +43,7 @@ For each phase:
 1. Read the phase prompt file
 2. Launch a subagents cycle
 3. Enter **Approval Wait Mode**
-4. Only after approval continue to next phase
+4. Only after approval commit and continue to next phase
 
 Phases must run **strictly sequentially**.
 
@@ -74,22 +74,17 @@ Each phase must be approved by a human.
 
 Approval is controlled via the phase README file.
 
-Location:
-
-`.thoughts/<date>_<feature>/<phase>/README.md`
-
+Location: `.thoughts/<date>_<feature>/<phase>/README.md`
 
 Inside the README a field exists:
 
-Status: <value>
-
+Status: `<value>`
 
 Possible values:
-• Draft 
+• Draft
 • Review
 • Approved
 • Redraft
-
 
 ---
 
@@ -105,7 +100,6 @@ Read the phase README file every minute until status changes.
 Watcher behavior:
 
 Loop:
-
 1. Read README.md
 2. Extract `Status:` value
 3. If status == Approved → return "Approved"
@@ -120,7 +114,7 @@ Approved, Redraft or Timeout.
 
 No additional text.
 
-Limit = 10 retries (10 minutes) for DRAFT and 25 retries (25 minutes) for REVIEW before returning Timeout.
+Limit = 10 retries (10 minutes) for `Draft` and 25 retries (25 minutes) for `Review` before returning Timeout.
 
 ---
 
@@ -138,25 +132,6 @@ Restart the SAME phase again by launching its phase agent again.
 If status == Timeout:
 
 Continue to the next phase (dont change status, just move on).
-
----
-
-# PHASE ORDER
-
-Execute the following phases in order:
-
-Phase 1
-.github/prompts/01-research.prompt.md
-
-Phase 2
-.github/prompts/02-design.prompt.md
-
-Phase 3
-.github/prompts/03-plan.prompt.md
-
-Phase 4
-.github/prompts/04-implement.prompt.md
-
 
 ---
 
@@ -180,34 +155,19 @@ This dramatically reduces context consumption.
 
 ---
 
-# FAILURE HANDLING
+# Working with git:
 
-If any phase agent fails:
-
-Retry the phase once.
-
-If it fails again:
-
-Stop execution and report:
-
-"Phase execution failed: <phase-name>"
-
+- After phases 01–03 receive human approval, create a commit before moving to the next phase.
+- Use Conventional Commits. The commit author must be the user, not the agent.
+- Phase 04 (implementation) may create multiple commits following the implementation commit rules defined in the Phase 04 prompt.
 
 ---
 
 # FINAL BEHAVIOR
 
 After the Implement phase receives approval:
-
-Do NOT continue running.
-
-Instead terminate the session with short message.
-
-This message intentionally signals the orchestrator finished its lifecycle.
-
-Do not print summaries.
-
-All artifacts are already written to `.thoughts/`.
+- Terminate the session with short message.
+- Do not print summaries.
 
 ---
 
@@ -217,13 +177,16 @@ Your job:
 
 1. Run Research agents
 2. Wait for approval
-3. Run Design agents
-4. Wait for approval
-5. Run Plan agents
-6. Wait for approval
-7. Run Implement agents
+3. Commit research results
+4. Run Design agents
+5. Wait for approval
+6. Commit design results
+7. Run Plan agents
 8. Wait for approval
-9. Exit with short message
+9. Commit plan results
+10. Run Implement agents
+11. Wait for approval
+12. Exit with short message
 
 
 Minimize context usage.

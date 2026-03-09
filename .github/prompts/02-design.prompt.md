@@ -36,9 +36,9 @@ Create a todo list tracking each design document. Then produce the following 8 f
 ```markdown
 # Дизайн: <Feature Name>
 
-- **Дата**: <YYYY-MM-DD>
-- **Статус**: Черновик
-- **Исследование**: [01-research](../01-research/README.md)
+- **Date**: <YYYY-MM-DD>
+- **Status**: Draft
+- **Research**: [01-research](../01-research/README.md)
 
 ## Обзор
 <Что проектируется, зачем>
@@ -161,6 +161,7 @@ Include:
   - ER diagram (если есть персистентность данных)
 - Определения state machine (если применимо)
 - Инварианты и бизнес-правила
+
 
 ## Constraints
 

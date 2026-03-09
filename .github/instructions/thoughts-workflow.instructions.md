@@ -26,9 +26,11 @@ applyTo: ".thoughts/**"
     │   ├── 05-risks.md
     │   ├── 06-testcases.md
     │   └── 07-model.md
-    └── 03-plan/
-        ├── README.md
-        └── NN-phase.md (one per phase)
+    ├── 03-plan/
+    │   ├── README.md
+    │   └── NN-phase.md
+    └── 04-implement/
+        └── README.md
 ```
 
 ## Document Conventions
@@ -37,7 +39,7 @@ applyTo: ".thoughts/**"
 - **Status**: каждый README.md содержит поле Status (Draft → Review → Approved or Redraft (check REVIEW.md))
 - **Cross-references**: относительные ссылки между документами (`../01-research/README.md`)
 - **File paths**: ссылки на исходные файлы от корня проекта (`src/signals/signals/State.ts`)
-- **Code examples**: TypeScript-блоки с подсветкой синтаксиса
+- **Code examples**: блоки с подсветкой синтаксиса
 
 ## Mermaid Diagrams
 

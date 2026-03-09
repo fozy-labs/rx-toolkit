@@ -116,14 +116,14 @@ After all phases are committed, present to the user:
 ```markdown
 ## Имплементация завершена
 
-**Фича**: <feature name>
+**Фича**: `<feature name>`
 
 ### Коммиты
 
 | # | Hash | Сообщение |
 |---|------|-----------|
-| 1 | `<short hash>` | <commit message> |
-| 2 | `<short hash>` | <commit message> |
+| 1 | `<short hash>` | `<commit message>` |
+| 2 | `<short hash>` | `<commit message>` |
 
 ### Статус
 - Фаз завершено: N/N
@@ -132,6 +132,6 @@ After all phases are committed, present to the user:
 
 ### Рекомендации после имплементации
 - [ ] Полная сборка: `npm run build`
-- [ ] Ручное тестирование: <области>
+- [ ] Ручное тестирование: `<области>`
 - [ ] Обновление документации: `docs/`
 ```
