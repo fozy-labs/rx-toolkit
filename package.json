@@ -7,14 +7,24 @@
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias",
     "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w\")",
-    "ts-check": "tsc --noEmit"
+    "ts-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
     "concurrently": "9.2.0",
+    "jsdom": "^28.1.0",
     "rimraf": "6.1.2",
     "tsc-alias": "^1.8.16",
     "tsconfig-paths": "4.2.0",
     "typescript": "5.9.2",
+    "vitest": "^4.0.18",
     "zod": "4.1.11"
   },
   "peerDependencies": {

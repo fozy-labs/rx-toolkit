@@ -6,4 +6,11 @@ export class SharedOptions {
     static onQueryError: ((error: unknown) => void) | null = null;
     static getScopeName: (() => string | null) | null = null;
     static defaultCompareArgs = shallowEqual;
+
+    static reset(): void {
+        SharedOptions.DEVTOOLS = null;
+        SharedOptions.onQueryError = null;
+        SharedOptions.getScopeName = null;
+        SharedOptions.defaultCompareArgs = shallowEqual;
+    }
 }
