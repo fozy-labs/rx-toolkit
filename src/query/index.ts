@@ -9,6 +9,8 @@ export * from './api/resetAllQueriesCache';
 
 export * from './SKIP_TOKEN';
 
+export * from './types';
+
 export * from './react/useResourceAgent';
 export * from './react/useResourceRef';
 

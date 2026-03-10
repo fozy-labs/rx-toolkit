@@ -77,7 +77,7 @@ export type ResourceInstance<D extends ResourceDefinition> = {
     createAgent(): ResourceAgentInstance<D>;
 
     /** Создает ссылку на ресурс с указанными аргументами */
-    createRef(args: D["Args"]): ResourceRefInstanse<D>;
+    createRef(args: D["Args"]): ResourceRefInstance<D>;
 }
 
 /**
@@ -135,7 +135,7 @@ export type ResourceTransaction = {
  * Эте не ссылка в "классическом" понимании, а абстракция
  * для работы с элементом кеша ресурса.
  */
-export type ResourceRefInstanse<D extends ResourceDefinition> = {
+export type ResourceRefInstance<D extends ResourceDefinition> = {
     get has(): boolean;
     lock(): { unlock: () => void };
     unlockOne(): void;
@@ -143,3 +143,6 @@ export type ResourceRefInstanse<D extends ResourceDefinition> = {
     invalidate(): void;
     create(data: D['Data']): void;
 }
+
+/** @deprecated Use ResourceRefInstance. Will be removed in v0.6.0 */
+export type ResourceRefInstanse<D extends ResourceDefinition> = ResourceRefInstance<D>;

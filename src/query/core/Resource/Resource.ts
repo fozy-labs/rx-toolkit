@@ -4,7 +4,7 @@ import type {
     ResourceCreateOptions,
     ResourceDefinition,
     ResourceInstance,
-    ResourceRefInstanse,
+    ResourceRefInstance,
     ResourceTransaction
 } from "@/query/types";
 
@@ -195,7 +195,7 @@ export class Resource<D extends ResourceDefinition> implements ResourceInstance<
         return new ResourceAgent<D>(this);
     }
 
-    createRef = (args: D['Args']): ResourceRefInstanse<D> => {
+    createRef = (args: D['Args']): ResourceRefInstance<D> => {
         return new ResourceRef<D>(this, args);
     }
 

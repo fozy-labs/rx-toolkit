@@ -1,10 +1,10 @@
 import { applyPatches, enablePatches, produceWithPatches } from "immer";
-import { ResourceDefinition, ResourceRefInstanse, ResourceTransaction } from "@/query/types";
+import { ResourceDefinition, ResourceRefInstance, ResourceTransaction } from "@/query/types";
 import { CoreResourceQueryCache, Resource } from "./Resource";
 
 enablePatches();
 
-export class ResourceRef<D extends ResourceDefinition> implements ResourceRefInstanse<D> {
+export class ResourceRef<D extends ResourceDefinition> implements ResourceRefInstance<D> {
     private _cacheItem: CoreResourceQueryCache<D> | null = null;
 
     constructor(

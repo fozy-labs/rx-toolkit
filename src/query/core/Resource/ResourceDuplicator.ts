@@ -12,7 +12,7 @@ export type DuplicatorOptions<D extends DuplicatorDefinition> = {
     cacheLifetime?: number | false;
 }
 
-type FrowardInfo<D extends ResourceDefinition> = {
+type ForwardInfo<D extends ResourceDefinition> = {
     k: number;
     cache: CoreResourceQueryCache<D>
 }
@@ -32,7 +32,7 @@ type Cache<D extends DuplicatorDefinition> = ComputedReactiveCache<State<D>>;
 export type CoreResourceDuplicatorCache<D extends DuplicatorDefinition> = Cache<D>;
 
 export class ResourceDuplicator<D extends DuplicatorDefinition> {
-    private _fis = new Map<string | number, FrowardInfo<D['RESOURCE_DEFINITION']>>();
+    private _fis = new Map<string | number, ForwardInfo<D['RESOURCE_DEFINITION']>>();
     private _caches;
     private get _resource() {
         return this._options.resource;
@@ -210,7 +210,7 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
                 const dataAcc: D['DATA_ITEM'][] = [];
 
                 itemsAcc.forEach(item => {
-                    item.data?.forEach((d: any[]) => {
+                    item.data?.forEach((d: D['DATA_ITEM']) => {
                         const dataKey = this._options.getDataKey(d);
                         const index = argsKeys.findIndex(ak => ak === dataKey);
                         if (index === -1) return;

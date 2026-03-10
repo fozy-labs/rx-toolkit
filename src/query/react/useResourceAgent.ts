@@ -42,7 +42,7 @@ export function useResourceAgent<D extends ResourceDefinition>(
     return useSignal(agent.state$ as ReadableSignalLike<Result<D>>);
 }
 
-function compare(args: any, prevArgs: any, agent: ResourceAgentInstance<any>): boolean {
+function compare(args: unknown, prevArgs: unknown, agent: ResourceAgentInstance<ResourceDefinition>): boolean {
     if (args === SKIP && prevArgs === SKIP) {
         return true;
     }

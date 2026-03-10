@@ -1,8 +1,8 @@
 import React from "react";
 import { SKIP } from "@/query/SKIP_TOKEN";
-import type { Prettify, ResourceDefinition, ResourceInstance, ResourceRefInstanse } from "@/query/types";
+import type { Prettify, ResourceDefinition, ResourceInstance, ResourceRefInstance } from "@/query/types";
 
-type Result<D extends ResourceDefinition> = Prettify<ResourceRefInstanse<D>>;
+type Result<D extends ResourceDefinition> = Prettify<ResourceRefInstance<D>>;
 
 export function useResourceRef<D extends ResourceDefinition>(
     res: ResourceInstance<D>,
