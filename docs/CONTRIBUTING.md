@@ -43,6 +43,7 @@ npm run build
 
 ```
 rx-toolkit/
+├── .github/              # AI-промпты, инструкции, скиллы
 ├── src/                  # Исходный код библиотеки
 │   ├── signals/          # Реактивные примитивы (Signal, Computed, Effect)
 │   ├── query/            # Кеш-менеджер (Resource, Command)
@@ -50,7 +51,6 @@ rx-toolkit/
 ├── apps/
 │   └── demos/            # Интерактивные примеры (React + Vite + MDX)
 ├── docs/                 # Документация
-├── .github/              # AI-промпты, инструкции, скиллы
 └── dist/                 # Результат сборки (не коммитится)
 ```
 
@@ -60,15 +60,15 @@ rx-toolkit/
 
 ### Исходный код (`src/`)
 
-Библиотека состоит из трёх модулей:
+Библиотека состоит из трёх "модулей":
 
-| Модуль | Путь | Описание |
-|--------|------|----------|
-| **Signals** | `src/signals/` | Реактивные примитивы: `State`, `Computed`, `Effect`, операторы |
-| **Query** | `src/query/` | Кеш-менеджер: `Resource`, `Command`, агенты, `SKIP_TOKEN` |
-| **Common** | `src/common/` | Redux DevTools, `DefaultOptions`, `useConstant`, `deepEqual` |
+| Модуль | Путь | Описание                                                            |
+|--------|------|---------------------------------------------------------------------|
+| **Signals** | `src/signals/` | Реактивные примитивы: `State`, `Computed`, `Effect`, операторы и тд |
+| **Query** | `src/query/` | Кеш-менеджер: `Resource`, `Command`, агенты, `SKIP_TOKEN` и тд      |
+| **Common** | `src/common/` | Общие утилиты, интеграция с DevTools, React-хуки и тд                 |
 
-**Алиас путей:** `@/` → `src/` (настроен в `tsconfig.json`).
+**Алиас путей:** `@/` → `src/`.
 
 **Команды:**
 
@@ -101,21 +101,23 @@ apps/demos/src/
 └── utils/             # Утилиты для fetch-запросов
 ```
 
-При добавлении новой фичи в `src/` — добавляйте интерактивный пример в `apps/demos/`.
+При добавлении новой фичи в `src/` желательно также добавить интерактивный в `apps/demos/`.
 
 ### Документация (`docs/`)
 
 Документация на **русском языке**:
 
-| Файл | Содержание |
-|------|-----------|
-| `docs/signals/README.md` | State, Computed, Effect — реактивные примитивы |
-| `docs/query/README.md` | Resource, Command, агенты — кеш-менеджер |
-| `docs/usage/react/README.md` | React-хуки: `useSignal`, `useResourceAgent`, `useCommandAgent` |
-| `docs/devtools/README.md` | Интеграция с Redux DevTools |
-| `docs/options/README.md` | `DefaultOptions` — глобальные настройки |
-| `docs/CHANGELOG.md` | История изменений |
-| `docs/migrations/` | Гайды миграции между версиями |
+| Файл                   | Содержание                     |
+|------------------------|--------------------------------|
+| `docs/signals/`        | Реактивные примитивы           |
+| `docs/query/`          | Query кеш-менеджер             |
+| `docs/usage/react/`    | React-хуки                     |
+| `docs/devtools/`       | Интеграция с Redux DevTools    |
+| `docs/options/`        | Глобальные настройки           |
+| `docs/migrations/`     | Гайды миграции между версиями  |
+| `docs/contributing/`   | Руководства для контрибьюторов |
+| `docs/CHANGELOG.md`    | История изменений              |
+| `docs/CONTRIBUTING.md` | Руководство для контрибьюторов |
 
 При изменении публичного API — обновляйте соответствующий раздел документации.
 
@@ -147,12 +149,12 @@ npm run test:ui         # Vitest UI в браузере
 
 - Классы/типы — **PascalCase**: `Signal.ts`, `ReadonlySignal.ts`
 - Фабрики/утилиты — **camelCase**: `createResource.ts`, `deepEqual.ts`
-- Типы — суффиксы: `XDefinition`, `XInstance`, `XAgentInstance`, `XCreateOptions`
+- Типы — суффиксы: `XDefinition`, `XInstance` и тд
 
 ### Протокол сигналов
 
 ```typescript
-signal.get()   // или signal() — получить значение с подпиской
+signal()       // или signal.get()
 signal.peek()  // получить без подписки
 signal.set(v)  // установить значение
 signal.obs     // RxJS Observable
@@ -162,83 +164,38 @@ signal.obs     // RxJS Observable
 
 - Код и комментарии в коде — **на английском**
 - Документация (`docs/`) — **на русском**
+- AI кастомизация (`.github/`) — **на английском**
 
 ### Коммиты
 
-Используются [Conventional Commits](https://www.conventionalcommits.org/):
+Используются [Conventional Commits](https://www.conventionalcommits.org/).
 
-```
-feat: add resource deduplication
-fix: correct computed dependency tracking
-docs: update signals README
-test: add Command agent tests
-refactor: simplify batcher logic
-```
+
+### CHANGELOG
+
+Используется формат [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+### index.ts
+
+`src/index.ts` — единственная точка экспорта публичного API.
+`<module>/index.ts` — точка экспорта для конкретного "модуля".
 
 ---
 
 ## AI-assisted разработка
 
-Проект настроен для работы с **GitHub Copilot** (VS Code). Ниже описаны файлы, которые автоматически подключаются к AI-ассистенту.
+Проект настроен для работы с **GitHub Copilot**.
 
-### Файлы конфигурации
-
-| Файл | Назначение |
-|------|-----------|
-| `.github/copilot-instructions.md` | Основные правила проекта (стек, именование, протоколы). Загружается всегда. |
-| `.github/instructions/thoughts-workflow.instructions.md` | Правила для файлов в `.thoughts/` (applyTo: `.thoughts/**`). |
-| `.github/skills/delegate/SKILL.md` | Скилл делегирования задач субагентам. |
-| `.github/prompts/01-research.prompt.md` | Промпт фазы исследования. |
-| `.github/prompts/02-design.prompt.md` | Промпт фазы проектирования. |
-| `.github/prompts/03-plan.prompt.md` | Промпт фазы планирования. |
-| `.github/prompts/04-implement.prompt.md` | Промпт фазы реализации. |
-
-### Workflow разработки фичей
-
-Для крупных фич используется поэтапный AI-workflow:
-
-```
-Research → [review] → Design → [review] → Plan → [review] → Implement
-```
-
-Артефакты каждой фазы сохраняются в:
-
-```
-.thoughts/<YYYY-MM-DD>_<feature-name>/
-├── 01-research/
-├── 02-design/
-├── 03-plan/
-└── 04-implement/
-```
-
-Каждый этап проходит **ревью человеком** перед переходом к следующему.
-
-### Как начать
-
-1. Убедитесь, что установлен **GitHub Copilot** в VS Code
-2. Файлы в `.github/` подхватываются автоматически — дополнительной настройки не требуется
-3. Для запуска полного workflow фичи — используйте промпт `00-compined.prompt.md`
-4. Для отдельных фаз — соответствующий промпт (`01-research`, `02-design`, и т.д.)
+[//]: # (For humans only guide:)
+Описание подхода: [docs/contributing/ai-assisted-development.md](contributing/ai-assisted-development.md).
 
 ---
 
 ## Релиз
 
-Подробный процесс описан в [`docs/contributing/release/README.md`](contributing/release/README.md).
+Релизы делятся на:
+- **RC** — не стабильные релизы
+- **Stable** — стабильные релизы для продакшена
 
-Краткая версия:
-
-```bash
-npm run ts-check       # Проверка типов
-npm run build          # Сборка
-npm version <patch|minor|major>
-npm publish
-git push origin develop --tags
-```
-
-Для RC-версий:
-
-```bash
-npm version prerelease --preid=rc
-npm publish --tag rc
-```
+[//]: # (For humans only guide:)
+Инструкция по выпуску описана тут [docs/contributing/release/README.md](contributing/release/README.md).
