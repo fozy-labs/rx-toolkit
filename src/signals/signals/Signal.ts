@@ -1,6 +1,8 @@
 import type { StateDevtoolsOptions } from "@/common/devtools";
 import { SignalFn } from "@/signals/types";
-import { Computed, Effect, State } from "@/signals/signals";
+import { State } from "./State";
+import { Computed } from "./Computed";
+import { Effect } from "./Effect";
 
 export class Signal<T> extends State<T> {
 

@@ -2,8 +2,8 @@ import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs"
 import { StateDevtoolsOptions } from "@/common/devtools";
 import { ComputeFn } from "@/signals/types";
 import { ComputeCache, DependencyTracker } from "../base";
+import { State } from "./State";
 import { Effect } from "./Effect";
-import { Signal } from "./Signal";
 
 export class Computed<T> {
     private _state$;
@@ -24,7 +24,7 @@ export class Computed<T> {
             _skipValues: [Computed._EMPTY],
         };
 
-        this._state$ = Signal.state<symbol | T>(Computed._EMPTY, lsOptions);
+        this._state$ = State.create<symbol | T>(Computed._EMPTY, lsOptions);
 
         this.obs = this._state$.obs.pipe(
             map((value) => {
