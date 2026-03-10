@@ -30,7 +30,6 @@ Follow the plan precisely. It has been reviewed and approved by a human. Do not 
    ```
    git status --porcelain
    ```
-   If not clean, STOP and inform the user to commit or stash existing changes
 
 ## Execution Loop
 

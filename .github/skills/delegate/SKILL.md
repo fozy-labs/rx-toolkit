@@ -20,6 +20,7 @@ When delegating a task, include:
 
 - **Goal** – what must be accomplished
 - **Context** – relevant information
+- **Scope** – any constraints or limitations
 - **Expected output** – what the agent should return you
 
 ### Subagent name
@@ -40,7 +41,7 @@ Avoid:
 - giving vague instructions
 - giving overly detailed instructions
 
-## Delegation strategies
+## Delegation strategy
 
 - Role-playing
 - Chain-of-Thought
