@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.5.3-rc.3] — 2026-03-10
+## [CURRENT] — 2026-03-10
 
 ### Fixed
 - Fixed `useResourceRef` memoization for object arguments — ref no longer recreated every render

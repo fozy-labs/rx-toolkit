@@ -163,12 +163,22 @@ Include:
 - Определения state machine (если применимо)
 - Инварианты и бизнес-правила
 
-### 08-docs.md — Documentation & Examples impact
+### 08-docs.md — Documentation & Examples
 
-Include:
-- Влияние на документацию
-- Влияние на интерактивные примеры
+1. Documentation impact
+  - What concepts need documentation
+  - What existing docs might need updates
+  - What new documentation sections might be required
+  - What developer/user questions should the docs answer
 
+2. Interactive examples impact
+  - What kinds of examples would help understand the feature
+  - What scenarios should be demonstrated
+  - What edge cases should examples cover
+
+Important:
+ - Describe WHAT needs to be documented, not HOW it will be implemented.
+ - Stay at the design/specification level.
 
 ## Constraints
 
