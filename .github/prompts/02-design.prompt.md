@@ -58,6 +58,7 @@ Create a todo list tracking each design document. Then produce the following 8 f
 - [Риски](./05-risks.md)
 - [Тест-кейсы](./06-testcases.md)
 - [Доменная модель](./07-model.md)
+- [Документация и примеры](./08-docs.md)
 
 ## Ключевые решения
 <Краткий список самых важных архитектурных решений>
@@ -161,6 +162,12 @@ Include:
   - ER diagram (если есть персистентность данных)
 - Определения state machine (если применимо)
 - Инварианты и бизнес-правила
+
+### 08-docs.md — Documentation & Examples impact
+
+Include:
+- Влияние на документацию
+- Влияние на интерактивные примеры
 
 
 ## Constraints

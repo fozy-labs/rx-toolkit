@@ -111,27 +111,34 @@ If a phase fails verification:
 
 ## Completion
 
-After all phases are committed, present to the user:
+After all phases are committed:
+
+### 1. Create Implementation Record
+
+Create `.thoughts/<feature-dir>/04-implement/README.md` (in Russian per project conventions):
 
 ```markdown
-## Имплементация завершена
+# Имплементация: <feature-name>
 
-**Фича**: `<feature name>`
+- **Date**: <YYYY-MM-DD>
+- **Status**: Draft
+- **Plan**: [03-plan](../03-plan/README.md)
 
-### Коммиты
+## Commits
 
-| # | Hash | Сообщение |
+| # | Hash | Message |
 |---|------|-----------|
 | 1 | `<short hash>` | `<commit message>` |
 | 2 | `<short hash>` | `<commit message>` |
 
-### Статус
+## Status
 - Фаз завершено: N/N
 - Верификация: все пройдены / частично (детали)
 - Проблемы: <если были>
 
-### Рекомендации после имплементации
+## Рекомендации после имплементации
 - [ ] Полная сборка: `npm run build`
 - [ ] Ручное тестирование: `<области>`
-- [ ] Обновление документации: `docs/`
+
+## Короткий перечень изменений:
 ```
