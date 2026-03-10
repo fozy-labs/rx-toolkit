@@ -19,6 +19,7 @@
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/ui": "^4.0.18",
     "concurrently": "9.2.0",
     "jsdom": "^28.1.0",
     "rimraf": "6.1.2",
@@ -62,7 +63,9 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "sideEffects": ["./dist/query/core/Resource/ResourceRef.js"],
+  "sideEffects": [
+    "./dist/query/core/Resource/ResourceRef.js"
+  ],
   "publishConfig": {
     "access": "public"
   },
