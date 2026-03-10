@@ -62,7 +62,7 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "sideEffects": false,
+  "sideEffects": ["./dist/query/core/Resource/ResourceRef.js"],
   "publishConfig": {
     "access": "public"
   },

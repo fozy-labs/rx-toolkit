@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [0.5.4] — 2026-03-10
+
+### Fixed
+- Fixed `useResourceRef` memoization for object arguments — ref no longer recreated every render
+- Fixed missing type exports from `src/query/` — consumers can now import `ResourceDefinition`, `CommandDefinition`, etc.
+
+### Changed
+- `ResourceRefInstanse` renamed to `ResourceRefInstance` (deprecated alias preserved)
+- `FrowardInfo` renamed to `ForwardInfo` (internal type)
+- `Opertation/` directory renamed to `Operation/`
+- Replaced `any` types with proper types in `useResourceAgent` and `ResourceDuplicator`
+
+### Added
+- Unit tests for query core modules (SKIP_TOKEN, IndirectMap, ReactiveCache, QueriesCache, ResetAllQueriesSignal, ResourceRef, Resource, Command, QueriesLifetimeHooks, ResourceDuplicator)
+- Smoke tests for React hooks (useResourceAgent, useCommandAgent, useResourceRef)
+- Integration tests for query exports
+
+### Deprecated
+- `ResourceRefInstanse` — use `ResourceRefInstance` (will be removed in v0.6.0)
+
+### Known Issues
+- `isLocked` semantics undefined (TODO in ResourceAgent)
+- Render-phase side effects in useResourceAgent
+- `d_init()` deprecated but still used in ResourceDuplicator
+
 ## [0.5.3-rc.2] — 2026-02-23
 
 ### Added

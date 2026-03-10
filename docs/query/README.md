@@ -315,7 +315,7 @@ type CommandQueryState<D> = {
 ResourceRef предоставляет низкоуровневый доступ к элементу кэша:
 
 ```typescript
-type ResourceRefInstanse<D> = {
+type ResourceRefInstance<D> = {
     /** Проверка наличия элемента в кэше */
     get has(): boolean;
     

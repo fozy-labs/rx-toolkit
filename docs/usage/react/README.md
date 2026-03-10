@@ -223,7 +223,7 @@ function TodoItem({ todo }: { todo: Todo }) {
 }
 ```
 
-**Возвращаемое значение (ResourceRefInstanse):**
+**Возвращаемое значение (ResourceRefInstance):**
 
 | Метод | Описание |
 |-------|----------|
