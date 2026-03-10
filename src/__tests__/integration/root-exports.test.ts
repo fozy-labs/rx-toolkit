@@ -122,4 +122,68 @@ describe('Root module exports (@/index)', () => {
         });
     });
 
+    describe('query re-exports', () => {
+        it('exports createResource', async () => {
+            const mod = await import('@/index');
+            expect(mod.createResource).toBeDefined();
+        });
+
+        it('exports createCommand', async () => {
+            const mod = await import('@/index');
+            expect(mod.createCommand).toBeDefined();
+        });
+
+        it('exports useResourceAgent', async () => {
+            const mod = await import('@/index');
+            expect(mod.useResourceAgent).toBeDefined();
+        });
+
+        it('exports useCommandAgent', async () => {
+            const mod = await import('@/index');
+            expect(mod.useCommandAgent).toBeDefined();
+        });
+
+        it('exports useResourceRef', async () => {
+            const mod = await import('@/index');
+            expect(mod.useResourceRef).toBeDefined();
+        });
+
+        it('exports SKIP', async () => {
+            const mod = await import('@/index');
+            expect(mod.SKIP).toBeDefined();
+        });
+
+        it('exports createResourceDuplicator', async () => {
+            const mod = await import('@/index');
+            expect(mod.createResourceDuplicator).toBeDefined();
+        });
+
+        it('exports resetAllQueriesCache', async () => {
+            const mod = await import('@/index');
+            expect(mod.resetAllQueriesCache).toBeDefined();
+        });
+    });
+
+    describe('query deprecated re-exports', () => {
+        it('exports createOperation (deprecated)', async () => {
+            const mod = await import('@/index');
+            expect(mod.createOperation).toBeDefined();
+        });
+
+        it('exports useOperationAgent (deprecated)', async () => {
+            const mod = await import('@/index');
+            expect(mod.useOperationAgent).toBeDefined();
+        });
+    });
+
+    describe('query type exports (compile-time check)', () => {
+        it('exports query types', () => {
+            const _typeCheck = () => {
+                type _RD = import('@/index').ResourceDefinition;
+                type _CD = import('@/index').CommandDefinition;
+            };
+            expect(true).toBe(true);
+        });
+    });
+
 });
