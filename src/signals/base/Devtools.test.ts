@@ -142,4 +142,188 @@ describe('Devtools', () => {
             expect(keys[0]).toContain('State');
         });
     });
+
+    describe('createSignalHooks()', () => {
+        it('returns SignalLifecycleHook when DEVTOOLS is set', () => {
+            const mockStateFn = vi.fn();
+            const mockCreateState = vi.fn(() => mockStateFn);
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            const hook = Devtools.createSignalHooks(42, { key: 'test' });
+
+            expect(hook).not.toBeNull();
+            expect(hook!.onChange).toBeTypeOf('function');
+            expect(hook!.onDispose).toBeTypeOf('function');
+        });
+
+        it('returns null when DEVTOOLS is null', () => {
+            SharedOptions.DEVTOOLS = null;
+            const hook = Devtools.createSignalHooks(0);
+            expect(hook).toBeNull();
+        });
+
+        it('returns null when isDisabled is true', () => {
+            SharedOptions.DEVTOOLS = { state: vi.fn(() => vi.fn()) };
+            const hook = Devtools.createSignalHooks(0, { isDisabled: true });
+            expect(hook).toBeNull();
+        });
+
+        it('init calls DEVTOOLS.state() via createState delegation', () => {
+            const mockStateFn = vi.fn();
+            const mockCreateState = vi.fn(() => mockStateFn);
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            Devtools.createSignalHooks(42, { key: 'test' });
+
+            expect(mockCreateState).toHaveBeenCalledOnce();
+            expect(mockCreateState.mock.calls[0]![1]).toBe(42);
+        });
+
+        it('onChange calls stateDevtools function', () => {
+            const mockStateFn = vi.fn();
+            const mockCreateState = vi.fn(() => mockStateFn);
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            const hook = Devtools.createSignalHooks(0, { key: 'test' });
+            hook!.onChange!(100);
+
+            expect(mockStateFn).toHaveBeenCalledWith(100);
+        });
+
+        it('onDispose sends $COMPLETED', () => {
+            const mockStateFn = vi.fn();
+            const mockCreateState = vi.fn(() => mockStateFn);
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            const hook = Devtools.createSignalHooks(0, { key: 'test' });
+            hook!.onDispose!();
+
+            expect(mockStateFn).toHaveBeenCalledWith('$COMPLETED');
+        });
+
+        it('generates unique keys via Indexer', () => {
+            const keys: string[] = [];
+            const mockCreateState = vi.fn((key: string) => {
+                keys.push(key);
+                return vi.fn();
+            });
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            Devtools.createSignalHooks(1, { key: 'a' });
+            Devtools.createSignalHooks(2, { key: 'b' });
+
+            expect(keys).toHaveLength(2);
+            expect(keys[0]).not.toBe(keys[1]);
+        });
+
+        it('replaces {scope} placeholder', () => {
+            const keys: string[] = [];
+            const mockCreateState = vi.fn((key: string) => {
+                keys.push(key);
+                return vi.fn();
+            });
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+            SharedOptions.getScopeName = () => 'myScope';
+
+            Devtools.createSignalHooks(1, { key: 'pre-{scope}-post' });
+
+            expect(keys[0]).toContain('myScope');
+        });
+
+        it('replaces {base} placeholder', () => {
+            const keys: string[] = [];
+            const mockCreateState = vi.fn((key: string) => {
+                keys.push(key);
+                return vi.fn();
+            });
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            Devtools.createSignalHooks(1, { key: '{base}/signal', base: 'State' });
+
+            expect(keys[0]).toContain('State');
+        });
+
+        describe('with beforeDevtoolsPush', () => {
+            it('init — filtering skips createState init', () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks<number | null>(null, {
+                    key: 'test',
+                    beforeDevtoolsPush: (value: number | null, push: (v: number | null) => void) => {
+                        if (value !== null) push(value);
+                    },
+                });
+
+                expect(hook).not.toBeNull();
+                expect(mockCreateState).not.toHaveBeenCalled();
+            });
+
+            it('onChange — lazy init on first push', () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks<number | null>(null, {
+                    key: 'test',
+                    beforeDevtoolsPush: (value: number | null, push: (v: number | null) => void) => {
+                        if (value !== null) push(value);
+                    },
+                });
+
+                hook!.onChange!(42);
+                expect(mockCreateState).toHaveBeenCalledOnce();
+            });
+
+            it('onChange — transforms value', () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks<number>(0, {
+                    key: 'test',
+                    beforeDevtoolsPush: (value: number, push: (v: number) => void) => {
+                        push(value * 2);
+                    },
+                });
+
+                hook!.onChange!(5);
+                expect(mockStateFn).toHaveBeenCalledWith(10);
+            });
+
+            it('onDispose works independently', () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks(1, {
+                    key: 'test',
+                    beforeDevtoolsPush: (value: number, push: (v: number) => void) => {
+                        push(value);
+                    },
+                });
+
+                hook!.onDispose!();
+                expect(mockStateFn).toHaveBeenCalledWith('$COMPLETED');
+            });
+
+            it('onDispose without prior push — no error', () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks<number | null>(null, {
+                    key: 'test',
+                    beforeDevtoolsPush: (value: number | null, push: (v: number | null) => void) => {
+                        if (value !== null) push(value);
+                    },
+                });
+
+                // stateDevtools was never created (filtered on init, never called onChange)
+                // onDispose should still work — calling the returned fn from createState
+                expect(() => hook!.onDispose!()).not.toThrow();
+            });
+        });
+    });
 });

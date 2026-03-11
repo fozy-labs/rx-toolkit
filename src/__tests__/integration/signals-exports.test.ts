@@ -18,6 +18,13 @@ import {
     Signal,
     LocalState,
     LocalSignal,
+    // types
+    normalizeSignalOptions,
+} from '@/signals';
+import type {
+    SignalOptions,
+    SignalOptionsOrKey,
+    SignalLifecycleHook,
 } from '@/signals';
 
 describe('Signals module exports', () => {
@@ -101,6 +108,30 @@ describe('Signals module exports', () => {
         it('exports LocalSignal (deprecated alias)', () => {
             expect(LocalSignal).toBeDefined();
             expect(LocalSignal).toBe(LocalState);
+        });
+    });
+
+    describe('types', () => {
+        it('exports normalizeSignalOptions', () => {
+            expect(normalizeSignalOptions).toBeDefined();
+            expect(typeof normalizeSignalOptions).toBe('function');
+        });
+
+        it('exports SignalOptions type', () => {
+            const opts: SignalOptions = { key: 'test' };
+            expect(opts.key).toBe('test');
+        });
+
+        it('exports SignalOptionsOrKey type', () => {
+            const opts1: SignalOptionsOrKey = 'test';
+            const opts2: SignalOptionsOrKey = { key: 'test' };
+            expect(opts1).toBe('test');
+            expect(opts2.key).toBe('test');
+        });
+
+        it('exports SignalLifecycleHook type', () => {
+            const hook: SignalLifecycleHook = { onChange: () => {} };
+            expect(hook.onChange).toBeTypeOf('function');
         });
     });
 
