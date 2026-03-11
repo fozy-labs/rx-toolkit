@@ -168,8 +168,9 @@ signal.obs     // RxJS Observable
 
 ### Коммиты
 
-Используются [Conventional Commits](https://www.conventionalcommits.org/).
-
+Используются [Conventional Commits](https://www.conventionalcommits.org/), но со следующими адоптациями:
+- `chore(..)` - при настройке AI окружения (промпты, инструкции, скиллы и тд)
+- `thoughts(..)` - коммиты сгенерированные AI при работе над `.thoughts`
 
 ### CHANGELOG
 
@@ -177,8 +178,8 @@ signal.obs     // RxJS Observable
 
 ### index.ts
 
-`src/index.ts` — единственная точка экспорта публичного API.
-`<module>/index.ts` — точка экспорта для конкретного "модуля".
+- `src/index.ts` — единственная точка экспорта публичного API.
+- `<module>/index.ts` — точка экспорта для конкретного "модуля".
 
 ---
 
@@ -195,7 +196,7 @@ signal.obs     // RxJS Observable
 
 Релизы делятся на:
 - **RC** — не стабильные релизы
-- **Stable** — стабильные релизы для продакшена
+- **Stable** — стабильные релизы
 
 [//]: # (For humans only guide:)
 Инструкция по выпуску описана тут [docs/contributing/release/README.md](contributing/release/README.md).
