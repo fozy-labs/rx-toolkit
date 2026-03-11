@@ -23,7 +23,9 @@ Feature: ${input:featureName}
 3. If the design directory is missing, STOP and inform the user that the Design phase must be completed first
 
 <critical>
-The plan must faithfully implement the approved design. Do not introduce new design decisions. If the design is ambiguous, note it explicitly in the phase file and propose the simplest interpretation.
+The plan must faithfully implement the approved design. 
+Do not introduce new design decisions.
+If the design is ambiguous, note it explicitly in the phase file and propose the simplest interpretation.
 </critical>
 
 ## Setup
@@ -43,7 +45,9 @@ Before writing any plan files:
 6. Verify file paths against the actual repository structure — use search to confirm
 
 <important>
-Every file path in the plan MUST be verified against the actual repository. Use search to confirm files exist before referencing them in tasks. For new files, verify the parent directory exists.
+Every file path in the plan MUST be verified against the actual repository.
+Use search to confirm files exist before referencing them in tasks. 
+For new files, verify the parent directory exists.
 </important>
 
 ### Writing Phase
@@ -88,8 +92,6 @@ graph LR
 ## Правила выполнения
 - Фазы без зависимостей на незавершённые фазы можно выполнять параллельно
 - Последовательные фазы требуют прохождения верификации перед переходом
-- Каждая фаза = один git commit (conventional commit format)
-- Верификация каждой фазы: `npm run ts-check` + специфичные проверки
 
 ## Следующие шаги
 После ревью человеком переходите к имплементации: `/04-implement`
@@ -143,10 +145,15 @@ For each phase, create a file `<NN>-phase.md` (e.g., `01-phase.md`, `02-phase.md
 - DO NOT leave tasks vague — every task must specify exact files and concrete changes
 - DO NOT skip verification criteria — every phase must be independently verifiable
 - AVOID splitting trivial changes into separate tasks
+- EVERY phase must result in a fully working and runnable application/library state.
 </critical>
 
 - Map every design component to at least one task
 - Every task must reference the design document section it implements
 - File paths must be exact (verify against actual repo structure with search)
 - Use existing naming conventions from the codebase
-- Write in Russian
+
+## Common mistakes to avoid
+- Ignoring `docs/` and `apps/demos/` in the plan
+- Splitting trivial changes into separate tasks
+- Creating small tasks that break the application in the middle (as a result, many micro commits, between which the application does not work)

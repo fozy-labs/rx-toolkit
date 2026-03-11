@@ -23,7 +23,9 @@ Feature: ${input:featureName}
 3. If no research directory is found, STOP and inform the user that the Research stage must be completed first
 
 <critical>
-Base every design decision on FACTS from the research documents. Do not introduce assumptions not supported by research findings. If the research has gaps, document them in 04-decisions.md as deferred decisions with the tag [DEFERRED].
+Base every design decision on FACTS from the research documents
+. Do not introduce assumptions not supported by research findings. 
+If the research has gaps, document them in 04-decisions.md as deferred decisions with the tag [DEFERRED].
 </critical>
 
 ## Setup
@@ -87,7 +89,9 @@ Include:
   - Class/interface hierarchy diagram
 
 <important>
-All Mermaid diagrams must have descriptive titles. Limit diagrams to 15–20 elements — split larger ones into multiple diagrams. Use meaningful node names, not abbreviations.
+All Mermaid diagrams must have descriptive titles. 
+Limit diagrams to 15–20 elements — split larger ones into multiple diagrams.
+Use meaningful node names, not abbreviations.
 </important>
 
 ### dataflow.md — Data Flow
@@ -171,13 +175,13 @@ Include:
 
 ### docs.md — Documentation & Interactive examples
 
-1. Documentation impact
+1. Documentation impact, like:
   - What concepts need documentation
   - What existing docs might need updates
   - What new documentation sections might be required
   - What developer/user questions should the docs answer
 
-2. Interactive examples impact
+2. Interactive examples impact, like:
   - What kinds of intractive examples need to be created
   - What scenarios should be demonstrated
   - What edge cases should examples cover
@@ -187,6 +191,8 @@ Important:
  - Stay at the design/specification level.
  - Do not propose useless or low impact documentation or interactive examples.
  - Do not propose in-code comments (like @jsdoc)
+ - Focus on small output. Write big document - ANTIPATTERN.
+ - Write style MUST BE equal to existing rx-toolkit documentation.
 
 ## Constraints
 
@@ -196,6 +202,7 @@ Important:
 - DO NOT ignore research findings — every design choice must trace back to research
 - DO NOT leave ADR decisions empty — propose a decision, even if marked "Proposed"
 - DO NOT force content into documents that are intended to be empty — some tasks explicitly require empty or nearly empty documents
+- Clearly RESTRICT agents to stay within the boundaries of their documents (phases)
 </critical>
 
 - Maintain consistency with existing rx-toolkit patterns (naming, module structure, API style)
@@ -203,3 +210,10 @@ Important:
 - Write all documents in Russian
 - Reference research documents for factual claims
 - Design for the existing tech stack
+
+
+## Common mistakes to avoid
+- ignoring `open-questions.md` from research stage
+- going beyond the scope of the document and current stage 
+(for example, in architecture, a model and a plan may be included, etc.)
+- Excessive, disproportionate and downright poorly done `docs.md`
