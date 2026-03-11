@@ -1,18 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Signal } from './Signal';
+import { Computed } from "./Computed";
+import { Signal } from "./Signal";
 
 describe('Computed', () => {
 
     describe('lazy evaluation', () => {
         it('computeFn is NOT called on creation', () => {
             const fn = vi.fn(() => 42);
-            Signal.compute(fn);
+            Computed.create(fn);
             expect(fn).not.toHaveBeenCalled();
         });
 
         it('first observation triggers computation', () => {
             const fn = vi.fn(() => 42);
-            const c = Signal.compute(fn);
+            const c = Computed.create(fn);
 
             expect(fn).not.toHaveBeenCalled();
 
@@ -28,7 +29,7 @@ describe('Computed', () => {
         it('repeated reads do not re-invoke fn', () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
-            const doubled = Signal.compute(fn);
+            const doubled = Computed.create(fn);
 
             const values: number[] = [];
             const eff = Signal.effect(() => { values.push(doubled()); });
@@ -45,7 +46,7 @@ describe('Computed', () => {
         it('recomputes when dependency changes', () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
-            const doubled = Signal.compute(fn);
+            const doubled = Computed.create(fn);
 
             const values: (number | symbol)[] = [];
             const sub = doubled.obs.subscribe((v: number | symbol) => values.push(v));
@@ -63,7 +64,7 @@ describe('Computed', () => {
         it('multiple dependencies — invalidation on any', () => {
             const a = Signal.state(1);
             const b = Signal.state(10);
-            const sum = Signal.compute(() => a() + b());
+            const sum = Computed.create(() => a() + b());
 
             const values: (number | symbol)[] = [];
             const sub = sum.obs.subscribe((v: number | symbol) => values.push(v));
@@ -82,7 +83,7 @@ describe('Computed', () => {
     describe('observable subscription', () => {
         it('subscribing to obs emits computed value and updates', () => {
             const count = Signal.state(1);
-            const doubled = Signal.compute(() => count() * 2);
+            const doubled = Computed.create(() => count() * 2);
 
             const values: number[] = [];
             const sub = doubled.obs.subscribe((v: number | symbol) => values.push(v as number));
@@ -98,7 +99,7 @@ describe('Computed', () => {
         it('cleanup: unsubscribing stops reactive tracking', () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
-            const doubled = Signal.compute(fn);
+            const doubled = Computed.create(fn);
 
             const sub = doubled.obs.subscribe(() => {});
             fn.mockClear();
@@ -124,9 +125,9 @@ describe('Computed', () => {
     describe('diamond problem (glitch-free)', () => {
         it('D sees consistent B and C when A changes', () => {
             const A = Signal.state(1);
-            const B = Signal.compute(() => A() * 2);
-            const C = Signal.compute(() => A() + 10);
-            const D = Signal.compute(() => B() + C());
+            const B = Computed.create(() => A() * 2);
+            const C = Computed.create(() => A() + 10);
+            const D = Computed.create(() => B() + C());
 
             const values: number[] = [];
             const eff = Signal.effect(() => {
@@ -150,7 +151,7 @@ describe('Computed', () => {
 
     describe('error handling', () => {
         it('error in computeFn propagates to obs subscriber', () => {
-            const c = Signal.compute(() => {
+            const c = Computed.create(() => {
                 throw new Error('compute-error');
             });
 
@@ -166,7 +167,7 @@ describe('Computed', () => {
 
         it('after error, new subscription retries computation', () => {
             let shouldThrow = true;
-            const c = Signal.compute(() => {
+            const c = Computed.create(() => {
                 if (shouldThrow) throw new Error('fail');
                 return 42;
             });

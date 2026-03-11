@@ -169,8 +169,8 @@ signal.obs     // RxJS Observable
 ### Коммиты
 
 Используются [Conventional Commits](https://www.conventionalcommits.org/), но со следующими адоптациями:
-- `chore(..)` - при настройке AI окружения (промпты, инструкции, скиллы и тд)
-- `thoughts(..)` - коммиты сгенерированные AI при работе над `.thoughts`
+- `chore(..)` (вместо `docs(..)`) - при настройке AI окружения (промпты, инструкции, скиллы и тд)
+- `thoughts(..)` (вместо `docs(..)`) - коммиты сгенерированные AI при работе над `.thoughts`
 
 ### CHANGELOG
 
