@@ -48,12 +48,16 @@ describe('Devtools', () => {
             expect(key).toContain('mySignal');
         });
 
-        it('handles _skipValues — skips initial value matching skipValues', () => {
+        it('handles beforeDevtoolsPush — skips initial value via filtering', () => {
             const mockStateFn = vi.fn();
             const mockCreateState = vi.fn(() => mockStateFn);
             SharedOptions.DEVTOOLS = { state: mockCreateState };
 
-            const devtoolsState = Devtools.createState<number | null>(null, { _skipValues: [null] });
+            const devtoolsState = Devtools.createState<number | null>(null, {
+                beforeDevtoolsPush: (value, push) => {
+                    if (value !== null) push(value);
+                },
+            });
 
             // createState should not have been called since initial value is skipped
             expect(mockCreateState).not.toHaveBeenCalled();
@@ -65,12 +69,16 @@ describe('Devtools', () => {
             expect(mockCreateState).toHaveBeenCalledOnce();
         });
 
-        it('handles _skipValues — skips update matching skipValues', () => {
+        it('handles beforeDevtoolsPush — skips update via filtering', () => {
             const mockStateFn = vi.fn();
             const mockCreateState = vi.fn(() => mockStateFn);
             SharedOptions.DEVTOOLS = { state: mockCreateState };
 
-            const devtoolsState = Devtools.createState<number | null>(1, { _skipValues: [null] });
+            const devtoolsState = Devtools.createState<number | null>(1, {
+                beforeDevtoolsPush: (value, push) => {
+                    if (value !== null) push(value);
+                },
+            });
             expect(mockCreateState).toHaveBeenCalledOnce();
 
             // Calling with a skip value should not forward

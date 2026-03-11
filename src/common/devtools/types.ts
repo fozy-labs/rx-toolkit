@@ -5,9 +5,6 @@ export interface DevtoolsLike {
     state<T>(name: string, initState: T): DevtoolsStateLike<T>;
 }
 
-export type StateDevtoolsOptions = {
-    isDisabled?: boolean,
-    name?: string,
-    base?: string,
-    _skipValues?: any[],
-} | string
+import type { SignalOptions } from "@/signals/types";
+
+export type StateDevtoolsOptions = (SignalOptions & { _skipValues?: any[] }) | string;
