@@ -1,7 +1,7 @@
 import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
 import { type StatefulSignalFn } from "@/signals/types";
-import { type StateDevtoolsOptions } from "@/common/devtools";
+import { type SignalOptionsOrKey } from "@/signals/types";
 import { signalize } from "../operators";
 import { Computed } from "./Computed";
 import { State } from "@/signals/signals/State";
@@ -23,7 +23,7 @@ type Options<T> = {
     checkEffect?: (value: T) => boolean;
     driver?: StorageLike;
     defaultValue: T;
-    devtoolsOptions?: StateDevtoolsOptions;
+    devtoolsOptions?: SignalOptionsOrKey;
 }
 
 const NONE = Symbol('NONE');

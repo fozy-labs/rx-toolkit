@@ -1,6 +1,5 @@
 import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs";
-import { StateDevtoolsOptions } from "@/common/devtools";
-import { ComputeFn } from "@/signals/types";
+import { ComputeFn, SignalOptionsOrKey, normalizeSignalOptions } from "@/signals/types";
 import { ComputeCache, DependencyTracker } from "../base";
 import { State } from "./State";
 import { Effect } from "./Effect";
@@ -16,15 +15,22 @@ export class Computed<T> {
 
     constructor(
         private _computeFn: () => T,
-        options?: StateDevtoolsOptions
+        options?: SignalOptionsOrKey<T>
     ) {
-        const lsOptions: StateDevtoolsOptions = {
-            base: Computed.name,
-            ...(typeof options === 'string' ? { name: options } : options),
-            _skipValues: [Computed._EMPTY],
+        const opts = normalizeSignalOptions(options);
+        const stateOptions: SignalOptionsOrKey<symbol | T> = {
+            key: opts.key,
+            name: opts.name,
+            base: opts.base ?? Computed.name,
+            isDisabled: opts.isDisabled,
+            beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {
+                if (value !== Computed._EMPTY) {
+                    push(value);
+                }
+            },
         };
 
-        this._state$ = State.create<symbol | T>(Computed._EMPTY, lsOptions);
+        this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
 
         this.obs = this._state$.obs.pipe(
             map((value) => {
@@ -107,7 +113,7 @@ export class Computed<T> {
 
     private static _EMPTY = Symbol('empty');
 
-    static create<T>(computeFn: () => T, options?: StateDevtoolsOptions): ComputeFn<T> {
+    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): ComputeFn<T> {
         const lc = new Computed(computeFn, options);
 
         function computedFn() {
