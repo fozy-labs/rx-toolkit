@@ -130,11 +130,6 @@ For each phase, create a file `<NN>-phase.md` (e.g., `01-phase.md`, `02-phase.md
 - [ ] `npm run ts-check` проходит
 - [ ] <специфичная поведенческая проверка>
 - [ ] <проверка консистентности API>
-
-## Коммит
-- **Тип**: feat | fix | refactor | docs | test
-- **Скоуп**: <название модуля>
-- **Сообщение**: `<conventional commit message>`
 ```
 
 ## Constraints
@@ -156,4 +151,3 @@ For each phase, create a file `<NN>-phase.md` (e.g., `01-phase.md`, `02-phase.md
 ## Common mistakes to avoid
 - Ignoring `docs/` and `apps/demos/` in the plan
 - Splitting trivial changes into separate tasks
-- Creating small tasks that break the application in the middle (as a result, many micro commits, between which the application does not work)

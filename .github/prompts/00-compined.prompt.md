@@ -42,7 +42,6 @@ For each stage:
 1. Read the stage prompt file
 2. Launch a subagents cycle
 3. Enter **Approval Wait Mode**
-4. Only after approval commit and continue to next stage
 
 ---
 
@@ -157,16 +156,6 @@ Always use subagents for:
 Never implement these tasks directly in this agent.
 
 You are strictly a **workflow controller**.
-
----
-
-# Working with git:
-
-- After stages 01–04 receive human approval, create a commit before moving to the next stage.
-- Use Conventional Commits.
-- When working inside the `.thoughts` directory, commits must use the type `thoughts` instead of `docs` in Conventional Commits.
-- The commit author must be the user, not the agent.
-- Phase 04 (implementation) may create multiple commits following the implementation commit rules defined in the Phase 04 prompt.
 
 ---
 
