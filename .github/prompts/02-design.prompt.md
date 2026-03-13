@@ -194,6 +194,8 @@ Important:
  - Focus on small output. Write big document - ANTIPATTERN.
  - Write style MUST BE equal to existing rx-toolkit documentation.
 
+YOU ALWAYS WRITE x5-10 MORE THAT NECESSARY!!
+
 ## Constraints
 
 <critical>

@@ -148,6 +148,7 @@ For each phase, create a file `<NN>-phase.md` (e.g., `01-phase.md`, `02-phase.md
 - File paths must be exact (verify against actual repo structure with search)
 - Use existing naming conventions from the codebase
 
-## Common mistakes to avoid
-- Ignoring `docs/` and `apps/demos/` in the plan
-- Splitting trivial changes into separate tasks
+## How to avoid common mistakes
+
+- NEVER ignore `docs/` and `apps/demos/` affects in the plan (`08-docs.md`)
+- NEVER splitting trivial changes into separate tasks
