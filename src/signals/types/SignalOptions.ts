@@ -4,13 +4,15 @@ export interface SignalLifecycleHook<T = any> {
     onDispose?: () => void;
 }
 
+export type TBeforeDevtoolsPushFn<T = any> = (newValue: T, push: (v: T) => void) => void;
+
 export interface SignalOptions<T = any> {
     key?: string;
     /** @deprecated use key */
     name?: string;
     base?: string;
     isDisabled?: boolean;
-    beforeDevtoolsPush?: (newValue: T, push: (v: T) => void) => void;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<T>;
     hooks?: SignalLifecycleHook<T>[];
 }
 
