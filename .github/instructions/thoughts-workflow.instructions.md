@@ -19,8 +19,8 @@ applyTo: ".thoughts/**"
 
 ## Document Conventions
 
-- **Language**: English.
-- **Front matter**: Each file must have a front matter section.
+- **Language**: Russian (code and technical terms in English).
+- **Front matter**: No YAML frontmatter. Use inline metadata bullets (Date, Status, Feature).
 - **Status**: README.md containts "Status" field:
     - Inprogress: work in progress, not ready for review,
     - Draft: ready for review, awaiting feedback,
