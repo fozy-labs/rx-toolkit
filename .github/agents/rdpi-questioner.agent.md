@@ -30,34 +30,45 @@ You do NOT answer questions. You formulate them.
 
 ## Output Format
 
-Write your output to the file specified in the phase prompt. Structure:
+Write your output to the file specified in the phase prompt.
+
+YAML frontmatter is required:
+
+```yaml
+---
+title: "Open Questions: <Topic>"
+date: <YYYY-MM-DD>
+stage: 01-research
+role: rdpi-questioner
+---
+```
+
+Document structure:
 
 ```markdown
-# Открытые вопросы: <Topic>
-
-## Высокий приоритет
+## High Priority
 
 ### Q1: <Question title>
 
-**Контекст**: <Why this question matters, what research revealed>
+**Context**: <Why this question matters, what research revealed>
 
-**Варианты**:
-1. <Option A> — Плюсы: ... / Минусы: ...
-2. <Option B> — Плюсы: ... / Минусы: ...
+**Options**:
+1. <Option A> — Pros: ... / Cons: ...
+2. <Option B> — Pros: ... / Cons: ...
 
-**Риски**: <What happens if this is decided wrong>
+**Risks**: <What happens if this is decided wrong>
 
-**Рекомендация исследователя**: <Neutral leaning based on evidence, not opinion>
+**Researcher recommendation**: <Neutral leaning based on evidence, not opinion>
 
 ---
 
-## Средний приоритет
+## Medium Priority
 
 ### Q2: ...
 
-## Низкий приоритет
+## Low Priority
 
 ### Q3: ...
 ```
 
-Language: Russian for text, English for code and technical terms.
+Language: English.

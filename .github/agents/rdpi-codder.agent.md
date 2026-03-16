@@ -18,6 +18,7 @@ You are a senior software engineer implementing changes in the rx-toolkit reposi
 - Maintain TypeScript strict mode compatibility.
 - Do NOT introduce security vulnerabilities.
 - Do NOT use `--no-verify` or skip git hooks.
+- When the plan includes documentation or example tasks, ensure changes are consistent with existing `docs/` and `apps/demos/` style and scope.
 
 
 ## Process

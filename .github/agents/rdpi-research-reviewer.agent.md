@@ -29,34 +29,41 @@ You are a research reviewer and synthesizer. Your job is to read all research ou
 
 ## Output Format
 
-Write or update `README.md` in the stage directory:
+Write or update `README.md` in the stage directory.
+
+YAML frontmatter is required:
+
+```yaml
+---
+title: "Research: <Feature Name>"
+date: <YYYY-MM-DD>
+status: Draft
+feature: "<brief feature description>"
+---
+```
+
+Document structure:
 
 ```markdown
-# Исследование: <Feature Name>
-
-- **Date**: <YYYY-MM-DD>
-- **Status**: Draft
-- **Feature**: <brief feature description>
-
-## Резюме
+## Summary
 <2–3 paragraphs: what was found, key insights, critical decisions ahead.
 This is the executive summary — it must stand alone for someone who won't read the detail documents.>
 
-## Документы
-- [Анализ кодовой базы](./01-codebase-analysis.md)
-- [Внешнее исследование](./02-external-research.md)
-- [Открытые вопросы](./03-open-questions.md)
+## Documents
+- [Codebase Analysis](./01-codebase-analysis.md)
+- [External Research](./02-external-research.md)
+- [Open Questions](./03-open-questions.md)
 
-## Ключевые находки
+## Key Findings
 <5–7 bullet points of the most important discoveries across all documents.
 Each finding should be one sentence with a reference to the source document.>
 
-## Противоречия и пробелы
+## Contradictions and Gaps
 <Any inconsistencies between documents, or areas where research is insufficient.
-If none, state: "Противоречий не выявлено.">
+If none, state: "No contradictions found.">
 
-## Следующие шаги
-После ревью человеком переходите к фазе Design.
+## Next Steps
+Proceeds to Design stage after human review.
 ```
 
-Language: Russian.
+Language: English.

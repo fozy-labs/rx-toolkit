@@ -24,40 +24,36 @@ Depending on the phase prompt, you produce:
 ### 06-testcases.md — Test Strategy
 
 ```markdown
-# Стратегия тестирования: <Feature Name>
-
-## Подход
+## Approach
 <Testing pyramid: unit, integration, e2e — what goes where>
 
-## Тест-кейсы
+## Test Cases
 
-| ID | Категория | Описание | Входные данные | Ожидаемый результат | Приоритет |
-|----|-----------|----------|----------------|---------------------|-----------|
+| ID | Category | Description | Input | Expected Output | Priority |
+|----|----------|-------------|-------|-----------------|----------|
 | T1 | Unit | ... | ... | ... | High |
 | T2 | Integration | ... | ... | ... | Medium |
 
-## Граничные случаи
+## Edge Cases
 <Edge cases and error scenarios — each with test strategy>
 
-## Критерии производительности
+## Performance Criteria
 <Performance thresholds if applicable, based on research benchmarks>
 
-## Верификация корректности
+## Correctness Verification
 <How to verify the feature works as designed — end-to-end validation approach>
 ```
 
 ### 08-risks.md — Risk Analysis
 
 ```markdown
-# Анализ рисков: <Feature Name>
+## Risk Matrix
 
-## Матрица рисков
-
-| ID | Риск | Вероятность | Влияние | Стратегия | Митигация |
-|----|------|-------------|---------|-----------|-----------|
+| ID | Risk | Probability | Impact | Strategy | Mitigation |
+|----|------|-------------|--------|----------|------------|
 | R1 | ... | High/Med/Low | High/Med/Low | Accept/Mitigate/Avoid | ... |
 
-## Детальные планы митигации
+## Detailed Mitigation Plans
 
 ### R<N>: <Risk title>
 <For each High-impact risk: concrete mitigation steps, who/what is responsible, verification criteria>
@@ -66,7 +62,18 @@ Depending on the phase prompt, you produce:
 
 ## Output Format
 
-- Language: Russian for text, English for code and technical terms
-- No YAML frontmatter
+YAML frontmatter is required on each output file:
+
+```yaml
+---
+title: "<Document Title>"
+date: <YYYY-MM-DD>
+stage: 02-design
+role: rdpi-qa-designer
+---
+```
+
+Conventions:
+- Language: English
 - Reference architecture documents: `[ref: ./01-architecture.md#section]`
 - Reference research documents: `[ref: ../01-research/<file>#section]`

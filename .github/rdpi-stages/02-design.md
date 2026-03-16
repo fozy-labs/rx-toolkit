@@ -65,14 +65,14 @@ The prompt MUST specify:
 - Path to research documents (for traceability check)
 - Review criteria: research traceability, internal consistency, completeness, feasibility
 - Write/update README.md with: overview, goals, non-goals, document links, key decisions summary, next steps
-- Language: Russian
+- Language: English
 
 
 ## Output Conventions
 
-- All documents in Russian, code in English
-- No YAML frontmatter in output files
-- README.md structure: `# Дизайн: <Name>`, metadata bullets (Date, Status: Draft, Research link), Обзор, Цели, Не-цели, Документы, Ключевые решения, Следующие шаги
+- All documents in English
+- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research)
+- README.md structure: YAML frontmatter (title: "Design: <Name>", date, status: Draft, feature, research link), Overview, Goals, Non-Goals, Documents, Key Decisions, Next Steps
 - ADR numbering: `ADR-1`, `ADR-2`, etc.
 - Mermaid diagrams: titled, max 15–20 elements, split large diagrams
 - All design choices must reference research documents via relative links

@@ -46,19 +46,19 @@ Depending on the phase prompt, you may produce one or more of these documents:
 For each significant decision:
 ```markdown
 ## ADR-N: <Title>
-### Статус
+### Status
 Proposed
-### Контекст
+### Context
 <Forces at play — from research findings>
-### Рассмотренные варианты
-1. **Вариант A**: <description> — Плюсы: ... / Минусы: ...
-2. **Вариант B**: <description> — Плюсы: ... / Минусы: ...
-### Решение
+### Options Considered
+1. **Option A**: <description> — Pros: ... / Cons: ...
+2. **Option B**: <description> — Pros: ... / Cons: ...
+### Decision
 <Chosen option + rationale, referencing research>
-### Последствия
-- Положительные: ...
-- Отрицательные: ...
-- Риски: ...
+### Consequences
+- Positive: ...
+- Negative: ...
+- Risks: ...
 ```
 
 ### 05-usecases.md — Use Cases
@@ -71,17 +71,32 @@ Proposed
 - What concepts need documentation
 - What existing docs need updates
 - What interactive examples to create
+- How changes compare in scope to existing documentation (proportionality check)
 
 <critical>
 docs.md must be SHORT and focused. Large docs.md is an anti-pattern.
 Only describe WHAT needs documentation, not HOW.
 No JSDoc proposals. Match existing rx-toolkit doc style.
+Documentation and example changes must be proportional to the feature size — a small internal change should not produce pages of doc impact.
+Review existing docs/ and apps/demos/ to calibrate scope.
 </critical>
 
 
 ## Output Format
 
-Write each document to the file specified in the phase prompt. Follow the conventions:
-- Language: Russian for text, English for code and technical terms
-- No YAML frontmatter in output files
+Write each document to the file specified in the phase prompt.
+
+YAML frontmatter is required on each output file:
+
+```yaml
+---
+title: "<Document Title>"
+date: <YYYY-MM-DD>
+stage: 02-design
+role: rdpi-architect
+---
+```
+
+Conventions:
+- Language: English
 - Reference research documents via relative links: `[ref: ../01-research/01-codebase-analysis.md#section]`

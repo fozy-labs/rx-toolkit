@@ -10,10 +10,10 @@ Use /orchestrate SKILL.
 
 Your responsibility is to coordinate a multi-stage workflow:
 
-- `01-Research`
-- `02-Design`
-- `03-Plan`
-- `04-Implement`
+- `01-research`
+- `02-design`
+- `03-plan`
+- `04-implement`
 
 You DO NOT perform the work yourself.
 
@@ -43,12 +43,12 @@ Unless otherwise stated in the prompt, you ALWAYS start from scratch.
 ## Orchestration steps
 
 You MUST complete the following steps in order:
-1. Spawn the `rdpi-stage-creator`.
-2. Read **current** section in `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage.
+1. Spawn the `rdpi-stage-creator` (in `initial` mode for a new stage).
+2. Read **current** section in `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage. Track which phases have been executed (skip already-completed phases when looping back after redraft).
 3. For each phase, spawn the appropriate subagent(s) to complete the work defined in the `PHASES.md` file.
 4. Spawn the `rdpi-approve`.
-5a. If the design is approved, proceed to the next stage.
-5b. If the design is not approved, spawn the `rdpi-redraft` subagent and go to step #2.
+5a. If the stage is approved, proceed to the next stage.
+5b. If the stage is not approved, spawn the `rdpi-stage-creator` again in `redraft` mode (it will read REVIEW.md and append fix phases to PHASES.md), then go to step #2 to execute the new phases.
 
 
 ## Subagents roles
@@ -56,9 +56,9 @@ You MUST complete the following steps in order:
 All roles are defined in the `.github/agents/<role>.agent.md` directory.
 
 Base:
-- `rdpi-stage-creator`: Creates an initial directory (with `README.md` and `PHASES.md` files) for each stage. Allocates resources to the task and defines the necessary roles.
-- `rdpi-approve`: Reviews and approves the design.
-- `rdpi-redraft`: Re-draft a stage if it has not been approved.
+- `rdpi-stage-creator`: Creates an initial directory (with `README.md` and `PHASES.md` files) for each stage. Allocates resources to the task and defines the necessary roles. Also handles Redraft mode (appending fix phases after Not Approved verdict).
+- `rdpi-approve`: Reviews a completed stage and presents findings to the user for approval.
+- `rdpi-redraft`: Re-drafts specific documents within a stage based on review feedback (used as a phase agent within redraft rounds).
 
 01-Research:
 - `rdpi-codebase-researcher`: Research codebase and ecosystem for the feature.

@@ -41,12 +41,14 @@ For behavioral checks: read the relevant test files or source to verify the expe
 ## Results
 
 | Check | Status | Details |
-|-------|--------|---------|
-| ts-check | ✅ Pass / ❌ Fail | <error output if failed> |
-| <behavioral check> | ✅ Pass / ❌ Fail | <details> |
+|-------|--------|---------|  
+| ts-check | PASS / FAIL | <error output if failed> |
+| <behavioral check> | PASS / FAIL | <details> |
 | ... | ... | ... |
 
 ## Summary
 <N>/<Total> checks passed.
 <If any failures: brief description of what's broken>
 ```
+
+Language: English.

@@ -60,14 +60,14 @@ The prompt MUST specify:
 - Paths to all phase outputs (01, 02, 03)
 - Instruction to write/update README.md with: summary, document links, key findings (5–7 bullets), next steps
 - Cross-reference check: verify claims in one document against another
-- Language: Russian
+- Language: English
 
 
 ## Output Conventions
 
-- All documents in Russian, code in English
-- No YAML frontmatter in output files (use inline metadata bullets)
-- README.md structure: `# Исследование: <Name>`, metadata bullets (Date, Status: Draft, Feature), Резюме, Документы, Ключевые находки, Следующие шаги
+- All documents in English
+- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature)
+- README.md structure: YAML frontmatter (title: "Research: <Name>", date, status: Draft, feature), Summary, Documents, Key Findings, Next Steps
 - File paths referenced with `@/` alias (e.g., `@/signals/signals/State.ts`)
 - Mermaid diagrams: titled, max 15–20 elements, clear node names
 

@@ -52,11 +52,11 @@ File paths in the plan MUST be verified against the actual repository. The plann
 
 ## Output Conventions
 
-- All documents in Russian, code references in English
-- No YAML frontmatter in output files (use inline metadata bullets)
-- README.md structure: `# План имплементации: <Name>`, metadata bullets (Date, Status: Draft, Research link, Design link), Обзор, Карта фаз (Mermaid), Сводка фаз (table), Правила выполнения, Следующие шаги
+- All documents in English
+- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research, design)
+- README.md structure: YAML frontmatter (title: "Implementation Plan: <Name>", date, status: Draft, feature, research link, design link), Overview, Phase Map (Mermaid), Phase Summary (table), Execution Rules, Next Steps
 - Phase file naming: `NN-phase.md` (e.g., `01-phase.md`) or descriptive `NN-<name>.md` (e.g., `01-types-and-exports.md`)
-- Phase file structure: `# Фаза N: <Name>`, Цель, Зависимости (Requires/Blocks), Выполнение (Sequential/Parallel), Задачи (detailed), Верификация (checklist)
+- Phase file structure: YAML frontmatter, Goal, Dependencies (Requires/Blocks), Execution (Sequential/Parallel), Tasks (detailed), Verification (checklist)
 - Mermaid diagrams for dependency graph and optionally Gantt for parallelization
 
 

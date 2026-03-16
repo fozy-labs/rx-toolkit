@@ -70,9 +70,9 @@ The prompt MUST specify:
 
 ## Output Conventions
 
-- Code in English, documentation in Russian
-- No YAML frontmatter in output files (use inline metadata bullets)
-- Implementation record README.md structure: `# Имплементация: <Name>`, metadata bullets (Date, Status: Draft, Plan link), Status, Рекомендации, Перечень изменений, Рекомендуемое название коммита
+- Code in English, documentation in English
+- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, plan)
+- Implementation record README.md structure: YAML frontmatter (title: "Implementation: <Name>", date, status: Draft, feature, plan link), Status, Post-Implementation Recommendations, Documentation Proportionality, Change Summary, Recommended Commit Message
 - Code style: match existing codebase exactly (read neighbor files for reference)
 - Use `@/*` path alias for imports within `src/`
 
