@@ -61,10 +61,11 @@ The prompt MUST specify:
 - Paths to ALL plan phases and their implemented changes
 - Paths to research + design documents for traceability
 - Path to verification files: `04-implement/verification-*.md`
-- Create `README.md` in `04-implement/` with:
+- Write `README.md` in `04-implement/`, replacing the stage-creator's placeholder, with:
   - Implementation record: date, status, plan link
   - Phase completion status (N/N)
   - Verification results summary
+  - Quality review checklist: all plan phases implemented, verification passed, no out-of-scope files modified, code follows project patterns, barrel exports correct, TypeScript strict mode, docs proportional, no security vulnerabilities
   - List of all changed files
   - Post-implementation recommendations (build, manual testing areas)
   - Recommended commit message (conventional commits format)
@@ -73,14 +74,13 @@ The prompt MUST specify:
 ## Output Conventions
 
 - Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, plan)
-- Implementation record README.md structure: Status, Quality Review (Checklist + Issues Found + Documentation Proportionality), Post-Implementation Recommendations, Change Summary, Recommended Commit Message
+- Implementation record README.md structure: Status, Quality Review (Checklist + Documentation Proportionality + Issues Found), Post-Implementation Recommendations, Change Summary, Recommended Commit Message
 - Code style: match existing codebase exactly (read neighbor files for reference)
 - Use `@/*` path alias for imports within `src/`
 
 
 ## Scaling Rules
 
-- For simple plan phases (1–2 tasks): coder and tester can be merged into a single coder phase with inline verification
 - For phases with only type changes: tester phase can be reduced to `ts-check` only
-- For large plans (> 5 plan phases): consider grouping independent plan phases into a single coder invocation if they are parallelizable per the plan
+- For large plans (> 5 plan phases): consider grouping independent plan phases into a single coder invocation if they are parallelizable per the plan. The corresponding tester verifies all grouped phases and saves a report named `verification-<lowest-N>-<highest-N>.md` (e.g., `verification-2-3.md`)
 - Never exceed 2× (number of plan phases) + 1 total phases for implement stage

@@ -56,15 +56,20 @@ File paths in the plan MUST be verified against the actual repository. The plann
 
 The prompt MUST specify:
 - Paths to ALL plan files: README.md and all NN-phase.md files in the stage directory
-- Path to design README.md (`../02-design/README.md`) for traceability check
+- Path to all design documents (`../02-design/` — README.md and individual design files) for traceability check
 - Review criteria:
   1. Every design component is mapped to at least one plan task
   2. File paths are concrete and verified (not placeholders)
   3. Dependencies between phases are correct
   4. Each phase has verification criteria
-  5. No vague tasks — all tasks specify exact changes
-  6. Each task references the design section it implements
-  7. Documentation tasks proportional to existing docs/demos
+  5. Each phase leaves the project in a compilable state (`npm run ts-check`)
+  6. No vague tasks — all tasks specify exact changes
+  7. Each task references the design section it implements
+  8. Parallelizable vs. sequential tasks correctly marked
+  9. Per-task complexity estimates present (Low/Medium/High)
+  10. Documentation tasks proportional to existing docs/demos
+  11. Mermaid dependency graph present in README.md
+  12. Phase summary table complete in README.md
 - Update README.md: add `## Quality Review` section, set status to `Draft`
 
 
@@ -80,5 +85,5 @@ The prompt MUST specify:
 ## Scaling Rules
 
 - For small plans (< 3 phases): planner produces all outputs in a single pass
-- For large plans (> 6 phases): the stage-creator may split into 2 planner invocations — one for analysis/README.md and one for individual phase files — but this is rare
-- Never exceed 3 total phases for plan stage (planner + optional split + reviewer)
+- For large plans (> 6 phases): the stage-creator may split into 2 planner invocations (overriding the default max 1) — one for analysis/README.md and one for individual phase files — but this is rare
+- Never exceed 3 total phases for plan stage: planner (1–2 invocations) + reviewer (1 invocation)

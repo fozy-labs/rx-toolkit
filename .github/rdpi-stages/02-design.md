@@ -64,13 +64,14 @@ The prompt MUST specify:
 - Paths to ALL design documents (01 through 08)
 - Path to research documents (for traceability check)
 - Review criteria: research traceability, internal consistency, completeness, feasibility
-- Write/update README.md with: overview, goals, non-goals, document links, key decisions summary, next steps
+- Quality review requirements: verify research traceability, ADR completeness, Mermaid conformance, test-risk coverage, docs proportionality, docs describe WHAT not HOW, no implementation code, research open questions addressed or deferred, risk analysis has actionable mitigations, internal consistency
+- Write/update README.md with: overview, goals, non-goals, document links, key decisions summary, quality review checklist, next steps
 
 
 ## Output Conventions
 
 - Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research)
-- README.md structure: Overview, Goals, Non-Goals, Documents, Key Decisions, Next Steps
+- README.md structure: Overview, Goals, Non-Goals, Documents, Key Decisions, Quality Review, Next Steps
 - ADR numbering: `ADR-1`, `ADR-2`, etc.
 - Mermaid diagrams: titled, max 15–20 elements, split large diagrams
 - All design choices must reference research documents via relative links

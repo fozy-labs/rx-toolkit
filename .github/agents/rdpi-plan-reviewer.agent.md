@@ -24,7 +24,7 @@ You perform two tasks: **quality review** and **cross-reference verification**. 
 
 ### Step 1 — Read all documents
 
-Read all plan phase files (`NN-phase.md`) in the stage directory, the planner's README.md, and the design stage README.md (`../02-design/README.md`).
+Read all plan phase files (`NN-phase.md`) in the stage directory, the planner's README.md, and all design stage documents (`../02-design/` — README.md and individual design files like `01-architecture.md`, `03-model.md`, etc.) for full design traceability.
 
 ### Step 2 — Quality review
 

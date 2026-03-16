@@ -2,7 +2,7 @@
 name: RDPI-Orchestrator
 description: Orchestrates the Research → Design → Plan → Implement pipeline by delegating work to specialized subagents.
 disable-model-invocation: true
-tools: [agent, search, read, edit, todo]
+tools: [agent, search, read, edit, todo, vscode]
 agents:
   - '*'
 ---
@@ -48,7 +48,7 @@ Unless otherwise stated in the prompt, you ALWAYS start from scratch.
 For each stage in order (`01-research` → `02-design` → `03-plan` → `04-implement`):
 
 1. Spawn the `rdpi-stage-creator` (in `initial` mode for a new stage).
-2. Read **current** section in `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage. Verify each phase has required fields (Agent, Prompt, Depends on, Retry limit). Track which phases have been executed (skip already-completed phases when looping back after redraft).
+2. Read `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage. Verify each phase has required fields (Agent, Output, Depends on, Retry limit) and a `### Prompt` sub-heading. Maintain an in-memory list of completed phase numbers to track progress (skip already-completed phases when looping back after redraft).
 3. Execute phases (see "Phase execution" below).
 4. Spawn the `rdpi-approve`.
 5a. If the stage is approved, proceed to the next stage (go to step 1 with the next stage identifier).
@@ -66,7 +66,7 @@ For each phase in PHASES.md:
 2. **Parallelize**: if multiple phases have ALL dependencies satisfied simultaneously, spawn their subagents in parallel (multiple `runSubagent` calls in the same tool-call block).
 3. **Spawn**: pass the phase prompt from PHASES.md to the subagent. You MAY prepend a `## Runtime Context` block before the original prompt (e.g., paths to outputs produced by earlier phases in this run) but MUST NOT alter the original phase instructions or scope.
 4. **Collect output**: record each subagent's text output. If the subagent produces files, note the file paths.
-5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`. If all retries fail, mark the phase as failed and continue to the next executable phase. Report all failures to `rdpi-approve`.
+5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`. If all retries fail, mark the phase as failed and continue to the next executable phase. After all executable phases are done, if there are any failed phases, escalate to the user directly (using `#vscode_askQuestions`) — describe what failed, how many retries were attempted, and ask the user how to proceed before spawning `rdpi-approve`.
 
 
 ## Subagents roles

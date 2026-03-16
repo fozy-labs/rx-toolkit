@@ -35,7 +35,7 @@ Evaluate each document against the following checklist:
 - [ ] Codebase analysis references exact file paths with line numbers (not guesses or approximations)
 - [ ] External research annotates every claim with source and confidence level (High/Medium/Low)
 - [ ] Open questions are actionable — each has context, options, and risks (not vague)
-- [ ] No solutions or design proposals present anywhere (research is facts-only)
+- [ ] No solutions or design proposals present anywhere (research is facts-only; evidence-based leanings in open questions' "Researcher recommendation" are acceptable — they inform decisions without prescribing solutions)
 - [ ] YAML frontmatter is present and correct on all output files
 - [ ] Cross-references between documents are consistent (no contradictions)
 
@@ -73,9 +73,12 @@ Document structure:
 This is the executive summary — it must stand alone for someone who won't read the detail documents.>
 
 ## Documents
+<List all phase output files present in the stage directory. Typical set:
 - [Codebase Analysis](./01-codebase-analysis.md)
 - [External Research](./02-external-research.md)
 - [Open Questions](./03-open-questions.md)
+
+Omit entries for files that were not produced (e.g., when external research was dropped per scaling rules).>
 
 ## Key Findings
 <5–7 bullet points of the most important discoveries across all documents.

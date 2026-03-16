@@ -36,8 +36,10 @@ Evaluate against the following checklist:
 - [ ] Architecture diagrams are present and conform to Mermaid rules (titled, ≤15–20 elements)
 - [ ] Test strategy covers risks identified in research
 - [ ] `07-docs.md` is concise and proportional — not bloated relative to existing `docs/` and `apps/demos/`
+- [ ] `07-docs.md` describes WHAT needs documentation, not HOW (no JSDoc proposals, no full-text doc drafts)
 - [ ] No implementation details or actual code (design-level only; illustrative TS snippets for API are OK)
-- [ ] `open-questions.md` from research stage is addressed (each question resolved or explicitly deferred)
+- [ ] Research open questions (e.g., `03-open-questions.md`) addressed or deferred
+- [ ] Risk analysis (`08-risks.md`) has actionable mitigations for high-impact risks
 - [ ] Internal consistency: architecture, dataflow, model, usecases do not contradict each other
 
 Record the checklist results in the `## Quality Review` section of README.md.
@@ -115,7 +117,8 @@ Document structure:
 | 6 | docs.md describes WHAT not HOW (no JSDoc, no full drafts) | PASS/FAIL | <details> |
 | 7 | No implementation details or code | PASS/FAIL | <details> |
 | 8 | Research open questions addressed or deferred | PASS/FAIL | <details> |
-| 9 | Internal consistency (arch/dataflow/model/usecases) | PASS/FAIL | <details> |
+| 9 | Risk analysis has actionable mitigations for high-impact risks | PASS/FAIL | <details> |
+| 10 | Internal consistency (arch/dataflow/model/usecases) | PASS/FAIL | <details> |
 
 ### Documentation Proportionality
 <Assessment of whether the planned documentation/example changes are proportional to the existing documentation and examples in `docs/` and `apps/demos/`. Flag if over-specified or under-specified.>

@@ -59,20 +59,21 @@ Each question must include: context, options (if applicable), risks, and researc
 
 The prompt MUST specify:
 - Paths to all phase outputs (01, 02, 03)
-- Instruction to write/update README.md with: summary, document links, key findings (5–7 bullets), next steps
+- Instruction to write/update README.md with: summary, document links, key findings (5–7 bullets), contradictions and gaps, quality review checklist, next steps
+- Quality review requirements: verify file existence, reference accuracy, source attribution with confidence levels, question actionability, no-solutions rule, frontmatter correctness, cross-reference consistency
 - Cross-reference check: verify claims in one document against another
 
 
 ## Output Conventions
 
 - Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature)
-- README.md structure: Summary, Documents, Key Findings, Next Steps
+- README.md structure: Summary, Documents, Key Findings, Contradictions and Gaps, Quality Review, Next Steps
 - File paths referenced with `@/` alias (e.g., `@/signals/signals/State.ts`)
 - Mermaid diagrams: titled, max 15–20 elements, clear node names
 
 
 ## Scaling Rules
 
-- For trivial tasks (affecting < 3 files): phases 2 and 3 can be merged into a single phase with `rdpi-questioner` (questions based on TASK.md + codebase analysis)
+- For trivial tasks (affecting < 3 files): phase 2 (external research) can be dropped; phase 3 (`rdpi-questioner`) runs based on TASK.md + codebase analysis only
 - For broad tasks (affecting > 3 modules): phase 1 can be split into multiple parallel codebase-researcher invocations scoped to different modules
 - Never exceed 5 total phases for research stage

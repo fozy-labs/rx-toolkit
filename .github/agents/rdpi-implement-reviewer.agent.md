@@ -67,7 +67,7 @@ If the plan included documentation or example tasks:
 
 ### Step 6 — Write implementation record
 
-Create `README.md` in the `04-implement/` directory.
+Write `README.md` in the `04-implement/` directory, replacing the stage-creator's placeholder README with the implementation record.
 
 
 ## Output Format
