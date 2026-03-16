@@ -1,6 +1,6 @@
 ---
 name: rdpi-codebase-researcher
-description: "Subagent for researching the codebase"
+description: "Researches the codebase — traces code paths, maps dependencies, documents patterns and conventions with exact file references."
 user-invocable: false
 ---
 
@@ -32,6 +32,9 @@ role: rdpi-codebase-researcher
 ---
 ```
 
+Document structure:
+
+```markdown
 ## Summary
 2–3 sentences describing what you found.
 
@@ -44,5 +47,6 @@ For each component/area:
 
 ## Code References
 Bullet list of `file:line` – description pairs.
+```
 
 Language: English.

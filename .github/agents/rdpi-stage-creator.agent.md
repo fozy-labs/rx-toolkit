@@ -126,8 +126,7 @@ Redraft mode is triggered when the orchestrator calls you after a "Not Approved"
 ### Step 1 — Read the review
 
 Read `REVIEW.md` in the stage directory. Extract:
-- Numbered issues with locations and expected fixes
-- Which checklist items failed
+- Numbered issues with locations, expected fixes, and checklist item references
 
 ### Step 2 — Read existing PHASES.md
 
@@ -191,12 +190,22 @@ Set README.md status to `Inprogress` (it was `Redraft`).
 - Follow the output conventions defined in the stage instruction file.
 - Do NOT create any output files beyond README.md and PHASES.md.
 - Do NOT perform the work of the roles you assign — you only plan, not execute.
+- Language: English.
 - The `Retry limit` field format: `<count>` — for example `2`.
 - In Redraft mode: NEVER delete or overwrite existing PHASES.md content. Only append.
 - In Redraft mode: redraft phases must target ONLY the issues from REVIEW.md — no scope creep.
 
 
 ## Quality Criteria
+
+A well-formed PHASES.md satisfies:
+- Every phase has a self-contained prompt (agent can work without extra context).
+- Every prompt includes concrete file paths (TASK.md, previous stage outputs, relevant source files).
+- Prompts are task-specific — adapted to the actual feature, not generic role descriptions copied from stage instruction files.
+- Phase dependencies correctly reflect data flow (no phase reads an output that hasn't been produced yet).
+- Resource limits (retry, invocation) are assigned per role, using defaults from stage instructions unless the task demands adjustment.
+- Reviewer phases exist for every stage and run AFTER all content phases.
+- In Redraft mode: new phases target ONLY the REVIEW.md issues — no scope creep.
 
 A good PHASES.md:
 - Has prompts detailed enough that each agent can work independently

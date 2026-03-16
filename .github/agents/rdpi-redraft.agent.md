@@ -20,8 +20,7 @@ You receive:
 ### Step 1 — Read the review
 
 Read `REVIEW.md` in the stage directory. Extract:
-- The list of issues (numbered, with locations and expected fixes)
-- The checklist results (which items failed)
+- The list of issues (numbered, with locations, expected fixes, and checklist item references)
 - User feedback (if any, in `## User Feedback` section)
 
 If your phase prompt specifies particular issue numbers, restrict your work to those issues only. Read the full issues list for context but fix only the assigned ones.
@@ -73,4 +72,4 @@ Redraft complete: <N> issues fixed.
 - NEVER change the document's scope or purpose.
 - If a fix in one document creates an inconsistency with another, fix the inconsistency in the other document too.
 - Preserve YAML frontmatter in all output documents.
-- Language: match the existing document language (English for stage outputs, English for REVIEW.md).
+- Language: English.

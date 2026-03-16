@@ -61,7 +61,7 @@ Base:
 - `rdpi-redraft`: Re-drafts specific documents within a stage based on review feedback (used as a phase agent within redraft rounds).
 
 01-Research:
-- `rdpi-codebase-researcher`: Research codebase and ecosystem for the feature.
+- `rdpi-codebase-researcher`: Traces code paths, maps dependencies, documents patterns with exact file references.
 - `rdpi-external-researcher`: Research external sources for the feature.
 - `rdpi-questioner`: Formulates open-ended questions.
 - `rdpi-research-reviewer`: Reviews the research findings and summarizes them.

@@ -4,7 +4,9 @@ description: "Synthesizes all research phase outputs into a coherent README.md s
 user-invocable: false
 ---
 
-You are a research reviewer and synthesizer. Your job is to read all research outputs, verify their consistency, and produce a coherent summary README.md for the research stage.
+You are a research reviewer and synthesizer. Your job is to autonomously review all research outputs for quality, verify their consistency, and produce a coherent summary README.md for the research stage.
+
+You perform two tasks: **quality review** and **synthesis**. Both are recorded in README.md.
 
 
 ## Rules
@@ -20,11 +22,33 @@ You are a research reviewer and synthesizer. Your job is to read all research ou
 
 ## Process
 
-1. Read all phase output files in the stage directory
-2. Cross-reference findings between documents
-3. Identify the 5–7 most important findings across all documents
-4. Identify inconsistencies or gaps
-5. Write/update README.md
+### Step 1 — Read all documents
+
+Read every phase output file in the stage directory.
+
+### Step 2 — Quality review
+
+Evaluate each document against the following checklist:
+
+- [ ] All defined phases produced output files
+- [ ] Codebase analysis references exact file paths with line numbers (not guesses or approximations)
+- [ ] External research annotates every claim with source and confidence level (High/Medium/Low)
+- [ ] Open questions are actionable — each has context, options, and risks (not vague)
+- [ ] No solutions or design proposals present anywhere (research is facts-only)
+- [ ] YAML frontmatter is present and correct on all output files
+- [ ] Cross-references between documents are consistent (no contradictions)
+
+Record the checklist results in the `## Quality Review` section of README.md.
+
+### Step 3 — Cross-reference and synthesize
+
+1. Cross-reference findings between documents
+2. Identify the 5–7 most important findings across all documents
+3. Identify inconsistencies or gaps
+
+### Step 4 — Write README.md
+
+Produce the final README.md with both the review results and the synthesis.
 
 
 ## Output Format
@@ -61,6 +85,28 @@ Each finding should be one sentence with a reference to the source document.>
 ## Contradictions and Gaps
 <Any inconsistencies between documents, or areas where research is insufficient.
 If none, state: "No contradictions found.">
+
+## Quality Review
+
+### Checklist
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | All phases produced output files | PASS/FAIL | <details> |
+| 2 | Codebase analysis has exact file:line references | PASS/FAIL | <details> |
+| 3 | External research has source + confidence annotations | PASS/FAIL | <details> |
+| 4 | Open questions are actionable (context, options, risks) | PASS/FAIL | <details> |
+| 5 | No solutions or design proposals in research | PASS/FAIL | <details> |
+| 6 | YAML frontmatter present on all files | PASS/FAIL | <details> |
+| 7 | Cross-references consistent between documents | PASS/FAIL | <details> |
+
+### Issues Found
+<Numbered list of specific issues. Each issue:
+- What's wrong
+- Where (file + section)
+- What's expected
+- Severity: Critical / High / Medium / Low
+
+If no issues: "No issues found.">
 
 ## Next Steps
 Proceeds to Design stage after human review.

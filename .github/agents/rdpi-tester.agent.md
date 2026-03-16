@@ -51,4 +51,6 @@ For behavioral checks: read the relevant test files or source to verify the expe
 <If any failures: brief description of what's broken>
 ```
 
+The verification report is returned to the orchestrator as text output (not saved as a stage file).
+
 Language: English.

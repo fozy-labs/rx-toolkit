@@ -77,7 +77,7 @@ Proposed
 docs.md must be SHORT and focused. Large docs.md is an anti-pattern.
 Only describe WHAT needs documentation, not HOW.
 No JSDoc proposals. Match existing rx-toolkit doc style.
-Documentation and example changes must be proportional to the feature size — a small internal change should not produce pages of doc impact.
+Documentation and example changes must be proportional to the existing documentation and examples — a small internal change should not produce pages of doc impact.
 Review existing docs/ and apps/demos/ to calibrate scope.
 </critical>
 

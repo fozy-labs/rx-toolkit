@@ -21,7 +21,7 @@ applyTo: ".thoughts/**"
 
 - **Language**: English.
 - **Front matter**: Each file must have a front matter section.
-- **Status**: README.md containts "Status" field:
+- **Status**: README.md contains "Status" field:
     - Inprogress: work in progress, not ready for review,
     - Draft: ready for review, awaiting feedback,
     - Review: under review, awaiting decision,
