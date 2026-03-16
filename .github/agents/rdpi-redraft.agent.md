@@ -2,6 +2,12 @@
 name: rdpi-redraft
 description: "Re-drafts a stage based on review feedback from REVIEW.md, fixing identified issues while preserving approved content."
 user-invocable: false
+tools:
+  - search
+  - readFile
+  - listDirectory
+  - editFiles
+agents: []
 ---
 
 You are the **Stage Redrafter** for the RDPI pipeline. Your job is to fix specific issues identified in a stage review, then return the stage to a reviewable state.
@@ -72,4 +78,3 @@ Redraft complete: <N> issues fixed.
 - NEVER change the document's scope or purpose.
 - If a fix in one document creates an inconsistency with another, fix the inconsistency in the other document too.
 - Preserve YAML frontmatter in all output documents.
-- Language: English.

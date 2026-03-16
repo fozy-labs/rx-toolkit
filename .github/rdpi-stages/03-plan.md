@@ -8,6 +8,7 @@ Plan stage decomposes the approved design into an actionable, phased implementat
 | Role | Agent | Description | Default Limit |
 |------|-------|-------------|---------------|
 | Planner | `rdpi-planner` | Analyzes design, maps components to concrete file changes, builds phased plan with dependencies and verification | max 1 invocation, retry 2 |
+| Plan Reviewer | `rdpi-plan-reviewer` | Reviews plan for design traceability, task concreteness, file path validity, adds Quality Review to README.md | max 1 invocation, retry 2 |
 
 
 ## Typical Phase Structure
@@ -15,8 +16,9 @@ Plan stage decomposes the approved design into an actionable, phased implementat
 | Phase | Agent | Outputs | Depends on | Parallelizable |
 |-------|-------|---------|------------|----------------|
 | 1 | `rdpi-planner` | `README.md`, `01-phase.md` ... `NN-phase.md` | — | No |
+| 2 | `rdpi-plan-reviewer` | Updates `README.md` (adds Quality Review) | 1 | No |
 
-Plan stage typically has **a single phase** — one planner invocation produces the entire plan. The planner creates README.md and all phase files atomically to ensure consistency.
+Phase 1 produces the entire plan atomically. Phase 2 reviews and adds Quality Review to README.md.
 
 
 ## Phase Prompt Guidelines
@@ -50,13 +52,28 @@ File paths in the plan MUST be verified against the actual repository. The plann
 </critical>
 
 
+### Phase 2 — Plan Review
+
+The prompt MUST specify:
+- Paths to ALL plan files: README.md and all NN-phase.md files in the stage directory
+- Path to design README.md (`../02-design/README.md`) for traceability check
+- Review criteria:
+  1. Every design component is mapped to at least one plan task
+  2. File paths are concrete and verified (not placeholders)
+  3. Dependencies between phases are correct
+  4. Each phase has verification criteria
+  5. No vague tasks — all tasks specify exact changes
+  6. Each task references the design section it implements
+  7. Documentation tasks proportional to existing docs/demos
+- Update README.md: add `## Quality Review` section, set status to `Draft`
+
+
 ## Output Conventions
 
-- All documents in English
-- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research, design)
-- README.md structure: YAML frontmatter (title: "Implementation Plan: <Name>", date, status: Draft, feature, research link, design link), Overview, Phase Map (Mermaid), Phase Summary (table), Execution Rules, Next Steps
+- Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research, design)
+- README.md structure: Overview, Phase Map (Mermaid), Phase Summary (table), Execution Rules, Next Steps. Quality Review section is added by the reviewer.
 - Phase file naming: `NN-phase.md` (e.g., `01-phase.md`) or descriptive `NN-<name>.md` (e.g., `01-types-and-exports.md`)
-- Phase file structure: YAML frontmatter, Goal, Dependencies (Requires/Blocks), Execution (Sequential/Parallel), Tasks (detailed), Verification (checklist)
+- Phase file structure: frontmatter, Goal, Dependencies (Requires/Blocks), Execution (Sequential/Parallel), Tasks (detailed), Verification (checklist)
 - Mermaid diagrams for dependency graph and optionally Gantt for parallelization
 
 
@@ -64,4 +81,4 @@ File paths in the plan MUST be verified against the actual repository. The plann
 
 - For small plans (< 3 phases): planner produces all outputs in a single pass
 - For large plans (> 6 phases): the stage-creator may split into 2 planner invocations — one for analysis/README.md and one for individual phase files — but this is rare
-- Never exceed 2 total phases for plan stage
+- Never exceed 3 total phases for plan stage (planner + optional split + reviewer)

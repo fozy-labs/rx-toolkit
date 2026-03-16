@@ -2,6 +2,15 @@
 name: rdpi-planner
 description: "Creates a phased implementation plan with dependency analysis, task decomposition, parallelism identification, and verification criteria."
 user-invocable: false
+tools:
+  - search
+  - readFile
+  - listDirectory
+  - editFiles
+  - createFile
+  - codebase
+  - usages
+agents: []
 ---
 
 You are a senior implementation planner. Your job is to transform an approved design into an actionable, phased implementation plan. You do NOT make design decisions — you decompose the design into tasks.
@@ -41,13 +50,11 @@ Produce the following files in the stage directory:
 
 #### README.md — Plan Overview
 
-YAML frontmatter is required:
-
 ```yaml
 ---
 title: "Implementation Plan: <Feature Name>"
 date: <YYYY-MM-DD>
-status: Draft
+status: Inprogress
 feature: "<brief feature description>"
 research: "../01-research/README.md"
 design: "../02-design/README.md"
@@ -80,8 +87,6 @@ Proceeds to implementation after human review.
 #### NN-phase.md — Per-phase plan
 
 Either `NN-phase.md` (generic) or `NN-<descriptive-name>.md` for each phase:
-
-YAML frontmatter is required:
 
 ```yaml
 ---
@@ -124,7 +129,5 @@ role: rdpi-planner
 ## Output Format
 
 Conventions:
-- Language: English
 - Mermaid diagrams for dependency graph (required), Gantt for parallelization (optional)
 - All file paths verified against real repository
-- YAML frontmatter required on all output files

@@ -8,7 +8,7 @@ Implement stage executes the approved plan. Code changes must precisely follow t
 | Role | Agent | Description | Default Limit |
 |------|-------|-------------|---------------|
 | Coder | `rdpi-codder` | Implements code changes according to plan phase tasks | max 1 invocation per plan phase, retry 2 |
-| Tester | `rdpi-tester` | Runs verification for completed phases, reports failures | max 1 invocation per plan phase, retry 1 |
+| Tester | `rdpi-tester` | Runs verification for completed phases, saves report to `verification-<N>.md` | max 1 invocation per plan phase, retry 1 |
 | Implementation Reviewer | `rdpi-implement-reviewer` | Reviews all changes, creates implementation record README.md | max 1 invocation, retry 2 |
 
 
@@ -19,10 +19,10 @@ The number of implement phases is derived from the plan. For each plan phase:
 | Phase | Agent | Output | Depends on |
 |-------|-------|--------|------------|
 | N.1 | `rdpi-codder` | Code changes for plan phase N | Previous plan phase completion |
-| N.2 | `rdpi-tester` | Verification of plan phase N | N.1 |
+| N.2 | `rdpi-tester` | `verification-N.md` (in stage directory) | N.1 |
 | Final | `rdpi-implement-reviewer` | `README.md` (implementation record) | All N.1 + N.2 |
 
-Each plan phase becomes a code → test pair. The reviewer runs once at the end.
+Each plan phase becomes a code → test pair. The tester saves a verification report to `verification-<N>.md` in the `04-implement/` directory. The reviewer runs once at the end, reading all verification files.
 
 
 ## Phase Prompt Guidelines
@@ -52,6 +52,7 @@ The prompt MUST specify:
   - Any phase-specific behavioral checks
   - API consistency checks
 - Report format: pass/fail per check, error details if failed
+- Save verification report to `04-implement/verification-<N>.md` — the implement-reviewer reads these files
 - If tests fail: report to orchestrator (do not attempt fixes — that's the coder's job on retry)
 
 ### Final Phase — Implementation Review
@@ -59,6 +60,7 @@ The prompt MUST specify:
 The prompt MUST specify:
 - Paths to ALL plan phases and their implemented changes
 - Paths to research + design documents for traceability
+- Path to verification files: `04-implement/verification-*.md`
 - Create `README.md` in `04-implement/` with:
   - Implementation record: date, status, plan link
   - Phase completion status (N/N)
@@ -70,9 +72,8 @@ The prompt MUST specify:
 
 ## Output Conventions
 
-- Code in English, documentation in English
-- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, plan)
-- Implementation record README.md structure: YAML frontmatter (title: "Implementation: <Name>", date, status: Draft, feature, plan link), Status, Quality Review (Checklist + Issues Found + Documentation Proportionality), Post-Implementation Recommendations, Change Summary, Recommended Commit Message
+- Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, plan)
+- Implementation record README.md structure: Status, Quality Review (Checklist + Issues Found + Documentation Proportionality), Post-Implementation Recommendations, Change Summary, Recommended Commit Message
 - Code style: match existing codebase exactly (read neighbor files for reference)
 - Use `@/*` path alias for imports within `src/`
 

@@ -17,12 +17,12 @@ Research stage gathers facts about the codebase and ecosystem. No solutions, no 
 
 | Phase | Agent | Output | Depends on | Parallelizable |
 |-------|-------|--------|------------|----------------|
-| 1 | `rdpi-codebase-researcher` | `01-codebase-analysis.md` | — | Yes (with 2, 3) |
-| 2 | `rdpi-external-researcher` | `02-external-research.md` | — | Yes (with 1, 3) |
-| 3 | `rdpi-questioner` | `03-open-questions.md` | — | Yes (with 1, 2) |
+| 1 | `rdpi-codebase-researcher` | `01-codebase-analysis.md` | — | Yes (with 2) |
+| 2 | `rdpi-external-researcher` | `02-external-research.md` | — | Yes (with 1) |
+| 3 | `rdpi-questioner` | `03-open-questions.md` | 1, 2 | No |
 | 4 | `rdpi-research-reviewer` | Updates `README.md` | 1, 2, 3 | No |
 
-Phases 1–3 are independent and SHOULD be parallelized. Phase 4 is sequential — it depends on outputs of phases 1–3.
+Phases 1–2 are independent and SHOULD be parallelized. Phase 3 depends on phases 1–2 (the questioner reads research outputs to identify gaps and formulate informed questions). Phase 4 is sequential — it depends on all previous outputs.
 
 
 ## Phase Prompt Guidelines
@@ -49,6 +49,7 @@ Include a skepticism directive: cross-reference claims, annotate with confidence
 
 The prompt MUST specify:
 - Context: brief feature description + what areas were researched
+- Paths to all available research outputs (codebase analysis and external research) — the questioner reads these to identify gaps
 - What kind of questions to generate: technical constraints, API compatibility, performance trade-offs, scope ambiguities, risks
 - Priority classification scheme (High/Medium/Low)
 
@@ -60,20 +61,18 @@ The prompt MUST specify:
 - Paths to all phase outputs (01, 02, 03)
 - Instruction to write/update README.md with: summary, document links, key findings (5–7 bullets), next steps
 - Cross-reference check: verify claims in one document against another
-- Language: English
 
 
 ## Output Conventions
 
-- All documents in English
-- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature)
-- README.md structure: YAML frontmatter (title: "Research: <Name>", date, status: Draft, feature), Summary, Documents, Key Findings, Next Steps
+- Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature)
+- README.md structure: Summary, Documents, Key Findings, Next Steps
 - File paths referenced with `@/` alias (e.g., `@/signals/signals/State.ts`)
 - Mermaid diagrams: titled, max 15–20 elements, clear node names
 
 
 ## Scaling Rules
 
-- For trivial tasks (affecting < 3 files): phases 2 and 3 can be merged into a single phase with `rdpi-questioner`
+- For trivial tasks (affecting < 3 files): phases 2 and 3 can be merged into a single phase with `rdpi-questioner` (questions based on TASK.md + codebase analysis)
 - For broad tasks (affecting > 3 modules): phase 1 can be split into multiple parallel codebase-researcher invocations scoped to different modules
 - Never exceed 5 total phases for research stage

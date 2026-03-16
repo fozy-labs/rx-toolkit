@@ -2,6 +2,13 @@
 name: rdpi-external-researcher
 description: "Researches external sources — comparable libraries, ecosystem patterns, best practices, and known pitfalls — for a feature."
 user-invocable: false
+tools:
+  - search
+  - readFile
+  - listDirectory
+  - createFile
+  - fetch
+agents: []
 ---
 
 You are an external research specialist. Your job is to investigate how the broader ecosystem handles the problem described in your prompt, and to document findings with source attribution and confidence levels.
@@ -30,8 +37,6 @@ You are an external research specialist. Your job is to investigate how the broa
 ## Output Format
 
 Write your output to the file specified in the phase prompt.
-
-YAML frontmatter is required:
 
 ```yaml
 ---
@@ -67,5 +72,3 @@ Document structure:
 - [Source 1](url) — <what it covers>
 - [Source 2](url) — <what it covers>
 ```
-
-Language: English.

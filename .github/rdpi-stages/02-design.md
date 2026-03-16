@@ -16,12 +16,12 @@ Design stage transforms research findings into a comprehensive, reviewable techn
 
 | Phase | Agent | Outputs | Depends on | Parallelizable |
 |-------|-------|---------|------------|----------------|
-| 1 | `rdpi-architect` | `01-architecture.md`, `02-dataflow.md`, `03-model.md`, `04-decisions.md` | — | Yes (with 2 partially) |
-| 2 | `rdpi-architect` | `05-usecases.md`, `07-docs.md` | — | Yes (with 1 partially) |
-| 3 | `rdpi-qa-designer` | `06-testcases.md`, `08-risks.md` | 1 | No (needs architecture) |
+| 1 | `rdpi-architect` | `01-architecture.md`, `02-dataflow.md`, `03-model.md`, `04-decisions.md` | — | No |
+| 2 | `rdpi-architect` | `05-usecases.md`, `07-docs.md` | 1 | No (needs architecture) |
+| 3 | `rdpi-qa-designer` | `06-testcases.md`, `08-risks.md` | 1, 2 | No (needs architecture + use cases) |
 | 4 | `rdpi-design-reviewer` | Updates `README.md` | 1, 2, 3 | No |
 
-Phase 1 and 2 can be parallelized (architect handles different concerns). Phase 3 needs architecture output. Phase 4 is always last.
+Phases are sequential by default. For simple features (< 3 components), phases 1 and 2 can be merged into a single architect phase (see Scaling Rules). Phase 4 is always last.
 
 
 ## Phase Prompt Guidelines
@@ -65,14 +65,12 @@ The prompt MUST specify:
 - Path to research documents (for traceability check)
 - Review criteria: research traceability, internal consistency, completeness, feasibility
 - Write/update README.md with: overview, goals, non-goals, document links, key decisions summary, next steps
-- Language: English
 
 
 ## Output Conventions
 
-- All documents in English
-- YAML frontmatter required on all output files: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research)
-- README.md structure: YAML frontmatter (title: "Design: <Name>", date, status: Draft, feature, research link), Overview, Goals, Non-Goals, Documents, Key Decisions, Next Steps
+- Frontmatter fields: phase outputs use (title, date, stage, role); README.md uses (title, date, status, feature, research)
+- README.md structure: Overview, Goals, Non-Goals, Documents, Key Decisions, Next Steps
 - ADR numbering: `ADR-1`, `ADR-2`, etc.
 - Mermaid diagrams: titled, max 15–20 elements, split large diagrams
 - All design choices must reference research documents via relative links
