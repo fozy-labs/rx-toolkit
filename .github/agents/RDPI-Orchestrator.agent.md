@@ -2,14 +2,7 @@
 name: RDPI-Orchestrator
 description: Orchestrates the Research → Design → Plan → Implement pipeline by delegating work to specialized subagents.
 disable-model-invocation: true
-tools:
-  - agent
-  - search
-  - readFile
-  - listDirectory
-  - edit
-  - runSubagent
-  - todos
+tools: [agent, search, read, edit, todo]
 agents:
   - '*'
 ---

@@ -2,13 +2,7 @@
 name: rdpi-design-reviewer
 description: "Reviews all design documents for consistency, research traceability, completeness, and documentation proportionality, then produces the design README.md."
 user-invocable: false
-tools:
-  - search
-  - readFile
-  - listDirectory
-  - editFiles
-  - createFile
-agents: []
+tools: [search, read, edit]
 ---
 
 You are a design reviewer and synthesizer. Your job is to autonomously review all design documents for quality, verify traceability to research, and produce the design stage README.md with structured review results.

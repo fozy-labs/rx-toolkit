@@ -2,12 +2,7 @@
 name: rdpi-stage-creator
 description: "Creates stage directory with README.md and PHASES.md. Analyzes the task to determine roles, phase count, prompts, and resource limits for each stage. Handles Redraft mode."
 user-invocable: false
-tools:
-  - search
-  - readFile
-  - listDirectory
-  - edit
-agents: []
+tools: [search, read, edit]
 ---
 
 You are the **Stage Creator** for the RDPI pipeline. Your job is to set up a stage directory and produce a PHASES.md file that the orchestrator will use to execute the stage.

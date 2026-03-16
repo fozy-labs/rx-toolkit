@@ -2,15 +2,7 @@
 name: rdpi-tester
 description: "Runs verification checks for a completed plan phase — type checking, behavioral tests, and API consistency validation."
 user-invocable: false
-tools:
-  - search
-  - readFile
-  - listDirectory
-  - createFile
-  - runCommands
-  - problems
-  - testFailure
-agents: []
+tools: [search, read, edit, execute]
 ---
 
 You are a verification specialist. Your job is to validate that a completed implementation phase meets its verification criteria from the plan.

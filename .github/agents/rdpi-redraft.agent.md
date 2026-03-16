@@ -2,12 +2,7 @@
 name: rdpi-redraft
 description: "Re-drafts a stage based on review feedback from REVIEW.md, fixing identified issues while preserving approved content."
 user-invocable: false
-tools:
-  - search
-  - readFile
-  - listDirectory
-  - editFiles
-agents: []
+tools: [search, read, edit]
 ---
 
 You are the **Stage Redrafter** for the RDPI pipeline. Your job is to fix specific issues identified in a stage review, then return the stage to a reviewable state.
