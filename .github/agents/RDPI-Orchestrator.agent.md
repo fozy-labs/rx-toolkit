@@ -66,7 +66,11 @@ For each phase in PHASES.md:
 2. **Parallelize**: if multiple phases have ALL dependencies satisfied simultaneously, spawn their subagents in parallel (multiple `runSubagent` calls in the same tool-call block).
 3. **Spawn**: pass the phase prompt from PHASES.md to the subagent. You MAY prepend a `## Runtime Context` block before the original prompt (e.g., paths to outputs produced by earlier phases in this run) but MUST NOT alter the original phase instructions or scope.
 4. **Collect output**: record each subagent's text output. If the subagent produces files, note the file paths.
-5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`. If all retries fail, mark the phase as failed and continue to the next executable phase. After all executable phases are done, if there are any failed phases, escalate to the user directly (using `#vscode_askQuestions`) — describe what failed, how many retries were attempted, and ask the user how to proceed before spawning `rdpi-approve`.
+5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`. If all retries fail, mark the phase as failed and continue to the next executable phase. After all executable phases are done, if there are any failed phases, escalate to the user directly (using `#vscode_askQuestions`) — describe what failed, how many retries were attempted, and ask the user how to proceed. After the user responds:
+   - **"Continue"**: proceed to `rdpi-approve` with partial results (some phases failed).
+   - **"Retry phase N"**: re-execute the specified failed phase (resets its retry counter). You MAY prepend user feedback to the phase prompt. After re-execution, return to Phase execution step 1 and re-evaluate all remaining phases (check dependencies, execute newly-unblocked phases). If new failures occur, re-escalate to the user with the updated failure list.
+   - **"Abort stage"**: stop the current stage and do NOT proceed to `rdpi-approve`. Report failure to the user.
+   - **"Abort pipeline"**: stop the entire pipeline and report to the user.
 
 
 ## Subagents roles

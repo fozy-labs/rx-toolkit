@@ -35,7 +35,7 @@ Read `PHASES.md` in the stage directory. Count the number of `# Redraft Round` h
 
 Perform a quick scan of the stage to catch anything the reviewer might have missed:
 
-- Are all files listed in PHASES.md present and non-empty?
+- For each phase in PHASES.md whose `Output` field references a concrete filename (ends in `.md` or another extension), check that the file is present and non-empty. Skip phases whose `Output` is a description (e.g., "Code changes per ...", "Updates README.md").
 - Does the Quality Review section cover all expected criteria for this stage?
 - Any obvious gaps not flagged by the reviewer?
 
@@ -57,8 +57,20 @@ Classify combined issues:
 If there are any **Critical** issues, you MAY return `"Not Approved"` immediately without asking the user.
 
 In this case:
-1. Write `REVIEW.md` (see format below) with `status: Not Approved`
-2. Update the stage `README.md` frontmatter: set `status` to `Redraft`
+1. Update the stage `README.md` frontmatter: set `status` to `Redraft`
+2. Write `REVIEW.md` in the stage directory using this format:
+
+```yaml
+---
+title: "Review: <Stage Identifier>"
+date: <YYYY-MM-DD>
+status: Not Approved
+stage: <stage-identifier>
+---
+```
+
+Include: `## Source`, `## Issues Summary`, `## Issues`, `## Recommendations` (same structure as Step 6).
+
 3. Return `"Not Approved"` to the orchestrator
 
 This is the ONLY case where you bypass the user. For High/Medium/Low issues, always ask.

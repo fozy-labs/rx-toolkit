@@ -11,8 +11,11 @@ applyTo: ".thoughts/**"
 ```
 .thoughts/
 └── <YYYY-MM-DD-HHmm>_<feature-name>/
+    ├── TASK.md
     └── <stage_number>-<stage_name>/
         ├── README.md
+        ├── PHASES.md
+        ├── REVIEW.md          (created by rdpi-approve)
         └── <phase_number>-<phase_name>.md
 ```
 

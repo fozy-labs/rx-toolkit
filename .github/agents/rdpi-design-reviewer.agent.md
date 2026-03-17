@@ -113,12 +113,14 @@ Document structure:
 | 2 | ADRs have Status, Context, Options, Decision, Consequences | PASS/FAIL | <details> |
 | 3 | Mermaid diagrams present and conformant | PASS/FAIL | <details> |
 | 4 | Test strategy covers identified risks | PASS/FAIL | <details> |
-| 5 | docs.md is concise and proportional to existing docs/demos | PASS/FAIL | <details> |
-| 6 | docs.md describes WHAT not HOW (no JSDoc, no full drafts) | PASS/FAIL | <details> |
+| 5 | docs.md is concise and proportional to existing docs/demos | PASS/FAIL/N/A | <details> |
+| 6 | docs.md describes WHAT not HOW (no JSDoc, no full drafts) | PASS/FAIL/N/A | <details> |
 | 7 | No implementation details or code | PASS/FAIL | <details> |
 | 8 | Research open questions addressed or deferred | PASS/FAIL | <details> |
 | 9 | Risk analysis has actionable mitigations for high-impact risks | PASS/FAIL | <details> |
 | 10 | Internal consistency (arch/dataflow/model/usecases) | PASS/FAIL | <details> |
+
+Mark as N/A if the corresponding document was omitted per scaling rules — verify against PHASES.md.
 
 ### Documentation Proportionality
 <Assessment of whether the planned documentation/example changes are proportional to the existing documentation and examples in `docs/` and `apps/demos/`. Flag if over-specified or under-specified.>

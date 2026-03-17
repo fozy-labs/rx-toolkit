@@ -95,11 +95,13 @@ If none, state: "No contradictions found.">
 |---|-----------|--------|-------|
 | 1 | All phases produced output files | PASS/FAIL | <details> |
 | 2 | Codebase analysis has exact file:line references | PASS/FAIL | <details> |
-| 3 | External research has source + confidence annotations | PASS/FAIL | <details> |
+| 3 | External research has source + confidence annotations | PASS/FAIL/N/A | <details> |
 | 4 | Open questions are actionable (context, options, risks) | PASS/FAIL | <details> |
 | 5 | No solutions or design proposals in research | PASS/FAIL | <details> |
 | 6 | YAML frontmatter present on all files | PASS/FAIL | <details> |
 | 7 | Cross-references consistent between documents | PASS/FAIL | <details> |
+
+Mark as N/A if the corresponding phase was dropped per scaling rules — verify against PHASES.md.
 
 ### Issues Found
 <Numbered list of specific issues. Each issue:

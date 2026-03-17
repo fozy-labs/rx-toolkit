@@ -52,7 +52,7 @@ The prompt MUST specify:
   - Any phase-specific behavioral checks
   - API consistency checks
 - Report format: pass/fail per check, error details if failed
-- Save verification report to `04-implement/verification-<N>.md` — the implement-reviewer reads these files
+- Save verification report to `04-implement/verification-<N>.md` (or `verification-<lowest-N>-<highest-N>.md` for grouped phases) — the implement-reviewer reads these files
 - If tests fail: report to orchestrator (do not attempt fixes — that's the coder's job on retry)
 
 ### Final Phase — Implementation Review

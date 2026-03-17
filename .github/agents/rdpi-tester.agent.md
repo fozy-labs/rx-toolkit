@@ -42,7 +42,7 @@ Write the verification report to a file in the stage directory:
 04-implement/verification-<N>.md
 ```
 
-Where `<N>` is the plan phase number being verified (e.g., `verification-1.md` for plan phase 1).
+Where `<N>` is the plan phase number being verified (e.g., `verification-1.md` for plan phase 1). For grouped phases (when a single coder invocation covers multiple plan phases), use `verification-<lowest-N>-<highest-N>.md` (e.g., `verification-2-3.md`).
 
 ```yaml
 ---

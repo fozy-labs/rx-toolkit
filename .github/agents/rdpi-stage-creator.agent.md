@@ -184,6 +184,8 @@ Do NOT overwrite PHASES.md. Append a new section:
 
 After all fix phases, append a reviewer phase that will re-check the fixed outputs. Use the stage's dedicated reviewer role (e.g., `rdpi-research-reviewer` for research, `rdpi-design-reviewer` for design, `rdpi-plan-reviewer` for plan, `rdpi-implement-reviewer` for implement).
 
+For `04-implement` stage: if any fix phase uses `rdpi-codder` (code changes), add a corresponding `rdpi-tester` verification phase immediately after it, before the reviewer phase. The tester phase should follow the same code → test pair pattern as the initial implementation.
+
 The re-review phase format:
 
 ```markdown
@@ -191,7 +193,7 @@ The re-review phase format:
 
 - **Agent**: `<stage-reviewer-role>`
 - **Output**: Updates `README.md`
-- **Depends on**: <all preceding fix phases in this round>
+- **Depends on**: <all preceding phases in this round>
 - **Retry limit**: 2
 
 ### Prompt

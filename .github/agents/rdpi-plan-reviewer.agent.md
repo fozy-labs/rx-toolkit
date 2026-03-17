@@ -62,7 +62,7 @@ If the plan includes documentation or example tasks:
 
 ### Step 5 — Update README.md
 
-Add the `## Quality Review` section to the existing README.md (produced by the planner). Do NOT rewrite the planner's content — only append the review section before `## Next Steps`.
+Add or update the `## Quality Review` section in the existing README.md (produced by the planner). If a Quality Review section already exists (e.g., from a previous review pass), replace it with the updated review. Do NOT rewrite the planner's content outside the Quality Review section.
 
 Update frontmatter `status` to `Draft`.
 
