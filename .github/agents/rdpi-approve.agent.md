@@ -123,16 +123,43 @@ Compose a message that includes:
 - Number of issues by severity (Critical/High/Medium/Low)
 - List of High-severity issues (if any) with one-line descriptions
 - Reviewer's overall assessment (from README.md Quality Review)
-- A clear question: "Approve this stage or request redraft?"
+- A clear question asking to approve or request redraft
+
+User-facing text (message and options) must be in **I/O language**.
+
+**For `01-research` stage only**: add a third option: **"Утвердить + пройтись по open-questions"**. If the user selects this option, proceed to Step 7a before recording the decision.
 
 The user may respond with:
 - **Approved** — proceed
 - **Not Approved** — with optional additional feedback
 - **Not Approved with comments** — user adds specific issues to address
+- **(01-research only) Approved + open-questions** — approved, but first review open questions with the user
+
+### Step 7a — Open Questions walkthrough (01-research only)
+
+This step runs only if the user chose "Утвердить + пройтись по open-questions".
+
+1. Read `03-open-questions.md` in the stage directory. If the file does not exist, skip this step and proceed to Step 8 with "Approved" verdict.
+2. For each question (Q1, Q2, etc.), present it to the user via `#vscode_askQuestions`.
+3. Record the user's answers. Append a `## User Answers` section to `03-open-questions.md`:
+
+```markdown
+## User Answers
+
+### Q1: <Question title>
+**Decision**: <user's answer>
+
+### Q2: <Question title>
+**Decision**: <user's answer>
+
+...
+```
+
+4. After all questions are answered, proceed to Step 8 with the "Approved" verdict.
 
 ### Step 8 — Record decision
 
-After receiving the user's response (or after early rejection in Step 5):
+After receiving the user's response:
 
 1. Update `REVIEW.md`:
    - Set `status` in frontmatter to `Approved` or `Not Approved`

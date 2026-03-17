@@ -36,11 +36,29 @@ Instead, you delegate the work to specialized **subagents**, each defined by a p
 
 ## Preparing
 
+### State Recovery
+
+Before creating a new feature directory, check `.thoughts/` for the most recent feature directory.
+If it exists AND is not fully complete (i.e., it lacks an `04-implement/README.md` with `status: Approved`), present the user with a choice via `#vscode_askQuestions`:
+
+- **"Продолжить прерванную задачу: `<feature-name>`"**
+- **"Начать новую задачу"**
+
+If the user chooses to resume:
+1. Use the existing feature directory.
+2. Determine the last stage that was in progress (check which `<NN>-<stage>/` directories exist and their README.md statuses).
+3. Spawn `rdpi-stage-creator` in `resume` mode for the last incomplete stage.
+4. Initialize the completed-phases list from the stage-creator's report. Treat "unknown" phases as incomplete.
+5. Continue with standard orchestration from step 2 (reading PHASES.md, skipping already-completed phases).
+
+If there are no unfinished features, or the user chooses to start new, proceed with normal preparation below.
+
+### New Task Setup
+
 1. Decide on the name of the task.
 2. Create a new directory `.thoughts/<YYYY-MM-DD-HHmm>_<feature-name>/`.
-3. Create a file `TASK.md` in this directory, insert the task into it without changing or correcting it.
-
-Unless otherwise stated in the prompt, you ALWAYS start from scratch.
+3. If the user's task description is NOT in English, translate it to English preserving the original meaning.
+4. Create `TASK.md` in this directory, insert the task into it.
 
 
 ## Orchestration steps
@@ -48,7 +66,8 @@ Unless otherwise stated in the prompt, you ALWAYS start from scratch.
 For each stage in order (`01-research` → `02-design` → `03-plan` → `04-implement`):
 
 1. Spawn the `rdpi-stage-creator` (in `initial` mode for a new stage).
-2. Read `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage. Verify each phase has required fields (Agent, Output, Depends on, Retry limit) and a `### Prompt` sub-heading. Maintain an in-memory list of completed phase numbers to track progress (skip already-completed phases when looping back after redraft).
+2. Read `<stage_number>-<stage_name>/PHASES.md` to determine the phases for the current stage.
+Maintain an in-memory list of completed phase numbers to track progress (skip already-completed phases when looping back after redraft or when resuming an interrupted task).
 3. Execute phases (see "Phase execution" below).
 4. Spawn the `rdpi-approve`.
 5a. If the stage is approved, proceed to the next stage (go to step 1 with the next stage identifier).
@@ -66,11 +85,9 @@ For each phase in PHASES.md:
 2. **Parallelize**: if multiple phases have ALL dependencies satisfied simultaneously, spawn their subagents in parallel (multiple `runSubagent` calls in the same tool-call block).
 3. **Spawn**: pass the phase prompt from PHASES.md to the subagent. You MAY prepend a `## Runtime Context` block before the original prompt (e.g., paths to outputs produced by earlier phases in this run) but MUST NOT alter the original phase instructions or scope.
 4. **Collect output**: record each subagent's text output. If the subagent produces files, note the file paths.
-5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`. If all retries fail, mark the phase as failed and continue to the next executable phase. After all executable phases are done, if there are any failed phases, escalate to the user directly (using `#vscode_askQuestions`) — describe what failed, how many retries were attempted, and ask the user how to proceed. After the user responds:
-   - **"Continue"**: proceed to `rdpi-approve` with partial results (some phases failed).
-   - **"Retry phase N"**: re-execute the specified failed phase (resets its retry counter). You MAY prepend user feedback to the phase prompt. After re-execution, return to Phase execution step 1 and re-evaluate all remaining phases (check dependencies, execute newly-unblocked phases). If new failures occur, re-escalate to the user with the updated failure list.
-   - **"Abort stage"**: stop the current stage and do NOT proceed to `rdpi-approve`. Report failure to the user.
-   - **"Abort pipeline"**: stop the entire pipeline and report to the user.
+5. **Handle failure**: if a subagent reports failure, retry up to the phase's `Retry limit`.
+If all retries fail, escalate to the user directly (using `#vscode_askQuestions`) — describe what happened, and what you will do.
+
 
 
 ## Subagents roles
@@ -78,8 +95,8 @@ For each phase in PHASES.md:
 All roles are defined as `.agent.md` files in the `.github/agents/` directory.
 
 Base:
-- `rdpi-stage-creator`: Creates an initial directory (with `README.md` and `PHASES.md` files) for each stage. Allocates resources to the task and defines the necessary roles. Also handles Redraft mode (appending fix phases after Not Approved verdict).
-- `rdpi-approve`: Reviews a completed stage and presents findings to the user for approval.
+- `rdpi-stage-creator`: Creates an initial directory (with `README.md` and `PHASES.md` files) for each stage. Allocates resources to the task and defines the necessary roles. Operates in three modes: `initial` (new stage), `redraft` (appending fix phases after Not Approved verdict), and `resume` (recovering an interrupted stage — determines what was already completed).
+- `rdpi-approve`: Compiles the stage reviewer's findings, performs a lightweight sanity check, and presents the combined results to the user for an approval decision. Human-in-the-loop gate.
 - `rdpi-redraft`: Re-drafts specific documents within a stage based on review feedback (used as a phase agent within redraft rounds).
 
 01-Research:

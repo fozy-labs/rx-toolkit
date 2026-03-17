@@ -75,6 +75,7 @@ date: <YYYY-MM-DD>
 status: Draft
 feature: "<brief feature description>"
 research: "../01-research/README.md"
+rdpi-version: "<workflow version>"
 ---
 ```
 
