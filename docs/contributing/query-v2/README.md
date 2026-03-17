@@ -86,8 +86,31 @@ type TResourveV2QueryFn = <D extends TResourceV2Definition>(
 ) => TResourceV2Cache
 ```
 
-## ICacheEntry
-`ICacheEntry` - представляет собой единицу кеша, имеет методы invalidate(), patch(), refresh() и т.д. для управления Machine.
+### ICacheEntry
+`ICacheEntry` - представляет собой реактивную единицу кеша, хранит Machine.
+
+
+## Махиники
+
+### Machine
+`Machine` - это класс, который хранит state и инкапсулирует логику управление state. `Machine` содержит методы для перехода к другим `Machine`.
+
+### Patch'es
+
+`Patch` - это абстрактное представление изменений, которые могут быть применены к данным ресурса.
+Патчи позволяют реализовать оптимистичные обновления.
+В отличие от некоторых других реализаций, патчи в ResourceV2 (как и в V1), защищены от ряда race conditions, благодаря `originalData`.
+
+```
+// Все валидные committed - пропускаем и убираем из очереди
+// Все aborted - применяем и убираем из очереди
+// Все pending - применяем и оставляем в очереди
+// Все commited (которые после pending) - применяем, но оставляем в очереди
+// Все aborted (которые после pending) - откатываем, но оставляем в очереди
+// Если после aborted нет pending - пропускаем и убираем из очереди
+// Те после применения всех транзакций, очередь должна начинаться с первой pending транзакции (если есть), включая все, что после неё.
+// (Подробнее в коде V1) (у V1 проблема: если race conditions все же происходит, то patch "зависает")
+```
 
 ## Naming Convention
 
@@ -195,7 +218,7 @@ const mainApi = createApi({
 
 mainApi.resetAll(); // Сбросить все состояние
 mainApi.createResource(/*...*/) // Содать ресурс
-mainApi.snapshot(); // Получить снимок текущего состояния API
+mainApi.getSnapshot(); // Получить снимок текущего состояния API
 ```
 
 
@@ -276,7 +299,7 @@ class MachinePending<ARGS, DATA> {
     }
 }
 
-
+// Лучше, чтобы MachineSuccess и MachineRefreshing наследовались от общего класса (чтобы не дублировать код связанный с патчами)
 class MachineSuccess<ARGS, DATA> {
     state: TResourceV2SuccessState;
 
@@ -293,49 +316,49 @@ class MachineSuccess<ARGS, DATA> {
         });
     }
 
-    addTransaction(tr: TResourceV2Transaction) {
+    addPatch(patch: TResourceV2Patch) {
         const originalData = this.state.originalData === NO_VALUE
             ? this.state.data
             : this.state.originalData;
         
-        const transactons = (this.state.transactions ?? []).concat(tr);
+        const patches = (this.state.patches ?? []).concat(tr);
         
         return new MachineSuccess({
             status: 'success',
             args: this.state.args,
-            data: resolveTransactions(originalData, transactons),
+            data: Patcher.resolvePatches(originalData, patches),
             updatedAt: Date.now(),
             originalData,
-            transactions,
+            patches,
         });
     }
     
-    finishTransaction(type: 'commit' | 'abort', trId: string) {
-        const { originalData, transactions } = finishTransaction(
+    finishPatch(type: 'commit' | 'abort', patch: TResourceV2Patch) {
+        const { originalData, patches } = Patcher.finishPatch(
             this.state.originalData,
-            this.state.transactions,
+            this.state.patches,
             type,
-            trId
+            patch
         );
         
         const machine = new MachineSuccess({
             status: 'success',
             args: this.state.args,
-            data: !!transactions?.length 
-                ? resolveTransactions(originalData, transactions) 
+            data: !!originalData?.length 
+                ? Patcher.resolvePatches(originalData, patches) 
                 : originalData,
             updatedAt: Date.now(),
             originalData,
-            transactions,
+            patches,
         });
     }
     
-    patch(patchFn: TPatchFn<D['queryFnReturn']>) {
-        const transaction = createTransaction(patchFn, this.state.data);
+    createPatch(patchFn: TPatchFn<D['queryFnReturn']>) {
+        const patch = Patcher.createPatch(patchFn, this.state.data);
         
-        const newState = this.addTransaction(transaction);
+        const state = this.addPatch(patch);
         
-        return [newState, transaction] as const;
+        return { state, patch };
     }
 
     /* другие методы, которые могут понадобиться для pending состояния */
