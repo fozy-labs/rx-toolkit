@@ -2,6 +2,7 @@ import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
+    queryV2,
     Computed,
     createCommand,
     createResource,
@@ -66,6 +67,7 @@ export function LiveExample({
     const [code, setCode] = React.useState(initialCode);
 
     const defaultScope = {
+        queryV2,
         Button,
         Card,
         CardBody,

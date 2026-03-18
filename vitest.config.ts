@@ -14,7 +14,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/common/**', 'src/signals/**', 'src/query/**'],
+      include: ['src/common/**', 'src/signals/**', 'src/query/**', 'src/query-v2/**'],
       exclude: [
         'src/**/*.test.ts',
         'src/**/index.ts',
