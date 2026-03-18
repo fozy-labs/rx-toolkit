@@ -13,6 +13,7 @@
     - [Интерактивные примеры (`apps/demos/`)](#интерактивные-примеры-appsdemos)
     - [Документация (`docs/`)](#документация-docs)
   - [Тесты](#тесты)
+  - [Инструменты разработки](#инструменты-разработки)
   - [Соглашения](#соглашения)
     - [Именование файлов](#именование-файлов)
     - [Протокол сигналов](#протокол-сигналов)
@@ -135,6 +136,36 @@ npm run test:ui         # Vitest UI в браузере
 
 - Тесты размещаются рядом с кодом: `MyModule.test.ts`
 - Интеграционные — в `src/__tests__/integration/`
+
+
+## Инструменты разработки
+
+### Команды
+
+```bash
+npm run lint           # Проверка линтером (ESLint)
+npm run lint:fix       # Автоисправление ошибок линтера
+npm run format         # Форматирование кода (Prettier)
+npm run format:check   # Проверка форматирования без изменений
+```
+
+> `apps/demos/` имеет отдельную конфигурацию ESLint: `cd apps/demos && npx eslint src/`
+
+### Настройка редактора
+
+Рекомендуемые расширения VS Code:
+- **Prettier** (`esbenp.prettier-vscode`)
+- **ESLint** (`dbaeumer.vscode-eslint`)
+
+Включите `editor.formatOnSave: true` для автоматического форматирования при сохранении.
+
+### Git blame
+
+Файл `.git-blame-ignore-revs` исключает коммиты массового форматирования из `git blame`. GitHub учитывает его автоматически. Для локальной настройки:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
 
 
 ## Соглашения

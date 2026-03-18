@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ReactiveCache } from '@/query/lib/ReactiveCache';
 
 describe('ReactiveCache', () => {

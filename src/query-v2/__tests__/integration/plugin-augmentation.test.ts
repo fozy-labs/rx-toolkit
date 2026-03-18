@@ -1,5 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
-import { expectTypeOf } from 'vitest';
 import { createApi } from '@/query-v2/api/createApi';
 import { ReactHooksPlugin } from '@/query-v2/plugins/ReactHooksPlugin';
 import type { IPlugin, IPluginContext } from '@/query-v2/types/plugin.types';

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { SyncObservable } from './SyncObservable';

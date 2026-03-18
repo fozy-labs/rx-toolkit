@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { SharedOptions } from './SharedOptions';
 import { shallowEqual } from '@/common/utils';
 

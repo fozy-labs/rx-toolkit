@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { ResetAllQueriesSignal } from '@/query/core/ResetAllQueriesSignal';
 
 describe('ResetAllQueriesSignal', () => {

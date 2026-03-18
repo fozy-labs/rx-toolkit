@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { Devtools } from './Devtools';
 import { SharedOptions } from '@/common/options/SharedOptions';
 import { Indexer } from './Indexer';

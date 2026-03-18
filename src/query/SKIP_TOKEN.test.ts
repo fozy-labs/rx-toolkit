@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { SKIP } from '@/query/SKIP_TOKEN';
 
 describe('SKIP_TOKEN', () => {

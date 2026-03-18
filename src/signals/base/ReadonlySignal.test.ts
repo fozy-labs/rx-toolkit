@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { BehaviorSubject } from 'rxjs';
 import { ReadonlySignal } from './ReadonlySignal';
 

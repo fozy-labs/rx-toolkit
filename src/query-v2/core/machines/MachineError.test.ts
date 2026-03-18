@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { MachineError } from './MachineError';
 import { MachinePending } from './MachinePending';
 import { MachineIdle } from './MachineIdle';

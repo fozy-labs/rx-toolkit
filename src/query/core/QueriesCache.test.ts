@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueriesCache } from '@/query/core/QueriesCache';
 
 describe('QueriesCache', () => {

@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSignal } from './useSignal';
 import { Signal } from '@/signals/signals/Signal';

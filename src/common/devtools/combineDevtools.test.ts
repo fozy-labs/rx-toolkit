@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { combineDevtools } from './combineDevtools';
 import type { DevtoolsLike } from './types';
 

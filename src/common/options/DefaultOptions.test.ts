@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { DefaultOptions } from './DefaultOptions';
 import { SharedOptions } from './SharedOptions';
 

@@ -1,4 +1,3 @@
-import { afterEach, beforeEach } from 'vitest';
 import { resetSharedOptions } from './helpers/singleton-reset';
 
 beforeEach(() => {

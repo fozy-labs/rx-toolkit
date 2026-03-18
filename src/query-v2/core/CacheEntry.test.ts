@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { Signal } from '@/signals';
 import { CacheEntry } from './CacheEntry';
 import { MachineIdle } from './machines/MachineIdle';

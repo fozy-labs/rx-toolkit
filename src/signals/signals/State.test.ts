@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from 'vitest';
 import { Signal } from './Signal';
 import { State } from './State';
 

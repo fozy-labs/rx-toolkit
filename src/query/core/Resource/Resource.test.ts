@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createResource } from '@/query/api/createResource';
 import { flushMicrotasks } from '@/__tests__/helpers/async-helpers';
 

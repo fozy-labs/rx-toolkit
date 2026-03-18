@@ -1,5 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { expectTypeOf } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { createApi } from '@/query-v2/api/createApi';
 import { ReactHooksPlugin } from '../ReactHooksPlugin';

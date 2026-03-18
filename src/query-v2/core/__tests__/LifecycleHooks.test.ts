@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LifecycleHooks } from '../LifecycleHooks';
 import { CacheEntry } from '../CacheEntry';
 import { MachineIdle } from '../machines/MachineIdle';

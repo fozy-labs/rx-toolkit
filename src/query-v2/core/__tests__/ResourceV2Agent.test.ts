@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Signal } from '@/signals';
 import { ResourceV2 } from '../ResourceV2';
 import { ResourceV2Agent } from '../ResourceV2Agent';

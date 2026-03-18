@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { Patcher } from './Patcher';
 import { NO_VALUE } from '@/query-v2/lib/NO_VALUE';
 import type { TResourceV2Patch } from '@/query-v2/types/machine.types';

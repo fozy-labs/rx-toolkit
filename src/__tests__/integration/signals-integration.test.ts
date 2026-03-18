@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { Signal, State, Effect } from '@/signals/signals';
 import { Batcher } from '@/signals/base/Batcher';
 
