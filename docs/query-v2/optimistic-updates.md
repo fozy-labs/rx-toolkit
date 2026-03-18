@@ -13,10 +13,10 @@
 Самый прямой способ — использовать `IResourceV2Ref`:
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 interface Todo {

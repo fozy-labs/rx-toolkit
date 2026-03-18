@@ -11,12 +11,12 @@ RxQuery v2 — переработанная система управления 
 Точка входа для создания API-инстанса. Все ресурсы создаются через API, что обеспечивает общую конфигурацию, snapshot-поддержку и плагины.
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
-const api = queryV2.createApi({
+const api = unstable_queryV2.createApi({
     keyPrefix: 'my-app',
     cacheLifetime: 60_000,
-    plugins: [new queryV2.ReactHooksPlugin()],
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 ```
 
@@ -125,9 +125,9 @@ console.log(state.isLoading);   // true/false
 Специальный токен для пропуска запроса (полезен при условных запросах).
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
-const { SKIP } = queryV2;
+const { SKIP } = unstable_queryV2;
 
 // В React с плагином
 const state = userResource.useResourceV2Agent(
@@ -199,8 +199,8 @@ const resource = api.createResource({
 Добавляет React-хуки к ресурсам:
 
 ```typescript
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 const userResource = api.createResource({ /* ... */ });
@@ -241,11 +241,11 @@ Ref предоставляет императивный доступ к конк
 ## Быстрый старт
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
 // 1. Создаём API
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 // 2. Создаём ресурс

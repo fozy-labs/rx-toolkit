@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Card, CardBody, CardHeader, Checkbox, Divider } from '@heroui/react';
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
 interface TodoItem {
     id: number;
@@ -21,8 +21,8 @@ const mockTodoList: TodoList = {
     ],
 };
 
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 const todoResource = api.createResource<void, TodoList>({

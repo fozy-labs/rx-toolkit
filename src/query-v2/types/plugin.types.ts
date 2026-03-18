@@ -1,6 +1,7 @@
 import type { IApi } from "./api.types";
-import type { IResourceV2, IResourceV2Options } from "./resource.types";
+import type { IResourceV2Options } from "./resource.types";
 import type { Prettify } from "./shared.types";
+import type { ResourceV2 } from "@/query-v2";
 
 /** Plugin interface — all plugins must implement this */
 export interface IPlugin {
@@ -12,7 +13,7 @@ export interface IPlugin {
 
     /** Called for each createResource — returns augmented resource */
     augmentResource<TArgs, TData, TError>(
-        resource: IResourceV2<TArgs, TData, TError>,
+        resource: ResourceV2<TArgs, TData, TError>,
         options: IResourceV2Options<TArgs, TData, TError>,
     ): Record<string, unknown>;
 }

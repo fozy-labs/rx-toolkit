@@ -13,8 +13,8 @@
 import { createResource, useResourceAgent } from '@fozy-labs/rx-toolkit';
 
 // v2
-import { queryV2 } from '@fozy-labs/rx-toolkit';
-const api = queryV2.createApi({ /* ... */ });
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
+const api = unstable_queryV2.createApi({ /* ... */ });
 ```
 
 Кэши v1 и v2 не пересекаются. Можно мигрировать ресурсы по одному.
@@ -34,8 +34,8 @@ const userResource = createResource({
 });
 
 // v2
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 const userResource = api.createResource({
     key: 'user',

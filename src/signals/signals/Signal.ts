@@ -5,8 +5,17 @@ import { Computed } from "./Computed";
 import { Effect } from "./Effect";
 import { State } from "./State";
 
-/** @deprecated use `State` instead */
 export class Signal<T> extends State<T> {
+
+    /** @deprecated use `State` instead */
+    // eslint-disable-next-line @typescript-eslint/no-useless-constructor
+    constructor(
+        initialValue: T,
+        options?: SignalOptionsOrKey<T>,
+    ) {
+        super(initialValue, options);
+    }
+
     /** @deprecated use `state` instead */
     static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
         return this.state(initialValue, options);

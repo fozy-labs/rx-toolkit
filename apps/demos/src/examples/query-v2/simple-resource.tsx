@@ -1,34 +1,14 @@
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
+import { fetches } from "../../utils/fetches";
 
-interface Item {
-    id: number;
-    name: string;
-    description: string;
-}
-
-interface ItemsData {
-    items: Item[];
-}
-
-const api = queryV2.createApi({
-    plugins: [new queryV2.ReactHooksPlugin()],
+const api = unstable_queryV2.createApi({
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
-const itemsResource = api.createResource<void, ItemsData>({
+const itemsResource = api.createResource({
     key: 'simple-items',
-    queryFn: async (_args, { abortSignal: _abortSignal }) => {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return {
-            items: [
-                { id: 1, name: 'Задача 1', description: 'Реализовать новую функцию' },
-                { id: 2, name: 'Задача 2', description: 'Исправить баги в коде' },
-                { id: 3, name: 'Задача 3', description: 'Написать документацию' },
-                { id: 4, name: 'Задача 4', description: 'Провести код-ревью' },
-                { id: 5, name: 'Задача 5', description: 'Оптимизировать производительность' },
-            ],
-        };
-    },
+    queryFn: fetches.getItems,
 });
 
 export function Base() {
@@ -55,7 +35,7 @@ export function Base() {
                 {state.isSuccess && state.data && (
                     <>
                         <div className="space-y-2">
-                            {state.data.items.map((item: Item) => (
+                            {state.data.items.map((item) => (
                                 <div
                                     key={item.id}
                                     className="p-3 bg-default-100 rounded-lg"
@@ -65,12 +45,6 @@ export function Base() {
                                 </div>
                             ))}
                         </div>
-
-                        {state.isRefreshing && (
-                            <div className="text-center text-sm text-default-400">
-                                🔄 Обновление данных...
-                            </div>
-                        )}
 
                         <Divider />
 
@@ -89,11 +63,6 @@ export function Base() {
                     </>
                 )}
 
-                {state.isError && (
-                    <div className="text-center py-8 text-danger">
-                        ❌ Ошибка загрузки данных
-                    </div>
-                )}
             </CardBody>
         </Card>
     );

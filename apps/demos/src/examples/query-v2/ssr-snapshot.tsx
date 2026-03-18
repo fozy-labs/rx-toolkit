@@ -1,10 +1,9 @@
 import { Card, CardBody, CardHeader, Divider } from '@heroui/react';
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
 /**
  * Симуляция SSR snapshot — демонстрирует гидрацию без реальной SSR-инфраструктуры.
- * В реальном приложении snapshot создаётся на сервере через api.getSnapshot()
- * и передаётся в HTML как window.__RX_SNAPSHOT__.
+ * В реальном приложении snapshot создаётся на сервере через api.getSnapshot().
  */
 
 interface User {
@@ -14,8 +13,8 @@ interface User {
 }
 
 // Симулируем snapshot, который мог бы прийти с сервера
-const simulatedSnapshot: queryV2.TApiSnapshot = {
-    version: queryV2.CURRENT_SNAPSHOT_VERSION,
+const simulatedSnapshot: unstable_queryV2.TApiSnapshot = {
+    version: unstable_queryV2.CURRENT_SNAPSHOT_VERSION,
     keyPrefix: 'ssr-demo',
     resources: {
         'users': {
@@ -45,11 +44,11 @@ const simulatedSnapshot: queryV2.TApiSnapshot = {
     },
 };
 
-const api = queryV2.createApi({
+const api = unstable_queryV2.createApi({
     keyPrefix: 'ssr-demo',
     initialSnapshot: simulatedSnapshot,
     maxSnapshotDataAge: 600_000, // 10 минут
-    plugins: [new queryV2.ReactHooksPlugin()],
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 const usersResource = api.createResource<{ id: string }, User>({

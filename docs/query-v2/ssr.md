@@ -19,10 +19,10 @@ RxQuery v2 поддерживает серверный рендеринг (SSR) 
 ## Серверная часть: getSnapshot
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
 // На сервере: создаём API и выполняем запросы
-const api = queryV2.createApi({
+const api = unstable_queryV2.createApi({
     keyPrefix: 'my-app',
 });
 
@@ -61,27 +61,17 @@ interface TApiSnapshot {
 }
 ```
 
-## Передача snapshot
-
-Встройте snapshot в HTML-страницу:
-
-```html
-<script>
-    window.__RX_SNAPSHOT__ = <%- JSON.stringify(snapshot) %>;
-</script>
-```
-
 ## Клиентская часть: initialSnapshot
 
 ```typescript
-import { queryV2 } from '@fozy-labs/rx-toolkit';
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
 
 // На клиенте: создаём API с начальным snapshot
-const api = queryV2.createApi({
+const api = unstable_queryV2.createApi({
     keyPrefix: 'my-app',
-    initialSnapshot: window.__RX_SNAPSHOT__ ?? null,
+    initialSnapshot: window.__API_SNAPSHOT__ ?? null, // Например, через объект window
     maxSnapshotDataAge: 300_000, // 5 минут (по умолчанию)
-    plugins: [new queryV2.ReactHooksPlugin()],
+    plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
 const userResource = api.createResource<{ id: string }, User>({
@@ -107,7 +97,7 @@ function UserProfile({ userId }: { userId: string }) {
 | `createResource` | — | Переопределяет API-уровень |
 
 ```typescript
-const api = queryV2.createApi({
+const api = unstable_queryV2.createApi({
     maxSnapshotDataAge: 60_000, // 1 минута для всего API
 });
 

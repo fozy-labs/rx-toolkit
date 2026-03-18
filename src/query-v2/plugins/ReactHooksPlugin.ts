@@ -7,7 +7,7 @@ import { SKIP, type SKIP_TOKEN } from "@/query-v2/lib/SKIP_TOKEN";
 import type { IResourceV2AgentState, IResourceV2Ref } from "@/query-v2/types/agent.types";
 import type { TPatchFn } from "@/query-v2/types/machine.types";
 import type { IPlugin, IPluginContext } from "@/query-v2/types/plugin.types";
-import type { IResourceV2, IResourceV2Options } from "@/query-v2/types/resource.types";
+import type { IResourceV2Options } from "@/query-v2/types/resource.types";
 import { useSignal } from "@/signals/react/useSignal";
 import type { ReadableSignalLike } from "@/signals/types";
 
@@ -33,10 +33,9 @@ export class ReactHooksPlugin implements IPlugin {
     }
 
     augmentResource<TArgs, TData, TError>(
-        resource: IResourceV2<TArgs, TData, TError>,
+        res: ResourceV2<TArgs, TData, TError>,
         _options: IResourceV2Options<TArgs, TData, TError>,
     ): Record<string, unknown> {
-        const res = resource as unknown as ResourceV2<TArgs, TData, TError>;
 
         return {
             useResourceV2Agent: (args: TArgs | SKIP_TOKEN) => useResourceV2Agent(res, args),
