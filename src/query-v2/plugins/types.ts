@@ -3,4 +3,4 @@ export type {
     IPluginContext,
     ExtractPluginContributions,
     PluginAugmentations,
-} from '@/query-v2/types/plugin.types';
+} from "@/query-v2/types/plugin.types";

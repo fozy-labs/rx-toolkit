@@ -1,5 +1,5 @@
-import type { CommandCreateFn, CommandCreateOptions, CommandDefinition } from "@/query/types";
 import { Command } from "@/query/core/Command/Command";
+import type { CommandCreateFn, CommandCreateOptions, CommandDefinition } from "@/query/types";
 
 /**
  * Создаёт команду (command) — единицу мутирующего запроса.
@@ -19,8 +19,6 @@ import { Command } from "@/query/core/Command/Command";
  * });
  * ```
  */
-export const createCommand = (
-    <ARGS, RESULT, SELECTED = never>(
-        options: CommandCreateOptions<CommandDefinition<ARGS, RESULT, SELECTED>>
-    ) => new Command(options)
-) satisfies CommandCreateFn<any, any, any>;
+export const createCommand = (<ARGS, RESULT, SELECTED = never>(
+    options: CommandCreateOptions<CommandDefinition<ARGS, RESULT, SELECTED>>,
+) => new Command(options)) satisfies CommandCreateFn<any, any, any>;

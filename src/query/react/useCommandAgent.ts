@@ -1,13 +1,13 @@
 import { useConstant, useEventHandler } from "@/common/react";
+import type { CommandAgentInstance, CommandDefinition, CommandQueryState, Prettify } from "@/query/types";
 import { useSignal } from "@/signals/react";
-import type { Prettify, CommandAgentInstance, CommandDefinition, CommandQueryState } from "@/query/types";
 
 type WithAgent<D extends CommandDefinition> = {
     createAgent: () => CommandAgentInstance<D>;
-}
+};
 
-type TriggerFn<D extends CommandDefinition> = (args: D['Args']) => Promise<D['Data']>
-type Result<D extends CommandDefinition> = [TriggerFn<D>, Prettify<CommandQueryState<D>>]
+type TriggerFn<D extends CommandDefinition> = (args: D["Args"]) => Promise<D["Data"]>;
+type Result<D extends CommandDefinition> = [TriggerFn<D>, Prettify<CommandQueryState<D>>];
 
 /**
  * React hook для работы с командой (Command).
@@ -29,15 +29,15 @@ export function useCommandAgent<D extends CommandDefinition>(op: WithAgent<D>): 
     const agent = useConstant(() => op.createAgent());
 
     const state = useSignal(agent.state$);
-    const trigger = useEventHandler((args: D['Args']) => {
+    const trigger = useEventHandler((args: D["Args"]) => {
         agent.initiate(args);
 
-        return new Promise<D['Data']>((resolve, reject) => {
+        return new Promise<D["Data"]>((resolve, reject) => {
             const sub = agent.state$.obs.subscribe((s) => {
                 if (s.isDone && !s.isLoading) {
                     sub.unsubscribe();
                     if (s.isSuccess) {
-                        resolve(s.data as D['Data']);
+                        resolve(s.data as D["Data"]);
                     } else {
                         reject(s.error);
                     }

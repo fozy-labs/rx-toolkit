@@ -4,7 +4,7 @@ import { DependencyTracker } from "@/signals";
  * Кеш для хранения вычисленного значения и его зависимостей
  */
 export class ComputeCache<T> {
-    private static _NO_VALUE = Symbol('no-value');
+    private static _NO_VALUE = Symbol("no-value");
 
     private _cachedValue: T | symbol = ComputeCache._NO_VALUE;
     private _dependencies: Array<{ peek: () => unknown; lastValue: unknown }> = [];
@@ -18,7 +18,7 @@ export class ComputeCache<T> {
         }
 
         // Проверяем, что все зависимости имеют те же значения
-        return this._dependencies.every(dep => {
+        return this._dependencies.every((dep) => {
             try {
                 const currentValue = dep.peek();
                 return Object.is(currentValue, dep.lastValue);
@@ -54,7 +54,7 @@ export class ComputeCache<T> {
             const result = computeFn();
 
             // Получаем текущие значения зависимостей
-            dependencies.forEach(dep => {
+            dependencies.forEach((dep) => {
                 dep.lastValue = dep.peek();
             });
 

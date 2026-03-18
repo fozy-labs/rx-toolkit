@@ -47,7 +47,7 @@ export const fetches = {
             4: { daily: [10, 4, 6], weekly: [55, 12, 25], monthly: [200, 40, 100] },
             5: { daily: [7, 2, 3], weekly: [40, 8, 15], monthly: [150, 30, 70] },
         };
-        // @ts-ignore
+        // @ts-expect-error dynamic key access
         const stats = userStats[args.userId][args.period];
         return {
             commits: stats[0],

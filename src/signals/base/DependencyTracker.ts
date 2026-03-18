@@ -12,7 +12,7 @@ export type DependencyRecord = {
      * Зарезервировано для отладки и логирования.
      */
     meta?: any;
-}
+};
 
 export class DependencyTracker {
     private static _currentHandler: ((arg: DependencyRecord) => void) | null = null;
@@ -22,7 +22,7 @@ export class DependencyTracker {
     }
 
     static start(handler: (arg: DependencyRecord) => void) {
-        let prevHandler = this._currentHandler;
+        const prevHandler = this._currentHandler;
 
         this._currentHandler = handler;
 

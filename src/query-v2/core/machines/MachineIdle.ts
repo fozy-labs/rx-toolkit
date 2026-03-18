@@ -1,9 +1,10 @@
-import type { TResourceV2IdleState } from '@/query-v2/types/machine.types';
-import { MachinePending } from './MachinePending';
+import type { TResourceV2IdleState } from "@/query-v2/types/machine.types";
+
+import { MachinePending } from "./MachinePending";
 
 export class MachineIdle {
     readonly state: TResourceV2IdleState = {
-        status: 'idle',
+        status: "idle",
         args: null,
         data: null,
         error: null,

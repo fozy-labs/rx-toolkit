@@ -1,16 +1,16 @@
-import type { TMachine } from './machine.types';
-import type { TSerializeArgsFn, TCompareArgsFn } from './shared.types';
+import type { IMachineBox } from "./machine.types";
+import type { TCompareArgsFn, TSerializeArgsFn } from "./shared.types";
 
 /** Single reactive cache unit holding a Machine */
 export interface ICacheEntry<TData, TError = Error> {
     /** Reactive signal holding current machine state */
-    readonly machine$: () => TMachine<TData, TError>;
+    readonly machine$: () => IMachineBox<TData, TError>;
 
     /** Synchronous peek at current machine */
-    peek(): TMachine<TData, TError>;
+    peek(): IMachineBox<TData, TError>;
 
     /** Update machine state */
-    set(machine: TMachine<TData, TError>): void;
+    set(machine: IMachineBox<TData, TError>): void;
 
     /** Cleanup — complete and release */
     complete(): void;
@@ -32,8 +32,8 @@ export interface ICacheMap<TArgs, TData, TError = Error> {
 }
 
 /** Factory options for creating appropriate cache map */
-export interface ICacheMapOptions<TArgs> {
-    keyStrategy: 'serialize' | 'compare';
+export interface ICacheMapOptions<_TArgs> {
+    keyStrategy: "serialize" | "compare";
     serializeArgs: TSerializeArgsFn;
     compareArg: TCompareArgsFn;
     doCacheArgs: boolean;

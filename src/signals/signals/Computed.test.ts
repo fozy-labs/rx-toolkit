@@ -1,16 +1,15 @@
 import { Computed } from "./Computed";
 import { Signal } from "./Signal";
 
-describe('Computed', () => {
-
-    describe('lazy evaluation', () => {
-        it('computeFn is NOT called on creation', () => {
+describe("Computed", () => {
+    describe("lazy evaluation", () => {
+        it("computeFn is NOT called on creation", () => {
             const fn = vi.fn(() => 42);
             Computed.create(fn);
             expect(fn).not.toHaveBeenCalled();
         });
 
-        it('first observation triggers computation', () => {
+        it("first observation triggers computation", () => {
             const fn = vi.fn(() => 42);
             const c = Computed.create(fn);
 
@@ -24,14 +23,16 @@ describe('Computed', () => {
         });
     });
 
-    describe('caching', () => {
-        it('repeated reads do not re-invoke fn', () => {
+    describe("caching", () => {
+        it("repeated reads do not re-invoke fn", () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
             const doubled = Computed.create(fn);
 
             const values: number[] = [];
-            const eff = Signal.effect(() => { values.push(doubled()); });
+            const eff = Signal.effect(() => {
+                values.push(doubled());
+            });
             expect(fn).toHaveBeenCalledTimes(1);
             expect(values).toEqual([2]);
 
@@ -42,7 +43,7 @@ describe('Computed', () => {
             eff.unsubscribe();
         });
 
-        it('recomputes when dependency changes', () => {
+        it("recomputes when dependency changes", () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
             const doubled = Computed.create(fn);
@@ -60,7 +61,7 @@ describe('Computed', () => {
             sub.unsubscribe();
         });
 
-        it('multiple dependencies — invalidation on any', () => {
+        it("multiple dependencies — invalidation on any", () => {
             const a = Signal.state(1);
             const b = Signal.state(10);
             const sum = Computed.create(() => a() + b());
@@ -79,8 +80,8 @@ describe('Computed', () => {
         });
     });
 
-    describe('observable subscription', () => {
-        it('subscribing to obs emits computed value and updates', () => {
+    describe("observable subscription", () => {
+        it("subscribing to obs emits computed value and updates", () => {
             const count = Signal.state(1);
             const doubled = Computed.create(() => count() * 2);
 
@@ -95,7 +96,7 @@ describe('Computed', () => {
             sub.unsubscribe();
         });
 
-        it('cleanup: unsubscribing stops reactive tracking', () => {
+        it("cleanup: unsubscribing stops reactive tracking", () => {
             const count = Signal.state(1);
             const fn = vi.fn(() => count() * 2);
             const doubled = Computed.create(fn);
@@ -121,8 +122,8 @@ describe('Computed', () => {
         });
     });
 
-    describe('diamond problem (glitch-free)', () => {
-        it('D sees consistent B and C when A changes', () => {
+    describe("diamond problem (glitch-free)", () => {
+        it("D sees consistent B and C when A changes", () => {
             const A = Signal.state(1);
             const B = Computed.create(() => A() * 2);
             const C = Computed.create(() => A() + 10);
@@ -148,33 +149,37 @@ describe('Computed', () => {
         });
     });
 
-    describe('error handling', () => {
-        it('error in computeFn propagates to obs subscriber', () => {
+    describe("error handling", () => {
+        it("error in computeFn propagates to obs subscriber", () => {
             const c = Computed.create(() => {
-                throw new Error('compute-error');
+                throw new Error("compute-error");
             });
 
             let caughtError: any;
             c.obs.subscribe({
                 next: () => {},
-                error: (e: any) => { caughtError = e; },
+                error: (e: any) => {
+                    caughtError = e;
+                },
             });
 
             expect(caughtError).toBeDefined();
-            expect(caughtError.message).toContain('compute-error');
+            expect(caughtError.message).toContain("compute-error");
         });
 
-        it('after error, new subscription retries computation', () => {
+        it("after error, new subscription retries computation", () => {
             let shouldThrow = true;
             const c = Computed.create(() => {
-                if (shouldThrow) throw new Error('fail');
+                if (shouldThrow) throw new Error("fail");
                 return 42;
             });
 
             let error1: any;
             c.obs.subscribe({
                 next: () => {},
-                error: (e: any) => { error1 = e; },
+                error: (e: any) => {
+                    error1 = e;
+                },
             });
             expect(error1).toBeDefined();
 

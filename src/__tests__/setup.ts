@@ -1,10 +1,10 @@
-import { resetSharedOptions } from './helpers/singleton-reset';
+import { resetSharedOptions } from "./helpers/singleton-reset";
 
 beforeEach(() => {
-  resetSharedOptions();
+    resetSharedOptions();
 });
 
 afterEach(() => {
-  // Verify batching system is not locked
-  // (after Batcher try/finally fix this should never happen)
+    // Verify batching system is not locked
+    // (after Batcher try/finally fix this should never happen)
 });

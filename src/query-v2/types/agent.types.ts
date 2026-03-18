@@ -1,8 +1,7 @@
-import type { TMachineStatus } from './machine.types';
-import type { TPatchFn } from './machine.types';
+import type { TMachineStatus, TPatchFn } from "./machine.types";
 
 /** SKIP_TOKEN type alias for agent args */
-type SKIP_TOKEN = typeof import('../lib/SKIP_TOKEN').SKIP;
+type SKIP_TOKEN = typeof import("../lib/SKIP_TOKEN").SKIP;
 
 /** Agent — observer with stale-while-revalidate */
 export interface IResourceV2Agent<TArgs, TData, TError = Error> {
@@ -41,7 +40,7 @@ export interface IResourceV2AgentState<TArgs, TData, TError = Error> {
 }
 
 /** Ref — imperative access to a specific cache entry by args */
-export interface IResourceV2Ref<TArgs, TData, TError = Error> {
+export interface IResourceV2Ref<_TArgs, TData, _TError = Error> {
     /** Check if cache entry exists */
     readonly has: boolean;
     /** Lock cache entry (prevent eviction) */

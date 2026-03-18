@@ -1,10 +1,9 @@
-import { Signal, State, Effect } from '@/signals/signals';
-import { Batcher } from '@/signals/base/Batcher';
+import { Batcher } from "@/signals/base/Batcher";
+import { Effect, Signal, State } from "@/signals/signals";
 
-describe('Signals Integration', () => {
-
-    describe('Diamond problem', () => {
-        it('Effect sees consistent state when A changes', () => {
+describe("Signals Integration", () => {
+    describe("Diamond problem", () => {
+        it("Effect sees consistent state when A changes", () => {
             const a = Signal.state(1);
             const b = Signal.compute(() => a() * 2);
             const c = Signal.compute(() => a() + 10);
@@ -26,7 +25,7 @@ describe('Signals Integration', () => {
             effect.unsubscribe();
         });
 
-        it('never observes inconsistent intermediate states across many updates', () => {
+        it("never observes inconsistent intermediate states across many updates", () => {
             const a = Signal.state(0);
             const b = Signal.compute(() => a() * 2);
             const c = Signal.compute(() => a() + 10);
@@ -50,8 +49,8 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Deep chain', () => {
-        it('value propagates through State → C1 → C2 → C3 → Effect', () => {
+    describe("Deep chain", () => {
+        it("value propagates through State → C1 → C2 → C3 → Effect", () => {
             const state = Signal.state(1);
             const c1 = Signal.compute(() => state() + 1);
             const c2 = Signal.compute(() => c1() * 2);
@@ -75,15 +74,17 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Multi-signal batching', () => {
-        it('effect re-runs exactly once when multiple signals change in batch', () => {
+    describe("Multi-signal batching", () => {
+        it("effect re-runs exactly once when multiple signals change in batch", () => {
             const s1 = Signal.state(0);
             const s2 = Signal.state(0);
             const s3 = Signal.state(0);
 
             let runCount = 0;
             const effect = Signal.effect(() => {
-                s1(); s2(); s3();
+                s1();
+                s2();
+                s3();
                 runCount++;
             });
 
@@ -100,16 +101,16 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Error recovery in batch', () => {
-        it('system recovers after error inside Batcher.run()', () => {
+    describe("Error recovery in batch", () => {
+        it("system recovers after error inside Batcher.run()", () => {
             const s = Signal.state(0);
 
             expect(() => {
                 Batcher.run(() => {
                     s.set(1);
-                    throw new Error('batch error');
+                    throw new Error("batch error");
                 });
-            }).toThrow('batch error');
+            }).toThrow("batch error");
 
             // System should recover — new effects and batches work
             const results: number[] = [];
@@ -127,8 +128,8 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Computed peek → subscribe → peek transition', () => {
-        it('peek returns correct values while subscribed and after state changes', () => {
+    describe("Computed peek → subscribe → peek transition", () => {
+        it("peek returns correct values while subscribed and after state changes", () => {
             const state = Signal.state(5);
             const computed = Signal.compute(() => state() * 3);
 
@@ -153,8 +154,8 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Effect teardown chain', () => {
-        it('teardown runs on each dependency update in correct order', () => {
+    describe("Effect teardown chain", () => {
+        it("teardown runs on each dependency update in correct order", () => {
             const state = Signal.state(0);
             const teardowns: number[] = [];
 
@@ -182,11 +183,11 @@ describe('Signals Integration', () => {
         });
     });
 
-    describe('Dynamic dependencies', () => {
-        it('effect switches subscriptions when flag changes', () => {
+    describe("Dynamic dependencies", () => {
+        it("effect switches subscriptions when flag changes", () => {
             const flag = Signal.state(true);
-            const a = Signal.state('A1');
-            const b = Signal.state('B1');
+            const a = Signal.state("A1");
+            const b = Signal.state("B1");
 
             const results: string[] = [];
             const effect = Signal.effect(() => {
@@ -197,25 +198,24 @@ describe('Signals Integration', () => {
                 }
             });
 
-            expect(results).toEqual(['a:A1']);
+            expect(results).toEqual(["a:A1"]);
 
-            a.set('A2');
-            expect(results).toEqual(['a:A1', 'a:A2']);
+            a.set("A2");
+            expect(results).toEqual(["a:A1", "a:A2"]);
 
             // Switch to B
             flag.set(false);
-            expect(results).toEqual(['a:A1', 'a:A2', 'b:B1']);
+            expect(results).toEqual(["a:A1", "a:A2", "b:B1"]);
 
             // A changes should NOT trigger effect anymore
-            a.set('A3');
-            expect(results).toEqual(['a:A1', 'a:A2', 'b:B1']);
+            a.set("A3");
+            expect(results).toEqual(["a:A1", "a:A2", "b:B1"]);
 
             // B changes should trigger effect
-            b.set('B2');
-            expect(results).toEqual(['a:A1', 'a:A2', 'b:B1', 'b:B2']);
+            b.set("B2");
+            expect(results).toEqual(["a:A1", "a:A2", "b:B1", "b:B2"]);
 
             effect.unsubscribe();
         });
     });
-
 });

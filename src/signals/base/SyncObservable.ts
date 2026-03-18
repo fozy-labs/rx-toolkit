@@ -1,14 +1,10 @@
-import { Observable, Subscriber, TeardownLogic } from "rxjs";
+import { Observable } from "rxjs";
 
-const empty = Symbol('EMPTY');
+const empty = Symbol("EMPTY");
 
 export class SyncObservable<T> extends Observable<T> {
-    constructor(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic) {
-        super(subscribe);
-    }
-
     get value(): T {
-        let value: T | Symbol = empty;
+        let value: T | symbol = empty;
 
         const sub = this.subscribe((v) => {
             value = v;
@@ -17,7 +13,7 @@ export class SyncObservable<T> extends Observable<T> {
         sub.unsubscribe();
 
         if (value === empty) {
-            throw new Error('No value emitted');
+            throw new Error("No value emitted");
         }
 
         return value as T;

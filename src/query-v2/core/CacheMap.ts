@@ -1,23 +1,21 @@
-import type { ICacheMapOptions } from '@/query-v2/types/cache.types';
-import type { CacheEntry } from './CacheEntry';
-import { stableStringify } from '@/query-v2/lib/stableStringify';
-import { shallowEqual } from '@/common/utils/shallowEqual';
+import { shallowEqual } from "@/common/utils/shallowEqual";
+import { stableStringify } from "@/query-v2/lib/stableStringify";
+import type { ICacheMapOptions } from "@/query-v2/types/cache.types";
+
+import type { CacheEntry } from "./CacheEntry";
 
 class SerializedCacheMap<TArgs, TData, TError = Error> {
     private readonly _map = new Map<string, CacheEntry<TData, TError>>();
     private readonly _serializeArgs: (args: unknown) => string;
     private readonly _argsMemo: WeakMap<object, string> | null;
 
-    constructor(
-        serializeArgs: (args: unknown) => string,
-        doCacheArgs: boolean,
-    ) {
+    constructor(serializeArgs: (args: unknown) => string, doCacheArgs: boolean) {
         this._serializeArgs = serializeArgs;
         this._argsMemo = doCacheArgs ? new WeakMap() : null;
     }
 
     private _serialize(args: TArgs): string {
-        if (this._argsMemo && typeof args === 'object' && args !== null) {
+        if (this._argsMemo && typeof args === "object" && args !== null) {
             let cached = this._argsMemo.get(args as object);
             if (cached === undefined) {
                 cached = this._serializeArgs(args);
@@ -151,13 +149,9 @@ export type TCacheMapInstance<TArgs, TData, TError = Error> =
     | CompareCacheMap<TArgs, TData, TError>;
 
 export const CacheMap = {
-    create<TArgs, TData, TError = Error>(
-        options: ICacheMapOptions<TArgs>,
-    ): TCacheMapInstance<TArgs, TData, TError> {
-        if (options.keyStrategy === 'compare') {
-            return new CompareCacheMap<TArgs, TData, TError>(
-                options.compareArg ?? shallowEqual,
-            );
+    create<TArgs, TData, TError = Error>(options: ICacheMapOptions<TArgs>): TCacheMapInstance<TArgs, TData, TError> {
+        if (options.keyStrategy === "compare") {
+            return new CompareCacheMap<TArgs, TData, TError>(options.compareArg ?? shallowEqual);
         }
         return new SerializedCacheMap<TArgs, TData, TError>(
             options.serializeArgs ?? stableStringify,

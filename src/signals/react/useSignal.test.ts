@@ -1,17 +1,20 @@
-import { renderHook, act } from '@testing-library/react';
-import { useSignal } from './useSignal';
-import { Signal } from '@/signals/signals/Signal';
-import { flushMicrotasks } from '../../__tests__/helpers/async-helpers';
+import { act, renderHook } from "@testing-library/react";
 
-describe('useSignal', () => {
-    it('returns current signal value on first render', () => {
+import { Signal } from "@/signals/signals/Signal";
+
+import { flushMicrotasks } from "../../__tests__/helpers/async-helpers";
+
+import { useSignal } from "./useSignal";
+
+describe("useSignal", () => {
+    it("returns current signal value on first render", () => {
         const signal = Signal.state(42);
         const { result } = renderHook(() => useSignal(signal));
 
         expect(result.current).toBe(42);
     });
 
-    it('updates component when signal.set() is called', async () => {
+    it("updates component when signal.set() is called", async () => {
         const signal = Signal.state(0);
         const { result } = renderHook(() => useSignal(signal));
 
@@ -25,28 +28,28 @@ describe('useSignal', () => {
         expect(result.current).toBe(10);
     });
 
-    it('returns updated value after multiple sets', async () => {
-        const signal = Signal.state('a');
+    it("returns updated value after multiple sets", async () => {
+        const signal = Signal.state("a");
         const { result } = renderHook(() => useSignal(signal));
 
-        expect(result.current).toBe('a');
+        expect(result.current).toBe("a");
 
         await act(async () => {
-            signal.set('b');
+            signal.set("b");
             await flushMicrotasks();
         });
 
-        expect(result.current).toBe('b');
+        expect(result.current).toBe("b");
 
         await act(async () => {
-            signal.set('c');
+            signal.set("c");
             await flushMicrotasks();
         });
 
-        expect(result.current).toBe('c');
+        expect(result.current).toBe("c");
     });
 
-    it('unsubscribes on unmount', async () => {
+    it("unsubscribes on unmount", async () => {
         const signal = Signal.state(1);
         const { result, unmount } = renderHook(() => useSignal(signal));
 
@@ -62,7 +65,7 @@ describe('useSignal', () => {
         expect(result.current).toBe(1);
     });
 
-    it('resubscribes when signal reference changes', async () => {
+    it("resubscribes when signal reference changes", async () => {
         const signal1 = Signal.state(100);
         const signal2 = Signal.state(200);
 
@@ -94,14 +97,14 @@ describe('useSignal', () => {
         expect(result.current).toBe(300);
     });
 
-    it('does not provide getServerSnapshot (SSR limitation)', () => {
+    it("does not provide getServerSnapshot (SSR limitation)", () => {
         // useSignal uses useSyncExternalStore without a getServerSnapshot
         // This means it cannot be used during SSR. We verify by checking
         // that the hook works client-side but the implementation has no
         // server snapshot arg — this is a design constraint, not a bug.
-        const signal = Signal.state('client-only');
+        const signal = Signal.state("client-only");
         const { result } = renderHook(() => useSignal(signal));
 
-        expect(result.current).toBe('client-only');
+        expect(result.current).toBe("client-only");
     });
 });

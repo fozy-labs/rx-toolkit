@@ -1,16 +1,15 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
-import type { SignalOptions, SignalLifecycleHook } from "@/signals/types";
+import type { SignalLifecycleHook, SignalOptions } from "@/signals/types";
+
 import { Indexer } from "./Indexer";
 
 export const Devtools = {
     createState<T>(initialValue: T, optionsDry: SignalOptions<T> | string = {}) {
-        const options = typeof optionsDry === 'string'
-            ? { name: optionsDry }
-            : optionsDry;
+        const options = typeof optionsDry === "string" ? { name: optionsDry } : optionsDry;
 
         if (options.isDisabled) return null;
 
-        let createStateDevtools = SharedOptions.DEVTOOLS?.state;
+        const createStateDevtools = SharedOptions.DEVTOOLS?.state;
 
         if (!createStateDevtools) return null;
 
@@ -56,26 +55,26 @@ export const Devtools = {
                 stateDevtools(newValue);
             },
             onDispose() {
-                stateDevtools('$COMPLETED' as any);
+                stateDevtools("$COMPLETED" as any);
             },
         };
     },
     get hasDevtools() {
         return !!SharedOptions.DEVTOOLS?.state;
     },
-}
+};
 
 function createKey(key: string | undefined, base: string | undefined) {
     const i = Indexer.getIndex();
 
-    let result = '';
+    let result = "";
 
-    if (key?.includes('{scope}')) {
-        const scopeName = SharedOptions.getScopeName?.() || '#global';
-        key = key.replace('{scope}', scopeName);
+    if (key?.includes("{scope}")) {
+        const scopeName = SharedOptions.getScopeName?.() || "#global";
+        key = key.replace("{scope}", scopeName);
     }
 
-    if (base && key) result += key.replace('{base}', base);
+    if (base && key) result += key.replace("{base}", base);
     else if (!base && key) result += key;
     else if (base && !key) result += `${base}/`;
     result += `#i=${i}`;

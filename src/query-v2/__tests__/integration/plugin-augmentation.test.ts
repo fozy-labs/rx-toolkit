@@ -1,11 +1,11 @@
-import { createApi } from '@/query-v2/api/createApi';
-import { ReactHooksPlugin } from '@/query-v2/plugins/ReactHooksPlugin';
-import type { IPlugin, IPluginContext } from '@/query-v2/types/plugin.types';
-import type { IResourceV2, IResourceV2Options } from '@/query-v2/types/resource.types';
+import { createApi } from "@/query-v2/api/createApi";
+import { ReactHooksPlugin } from "@/query-v2/plugins/ReactHooksPlugin";
+import type { IPlugin, IPluginContext } from "@/query-v2/types/plugin.types";
+import type { IResourceV2, IResourceV2Options } from "@/query-v2/types/resource.types";
 
 /** Mock plugin for testing multi-plugin composition */
 class CustomTestPlugin implements IPlugin {
-    readonly name = 'CustomTestPlugin';
+    readonly name = "CustomTestPlugin";
     installSpy = vi.fn();
     augmentSpy = vi.fn();
 
@@ -19,7 +19,7 @@ class CustomTestPlugin implements IPlugin {
     ): Record<string, unknown> {
         this.augmentSpy(resource, options);
         return {
-            customMethod: () => 'custom-value',
+            customMethod: () => "custom-value",
             customProp: 42,
         };
     }
@@ -27,7 +27,7 @@ class CustomTestPlugin implements IPlugin {
 
 /** Another mock plugin to test 2+ plugins */
 class AnotherPlugin implements IPlugin {
-    readonly name = 'AnotherPlugin';
+    readonly name = "AnotherPlugin";
     installSpy = vi.fn();
     augmentSpy = vi.fn();
 
@@ -41,19 +41,19 @@ class AnotherPlugin implements IPlugin {
     ): Record<string, unknown> {
         this.augmentSpy(_resource, _options);
         return {
-            anotherMethod: () => 'another-value',
+            anotherMethod: () => "another-value",
         };
     }
 }
 
-describe('Integration: Plugin Augmentation', () => {
+describe("Integration: Plugin Augmentation", () => {
     // Type test: resource WITH ReactHooksPlugin has hooks, WITHOUT doesn't
-    describe('type-level augmentation', () => {
-        it('resource with ReactHooksPlugin has useResourceV2Agent and useResourceV2Ref', () => {
+    describe("type-level augmentation", () => {
+        it("resource with ReactHooksPlugin has useResourceV2Agent and useResourceV2Ref", () => {
             const api = createApi({ plugins: [new ReactHooksPlugin()] });
             const resource = api.createResource<number, string>({
-                key: 'typed-resource',
-                queryFn: async () => 'data',
+                key: "typed-resource",
+                queryFn: async () => "data",
             });
 
             // Type-level: these methods should exist
@@ -61,15 +61,15 @@ describe('Integration: Plugin Augmentation', () => {
             expectTypeOf(resource.useResourceV2Ref).toBeFunction();
 
             // Runtime: these methods should exist
-            expect(typeof resource.useResourceV2Agent).toBe('function');
-            expect(typeof resource.useResourceV2Ref).toBe('function');
+            expect(typeof resource.useResourceV2Agent).toBe("function");
+            expect(typeof resource.useResourceV2Ref).toBe("function");
         });
 
-        it('resource WITHOUT ReactHooksPlugin does NOT have hook methods', () => {
+        it("resource WITHOUT ReactHooksPlugin does NOT have hook methods", () => {
             const api = createApi();
             const resource = api.createResource<number, string>({
-                key: 'no-plugin-resource',
-                queryFn: async () => 'data',
+                key: "no-plugin-resource",
+                queryFn: async () => "data",
             });
 
             // Runtime: methods should not exist
@@ -83,8 +83,8 @@ describe('Integration: Plugin Augmentation', () => {
     });
 
     // Runtime: 2 plugins → both contributions available
-    describe('runtime augmentation with multiple plugins', () => {
-        it('two plugins contribute methods that are both available on resource', () => {
+    describe("runtime augmentation with multiple plugins", () => {
+        it("two plugins contribute methods that are both available on resource", () => {
             const customPlugin = new CustomTestPlugin();
             const anotherPlugin = new AnotherPlugin();
 
@@ -93,19 +93,19 @@ describe('Integration: Plugin Augmentation', () => {
             });
 
             const resource = api.createResource({
-                key: 'multi-plugin',
-                queryFn: async () => 'data',
+                key: "multi-plugin",
+                queryFn: async () => "data",
             });
 
             // Both plugin contributions should be present
-            expect(typeof (resource as any).customMethod).toBe('function');
-            expect((resource as any).customMethod()).toBe('custom-value');
+            expect(typeof (resource as any).customMethod).toBe("function");
+            expect((resource as any).customMethod()).toBe("custom-value");
             expect((resource as any).customProp).toBe(42);
-            expect(typeof (resource as any).anotherMethod).toBe('function');
-            expect((resource as any).anotherMethod()).toBe('another-value');
+            expect(typeof (resource as any).anotherMethod).toBe("function");
+            expect((resource as any).anotherMethod()).toBe("another-value");
         });
 
-        it('install() called once per plugin during createApi', () => {
+        it("install() called once per plugin during createApi", () => {
             const customPlugin = new CustomTestPlugin();
             const anotherPlugin = new AnotherPlugin();
 
@@ -117,15 +117,13 @@ describe('Integration: Plugin Augmentation', () => {
             expect(anotherPlugin.installSpy).toHaveBeenCalledTimes(1);
 
             // Both receive plugin context
-            expect(customPlugin.installSpy).toHaveBeenCalledWith(
-                expect.objectContaining({ keyStrategy: 'serialize' }),
-            );
+            expect(customPlugin.installSpy).toHaveBeenCalledWith(expect.objectContaining({ keyStrategy: "serialize" }));
             expect(anotherPlugin.installSpy).toHaveBeenCalledWith(
-                expect.objectContaining({ keyStrategy: 'serialize' }),
+                expect.objectContaining({ keyStrategy: "serialize" }),
             );
         });
 
-        it('augmentResource() called for each createResource', () => {
+        it("augmentResource() called for each createResource", () => {
             const customPlugin = new CustomTestPlugin();
             const anotherPlugin = new AnotherPlugin();
 
@@ -133,14 +131,14 @@ describe('Integration: Plugin Augmentation', () => {
                 plugins: [customPlugin, anotherPlugin] as any,
             });
 
-            api.createResource({ key: 'r1', queryFn: async () => 1 });
-            api.createResource({ key: 'r2', queryFn: async () => 2 });
+            api.createResource({ key: "r1", queryFn: async () => 1 });
+            api.createResource({ key: "r2", queryFn: async () => 2 });
 
             expect(customPlugin.augmentSpy).toHaveBeenCalledTimes(2);
             expect(anotherPlugin.augmentSpy).toHaveBeenCalledTimes(2);
         });
 
-        it('plugins do not conflict — contributions from both are independent', () => {
+        it("plugins do not conflict — contributions from both are independent", () => {
             const customPlugin = new CustomTestPlugin();
             const anotherPlugin = new AnotherPlugin();
 
@@ -149,25 +147,25 @@ describe('Integration: Plugin Augmentation', () => {
             });
 
             const res1 = api.createResource({
-                key: 'res1',
-                queryFn: async () => 'data1',
+                key: "res1",
+                queryFn: async () => "data1",
             });
 
             const res2 = api.createResource({
-                key: 'res2',
-                queryFn: async () => 'data2',
+                key: "res2",
+                queryFn: async () => "data2",
             });
 
             // Both resources have both sets of augmentations
-            expect((res1 as any).customMethod()).toBe('custom-value');
-            expect((res1 as any).anotherMethod()).toBe('another-value');
-            expect((res2 as any).customMethod()).toBe('custom-value');
-            expect((res2 as any).anotherMethod()).toBe('another-value');
+            expect((res1 as any).customMethod()).toBe("custom-value");
+            expect((res1 as any).anotherMethod()).toBe("another-value");
+            expect((res2 as any).customMethod()).toBe("custom-value");
+            expect((res2 as any).anotherMethod()).toBe("another-value");
         });
     });
 
     // ReactHooksPlugin + custom plugin together
-    it('ReactHooksPlugin + custom plugin compose without conflict', () => {
+    it("ReactHooksPlugin + custom plugin compose without conflict", () => {
         const customPlugin = new CustomTestPlugin();
 
         const api = createApi({
@@ -175,16 +173,16 @@ describe('Integration: Plugin Augmentation', () => {
         });
 
         const resource = api.createResource({
-            key: 'composed',
-            queryFn: async () => 'data',
+            key: "composed",
+            queryFn: async () => "data",
         });
 
         // ReactHooksPlugin contributions
-        expect(typeof (resource as any).useResourceV2Agent).toBe('function');
-        expect(typeof (resource as any).useResourceV2Ref).toBe('function');
+        expect(typeof (resource as any).useResourceV2Agent).toBe("function");
+        expect(typeof (resource as any).useResourceV2Ref).toBe("function");
 
         // Custom plugin contributions
-        expect(typeof (resource as any).customMethod).toBe('function');
-        expect((resource as any).customMethod()).toBe('custom-value');
+        expect(typeof (resource as any).customMethod).toBe("function");
+        expect((resource as any).customMethod()).toBe("custom-value");
     });
 });

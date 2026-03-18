@@ -1,16 +1,13 @@
 import { ReadableSignalLike } from "@/signals/types";
-import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
+
 import { ResourceDefinition, ResourceInstance } from "./Resource.types";
+import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
 
 /**
  * Функция создания команды
  */
-export type CommandCreateFn<
-    ARGS,
-    RESULT,
-    SELECTED = never,
-> = (
-    options: CommandCreateOptions<CommandDefinition<ARGS, RESULT, SELECTED>>
+export type CommandCreateFn<ARGS, RESULT, SELECTED = never> = (
+    options: CommandCreateOptions<CommandDefinition<ARGS, RESULT, SELECTED>>,
 ) => CommandInstance<CommandDefinition<ARGS, RESULT, SELECTED>>;
 
 /**
@@ -44,8 +41,8 @@ export type CommandCreateOptions<D extends CommandDefinition> = {
     /**
      * Настройка отображения в devtools
      */
-    devtoolsName?: string | false
-}
+    devtoolsName?: string | false;
+};
 
 /**
  * Настройки связи команды с ресурсом
@@ -90,7 +87,7 @@ export type LinkOptions<D extends CommandDefinition, RD extends ResourceDefiniti
         args: D["Args"];
         /** Результат выполнения команды */
         data: D["Data"];
-        }) => void | RD["Data"] | Promise<RD["Data"]>;
+    }) => void | RD["Data"] | Promise<RD["Data"]>;
 
     /**
      * Функция для оптимистичного обновления кэша ресурса ДО выполнения команды.
@@ -102,7 +99,7 @@ export type LinkOptions<D extends CommandDefinition, RD extends ResourceDefiniti
         draft: RD["Data"];
         /** Аргументы, с которыми была вызвана команда */
         args: D["Args"];
-        }) => void | RD["Data"] | Promise<RD["Data"]>;
+    }) => void | RD["Data"] | Promise<RD["Data"]>;
 
     /**
      * Функция для создания нового элемента в кэше ресурса.
@@ -125,7 +122,7 @@ export type CommandDefinition<A = any, R = any, S = any> = {
     Result: R;
     Selected: S;
     Data: FallbackOnNever<S, R>;
-}
+};
 
 /**
  * Экземпляр команды
@@ -138,7 +135,7 @@ export type CommandInstance<D extends CommandDefinition> = {
      * @deprecated
      */
     mutate: (args: D["Args"]) => Promise<D["Data"]>;
-}
+};
 
 /**
  * Агент для выполнения команды
@@ -150,7 +147,7 @@ export type CommandAgentInstance<D extends CommandDefinition> = {
     initiate(args: D["Args"]): void;
     /** Создает новый агент команды */
     createAgent(): CommandAgentInstance<D>;
-}
+};
 
 /**
  * Состояние выполнения команды
@@ -170,4 +167,4 @@ export type CommandQueryState<D extends CommandDefinition> = {
     data: D["Data"] | undefined;
     /** Аргументы команды */
     args: D["Args"];
-}
+};

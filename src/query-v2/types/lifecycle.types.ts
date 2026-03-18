@@ -1,5 +1,5 @@
-import type { TMachine } from './machine.types';
-import type { ICacheEntry } from './cache.types';
+import type { ICacheEntry } from "./cache.types";
+import type { TMachine } from "./machine.types";
 
 /** Tools provided to onCacheEntryAdded */
 export interface TCacheEntryAddedTools<TData> {
@@ -26,7 +26,4 @@ export interface TQueryStartedTools<TData> {
 }
 
 /** onQueryStarted callback type */
-export type TOnQueryStarted<TArgs, TData> = (
-    args: TArgs,
-    tools: TQueryStartedTools<TData>,
-) => void | Promise<void>;
+export type TOnQueryStarted<TArgs, TData> = (args: TArgs, tools: TQueryStartedTools<TData>) => void | Promise<void>;

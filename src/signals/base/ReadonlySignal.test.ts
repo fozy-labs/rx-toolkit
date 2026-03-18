@@ -1,30 +1,31 @@
-import { BehaviorSubject } from 'rxjs';
-import { ReadonlySignal } from './ReadonlySignal';
+import { BehaviorSubject } from "rxjs";
 
-describe('ReadonlySignal', () => {
-    describe('ReadonlySignal.create(subscribe)', () => {
-        it('creates a callable signal from subscribe function', () => {
+import { ReadonlySignal } from "./ReadonlySignal";
+
+describe("ReadonlySignal", () => {
+    describe("ReadonlySignal.create(subscribe)", () => {
+        it("creates a callable signal from subscribe function", () => {
             const signal = ReadonlySignal.create<number>((subscriber) => {
                 subscriber.next(42);
             });
 
-            expect(typeof signal).toBe('function');
+            expect(typeof signal).toBe("function");
             expect(signal()).toBe(42);
         });
     });
 
-    describe('peek()', () => {
-        it('returns current value synchronously', () => {
+    describe("peek()", () => {
+        it("returns current value synchronously", () => {
             const signal = ReadonlySignal.create<string>((subscriber) => {
-                subscriber.next('hello');
+                subscriber.next("hello");
             });
 
-            expect(signal.peek()).toBe('hello');
+            expect(signal.peek()).toBe("hello");
         });
     });
 
-    describe('obs', () => {
-        it('returns Observable that emits values on subscription', () => {
+    describe("obs", () => {
+        it("returns Observable that emits values on subscription", () => {
             const subject = new BehaviorSubject(10);
             const signal = ReadonlySignal.create<number>((subscriber) => {
                 subject.subscribe(subscriber);
@@ -41,8 +42,8 @@ describe('ReadonlySignal', () => {
         });
     });
 
-    describe('calling signal()', () => {
-        it('returns the current value (equivalent to get())', () => {
+    describe("calling signal()", () => {
+        it("returns the current value (equivalent to get())", () => {
             const signal = ReadonlySignal.create<number>((subscriber) => {
                 subscriber.next(99);
             });
@@ -53,13 +54,13 @@ describe('ReadonlySignal', () => {
         });
     });
 
-    describe('readonly contract', () => {
-        it('has no set() method', () => {
+    describe("readonly contract", () => {
+        it("has no set() method", () => {
             const signal = ReadonlySignal.create<number>((subscriber) => {
                 subscriber.next(1);
             });
 
-            expect(signal).not.toHaveProperty('set');
+            expect(signal).not.toHaveProperty("set");
         });
     });
 });

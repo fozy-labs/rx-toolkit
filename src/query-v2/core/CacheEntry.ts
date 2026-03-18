@@ -1,10 +1,12 @@
-import { Subject } from 'rxjs';
-import { Signal } from '@/signals';
-import type { SignalFn, SignalOptions } from '@/signals';
-import type { TBeforeDevtoolsPushFn } from '@/query-v2/types/shared.types';
-import type { TMachineInstance } from './machines/Machine';
-import { MachineWithData } from './machines/MachineWithData';
-import { MachineIdle } from './machines/MachineIdle';
+import { Subject } from "rxjs";
+
+import type { TBeforeDevtoolsPushFn } from "@/query-v2/types/shared.types";
+import { Signal } from "@/signals";
+import type { SignalFn, SignalOptions } from "@/signals";
+
+import type { TMachineInstance } from "./machines/Machine";
+import { MachineIdle } from "./machines/MachineIdle";
+import { MachineWithData } from "./machines/MachineWithData";
 
 export interface CacheEntryOptions {
     keyParts?: string[];
@@ -16,10 +18,7 @@ export class CacheEntry<TData = unknown, TError = Error> {
     private readonly _onClean$ = new Subject<void>();
     private _completed = false;
 
-    constructor(
-        initialMachine: TMachineInstance<TData, TError>,
-        options?: CacheEntryOptions,
-    ) {
+    constructor(initialMachine: TMachineInstance<TData, TError>, options?: CacheEntryOptions) {
         const userCallback = options?.beforeDevtoolsPush;
 
         // Default beforeDevtoolsPush projects machine → machine.state for devtools (ADR-8).
@@ -33,10 +32,10 @@ export class CacheEntry<TData = unknown, TError = Error> {
             } else {
                 push(state);
             }
-        }) as SignalOptions<TMachineInstance<TData, TError>>['beforeDevtoolsPush'];
+        }) as SignalOptions<TMachineInstance<TData, TError>>["beforeDevtoolsPush"];
 
         this._signal = Signal.state<TMachineInstance<TData, TError>>(initialMachine, {
-            key: options?.keyParts?.join('/'),
+            key: options?.keyParts?.join("/"),
             beforeDevtoolsPush,
         });
     }

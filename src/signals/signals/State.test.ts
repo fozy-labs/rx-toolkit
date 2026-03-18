@@ -1,47 +1,46 @@
-import { Signal } from './Signal';
-import { State } from './State';
+import { Signal } from "./Signal";
+import { State } from "./State";
 
-describe('State', () => {
-
-    describe('creation', () => {
-        it('Signal.state(initial) creates signal with initial value', () => {
+describe("State", () => {
+    describe("creation", () => {
+        it("Signal.state(initial) creates signal with initial value", () => {
             const s = Signal.state(42);
             expect(s()).toBe(42);
             expect(s.peek()).toBe(42);
         });
 
-        it('State.create(initial) creates signal with initial value', () => {
-            const s = State.create('hello');
-            expect(s()).toBe('hello');
-            expect(s.peek()).toBe('hello');
+        it("State.create(initial) creates signal with initial value", () => {
+            const s = State.create("hello");
+            expect(s()).toBe("hello");
+            expect(s.peek()).toBe("hello");
         });
     });
 
-    describe('reading values', () => {
-        it('signal() returns current value via get()', () => {
+    describe("reading values", () => {
+        it("signal() returns current value via get()", () => {
             const s = Signal.state(10);
             expect(s()).toBe(10);
         });
 
-        it('signal.peek() returns current value synchronously', () => {
+        it("signal.peek() returns current value synchronously", () => {
             const s = Signal.state(10);
             expect(s.peek()).toBe(10);
         });
 
-        it('signal.get() returns current value', () => {
+        it("signal.get() returns current value", () => {
             const s = Signal.state(10);
             expect(s.get()).toBe(10);
         });
     });
 
-    describe('writing values', () => {
-        it('set(newValue) updates the value', () => {
+    describe("writing values", () => {
+        it("set(newValue) updates the value", () => {
             const s = Signal.state(1);
             s.set(2);
             expect(s()).toBe(2);
         });
 
-        it('set(sameValue) with === equality is skipped (no emission)', () => {
+        it("set(sameValue) with === equality is skipped (no emission)", () => {
             const s = Signal.state(1);
             const values: number[] = [];
             const sub = s.obs.subscribe((v: number) => values.push(v));
@@ -54,7 +53,7 @@ describe('State', () => {
             sub.unsubscribe();
         });
 
-        it('set(newObj) with same content but different reference emits', () => {
+        it("set(newObj) with same content but different reference emits", () => {
             const s = Signal.state({ a: 1 });
             const values: Array<{ a: number }> = [];
             const sub = s.obs.subscribe((v: { a: number }) => values.push(v));
@@ -68,8 +67,8 @@ describe('State', () => {
         });
     });
 
-    describe('observable (obs)', () => {
-        it('emits current value immediately on subscribe', () => {
+    describe("observable (obs)", () => {
+        it("emits current value immediately on subscribe", () => {
             const s = Signal.state(5);
             const values: number[] = [];
             const sub = s.obs.subscribe((v: number) => values.push(v));
@@ -78,7 +77,7 @@ describe('State', () => {
             sub.unsubscribe();
         });
 
-        it('emits on subsequent set() calls', () => {
+        it("emits on subsequent set() calls", () => {
             const s = Signal.state(0);
             const values: number[] = [];
             const sub = s.obs.subscribe((v: number) => values.push(v));
@@ -91,8 +90,8 @@ describe('State', () => {
         });
     });
 
-    describe('dependency tracking', () => {
-        it('signal() in tracked context (effect) creates dependency', () => {
+    describe("dependency tracking", () => {
+        it("signal() in tracked context (effect) creates dependency", () => {
             const s = Signal.state(0);
             const values: number[] = [];
 
@@ -108,7 +107,7 @@ describe('State', () => {
             eff.unsubscribe();
         });
 
-        it('signal.peek() in tracked context does NOT create dependency', () => {
+        it("signal.peek() in tracked context does NOT create dependency", () => {
             const s = Signal.state(0);
             const values: number[] = [];
 
@@ -126,17 +125,17 @@ describe('State', () => {
         });
     });
 
-    describe('edge cases', () => {
-        it('handles null as a signal value', () => {
+    describe("edge cases", () => {
+        it("handles null as a signal value", () => {
             const s = Signal.state<string | null>(null);
             expect(s()).toBeNull();
-            s.set('hello');
-            expect(s()).toBe('hello');
+            s.set("hello");
+            expect(s()).toBe("hello");
             s.set(null);
             expect(s()).toBeNull();
         });
 
-        it('handles undefined as a signal value', () => {
+        it("handles undefined as a signal value", () => {
             const s = Signal.state<number | undefined>(undefined);
             expect(s()).toBeUndefined();
             s.set(42);

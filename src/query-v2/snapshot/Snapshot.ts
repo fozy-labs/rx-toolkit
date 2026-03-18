@@ -1,8 +1,8 @@
-import type { TApiSnapshot, TResourceSnapshot, TResourceV2SnapshotSlice } from '@/query-v2/types/snapshot.types';
-import type { ResourceV2 } from '@/query-v2/core/ResourceV2';
-import { Machine, type TMachineInstance } from '@/query-v2/core/machines/Machine';
-import { MachineSuccess } from '@/query-v2/core/machines/MachineSuccess';
 import type { TMachineStatus } from "@/query-v2";
+import { Machine, type TMachineInstance } from "@/query-v2/core/machines/Machine";
+import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
+import type { ResourceV2 } from "@/query-v2/core/ResourceV2";
+import type { TApiSnapshot, TResourceSnapshot, TResourceV2SnapshotSlice } from "@/query-v2/types/snapshot.types";
 
 export const CURRENT_SNAPSHOT_VERSION = 1;
 
@@ -13,12 +13,12 @@ export const CURRENT_SNAPSHOT_VERSION = 1;
 export function getSnapshot(
     resources: Map<string, ResourceV2<any, any, any>>,
     keyPrefix: string | null,
-    keyStrategy: 'serialize' | 'compare',
+    keyStrategy: "serialize" | "compare",
 ): TApiSnapshot {
-    if (keyStrategy === 'compare') {
+    if (keyStrategy === "compare") {
         throw new Error(
             'getSnapshot() is not supported with keyStrategy "compare". ' +
-            'SSR snapshots require keyStrategy "serialize" so that cache keys are serializable strings.',
+                'SSR snapshots require keyStrategy "serialize" so that cache keys are serializable strings.',
         );
     }
 
@@ -34,7 +34,7 @@ export function getSnapshot(
 
             const state = machine.state;
             entries[key as string] = {
-                status: 'success',
+                status: "success",
                 args: state.args,
                 data: state.data,
                 updatedAt: state.updatedAt,
@@ -80,7 +80,7 @@ export function hydrateSnapshot(
         const resource = resources.get(resourceKey);
         if (!resource) continue;
 
-        for (const [argsKey, slice] of Object.entries(resourceSnapshot.entries)) {
+        for (const [, slice] of Object.entries(resourceSnapshot.entries)) {
             const machine = Machine.fromSnapshot<unknown>(
                 slice as unknown as { status: TMachineStatus } & Record<string, unknown>,
             ) as TMachineInstance<any, any>;

@@ -17,14 +17,11 @@ export type TBeforeDevtoolsPushFn<TMachineState> = (
 ) => void;
 
 /** Query function signature */
-export type TQueryFn<TArgs, TData> = (
-    args: TArgs,
-    tools: TQueryFnTools,
-) => Promise<TData>;
+export type TQueryFn<TArgs, TData> = (args: TArgs, tools: TQueryFnTools) => Promise<TData>;
 
 export interface TQueryFnTools {
     abortSignal: AbortSignal;
 }
 
 /** NO_VALUE type alias — the runtime value lives in lib/NO_VALUE.ts */
-export type NO_VALUE = typeof import('../lib/NO_VALUE').NO_VALUE;
+export type NO_VALUE = typeof import("../lib/NO_VALUE").NO_VALUE;

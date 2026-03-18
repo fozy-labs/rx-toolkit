@@ -1,8 +1,9 @@
 import { Observable, SubscriptionLike } from "rxjs";
+
 import { Batcher, DependencyTracker } from "../base";
 
-type Teardown = () => void
-type EffectFn = () => void | Teardown
+type Teardown = () => void;
+type EffectFn = () => void | Teardown;
 
 export class Effect implements SubscriptionLike {
     private _subscriptions = new Map<Observable<any>, SubscriptionLike>();
@@ -10,9 +11,7 @@ export class Effect implements SubscriptionLike {
     closed = false;
     private _rang = 0;
 
-    constructor(
-        effectFn: EffectFn,
-    ) {
+    constructor(effectFn: EffectFn) {
         this._runInTrackedContext(effectFn);
     }
 
@@ -26,12 +25,13 @@ export class Effect implements SubscriptionLike {
         const legacySubscriptions = this._subscriptions;
         this._subscriptions = new Map();
 
+        // eslint-disable-next-line prefer-const -- assigned after closure capture
         let scheduler: ReturnType<typeof Batcher.scheduler> | undefined;
 
         // Стабильная функция для планирования выполнения эффекта
         const scheduledFn = () => {
             this._runInTrackedContext(effectFn);
-        }
+        };
 
         // Функция для проверки и создания подписки на зависимость
         const checkSubscription = (obs: Observable<unknown>) => {
@@ -76,7 +76,7 @@ export class Effect implements SubscriptionLike {
         isTrackedContext = false;
 
         // Сохраняем teardown функцию, если она была возвращена
-        if (typeof optionalTeardown === 'function') {
+        if (typeof optionalTeardown === "function") {
             this._teardown = optionalTeardown;
         }
 

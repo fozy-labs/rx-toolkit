@@ -1,10 +1,11 @@
-import type { TMachineStatus } from '@/query-v2/types/machine.types';
-import { MachineIdle } from './MachineIdle';
-import { MachinePending } from './MachinePending';
-import { MachineSuccess } from './MachineSuccess';
-import { MachineError } from './MachineError';
-import { MachineRefreshing } from './MachineRefreshing';
-import { NO_VALUE as NO_VALUE_VALUE } from '@/query-v2/lib/NO_VALUE';
+import { NO_VALUE as NO_VALUE_VALUE } from "@/query-v2/lib/NO_VALUE";
+import type { TMachineStatus } from "@/query-v2/types/machine.types";
+
+import { MachineError } from "./MachineError";
+import { MachineIdle } from "./MachineIdle";
+import { MachinePending } from "./MachinePending";
+import { MachineRefreshing } from "./MachineRefreshing";
+import { MachineSuccess } from "./MachineSuccess";
 
 export type TMachineInstance<TData = unknown, TError = Error> =
     | MachineIdle
@@ -18,27 +19,22 @@ export const Machine = {
         return MachineIdle.create();
     },
 
-    fromSnapshot<TData>(
-        state: { status: TMachineStatus } & Record<string, unknown>,
-    ): TMachineInstance<TData> {
+    fromSnapshot<TData>(state: { status: TMachineStatus } & Record<string, unknown>): TMachineInstance<TData> {
         switch (state.status) {
-            case 'idle':
+            case "idle":
                 return MachineIdle.create();
-            case 'pending':
+            case "pending":
                 return MachinePending.create<TData>(state.args ?? null);
-            case 'success':
+            case "success":
                 return MachineSuccess.deploy<TData>({
-                    status: 'success',
+                    status: "success",
                     args: state.args ?? null,
                     data: state.data as TData,
                     updatedAt: (state.updatedAt as number) ?? Date.now(),
                 });
-            case 'error':
-                return MachineError.create(
-                    (state.error ?? new Error('Unknown error')) as Error,
-                    state.args ?? null,
-                );
-            case 'refreshing':
+            case "error":
+                return MachineError.create((state.error ?? new Error("Unknown error")) as Error, state.args ?? null);
+            case "refreshing":
                 return MachineRefreshing.create<TData>(
                     state.data as TData,
                     state.args ?? null,

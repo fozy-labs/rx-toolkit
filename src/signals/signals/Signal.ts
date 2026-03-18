@@ -1,19 +1,12 @@
 import type { SignalOptionsOrKey } from "@/signals/types";
 import { SignalFn } from "@/signals/types";
-import { State } from "./State";
+
 import { Computed } from "./Computed";
 import { Effect } from "./Effect";
+import { State } from "./State";
 
+/** @deprecated use `State` instead */
 export class Signal<T> extends State<T> {
-
-    /** @deprecated use `State` instead */
-    constructor(
-        initialValue: T,
-        options?: SignalOptionsOrKey<T>,
-    ) {
-        super(initialValue, options);
-    }
-
     /** @deprecated use `state` instead */
     static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
         return this.state(initialValue, options);
@@ -30,5 +23,4 @@ export class Signal<T> extends State<T> {
     static effect(effectFn: () => void) {
         return Effect.create(effectFn);
     }
-
 }

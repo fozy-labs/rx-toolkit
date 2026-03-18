@@ -1,19 +1,24 @@
 import { PromiseResolver } from "@/common/utils";
-import { Batcher } from "@/signals";
+import { ResetAllQueriesSignal } from "@/query/core/ResetAllQueriesSignal";
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
 import type {
-    FallbackOnNever, ResourceTransaction, LinkOptions,
-    CommandCreateOptions, CommandDefinition, CommandInstance,
+    CommandCreateOptions,
+    CommandDefinition,
+    CommandInstance,
+    FallbackOnNever,
+    LinkOptions,
+    ResourceTransaction,
 } from "@/query/types";
+import { Batcher } from "@/signals";
 
 import { QueriesCache } from "../QueriesCache";
 import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
+
 import { CommandAgent } from "./CommandAgent";
-import { ResetAllQueriesSignal } from "@/query/core/ResetAllQueriesSignal";
 
 export type CoreCommandQueryState<D extends CommandDefinition> = {
-    arg: D['Args'] | null;
-    data: FallbackOnNever<D['Selected'], D['Result']> | null;
+    arg: D["Args"] | null;
+    data: FallbackOnNever<D["Selected"], D["Result"]> | null;
     error: unknown | null;
     isError: boolean;
     isLoading: boolean;
@@ -21,7 +26,7 @@ export type CoreCommandQueryState<D extends CommandDefinition> = {
     isDone: boolean;
     isSuccess: boolean;
     isInitiated: boolean;
-}
+};
 
 class CommandQueryState {
     static create<D extends CommandDefinition>(): CoreCommandQueryState<D> {
@@ -40,7 +45,7 @@ class CommandQueryState {
 
     static load<D extends CommandDefinition>(
         state: CoreCommandQueryState<D> = CommandQueryState.create<D>(),
-        args: D['Args'],
+        args: D["Args"],
     ): CoreCommandQueryState<D> {
         return {
             ...state,
@@ -53,7 +58,7 @@ class CommandQueryState {
 
     static success<D extends CommandDefinition>(
         state: CoreCommandQueryState<D>,
-        data: FallbackOnNever<D['Selected'], D['Result']>
+        data: FallbackOnNever<D["Selected"], D["Result"]>,
     ): CoreCommandQueryState<D> {
         return {
             ...state,
@@ -90,14 +95,12 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
 
     private _DEFAULT_CACHE_LIFETIME = 1_000;
 
-    constructor(
-        private readonly _options: CommandCreateOptions<D>
-    ) {
-        this._queriesCache = new QueriesCache<D['Args'], CoreCommandQueryState<D>>(
+    constructor(private readonly _options: CommandCreateOptions<D>) {
+        this._queriesCache = new QueriesCache<D["Args"], CoreCommandQueryState<D>>(
             this._options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
         );
 
-        this._hooks = new QueriesLifetimeHooks<D['Args'], D['Data']>({
+        this._hooks = new QueriesLifetimeHooks<D["Args"], D["Data"]>({
             onCacheEntryAdded: _options.onCacheEntryAdded,
             onQueryStarted: _options.onQueryStarted,
             devtoolsName: _options.devtoolsName,
@@ -123,11 +126,14 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
         return new CommandAgent<D>(this);
     }
 
-    getQueryCache(args: D['Args']): ReactiveCache<CoreCommandQueryState<D>> | undefined {
+    getQueryCache(args: D["Args"]): ReactiveCache<CoreCommandQueryState<D>> | undefined {
         return this._queriesCache.getQueryCache(args);
     }
 
-    createQueryCache(args: D['Args'], state: CoreCommandQueryState<D> = CommandQueryState.create()): ReactiveCache<CoreCommandQueryState<D>> {
+    createQueryCache(
+        args: D["Args"],
+        state: CoreCommandQueryState<D> = CommandQueryState.create(),
+    ): ReactiveCache<CoreCommandQueryState<D>> {
         const cache = this._queriesCache.createQueryCache(args, state);
 
         const hookResolvers = this._hooks.onCacheEntryAdded(args);
@@ -149,11 +155,17 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
         return cache;
     }
 
-    initiate(args: D['Args'], options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> }): ReactiveCache<CoreCommandQueryState<D>> {
+    initiate(
+        args: D["Args"],
+        options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> },
+    ): ReactiveCache<CoreCommandQueryState<D>> {
         return Batcher.run(() => this._initiate(args, options));
     }
 
-    private _initiate(args: D['Args'], options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> }): ReactiveCache<CoreCommandQueryState<D>> {
+    private _initiate(
+        args: D["Args"],
+        options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> },
+    ): ReactiveCache<CoreCommandQueryState<D>> {
         let cache = options?.cache ?? this.getQueryCache(args);
         const state = CommandQueryState.load(cache?.value, args);
 
@@ -163,10 +175,10 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
             cache.next(state);
         }
 
-        const linksMeta = this._links.map(link => {
+        const linksMeta = this._links.map((link) => {
             const forwardedArgs = link.forwardArgs(args);
             const ref = link.resource.createRef(forwardedArgs);
-            return { link, ref, state: {} as { unlocker?: { unlock: () => void }, patch: ResourceTransaction | null } };
+            return { link, ref, state: {} as { unlocker?: { unlock: () => void }; patch: ResourceTransaction | null } };
         });
 
         const query = this._options.queryFn(args);
@@ -188,7 +200,7 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
         query
             .then((result) => {
                 Batcher.run(() => {
-                    const data: D['Data'] = this._options.select ? this._options.select(result) : result;
+                    const data: D["Data"] = this._options.select ? this._options.select(result) : result;
                     cache.next(CommandQueryState.success(state, data));
 
                     /**
@@ -242,7 +254,7 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
                         state.unlocker?.unlock();
                     });
                 });
-            })
+            });
 
         return cache;
     }
@@ -251,9 +263,9 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
      * Используется для обратной совместимости
      * @deprecated
      */
-    mutate(args: D['Args']): Promise<D['Data']> {
+    mutate(args: D["Args"]): Promise<D["Data"]> {
         const cache = this.initiate(args);
-        const resolver = new PromiseResolver<D['Data']>();
+        const resolver = new PromiseResolver<D["Data"]>();
 
         const subscription = cache.value$.obs.subscribe((state) => {
             if (!state.isInitiated || state.isLoading || state.isRepeating) return;
@@ -269,7 +281,7 @@ export class Command<D extends CommandDefinition> implements CommandInstance<D> 
                 return;
             }
 
-            resolver.resolve(state.data as D['Data']);
+            resolver.resolve(state.data as D["Data"]);
         });
 
         resolver.promise.finally(() => {

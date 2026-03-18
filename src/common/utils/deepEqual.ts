@@ -1,7 +1,4 @@
-export function deepEqual(
-    a: unknown,
-    b: unknown,
-): boolean {
+export function deepEqual(a: unknown, b: unknown): boolean {
     if (a === b) {
         return true;
     }
@@ -19,7 +16,7 @@ export function deepEqual(
 
     for (let i = 0; i < keysA.length; i++) {
         const key = keysA[i];
-        // @ts-ignore
+        // @ts-expect-error — indexing with dynamic key on generic object
         if (!Object.prototype.hasOwnProperty.call(b, key) || !deepEqual(a[key], b[key])) {
             return false;
         }

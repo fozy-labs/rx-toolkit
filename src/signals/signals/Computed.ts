@@ -1,8 +1,11 @@
-import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs";
-import { ComputeFn, SignalOptionsOrKey, normalizeSignalOptions } from "@/signals/types";
+import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
+
+import { ComputeFn, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
+
 import { ComputeCache, DependencyTracker } from "../base";
-import { State } from "./State";
+
 import { Effect } from "./Effect";
+import { State } from "./State";
 
 export class Computed<T> {
     private _state$;
@@ -15,7 +18,7 @@ export class Computed<T> {
 
     constructor(
         private _computeFn: () => T,
-        options?: SignalOptionsOrKey<T>
+        options?: SignalOptionsOrKey<T>,
     ) {
         const opts = normalizeSignalOptions(options);
         const stateOptions: SignalOptionsOrKey<symbol | T> = {
@@ -56,7 +59,7 @@ export class Computed<T> {
         DependencyTracker.track({
             getRang: () => {
                 if (!this._effect) {
-                    throw new Error('Effect in not started. Possibly maximum call stack size exceeded.');
+                    throw new Error("Effect in not started. Possibly maximum call stack size exceeded.");
                 }
                 return this._effect!._getRang();
             },
@@ -94,7 +97,7 @@ export class Computed<T> {
         this._computeCache.clear();
 
         if (initialValue === Computed._EMPTY) {
-            throw new Error('Computed value is not initialized');
+            throw new Error("Computed value is not initialized");
         }
 
         return initialValue as T;
@@ -111,7 +114,7 @@ export class Computed<T> {
 
     // === static ===
 
-    private static _EMPTY = Symbol('empty');
+    private static _EMPTY = Symbol("empty");
 
     static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): ComputeFn<T> {
         const lc = new Computed(computeFn, options);

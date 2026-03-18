@@ -1,7 +1,8 @@
 import { Subject } from "rxjs";
+
+import { DevtoolsStateLike } from "@/common/devtools";
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { PromiseResolver } from "@/common/utils";
-import { DevtoolsStateLike } from "@/common/devtools";
 import { OnCacheEntryAdded, OnQueryStarted } from "@/query/types";
 import { Devtools } from "@/signals";
 
@@ -9,15 +10,13 @@ type Options<ARGS, DATA> = {
     onCacheEntryAdded?: OnCacheEntryAdded<ARGS, DATA>;
     onQueryStarted?: OnQueryStarted<ARGS, DATA>;
     devtoolsName?: string | false;
-}
+};
 
 export class QueriesLifetimeHooks<ARGS, DATA> {
     private onCacheEntryAddedListeners: Array<OnCacheEntryAdded<ARGS, DATA>> = [];
     private onQueryStartedListeners: Array<OnQueryStarted<ARGS, DATA>> = [];
 
-    constructor(
-        options: Options<ARGS, DATA> | undefined,
-    ) {
+    constructor(options: Options<ARGS, DATA> | undefined) {
         if (options?.onCacheEntryAdded) {
             this.onCacheEntryAddedListeners.push(options.onCacheEntryAdded);
         }
@@ -35,8 +34,8 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
                 dataChanged$.subscribe((state) => {
                     if (!stateDevtools) {
                         stateDevtools = Devtools.createState(state, {
-                            base: 'Queries',
-                            name: devtoolsName || '',
+                            base: "Queries",
+                            name: devtoolsName || "",
                         });
                         return;
                     }
@@ -45,7 +44,7 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
                 });
 
                 $cacheEntryRemoved.then(() => {
-                    stateDevtools!('$CLEANED' as any);
+                    stateDevtools!("$CLEANED" as any);
                 });
             });
         }
@@ -80,22 +79,25 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
             cacheEntryRemoved: () => cacheEntryRemovedResolver.resolve(),
             dataChanged$,
         };
-    }
+    };
 
     onQueryStarted = (args: ARGS) => {
-        const queryFulfilledResolver = new PromiseResolver<{
-            data: DATA,
-            error: undefined
-            isError: false
-        } | {
-            data: undefined,
-            error: unknown
-            isError: true
-        }>();
+        const queryFulfilledResolver = new PromiseResolver<
+            | {
+                  data: DATA;
+                  error: undefined;
+                  isError: false;
+              }
+            | {
+                  data: undefined;
+                  error: unknown;
+                  isError: true;
+              }
+        >();
 
         this.onQueryStartedListeners.forEach((listener) => {
             listener(args, {
-                $queryFulfilled: queryFulfilledResolver.promise
+                $queryFulfilled: queryFulfilledResolver.promise,
             });
         });
 
@@ -104,16 +106,16 @@ export class QueriesLifetimeHooks<ARGS, DATA> {
                 queryFulfilledResolver.resolve({
                     data,
                     error: undefined,
-                    isError: false
+                    isError: false,
                 });
             },
             fulfilledError: (error: unknown) => {
                 queryFulfilledResolver.resolve({
                     data: undefined,
                     error,
-                    isError: true
+                    isError: true,
                 });
-            }
+            },
         };
-    }
+    };
 }

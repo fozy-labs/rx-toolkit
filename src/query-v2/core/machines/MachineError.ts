@@ -1,13 +1,14 @@
-import type { TResourceV2ErrorState } from '@/query-v2/types/machine.types';
-import { MachineIdle } from './MachineIdle';
-import { MachinePending } from './MachinePending';
+import type { TResourceV2ErrorState } from "@/query-v2/types/machine.types";
+
+import { MachineIdle } from "./MachineIdle";
+import { MachinePending } from "./MachinePending";
 
 export class MachineError<TError = Error> {
     readonly state: TResourceV2ErrorState<TError>;
 
     private constructor(error: TError, args: unknown) {
         this.state = {
-            status: 'error',
+            status: "error",
             args,
             data: null,
             error,

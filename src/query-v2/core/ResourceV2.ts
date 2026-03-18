@@ -1,40 +1,28 @@
-import { Signal, Batcher } from '@/signals';
-import type { TMachineInstance } from './machines/Machine';
-import type { TMachine } from '@/query-v2/types/machine.types';
-import type { ICacheEntry, ICacheMapOptions } from '@/query-v2/types/cache.types';
-import type {
-    IResourceV2,
-    IResourceV2Options,
-} from '@/query-v2/types/resource.types';
-import type { IResourceV2Agent } from '@/query-v2/types/agent.types';
-import type {
-    TQueryFn,
-    TSerializeArgsFn,
-    TCompareArgsFn,
-    TBeforeDevtoolsPushFn,
-    TQueryFnTools,
-} from '@/query-v2/types/shared.types';
-import type { TPatchFn } from '@/query-v2/types/machine.types';
-import type {
-    TOnCacheEntryAdded,
-    TOnQueryStarted,
-} from '@/query-v2/types/lifecycle.types';
-import { CacheEntry, type CacheEntryOptions } from './CacheEntry';
-import { CacheMap, type TCacheMapInstance } from './CacheMap';
-import { MachineIdle } from './machines/MachineIdle';
-import { MachineSuccess } from './machines/MachineSuccess';
-import { MachineRefreshing } from './machines/MachineRefreshing';
-import { MachineWithData } from './machines/MachineWithData';
-import { LifecycleHooks } from './LifecycleHooks';
-import { SKIP, type SKIP_TOKEN } from '@/query-v2/lib/SKIP_TOKEN';
-import { stableStringify } from '@/query-v2/lib/stableStringify';
-import { shallowEqual } from '@/common/utils/shallowEqual';
-import { ResourceV2Agent } from './ResourceV2Agent';
+import { shallowEqual } from "@/common/utils/shallowEqual";
+import { SKIP } from "@/query-v2/lib/SKIP_TOKEN";
+import { stableStringify } from "@/query-v2/lib/stableStringify";
+import type { IResourceV2Agent } from "@/query-v2/types/agent.types";
+import type { ICacheEntry } from "@/query-v2/types/cache.types";
+import type { TOnCacheEntryAdded, TOnQueryStarted } from "@/query-v2/types/lifecycle.types";
+import type { TMachine, TPatchFn } from "@/query-v2/types/machine.types";
+import type { IResourceV2 } from "@/query-v2/types/resource.types";
+import type { TBeforeDevtoolsPushFn, TCompareArgsFn, TQueryFn, TSerializeArgsFn } from "@/query-v2/types/shared.types";
+import { Batcher } from "@/signals";
+
+import { CacheEntry, type CacheEntryOptions } from "./CacheEntry";
+import { CacheMap, type TCacheMapInstance } from "./CacheMap";
+import { LifecycleHooks } from "./LifecycleHooks";
+import type { TMachineInstance } from "./machines/Machine";
+import { MachineIdle } from "./machines/MachineIdle";
+import { MachineRefreshing } from "./machines/MachineRefreshing";
+import { MachineSuccess } from "./machines/MachineSuccess";
+import { MachineWithData } from "./machines/MachineWithData";
+import { ResourceV2Agent } from "./ResourceV2Agent";
 
 export interface ResourceV2Config<TArgs, TData, TError = Error> {
     key?: string;
     keyPrefix?: string;
-    keyStrategy?: 'serialize' | 'compare';
+    keyStrategy?: "serialize" | "compare";
     queryFn: TQueryFn<TArgs, TData>;
     onCacheEntryAdded?: TOnCacheEntryAdded<TArgs, TData>;
     onQueryStarted?: TOnQueryStarted<TArgs, TData>;
@@ -51,15 +39,13 @@ interface InFlightEntry<TData, TError> {
     abortController: AbortController;
 }
 
-export class ResourceV2<TArgs, TData, TError = Error>
-    implements IResourceV2<TArgs, TData, TError>
-{
+export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TArgs, TData, TError> {
     private readonly _cache: TCacheMapInstance<TArgs, TData, TError>;
     private readonly _queryFn: TQueryFn<TArgs, TData>;
     private readonly _lifecycleHooks: LifecycleHooks<TArgs, TData, TError>;
     private readonly _serializeArgs: TSerializeArgsFn;
     private readonly _compareArg: TCompareArgsFn;
-    private readonly _keyStrategy: 'serialize' | 'compare';
+    private readonly _keyStrategy: "serialize" | "compare";
     private readonly _cacheLifetime: number;
     private readonly _beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TMachine<TData, TError>>;
     private readonly _key?: string;
@@ -78,7 +64,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
         this._queryFn = config.queryFn;
         this._serializeArgs = config.serializeArgs ?? stableStringify;
         this._compareArg = config.compareArg ?? shallowEqual;
-        this._keyStrategy = config.keyStrategy ?? 'serialize';
+        this._keyStrategy = config.keyStrategy ?? "serialize";
         this._cacheLifetime = config.cacheLifetime ?? 60_000;
         this._beforeDevtoolsPush = config.beforeDevtoolsPush;
         this._key = config.key;
@@ -102,13 +88,10 @@ export class ResourceV2<TArgs, TData, TError = Error>
         return new ResourceV2Agent<TArgs, TData, TError>(this);
     }
 
-    async query(
-        args: TArgs,
-        doForce?: boolean,
-    ): Promise<ICacheEntry<TData, TError>> {
+    async query(args: TArgs, doForce?: boolean): Promise<ICacheEntry<TData, TError>> {
         // SKIP check
         if ((args as unknown) === SKIP) {
-            throw new Error('SKIP_TOKEN is not valid for direct query()');
+            throw new Error("SKIP_TOKEN is not valid for direct query()");
         }
 
         const key = this._serializeArgs(args);
@@ -118,7 +101,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
         if (existing && !doForce) {
             const machine = existing.peek();
             // If already success or pending or refreshing, return the entry
-            if (machine.state.status !== 'idle') {
+            if (machine.state.status !== "idle") {
                 return existing as unknown as ICacheEntry<TData, TError>;
             }
         }
@@ -156,17 +139,13 @@ export class ResourceV2<TArgs, TData, TError = Error>
                     const current = cacheEntry.peek();
                     if (current instanceof MachineSuccess) {
                         const refreshing = current.invalidate();
-                        cacheEntry.set(
-                            refreshing as unknown as TMachineInstance<TData, TError>,
-                        );
+                        cacheEntry.set(refreshing as unknown as TMachineInstance<TData, TError>);
                     } else if (current instanceof MachineRefreshing) {
                         // Already refreshing — it'll be re-queried
                     } else {
                         const idle = MachineIdle.create();
                         const pending = idle.start(args);
-                        cacheEntry.set(
-                            pending as unknown as TMachineInstance<TData, TError>,
-                        );
+                        cacheEntry.set(pending as unknown as TMachineInstance<TData, TError>);
                     }
                 } else {
                     // New entry
@@ -179,18 +158,13 @@ export class ResourceV2<TArgs, TData, TError = Error>
                     this._cache.set(args, cacheEntry as unknown as CacheEntry<TData, TError>);
 
                     // Fire onCacheEntryAdded for new entries
-                    this._lifecycleHooks.fireCacheEntryAdded(
-                        args,
-                        () => cacheEntry.peek(),
-                    );
+                    this._lifecycleHooks.fireCacheEntryAdded(args, () => cacheEntry.peek());
                 }
             } else {
                 cacheEntry = existing as unknown as CacheEntry<TData, TError>;
                 const current = cacheEntry.peek();
                 const pending = (current as MachineIdle).start(args);
-                cacheEntry.set(
-                    pending as unknown as TMachineInstance<TData, TError>,
-                );
+                cacheEntry.set(pending as unknown as TMachineInstance<TData, TError>);
             }
 
             // Fire onQueryStarted
@@ -198,12 +172,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
         });
 
         // Execute queryFn
-        const promise = this._executeQuery(
-            args,
-            key,
-            cacheEntry!,
-            abortController,
-        );
+        const promise = this._executeQuery(args, key, cacheEntry!, abortController);
 
         this._inFlight.set(key, { promise: promise as Promise<CacheEntry<TData, TError>>, abortController });
 
@@ -236,10 +205,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
         return (entryResult.machine$() as TMachineInstance<TData, TError>).state as TMachine<TData, TError>;
     }
 
-    entry(
-        args: TArgs,
-        doInitiate?: boolean,
-    ): ICacheEntry<TData, TError> | null {
+    entry(args: TArgs, doInitiate?: boolean): ICacheEntry<TData, TError> | null {
         const existing = this._cache.get(args);
         if (existing) {
             return existing as unknown as ICacheEntry<TData, TError>;
@@ -295,9 +261,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
 
         Batcher.run(() => {
             const refreshing = (machine as MachineSuccess<TData>).invalidate();
-            existing.set(
-                refreshing as unknown as TMachineInstance<TData, TError>,
-            );
+            existing.set(refreshing as unknown as TMachineInstance<TData, TError>);
 
             this._lifecycleHooks.fireQueryStarted(args, () => existing as unknown as CacheEntry<TData, TError>);
         });
@@ -313,7 +277,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
     }
 
     compareArgs(a: TArgs, b: TArgs): boolean {
-        if (this._keyStrategy === 'compare') {
+        if (this._keyStrategy === "compare") {
             return this._compareArg(a, b);
         }
         return this._serializeArgs(a) === this._serializeArgs(b);
@@ -325,7 +289,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
     }
 
     /** Public keyStrategy getter for snapshot validation */
-    get keyStrategy(): 'serialize' | 'compare' {
+    get keyStrategy(): "serialize" | "compare" {
         return this._keyStrategy;
     }
 
@@ -344,15 +308,12 @@ export class ResourceV2<TArgs, TData, TError = Error>
         const existing = this._cache.get(args);
         if (existing) return; // Don't overwrite existing entries
 
-        const entry = new CacheEntry<TData, TError>(
-            machine,
-            this._buildCacheEntryOptions(args),
-        );
+        const entry = new CacheEntry<TData, TError>(machine, this._buildCacheEntryOptions(args));
         this._cache.set(args, entry as unknown as CacheEntry<TData, TError>);
 
         // Fire lifecycle for hydrated entries
         this._lifecycleHooks.fireCacheEntryAdded(args, () => entry.peek());
-        if (machine.state.status === 'success') {
+        if (machine.state.status === "success") {
             this._lifecycleHooks.resolveCacheDataLoaded(args, machine.state.data as TData);
         }
     }
@@ -382,10 +343,7 @@ export class ResourceV2<TArgs, TData, TError = Error>
     }
 
     /** Create an optimistic patch on a cache entry */
-    createEntryPatch(
-        args: TArgs,
-        patchFn: TPatchFn<TData>,
-    ): { commit: () => void; abort: () => void } | null {
+    createEntryPatch(args: TArgs, patchFn: TPatchFn<TData>): { commit: () => void; abort: () => void } | null {
         const entry = this._cache.get(args) as CacheEntry<TData, TError> | undefined;
         if (!entry) return null;
 
@@ -399,14 +357,14 @@ export class ResourceV2<TArgs, TData, TError = Error>
             commit: () => {
                 const current = entry.peek();
                 if (current instanceof MachineWithData) {
-                    const finished = current.finishPatch('commit', patch);
+                    const finished = current.finishPatch("commit", patch);
                     entry.set(finished as unknown as TMachineInstance<TData, TError>);
                 }
             },
             abort: () => {
                 const current = entry.peek();
                 if (current instanceof MachineWithData) {
-                    const finished = current.finishPatch('abort', patch);
+                    const finished = current.finishPatch("abort", patch);
                     entry.set(finished as unknown as TMachineInstance<TData, TError>);
                 }
             },
@@ -427,7 +385,9 @@ export class ResourceV2<TArgs, TData, TError = Error>
     /** Subscribe to refresh error events (used by Agent) */
     onRefreshError(listener: (args: TArgs, error: TError) => void): () => void {
         this._refreshErrorListeners.add(listener);
-        return () => { this._refreshErrorListeners.delete(listener); };
+        return () => {
+            this._refreshErrorListeners.delete(listener);
+        };
     }
 
     resetCache(): void {
@@ -530,20 +490,14 @@ export class ResourceV2<TArgs, TData, TError = Error>
 
             Batcher.run(() => {
                 const current = cacheEntry.peek();
-                if (current.state.status === 'pending') {
+                if (current.state.status === "pending") {
                     const success = (
-                        current as unknown as import('./machines/MachinePending').MachinePending<TData>
+                        current as unknown as import("./machines/MachinePending").MachinePending<TData>
                     ).successHappened(data);
-                    cacheEntry.set(
-                        success as unknown as TMachineInstance<TData, TError>,
-                    );
-                } else if (current.state.status === 'refreshing') {
-                    const success = (
-                        current as unknown as MachineRefreshing<TData>
-                    ).successHappened(data);
-                    cacheEntry.set(
-                        success as unknown as TMachineInstance<TData, TError>,
-                    );
+                    cacheEntry.set(success as unknown as TMachineInstance<TData, TError>);
+                } else if (current.state.status === "refreshing") {
+                    const success = (current as unknown as MachineRefreshing<TData>).successHappened(data);
+                    cacheEntry.set(success as unknown as TMachineInstance<TData, TError>);
                 }
             });
 
@@ -557,21 +511,15 @@ export class ResourceV2<TArgs, TData, TError = Error>
 
             Batcher.run(() => {
                 const current = cacheEntry.peek();
-                if (current.state.status === 'pending') {
+                if (current.state.status === "pending") {
                     const errorMachine = (
-                        current as unknown as import('./machines/MachinePending').MachinePending<TData>
+                        current as unknown as import("./machines/MachinePending").MachinePending<TData>
                     ).errorHappened(error as TError);
-                    cacheEntry.set(
-                        errorMachine as unknown as TMachineInstance<TData, TError>,
-                    );
-                } else if (current.state.status === 'refreshing') {
+                    cacheEntry.set(errorMachine as unknown as TMachineInstance<TData, TError>);
+                } else if (current.state.status === "refreshing") {
                     // ADR-2: Preserve stale data
-                    const success = (
-                        current as unknown as MachineRefreshing<TData>
-                    ).errorHappened(error);
-                    cacheEntry.set(
-                        success as unknown as TMachineInstance<TData, TError>,
-                    );
+                    const success = (current as unknown as MachineRefreshing<TData>).errorHappened(error);
+                    cacheEntry.set(success as unknown as TMachineInstance<TData, TError>);
 
                     // Notify refresh error listeners (used by Agent)
                     for (const listener of this._refreshErrorListeners) {

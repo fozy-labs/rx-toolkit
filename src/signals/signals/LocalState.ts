@@ -1,19 +1,21 @@
-import { z, ZodType } from "zod/v4";
 import { Observable } from "rxjs";
-import { type StatefulSignalFn } from "@/signals/types";
-import { type SignalOptionsOrKey } from "@/signals/types";
-import { signalize } from "../operators";
-import { Computed } from "./Computed";
+import { z, ZodType } from "zod/v4";
+
 import { State } from "@/signals/signals/State";
+import { type SignalOptionsOrKey, type StatefulSignalFn } from "@/signals/types";
+
+import { signalize } from "../operators";
+
+import { Computed } from "./Computed";
 
 type StorageLike = {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
     removeItem(key: string): void;
-}
+};
 
 type Options<T> = {
-    zodSchema?: ZodType<T>
+    zodSchema?: ZodType<T>;
     key: string;
     userId?: string;
     /**
@@ -24,9 +26,9 @@ type Options<T> = {
     driver?: StorageLike;
     defaultValue: T;
     devtoolsOptions?: SignalOptionsOrKey;
-}
+};
 
-const NONE = Symbol('NONE');
+const NONE = Symbol("NONE");
 
 export class LocalState<T = string | null | number | undefined> {
     private _state$;
@@ -104,7 +106,7 @@ export class LocalState<T = string | null | number | undefined> {
             return NONE;
         }
 
-        const subKey = options.userId ? `user:${options.userId}` : 'common';
+        const subKey = options.userId ? `user:${options.userId}` : "common";
 
         if (!(subKey in parsed.data)) {
             return NONE;
@@ -115,7 +117,7 @@ export class LocalState<T = string | null | number | undefined> {
 
     private _setStorageValue<T>(options: Options<T>, value: T) {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
-        const item = this._driver.getItem(storageKey) || '{}';
+        const item = this._driver.getItem(storageKey) || "{}";
 
         const schema = z.record(z.string(), options.zodSchema || z.any());
         const parsed = schema.safeParse(JSON.parse(item));
@@ -125,7 +127,7 @@ export class LocalState<T = string | null | number | undefined> {
             data = {};
         }
 
-        const subKey = options.userId ? `user:${options.userId}` : 'common';
+        const subKey = options.userId ? `user:${options.userId}` : "common";
         data[subKey] = value;
 
         this._driver.setItem(storageKey, JSON.stringify(data));
@@ -139,14 +141,14 @@ export class LocalState<T = string | null | number | undefined> {
 
         const schema = z.record(z.string(), options.zodSchema || z.any());
         const parsed = schema.safeParse(JSON.parse(item));
-        let data = parsed.data ?? {};
+        const data = parsed.data ?? {};
 
         if (!parsed.success) {
             this._driver.removeItem(storageKey);
             return;
         }
 
-        const subKey = options.userId ? `user:${options.userId}` : 'common';
+        const subKey = options.userId ? `user:${options.userId}` : "common";
 
         if (!data[subKey]) return;
 
@@ -162,7 +164,7 @@ export class LocalState<T = string | null | number | undefined> {
 
     // === static ===
 
-    static KEY_PREFIX = '__LSValue__'
+    static KEY_PREFIX = "__LSValue__";
     static DEFAULT_DRIVER = localStorage;
 
     static create<T = string | null | number | undefined>(options: Options<T>): StatefulSignalFn<T> {

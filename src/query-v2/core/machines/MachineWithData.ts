@@ -1,7 +1,8 @@
-import type { TResourceV2Patch, TPatchFn } from '@/query-v2/types/machine.types';
-import type { NO_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { NO_VALUE as NO_VALUE_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { Patcher } from './Patcher';
+import type { NO_VALUE } from "@/query-v2/lib/NO_VALUE";
+import { NO_VALUE as NO_VALUE_VALUE } from "@/query-v2/lib/NO_VALUE";
+import type { TPatchFn, TResourceV2Patch } from "@/query-v2/types/machine.types";
+
+import { Patcher } from "./Patcher";
 
 export interface MachineWithDataState<TData> {
     data: TData;
@@ -27,7 +28,7 @@ export abstract class MachineWithData<TData = unknown> {
         });
     }
 
-    finishPatch(type: 'commit' | 'abort', patch: TResourceV2Patch): this {
+    finishPatch(type: "commit" | "abort", patch: TResourceV2Patch): this {
         const { state } = this;
         const result = Patcher.finishPatch(state.originalData, state.patches, type, patch);
 
@@ -38,7 +39,10 @@ export abstract class MachineWithData<TData = unknown> {
         });
     }
 
-    createPatch<TSelf extends MachineWithData<TData>>(this: TSelf, patchFn: TPatchFn<TData>): { machine: TSelf; patch: TResourceV2Patch } {
+    createPatch<TSelf extends MachineWithData<TData>>(
+        this: TSelf,
+        patchFn: TPatchFn<TData>,
+    ): { machine: TSelf; patch: TResourceV2Patch } {
         const { state } = this;
         const dataForPatch = state.data;
         const patch = Patcher.createPatch(patchFn, dataForPatch);

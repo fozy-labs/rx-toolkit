@@ -1,9 +1,9 @@
-import type { IPlugin, PluginAugmentations } from '@/query-v2/types/plugin.types';
-import type { ICreateApiOptions, IApi } from '@/query-v2/types/api.types';
-import type { IResourceV2Options, IResourceV2 } from '@/query-v2/types/resource.types';
-import type { TApiSnapshot } from '@/query-v2/types/snapshot.types';
-import { ResourceV2, type ResourceV2Config } from '@/query-v2/core/ResourceV2';
-import { getSnapshot, hydrateSnapshot, CURRENT_SNAPSHOT_VERSION } from '@/query-v2/snapshot/Snapshot';
+import { ResourceV2, type ResourceV2Config } from "@/query-v2/core/ResourceV2";
+import { getSnapshot, hydrateSnapshot } from "@/query-v2/snapshot/Snapshot";
+import type { IApi, ICreateApiOptions } from "@/query-v2/types/api.types";
+import type { IPlugin, PluginAugmentations } from "@/query-v2/types/plugin.types";
+import type { IResourceV2, IResourceV2Options } from "@/query-v2/types/resource.types";
+import type { TApiSnapshot } from "@/query-v2/types/snapshot.types";
 
 const DEFAULT_CACHE_LIFETIME = 60_000;
 const DEFAULT_MAX_SNAPSHOT_DATA_AGE = 300_000; // 5 minutes
@@ -13,7 +13,7 @@ export function createApi<TPlugins extends IPlugin[] = []>(
 ): IApi<TPlugins> {
     const {
         keyPrefix = null,
-        keyStrategy = 'serialize',
+        keyStrategy = "serialize",
         serializeArgs,
         compareArg,
         initialSnapshot = null,
@@ -28,7 +28,9 @@ export function createApi<TPlugins extends IPlugin[] = []>(
 
     // Plugin initialization: call install() once per plugin
     const pluginContext = {
-        get api() { return api; },
+        get api() {
+            return api;
+        },
         keyStrategy,
     };
     for (const plugin of plugins) {
@@ -59,9 +61,7 @@ export function createApi<TPlugins extends IPlugin[] = []>(
             const resourceKey = mergedConfig.key;
             if (resourceKey != null) {
                 if (registry.has(resourceKey)) {
-                    throw new Error(
-                        `Duplicate resource key "${resourceKey}". Each resource must have a unique key.`,
-                    );
+                    throw new Error(`Duplicate resource key "${resourceKey}". Each resource must have a unique key.`);
                 }
             }
 
@@ -76,8 +76,12 @@ export function createApi<TPlugins extends IPlugin[] = []>(
             }
 
             // Create the augmented resource
-            const augmentedResource = Object.assign(resource, augmentations) as unknown as
-                IResourceV2<TArgs, TData, TError> & PluginAugmentations<TPlugins, TArgs, TData, TError>;
+            const augmentedResource = Object.assign(resource, augmentations) as unknown as IResourceV2<
+                TArgs,
+                TData,
+                TError
+            > &
+                PluginAugmentations<TPlugins, TArgs, TData, TError>;
 
             // Register resource
             if (resourceKey != null) {
@@ -89,12 +93,7 @@ export function createApi<TPlugins extends IPlugin[] = []>(
                 const snapshotMaxAge = mergedConfig.maxSnapshotDataAge ?? maxSnapshotDataAge;
                 const singleResourceRegistry = new Map<string, ResourceV2<any, any, any>>();
                 singleResourceRegistry.set(resourceKey, resource);
-                hydrateSnapshot(
-                    initialSnapshot,
-                    singleResourceRegistry,
-                    keyPrefix,
-                    snapshotMaxAge,
-                );
+                hydrateSnapshot(initialSnapshot, singleResourceRegistry, keyPrefix, snapshotMaxAge);
             }
 
             return augmentedResource;

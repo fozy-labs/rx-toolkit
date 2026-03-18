@@ -1,13 +1,8 @@
-import type { ICacheEntry } from './cache.types';
-import type { TOnCacheEntryAdded, TOnQueryStarted } from './lifecycle.types';
-import type { TMachine } from './machine.types';
-import type {
-    TBeforeDevtoolsPushFn,
-    TCompareArgsFn,
-    TQueryFn,
-    TSerializeArgsFn,
-} from './shared.types';
-import type { IResourceV2Agent } from './agent.types';
+import type { IResourceV2Agent } from "./agent.types";
+import type { ICacheEntry } from "./cache.types";
+import type { TOnCacheEntryAdded, TOnQueryStarted } from "./lifecycle.types";
+import type { TMachine } from "./machine.types";
+import type { TBeforeDevtoolsPushFn, TCompareArgsFn, TQueryFn, TSerializeArgsFn } from "./shared.types";
 
 /** Options for api.createResource */
 export interface IResourceV2Options<TArgs, TData, TError = Error> {

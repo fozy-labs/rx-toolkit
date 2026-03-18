@@ -26,8 +26,17 @@ export default tseslint.config(
     {
         files: ["src/**/*.ts"],
         rules: {
-            // Relax rules that don't fit the library's coding patterns
-            // (specific rules to be determined after initial triage)
+            "@typescript-eslint/no-explicit-any": "off",
+            "@typescript-eslint/no-non-null-assertion": "off",
+            "@typescript-eslint/no-extraneous-class": "off",
+            "@typescript-eslint/no-dynamic-delete": "off",
+            "@typescript-eslint/no-invalid-void-type": "off",
+            "@typescript-eslint/no-unused-vars": ["error", {
+                argsIgnorePattern: "^_",
+                varsIgnorePattern: "^_",
+                caughtErrorsIgnorePattern: "^_",
+                destructuredArrayIgnorePattern: "^_",
+            }],
         },
     },
 

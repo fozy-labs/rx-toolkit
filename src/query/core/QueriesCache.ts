@@ -1,13 +1,13 @@
+import { shallowEqual } from "@/common/utils";
 import { IndirectMap } from "@/query/lib/IndirectMap";
 import { ReactiveCache } from "@/query/lib/ReactiveCache";
-import { shallowEqual } from "@/common/utils";
 
 export class QueriesCache<KEY, VALUE> {
     private readonly _cache;
 
     constructor(
         private _cacheLifeTime: number | false = 60_000,
-        compareArgsFn: ((a: KEY, b: KEY) => boolean) = shallowEqual,
+        compareArgsFn: (a: KEY, b: KEY) => boolean = shallowEqual,
     ) {
         this._cache = new IndirectMap<KEY, ReactiveCache<VALUE>>(compareArgsFn);
     }

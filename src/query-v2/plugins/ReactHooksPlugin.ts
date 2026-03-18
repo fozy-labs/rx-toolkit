@@ -1,34 +1,31 @@
-import React from 'react';
-import { useConstant } from '@/common/react/useConstant';
-import { useSignal } from '@/signals/react/useSignal';
-import { shallowEqual } from '@/common/utils/shallowEqual';
-import { SKIP, type SKIP_TOKEN } from '@/query-v2/lib/SKIP_TOKEN';
-import type { IPlugin, IPluginContext } from '@/query-v2/types/plugin.types';
-import type { IResourceV2, IResourceV2Options } from '@/query-v2/types/resource.types';
-import type { IResourceV2AgentState, IResourceV2Ref } from '@/query-v2/types/agent.types';
-import type { TPatchFn } from '@/query-v2/types/machine.types';
-import type { ReadableSignalLike } from '@/signals/types';
-import type { ResourceV2 } from '@/query-v2/core/ResourceV2';
+import React from "react";
+
+import { useConstant } from "@/common/react/useConstant";
+import { shallowEqual } from "@/common/utils/shallowEqual";
+import type { ResourceV2 } from "@/query-v2/core/ResourceV2";
+import { SKIP, type SKIP_TOKEN } from "@/query-v2/lib/SKIP_TOKEN";
+import type { IResourceV2AgentState, IResourceV2Ref } from "@/query-v2/types/agent.types";
+import type { TPatchFn } from "@/query-v2/types/machine.types";
+import type { IPlugin, IPluginContext } from "@/query-v2/types/plugin.types";
+import type { IResourceV2, IResourceV2Options } from "@/query-v2/types/resource.types";
+import { useSignal } from "@/signals/react/useSignal";
+import type { ReadableSignalLike } from "@/signals/types";
 
 /** Contributions added by ReactHooksPlugin to resources */
 export interface IReactHooksPluginContributions<TArgs, TData, TError = Error> {
-    useResourceV2Agent(
-        args: TArgs | SKIP_TOKEN,
-    ): IResourceV2AgentState<TArgs, TData, TError>;
-    useResourceV2Ref(
-        args: TArgs | SKIP_TOKEN,
-    ): IResourceV2Ref<TArgs, TData, TError>;
+    useResourceV2Agent(args: TArgs | SKIP_TOKEN): IResourceV2AgentState<TArgs, TData, TError>;
+    useResourceV2Ref(args: TArgs | SKIP_TOKEN): IResourceV2Ref<TArgs, TData, TError>;
 }
 
 // Wire type system via declaration merging (ADR-1)
-declare module '@/query-v2/types/plugin.types' {
+declare module "@/query-v2/types/plugin.types" {
     interface PluginContributionMap<TArgs, TData, TError> {
         ReactHooksPlugin: IReactHooksPluginContributions<TArgs, TData, TError>;
     }
 }
 
 export class ReactHooksPlugin implements IPlugin {
-    readonly name = 'ReactHooksPlugin' as const;
+    readonly name = "ReactHooksPlugin" as const;
     private _context: IPluginContext | null = null;
 
     install(context: IPluginContext): void {
@@ -42,10 +39,8 @@ export class ReactHooksPlugin implements IPlugin {
         const res = resource as unknown as ResourceV2<TArgs, TData, TError>;
 
         return {
-            useResourceV2Agent: (args: TArgs | SKIP_TOKEN) =>
-                useResourceV2Agent(res, args),
-            useResourceV2Ref: (args: TArgs | SKIP_TOKEN) =>
-                useResourceV2Ref(res, args),
+            useResourceV2Agent: (args: TArgs | SKIP_TOKEN) => useResourceV2Agent(res, args),
+            useResourceV2Ref: (args: TArgs | SKIP_TOKEN) => useResourceV2Ref(res, args),
         };
     }
 }
@@ -74,9 +69,7 @@ function useResourceV2Agent<TArgs, TData, TError>(
         }
     }
 
-    return useSignal(
-        agent.state$ as unknown as ReadableSignalLike<IResourceV2AgentState<TArgs, TData, TError>>,
-    );
+    return useSignal(agent.state$ as unknown as ReadableSignalLike<IResourceV2AgentState<TArgs, TData, TError>>);
 }
 
 function useResourceV2Ref<TArgs, TData, TError>(

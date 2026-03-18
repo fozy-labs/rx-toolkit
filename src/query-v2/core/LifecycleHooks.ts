@@ -1,12 +1,13 @@
-import { PromiseResolver } from '@/common/utils/PromiseResolver';
-import type { CacheEntry } from './CacheEntry';
-import type { TMachineInstance } from './machines/Machine';
+import { PromiseResolver } from "@/common/utils/PromiseResolver";
 import type {
+    TCacheEntryAddedTools,
     TOnCacheEntryAdded,
     TOnQueryStarted,
-    TCacheEntryAddedTools,
     TQueryStartedTools,
-} from '@/query-v2/types/lifecycle.types';
+} from "@/query-v2/types/lifecycle.types";
+
+import type { CacheEntry } from "./CacheEntry";
+import type { TMachineInstance } from "./machines/Machine";
 
 interface CacheEntryHookState<TData> {
     $cacheDataLoaded: PromiseResolver<TData>;
@@ -36,10 +37,7 @@ export class LifecycleHooks<TArgs, TData, TError = Error> {
         this._serializeArgs = options.serializeArgs;
     }
 
-    fireCacheEntryAdded(
-        args: TArgs,
-        getCacheEntry: () => TMachineInstance<TData, TError>,
-    ): void {
+    fireCacheEntryAdded(args: TArgs, getCacheEntry: () => TMachineInstance<TData, TError>): void {
         if (!this._onCacheEntryAdded) return;
 
         const key = this._serializeArgs(args);
@@ -72,9 +70,7 @@ export class LifecycleHooks<TArgs, TData, TError = Error> {
         if (!state) return;
 
         if (!state.dataLoaded) {
-            state.$cacheDataLoaded.reject(
-                new Error('Cache entry removed before data loaded'),
-            );
+            state.$cacheDataLoaded.reject(new Error("Cache entry removed before data loaded"));
         }
         state.$cacheEntryRemoved.resolve();
         this._cacheEntryState.delete(key);
@@ -88,10 +84,7 @@ export class LifecycleHooks<TArgs, TData, TError = Error> {
         state.$cacheDataLoaded.resolve(data);
     }
 
-    fireQueryStarted(
-        args: TArgs,
-        getCacheEntry: () => CacheEntry<TData, TError>,
-    ): void {
+    fireQueryStarted(args: TArgs, getCacheEntry: () => CacheEntry<TData, TError>): void {
         if (!this._onQueryStarted) {
             // Still create state for resolving/rejecting even without callback
             const resolver = new PromiseResolver<{ data: TData; isError: false }>();
@@ -130,9 +123,7 @@ export class LifecycleHooks<TArgs, TData, TError = Error> {
     clearAll(): void {
         for (const [, state] of this._cacheEntryState) {
             if (!state.dataLoaded) {
-                state.$cacheDataLoaded.reject(
-                    new Error('Cache entry removed before data loaded'),
-                );
+                state.$cacheDataLoaded.reject(new Error("Cache entry removed before data loaded"));
             }
             state.$cacheEntryRemoved.resolve();
         }
@@ -140,7 +131,7 @@ export class LifecycleHooks<TArgs, TData, TError = Error> {
 
         if (this._queryState) {
             try {
-                this._queryState.$queryFulfilled.reject(new Error('Resource reset'));
+                this._queryState.$queryFulfilled.reject(new Error("Resource reset"));
             } catch {
                 // Already settled
             }

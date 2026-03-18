@@ -1,9 +1,10 @@
-import type { TResourceV2Patch, TResourceV2RefreshingState } from '@/query-v2/types/machine.types';
-import type { NO_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { NO_VALUE as NO_VALUE_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { MachineWithData, type MachineWithDataState } from './MachineWithData';
-import { MachineIdle } from './MachineIdle';
-import { MachineSuccess } from './MachineSuccess';
+import type { NO_VALUE } from "@/query-v2/lib/NO_VALUE";
+import { NO_VALUE as NO_VALUE_VALUE } from "@/query-v2/lib/NO_VALUE";
+import type { TResourceV2Patch, TResourceV2RefreshingState } from "@/query-v2/types/machine.types";
+
+import { MachineIdle } from "./MachineIdle";
+import { MachineSuccess } from "./MachineSuccess";
+import { MachineWithData, type MachineWithDataState } from "./MachineWithData";
 
 export class MachineRefreshing<TData = unknown> extends MachineWithData<TData> {
     readonly state: TResourceV2RefreshingState<TData>;
@@ -17,7 +18,7 @@ export class MachineRefreshing<TData = unknown> extends MachineWithData<TData> {
     ) {
         super();
         this.state = {
-            status: 'refreshing',
+            status: "refreshing",
             args,
             data,
             error: null,
@@ -49,7 +50,7 @@ export class MachineRefreshing<TData = unknown> extends MachineWithData<TData> {
         // ADR-2: Preserve stale data on refresh error
         // Return MachineSuccess with original stale data, same updatedAt, preserve patches
         return MachineSuccess.deploy<TData>({
-            status: 'success',
+            status: "success",
             args: this.state.args,
             data: this.state.data,
             updatedAt: this.state.updatedAt,

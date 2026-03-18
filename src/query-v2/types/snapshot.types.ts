@@ -16,7 +16,7 @@ export interface TResourceSnapshot {
 
 /** Single cache entry snapshot */
 export interface TResourceV2SnapshotSlice<TData = unknown> {
-    status: 'success';
+    status: "success";
     args: unknown;
     data: TData;
     updatedAt: number;

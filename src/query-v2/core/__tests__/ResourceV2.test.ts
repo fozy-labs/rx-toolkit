@@ -1,11 +1,12 @@
-import { Signal, Batcher } from '@/signals';
-import { ResourceV2 } from '../ResourceV2';
-import { MachineIdle } from '../machines/MachineIdle';
-import { MachineSuccess } from '../machines/MachineSuccess';
-import { MachineRefreshing } from '../machines/MachineRefreshing';
-import { MachinePending } from '../machines/MachinePending';
-import { MachineError } from '../machines/MachineError';
-import { SKIP } from '@/query-v2/lib/SKIP_TOKEN';
+import { SKIP } from "@/query-v2/lib/SKIP_TOKEN";
+import { Batcher, Signal } from "@/signals";
+
+import { MachineError } from "../machines/MachineError";
+import { MachineIdle } from "../machines/MachineIdle";
+import { MachinePending } from "../machines/MachinePending";
+import { MachineRefreshing } from "../machines/MachineRefreshing";
+import { MachineSuccess } from "../machines/MachineSuccess";
+import { ResourceV2 } from "../ResourceV2";
 
 /** Controllable queryFn: returns a promise you can resolve/reject from outside */
 function controllableQueryFn<TArgs = unknown, TData = unknown>() {
@@ -30,8 +31,8 @@ function controllableQueryFn<TArgs = unknown, TData = unknown>() {
                 reject(error);
             };
             calls.push({ args, resolve: wrappedResolve, reject: wrappedReject, signal: abortSignal });
-            abortSignal.addEventListener('abort', () => {
-                wrappedReject(new DOMException('Aborted', 'AbortError'));
+            abortSignal.addEventListener("abort", () => {
+                wrappedReject(new DOMException("Aborted", "AbortError"));
             });
         });
     });
@@ -51,7 +52,7 @@ function createResource<TArgs = { id: number }, TData = string>(
     return { resource, queryFn: fn, calls };
 }
 
-describe('ResourceV2', () => {
+describe("ResourceV2", () => {
     beforeEach(() => {
         vi.useFakeTimers();
     });
@@ -61,7 +62,7 @@ describe('ResourceV2', () => {
     });
 
     // R1: query(args) on cache miss — full flow
-    it('R1: cache miss → Idle → Pending → Success', async () => {
+    it("R1: cache miss → Idle → Pending → Success", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
@@ -70,89 +71,89 @@ describe('ResourceV2', () => {
         // Entry should exist and be pending
         const entry = resource.entry(args);
         expect(entry).not.toBeNull();
-        expect(entry!.peek().state.status).toBe('pending');
+        expect(entry!.peek().state.status).toBe("pending");
 
         // Resolve the queryFn
-        calls[0].resolve('result-data' as any);
+        calls[0].resolve("result-data" as any);
         const result = await promise;
 
-        expect(result.peek().state.status).toBe('success');
-        expect(result.peek().state.data).toBe('result-data');
+        expect(result.peek().state.status).toBe("success");
+        expect(result.peek().state.data).toBe("result-data");
     });
 
     // R2: query(args) on cache hit — no refetch
-    it('R2: cache hit returns existing entry, no refetch', async () => {
+    it("R2: cache hit returns existing entry, no refetch", async () => {
         const { resource, calls, queryFn } = createResource();
         const args = { id: 1 };
 
         const p1 = resource.query(args);
-        calls[0].resolve('data1' as any);
+        calls[0].resolve("data1" as any);
         const entry1 = await p1;
 
         const p2 = resource.query(args);
         const entry2 = await p2;
 
         expect(queryFn).toHaveBeenCalledTimes(1);
-        expect(entry2.peek().state.data).toBe('data1');
+        expect(entry2.peek().state.data).toBe("data1");
     });
 
     // R3: query(args, force=true) re-fetches
-    it('R3: force refetch triggers new queryFn call', async () => {
+    it("R3: force refetch triggers new queryFn call", async () => {
         const { resource, calls, queryFn } = createResource();
         const args = { id: 1 };
 
         const p1 = resource.query(args);
-        calls[0].resolve('data1' as any);
+        calls[0].resolve("data1" as any);
         await p1;
 
         const p2 = resource.query(args, true);
 
         expect(queryFn).toHaveBeenCalledTimes(2);
 
-        calls[1].resolve('data2' as any);
+        calls[1].resolve("data2" as any);
         const entry2 = await p2;
 
-        expect(entry2.peek().state.data).toBe('data2');
+        expect(entry2.peek().state.data).toBe("data2");
     });
 
     // R4: invalidate(args) triggers MachineRefreshing
-    it('R4: invalidate on success → Refreshing → Success', async () => {
+    it("R4: invalidate on success → Refreshing → Success", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
         const p1 = resource.query(args);
-        calls[0].resolve('original' as any);
+        calls[0].resolve("original" as any);
         await p1;
 
         resource.invalidate(args);
 
         const entry = resource.entry(args)!;
-        expect(entry.peek().state.status).toBe('refreshing');
-        expect(entry.peek().state.data).toBe('original');
+        expect(entry.peek().state.status).toBe("refreshing");
+        expect(entry.peek().state.data).toBe("original");
 
         // Resolve the refresh
-        calls[1].resolve('refreshed' as any);
+        calls[1].resolve("refreshed" as any);
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(entry.peek().state.status).toBe('success');
-        expect(entry.peek().state.data).toBe('refreshed');
+        expect(entry.peek().state.status).toBe("success");
+        expect(entry.peek().state.data).toBe("refreshed");
     });
 
     // R5: invalidate(args) on Idle — no-op
-    it('R5: invalidate on idle/no-entry is a no-op', () => {
+    it("R5: invalidate on idle/no-entry is a no-op", () => {
         const { resource, queryFn } = createResource();
         resource.invalidate({ id: 99 } as any);
         expect(queryFn).not.toHaveBeenCalled();
     });
 
     // R6: entry(args) returns null when no cache entry
-    it('R6: entry returns null when no cache entry exists', () => {
+    it("R6: entry returns null when no cache entry exists", () => {
         const { resource } = createResource();
         expect(resource.entry({ id: 1 } as any)).toBeNull();
     });
 
     // R7: entry(args, true) creates entry and initiates
-    it('R7: entry with doInitiate creates entry and starts query', async () => {
+    it("R7: entry with doInitiate creates entry and starts query", async () => {
         const { resource, calls, queryFn } = createResource();
         const args = { id: 1 };
 
@@ -160,28 +161,26 @@ describe('ResourceV2', () => {
         expect(entry).not.toBeNull();
         expect(queryFn).toHaveBeenCalledTimes(1);
 
-        calls[0].resolve('initiated' as any);
+        calls[0].resolve("initiated" as any);
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(entry!.peek().state.status).toBe('success');
+        expect(entry!.peek().state.status).toBe("success");
     });
 
     // R8: SKIP_TOKEN prevents query execution
-    it('R8: SKIP_TOKEN throws on direct query()', async () => {
+    it("R8: SKIP_TOKEN throws on direct query()", async () => {
         const { resource } = createResource();
-        await expect(resource.query(SKIP as any)).rejects.toThrow(
-            'SKIP_TOKEN is not valid for direct query()',
-        );
+        await expect(resource.query(SKIP as any)).rejects.toThrow("SKIP_TOKEN is not valid for direct query()");
     });
 
-    it('R8: query$ with SKIP returns idle state', () => {
+    it("R8: query$ with SKIP returns idle state", () => {
         const { resource } = createResource();
         const state = resource.query$(SKIP as any);
-        expect(state.status).toBe('idle');
+        expect(state.status).toBe("idle");
     });
 
     // R9: Concurrent query(same args) deduplicates
-    it('R9: concurrent queries for same args use one queryFn call', async () => {
+    it("R9: concurrent queries for same args use one queryFn call", async () => {
         const { resource, calls, queryFn } = createResource();
         const args = { id: 1 };
 
@@ -190,37 +189,37 @@ describe('ResourceV2', () => {
 
         expect(queryFn).toHaveBeenCalledTimes(1);
 
-        calls[0].resolve('shared' as any);
+        calls[0].resolve("shared" as any);
         const [entry1, entry2] = await Promise.all([p1, p2]);
 
-        expect(entry1.peek().state.data).toBe('shared');
-        expect(entry2.peek().state.data).toBe('shared');
+        expect(entry1.peek().state.data).toBe("shared");
+        expect(entry2.peek().state.data).toBe("shared");
     });
 
     // R10: Query error → MachineError
-    it('R10: queryFn rejection → MachineError', async () => {
+    it("R10: queryFn rejection → MachineError", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
         const promise = resource.query(args);
-        calls[0].reject(new Error('Network failure'));
+        calls[0].reject(new Error("Network failure"));
 
         const entry = await promise;
-        expect(entry.peek().state.status).toBe('error');
+        expect(entry.peek().state.status).toBe("error");
         expect(entry.peek().state.error).toBeInstanceOf(Error);
-        expect((entry.peek().state.error as Error).message).toBe('Network failure');
+        expect((entry.peek().state.error as Error).message).toBe("Network failure");
     });
 
     // R11: resetCache resets all entries
-    it('R11: resetCache resets all entries', async () => {
+    it("R11: resetCache resets all entries", async () => {
         const { resource, calls } = createResource();
 
         const p1 = resource.query({ id: 1 } as any);
-        calls[0].resolve('data1' as any);
+        calls[0].resolve("data1" as any);
         await p1;
 
         const p2 = resource.query({ id: 2 } as any);
-        calls[1].resolve('data2' as any);
+        calls[1].resolve("data2" as any);
         await p2;
 
         resource.resetCache();
@@ -230,7 +229,7 @@ describe('ResourceV2', () => {
     });
 
     // R12: AbortController: new query aborts previous for same entry
-    it('R12: new query for same args aborts previous in-flight', async () => {
+    it("R12: new query for same args aborts previous in-flight", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
@@ -245,15 +244,15 @@ describe('ResourceV2', () => {
         expect(calls[0].signal.aborted).toBe(true);
         expect(calls.length).toBe(2);
 
-        calls[1].resolve('fresh' as any);
+        calls[1].resolve("fresh" as any);
         const entry2 = await p2;
 
-        expect(entry2.peek().state.data).toBe('fresh');
+        expect(entry2.peek().state.data).toBe("fresh");
     });
 });
 
 // Edge case tests
-describe('ResourceV2 — Edge Cases', () => {
+describe("ResourceV2 — Edge Cases", () => {
     beforeEach(() => {
         vi.useFakeTimers();
     });
@@ -263,12 +262,12 @@ describe('ResourceV2 — Edge Cases', () => {
     });
 
     // E6: Cache lifetime GC eviction
-    it('E6: entry evicted after cacheLifetime', async () => {
+    it("E6: entry evicted after cacheLifetime", async () => {
         const { resource, calls } = createResource({ cacheLifetime: 3000 });
         const args = { id: 1 };
 
         const p = resource.query(args);
-        calls[0].resolve('data' as any);
+        calls[0].resolve("data" as any);
         await p;
 
         // Schedule GC (normally done by Agent when subscribers drop)
@@ -281,12 +280,12 @@ describe('ResourceV2 — Edge Cases', () => {
     });
 
     // E7: GC cancelled by re-subscription
-    it('E7: GC cancelled when cancelGc is called before timer fires', async () => {
+    it("E7: GC cancelled when cancelGc is called before timer fires", async () => {
         const { resource, calls } = createResource({ cacheLifetime: 3000 });
         const args = { id: 1 };
 
         const p = resource.query(args);
-        calls[0].resolve('data' as any);
+        calls[0].resolve("data" as any);
         await p;
 
         resource.scheduleGc(args);
@@ -305,7 +304,7 @@ describe('ResourceV2 — Edge Cases', () => {
     });
 
     // E8: query$ inside Signal.compute registers dependency
-    it('E8: query$ inside Signal.compute registers signal dependency', async () => {
+    it("E8: query$ inside Signal.compute registers signal dependency", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
@@ -320,17 +319,17 @@ describe('ResourceV2 — Edge Cases', () => {
         expect(evalCount).toBe(1);
 
         // Resolve the query
-        calls[0].resolve('hello' as any);
+        calls[0].resolve("hello" as any);
         await vi.advanceTimersByTimeAsync(0);
 
         // Re-read should show updated state
         const secondState = computed.get();
         expect(evalCount).toBe(2);
-        expect(secondState.status).toBe('success');
+        expect(secondState.status).toBe("success");
     });
 
     // E9: Patcher auto-abort on reset
-    it('E9: resetCache aborts in-flight queries', async () => {
+    it("E9: resetCache aborts in-flight queries", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
@@ -342,12 +341,12 @@ describe('ResourceV2 — Edge Cases', () => {
     });
 
     // E10: Patcher auto-abort on CacheEntry eviction
-    it('E10: CacheEntry eviction aborts in-flight and cleans up', async () => {
+    it("E10: CacheEntry eviction aborts in-flight and cleans up", async () => {
         const { resource, calls } = createResource({ cacheLifetime: 1000 });
         const args = { id: 1 };
 
         const p = resource.query(args);
-        calls[0].resolve('data' as any);
+        calls[0].resolve("data" as any);
         await p;
 
         resource.scheduleGc(args);
@@ -358,7 +357,7 @@ describe('ResourceV2 — Edge Cases', () => {
     });
 
     // E12: Batcher.run atomicity
-    it('E12: signal updates within query are batched', async () => {
+    it("E12: signal updates within query are batched", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
         const states: string[] = [];
@@ -375,42 +374,42 @@ describe('ResourceV2 — Edge Cases', () => {
 
         // Initial read
         computed.get();
-        expect(states).toEqual(['pending']);
+        expect(states).toEqual(["pending"]);
 
         // Resolve — success transition is batched
-        calls[0].resolve('data' as any);
+        calls[0].resolve("data" as any);
         await vi.advanceTimersByTimeAsync(0);
 
         computed.get();
         // Should see success without intermediate states
-        expect(states[states.length - 1]).toBe('success');
+        expect(states[states.length - 1]).toBe("success");
     });
 
     // ADR-2: Invalidation error preserves stale data
-    it('ADR-2: invalidate error preserves stale data', async () => {
+    it("ADR-2: invalidate error preserves stale data", async () => {
         const { resource, calls } = createResource();
         const args = { id: 1 };
 
         const p1 = resource.query(args);
-        calls[0].resolve('stale-data' as any);
+        calls[0].resolve("stale-data" as any);
         await p1;
 
         resource.invalidate(args);
 
         const entry = resource.entry(args)!;
-        expect(entry.peek().state.status).toBe('refreshing');
+        expect(entry.peek().state.status).toBe("refreshing");
 
         // Reject the refresh
-        calls[1].reject(new Error('Server down'));
+        calls[1].reject(new Error("Server down"));
         await vi.advanceTimersByTimeAsync(0);
 
         // Should revert to success with stale data (ADR-2)
-        expect(entry.peek().state.status).toBe('success');
-        expect(entry.peek().state.data).toBe('stale-data');
+        expect(entry.peek().state.status).toBe("success");
+        expect(entry.peek().state.data).toBe("stale-data");
     });
 });
 
-describe('ResourceV2 — Lifecycle Hook Integration', () => {
+describe("ResourceV2 — Lifecycle Hook Integration", () => {
     beforeEach(() => {
         vi.useFakeTimers();
     });
@@ -420,7 +419,7 @@ describe('ResourceV2 — Lifecycle Hook Integration', () => {
     });
 
     // L1-L2 integration: onCacheEntryAdded fires only for new entries
-    it('onCacheEntryAdded fires on first query, not on cache hit', async () => {
+    it("onCacheEntryAdded fires on first query, not on cache hit", async () => {
         const callback = vi.fn();
         const { fn, calls } = controllableQueryFn<{ id: number }, string>();
         const resource = new ResourceV2<{ id: number }, string>({
@@ -431,7 +430,7 @@ describe('ResourceV2 — Lifecycle Hook Integration', () => {
         const p1 = resource.query({ id: 1 });
         expect(callback).toHaveBeenCalledTimes(1);
 
-        calls[0].resolve('data1');
+        calls[0].resolve("data1");
         await p1;
 
         // Second query = cache hit
@@ -440,7 +439,7 @@ describe('ResourceV2 — Lifecycle Hook Integration', () => {
     });
 
     // L6 integration: onQueryStarted fires on every fetch
-    it('onQueryStarted fires on query and invalidate', async () => {
+    it("onQueryStarted fires on query and invalidate", async () => {
         const callback = vi.fn();
         const { fn, calls } = controllableQueryFn<{ id: number }, string>();
         const resource = new ResourceV2<{ id: number }, string>({
@@ -451,7 +450,7 @@ describe('ResourceV2 — Lifecycle Hook Integration', () => {
         const p1 = resource.query({ id: 1 });
         expect(callback).toHaveBeenCalledTimes(1);
 
-        calls[0].resolve('data');
+        calls[0].resolve("data");
         await p1;
 
         resource.invalidate({ id: 1 });

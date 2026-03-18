@@ -23,6 +23,18 @@ export default tseslint.config(
         },
     },
 
+    // Rule overrides for demo files
+    {
+        files: ["src/**/*.{ts,tsx}"],
+        rules: {
+            "@typescript-eslint/no-explicit-any": "off",
+            "@typescript-eslint/no-unused-vars": ["error", {
+                argsIgnorePattern: "^_",
+                varsIgnorePattern: "^_",
+            }],
+        },
+    },
+
     // React Hooks rules
     {
         files: ["src/**/*.{ts,tsx}"],

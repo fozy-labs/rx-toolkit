@@ -1,5 +1,7 @@
 import { BehaviorSubject } from "rxjs";
-import { SignalFn, SignalOptionsOrKey, SignalLifecycleHook, normalizeSignalOptions } from "@/signals/types";
+
+import { normalizeSignalOptions, SignalFn, SignalLifecycleHook, SignalOptionsOrKey } from "@/signals/types";
+
 import { Batcher, DependencyTracker, Devtools } from "../base";
 
 export class State<T> {
@@ -8,10 +10,7 @@ export class State<T> {
     protected readonly bs$;
     readonly obs;
 
-    constructor(
-        initialValue: T,
-        options?: SignalOptionsOrKey<T>,
-    ) {
+    constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         this.bs$ = new BehaviorSubject<T>(initialValue);
         this.obs = this.bs$.asObservable();
 

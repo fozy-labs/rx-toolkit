@@ -54,7 +54,7 @@ const api = queryV2.createApi({
 
 const usersResource = api.createResource<{ id: string }, User>({
     key: 'users',
-    queryFn: async (args, { abortSignal }) => {
+    queryFn: async (args, { abortSignal: _abortSignal }) => {
         // В реальном приложении — запрос к серверу
         await new Promise(resolve => setTimeout(resolve, 2000));
         return {

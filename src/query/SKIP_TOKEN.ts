@@ -1,1 +1,1 @@
-export const SKIP = Symbol('SKIP');
+export const SKIP = Symbol("SKIP");

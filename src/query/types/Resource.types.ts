@@ -1,16 +1,14 @@
 import { Patch as ImmerPatch } from "immer";
+
 import { ReadableSignalLike } from "@/signals/types";
-import {
-    FallbackOnNever,
-    OnCacheEntryAdded,
-    OnQueryStarted,
-} from "./shared.types";
+
+import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
 
 /**
  * Функция создания ресурса
  */
 export type ResourceCreateFn<ARGS, RESULT, SELECTED = never> = (
-    options: ResourceCreateOptions<ResourceDefinition<ARGS, RESULT, SELECTED>>
+    options: ResourceCreateOptions<ResourceDefinition<ARGS, RESULT, SELECTED>>,
 ) => ResourceInstance<ResourceDefinition<ARGS, RESULT, SELECTED>>;
 
 /**
@@ -47,27 +45,23 @@ export type ResourceCreateOptions<D extends ResourceDefinition> = {
      * Сравнение аргументов между собой
      */
     compareArgsFn?: (args1: D["Args"], args2: D["Args"]) => boolean;
-}
+};
 
 /**
  * Определение типов ресурса
  */
-export type ResourceDefinition<
-    A = any,
-    R = any,
-    S = any,
-> = {
+export type ResourceDefinition<A = any, R = any, S = any> = {
     Args: A;
     Result: R;
     Selected: S;
     Data: FallbackOnNever<S, R>;
-}
+};
 
 /** Инструменты для функции запроса */
 export type ResourceQueryFnTools = {
     /** Сигнал для отмены запроса */
     abortSignal?: AbortSignal;
-}
+};
 
 /**
  * Экземпляр ресурса
@@ -78,7 +72,7 @@ export type ResourceInstance<D extends ResourceDefinition> = {
 
     /** Создает ссылку на ресурс с указанными аргументами */
     createRef(args: D["Args"]): ResourceRefInstance<D>;
-}
+};
 
 /**
  * Агент для работы с ресурсом
@@ -90,7 +84,7 @@ export type ResourceAgentInstance<D extends ResourceDefinition> = {
     initiate(args: D["Args"], force?: boolean): void;
     /** Сравнивает аргументы между собой */
     compareArgs(args1: D["Args"], args2: D["Args"]): boolean;
-}
+};
 
 /**
  * Состояние запроса ресурса
@@ -118,18 +112,18 @@ export type ResourceQueryState<D extends ResourceDefinition> = {
     data: D["Data"] | undefined;
     /** Аргументы запроса */
     args: D["Args"] | undefined; // TODO undefined - это костыль для сведения типов, его быть не должно
-}
+};
 
 /**
  * Транзакция ресурса
  */
 export type ResourceTransaction = {
-    patches: ImmerPatch[]
-    inversePatches: ImmerPatch[]
-    status: 'pending' | 'committed' | 'aborted'
-    abort(): void
-    commit(): void
-}
+    patches: ImmerPatch[];
+    inversePatches: ImmerPatch[];
+    status: "pending" | "committed" | "aborted";
+    abort(): void;
+    commit(): void;
+};
 
 /**
  * Эте не ссылка в "классическом" понимании, а абстракция
@@ -139,10 +133,10 @@ export type ResourceRefInstance<D extends ResourceDefinition> = {
     get has(): boolean;
     lock(): { unlock: () => void };
     unlockOne(): void;
-    patch(patchFn: (data: D['Data']) => void): ResourceTransaction | null;
+    patch(patchFn: (data: D["Data"]) => void): ResourceTransaction | null;
     invalidate(): void;
-    create(data: D['Data']): void;
-}
+    create(data: D["Data"]): void;
+};
 
 /** @deprecated Use ResourceRefInstance. Will be removed in v0.6.0 */
 export type ResourceRefInstanse<D extends ResourceDefinition> = ResourceRefInstance<D>;

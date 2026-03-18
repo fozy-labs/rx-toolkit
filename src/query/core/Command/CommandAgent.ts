@@ -1,44 +1,49 @@
 import type { ReactiveCache } from "@/query/lib/ReactiveCache";
 import type { CommandAgentInstance, CommandDefinition } from "@/query/types";
 import { Computed, Signal } from "@/signals";
-import type { CoreCommandQueryState, Command } from "./Command";
+
+import type { Command, CoreCommandQueryState } from "./Command";
 
 export class CommandAgent<D extends CommandDefinition> implements CommandAgentInstance<D> {
-    private _commands$ = Signal.state({
-        current$: null as ReactiveCache<CoreCommandQueryState<D>> | null,
-    }, { isDisabled: true });
+    private _commands$ = Signal.state(
+        {
+            current$: null as ReactiveCache<CoreCommandQueryState<D>> | null,
+        },
+        { isDisabled: true },
+    );
 
-    state$ = Computed.create(() => {
-        const commands = this._commands$.get();
-        const currState = commands.current$?.value$.get();
+    state$ = Computed.create(
+        () => {
+            const commands = this._commands$.get();
+            const currState = commands.current$?.value$.get();
 
-        // Нет текущего состояния — дефолт
-        if (!currState) {
+            // Нет текущего состояния — дефолт
+            if (!currState) {
+                return {
+                    isLoading: false,
+                    isDone: false,
+                    isSuccess: false,
+                    isError: false,
+                    error: undefined,
+                    data: undefined,
+                    args: undefined as D["Args"],
+                };
+            }
+
             return {
-                isLoading: false,
-                isDone: false,
-                isSuccess: false,
-                isError: false,
-                error: undefined,
-                data: undefined,
-                args: undefined as D["Args"],
+                isLoading: currState.isLoading,
+                isDone: currState.isDone,
+                isSuccess: currState.isSuccess,
+                isError: currState.isError,
+                error: currState.error ?? undefined,
+                data: currState.data ?? undefined,
+                args: currState.arg as D["Args"],
             };
-        }
+        },
+        { isDisabled: true },
+    );
 
-        return {
-            isLoading: currState.isLoading,
-            isDone: currState.isDone,
-            isSuccess: currState.isSuccess,
-            isError: currState.isError,
-            error: currState.error ?? undefined,
-            data: currState.data ?? undefined,
-            args: currState.arg as D["Args"],
-        };
-    }, { isDisabled: true });
-
-    constructor(
-        private _command: Command<D>,
-    ) {}
+    constructor(private _command: Command<D>) {}
 
     private _next(newCache: ReactiveCache<CoreCommandQueryState<D>>): void {
         this._commands$.set({

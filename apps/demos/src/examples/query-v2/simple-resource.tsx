@@ -17,7 +17,7 @@ const api = queryV2.createApi({
 
 const itemsResource = api.createResource<void, ItemsData>({
     key: 'simple-items',
-    queryFn: async (_args, { abortSignal }) => {
+    queryFn: async (_args, { abortSignal: _abortSignal }) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             items: [

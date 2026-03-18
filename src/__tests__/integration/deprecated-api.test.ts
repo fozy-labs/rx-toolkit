@@ -1,13 +1,13 @@
-import { BehaviorSubject } from 'rxjs';
-import { Signal, State, Effect, LocalState, LocalSignal } from '@/signals/signals';
+import { BehaviorSubject } from "rxjs";
+
+import { Effect, LocalSignal, LocalState, Signal, State } from "@/signals/signals";
 
 // TODO(v0.6.0): remove deprecated API test
 
-describe('Deprecated API compatibility', () => {
-
-    describe('Signal constructor (deprecated) vs State constructor', () => {
+describe("Deprecated API compatibility", () => {
+    describe("Signal constructor (deprecated) vs State constructor", () => {
         // TODO(v0.6.0): remove deprecated API test
-        it('Signal and State instances behave identically', () => {
+        it("Signal and State instances behave identically", () => {
             const signal = new Signal(10);
             const state = new State(10);
 
@@ -28,14 +28,14 @@ describe('Deprecated API compatibility', () => {
         });
     });
 
-    describe('Signal.create() (deprecated) vs Signal.state()', () => {
+    describe("Signal.create() (deprecated) vs Signal.state()", () => {
         // TODO(v0.6.0): remove deprecated API test
-        it('both return identical SignalFn', () => {
+        it("both return identical SignalFn", () => {
             const created = Signal.create(1);
             const stated = Signal.state(1);
 
-            expect(typeof created).toBe('function');
-            expect(typeof stated).toBe('function');
+            expect(typeof created).toBe("function");
+            expect(typeof stated).toBe("function");
 
             expect(created()).toBe(1);
             expect(stated()).toBe(1);
@@ -51,21 +51,27 @@ describe('Deprecated API compatibility', () => {
         });
     });
 
-    describe('Effect.complete() (deprecated) vs Effect.unsubscribe()', () => {
+    describe("Effect.complete() (deprecated) vs Effect.unsubscribe()", () => {
         // TODO(v0.6.0): remove deprecated API test
-        it('both stop the effect and set closed=true', () => {
+        it("both stop the effect and set closed=true", () => {
             const s = Signal.state(0);
             let count1 = 0;
             let count2 = 0;
 
-            const e1 = Signal.effect(() => { s(); count1++; });
-            const e2 = Signal.effect(() => { s(); count2++; });
+            const e1 = Signal.effect(() => {
+                s();
+                count1++;
+            });
+            const e2 = Signal.effect(() => {
+                s();
+                count2++;
+            });
 
             expect(count1).toBe(1);
             expect(count2).toBe(1);
 
-            e1.complete();       // deprecated
-            e2.unsubscribe();    // current
+            e1.complete(); // deprecated
+            e2.unsubscribe(); // current
 
             s.set(1);
 
@@ -78,37 +84,41 @@ describe('Deprecated API compatibility', () => {
         });
     });
 
-    describe('LocalSignal (deprecated) vs LocalState', () => {
+    describe("LocalSignal (deprecated) vs LocalState", () => {
         // TODO(v0.6.0): remove deprecated API test
-        it('LocalSignal is the same reference as LocalState', () => {
+        it("LocalSignal is the same reference as LocalState", () => {
             expect(LocalSignal).toBe(LocalState);
         });
     });
 
-    describe('validator$ (deprecated) vs checkEffect in LocalState', () => {
+    describe("validator$ (deprecated) vs checkEffect in LocalState", () => {
         // TODO(v0.6.0): remove deprecated API test
 
         function createMockStorage() {
             const store = new Map<string, string>();
             return {
                 getItem: (key: string) => store.get(key) ?? null,
-                setItem: (key: string, value: string) => { store.set(key, value); },
-                removeItem: (key: string) => { store.delete(key); },
+                setItem: (key: string, value: string) => {
+                    store.set(key, value);
+                },
+                removeItem: (key: string) => {
+                    store.delete(key);
+                },
             };
         }
 
-        it('both reject invalid values and fall back to defaultValue', () => {
+        it("both reject invalid values and fall back to defaultValue", () => {
             const validator$ = new BehaviorSubject((v: number) => v >= 0);
 
             const lsWithValidator = LocalState.create<number>({
-                key: 'dep-test-validator',
+                key: "dep-test-validator",
                 defaultValue: 0,
                 validator$,
                 driver: createMockStorage(),
             });
 
             const lsWithCheck = LocalState.create<number>({
-                key: 'dep-test-check',
+                key: "dep-test-check",
                 defaultValue: 0,
                 checkEffect: (v: number) => v >= 0,
                 driver: createMockStorage(),
@@ -134,5 +144,4 @@ describe('Deprecated API compatibility', () => {
             sub2.unsubscribe();
         });
     });
-
 });

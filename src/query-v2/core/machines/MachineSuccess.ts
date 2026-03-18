@@ -1,12 +1,12 @@
-import type { TResourceV2Patch } from '@/query-v2/types/machine.types';
-import type { TResourceV2SnapshotSlice } from '@/query-v2/types/snapshot.types';
-import type { TResourceV2SuccessState } from '@/query-v2/types/machine.types';
-import type { NO_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { NO_VALUE as NO_VALUE_VALUE } from '@/query-v2/lib/NO_VALUE';
-import { MachineWithData, type MachineWithDataState } from './MachineWithData';
-import { MachineIdle } from './MachineIdle';
-import { MachinePending } from './MachinePending';
-import { MachineRefreshing } from './MachineRefreshing';
+import type { NO_VALUE } from "@/query-v2/lib/NO_VALUE";
+import { NO_VALUE as NO_VALUE_VALUE } from "@/query-v2/lib/NO_VALUE";
+import type { TResourceV2Patch, TResourceV2SuccessState } from "@/query-v2/types/machine.types";
+import type { TResourceV2SnapshotSlice } from "@/query-v2/types/snapshot.types";
+
+import { MachineIdle } from "./MachineIdle";
+import { MachinePending } from "./MachinePending";
+import { MachineRefreshing } from "./MachineRefreshing";
+import { MachineWithData, type MachineWithDataState } from "./MachineWithData";
 
 export class MachineSuccess<TData = unknown> extends MachineWithData<TData> {
     readonly state: TResourceV2SuccessState<TData>;
@@ -20,7 +20,7 @@ export class MachineSuccess<TData = unknown> extends MachineWithData<TData> {
     ) {
         super();
         this.state = {
-            status: 'success',
+            status: "success",
             args,
             data,
             error: null,
@@ -67,10 +67,6 @@ export class MachineSuccess<TData = unknown> extends MachineWithData<TData> {
     }
 
     static deploy<TData = unknown>(snapshotSlice: TResourceV2SnapshotSlice<TData>): MachineSuccess<TData> {
-        return new MachineSuccess<TData>(
-            snapshotSlice.data,
-            snapshotSlice.args,
-            snapshotSlice.updatedAt,
-        );
+        return new MachineSuccess<TData>(snapshotSlice.data, snapshotSlice.args, snapshotSlice.updatedAt);
     }
 }

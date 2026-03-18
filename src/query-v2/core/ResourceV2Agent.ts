@@ -1,20 +1,19 @@
-import { Signal } from '@/signals';
-import type { ComputeFn, SignalFn } from '@/signals';
-import type { TMachineInstance } from './machines/Machine';
-import type { IResourceV2Agent, IResourceV2AgentState } from '@/query-v2/types/agent.types';
-import type { TMachineStatus } from '@/query-v2/types/machine.types';
-import type { CacheEntry } from './CacheEntry';
-import type { ResourceV2 } from './ResourceV2';
-import { SKIP, type SKIP_TOKEN } from '@/query-v2/lib/SKIP_TOKEN';
+import { SKIP, type SKIP_TOKEN } from "@/query-v2/lib/SKIP_TOKEN";
+import type { IResourceV2Agent, IResourceV2AgentState } from "@/query-v2/types/agent.types";
+import type { TMachineStatus } from "@/query-v2/types/machine.types";
+import { Signal } from "@/signals";
+import type { ComputeFn, SignalFn } from "@/signals";
+
+import type { CacheEntry } from "./CacheEntry";
+import type { TMachineInstance } from "./machines/Machine";
+import type { ResourceV2 } from "./ResourceV2";
 
 interface AgentTracking<TData, TError> {
     previous: CacheEntry<TData, TError> | null;
     current: CacheEntry<TData, TError> | null;
 }
 
-export class ResourceV2Agent<TArgs, TData, TError = Error>
-    implements IResourceV2Agent<TArgs, TData, TError>
-{
+export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV2Agent<TArgs, TData, TError> {
     private readonly _resource: ResourceV2<TArgs, TData, TError>;
     private readonly _tracking$: SignalFn<AgentTracking<TData, TError>>;
     private readonly _refreshError$: SignalFn<TError | null>;
@@ -44,7 +43,7 @@ export class ResourceV2Agent<TArgs, TData, TError = Error>
 
             if (!current) {
                 return {
-                    status: 'idle' as TMachineStatus,
+                    status: "idle" as TMachineStatus,
                     data: null,
                     error: null,
                     args: null,
@@ -73,15 +72,15 @@ export class ResourceV2Agent<TArgs, TData, TError = Error>
             }
 
             const currentData = machineState.data as TData | null;
-            const isLoading = status === 'pending' || status === 'refreshing';
-            const isRefreshing = status === 'refreshing';
+            const isLoading = status === "pending" || status === "refreshing";
+            const isRefreshing = status === "refreshing";
 
             // SWR: use previous data if current is loading and has no data yet
             const data = currentData ?? (isLoading ? previousData : null);
             const hasPreviousData = previousData !== null;
             const isInitialLoading = isLoading && !hasPreviousData && currentData === null;
             const isSuccess = data !== null;
-            const isError = status === 'error';
+            const isError = status === "error";
             const error = isError ? (machineState as { error: TError }).error : null;
 
             return {
@@ -112,10 +111,7 @@ export class ResourceV2Agent<TArgs, TData, TError = Error>
         const typedArgs = args as TArgs;
 
         // Same args check — skip if unchanged
-        if (
-            this._currentArgs !== null &&
-            this._resource.compareArgs(this._currentArgs, typedArgs)
-        ) {
+        if (this._currentArgs !== null && this._resource.compareArgs(this._currentArgs, typedArgs)) {
             return;
         }
 

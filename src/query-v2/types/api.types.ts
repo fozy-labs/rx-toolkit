@@ -1,12 +1,12 @@
-import type { IPlugin, PluginAugmentations } from './plugin.types';
-import type { IResourceV2Options, IResourceV2 } from './resource.types';
-import type { TApiSnapshot } from './snapshot.types';
-import type { TSerializeArgsFn, TCompareArgsFn } from './shared.types';
+import type { IPlugin, PluginAugmentations } from "./plugin.types";
+import type { IResourceV2, IResourceV2Options } from "./resource.types";
+import type { TCompareArgsFn, TSerializeArgsFn } from "./shared.types";
+import type { TApiSnapshot } from "./snapshot.types";
 
 /** Options for createApi factory */
 export interface ICreateApiOptions<TPlugins extends IPlugin[] = []> {
     keyPrefix?: string | null;
-    keyStrategy?: 'serialize' | 'compare';
+    keyStrategy?: "serialize" | "compare";
     serializeArgs?: TSerializeArgsFn;
     compareArg?: TCompareArgsFn;
     initialSnapshot?: TApiSnapshot | null;

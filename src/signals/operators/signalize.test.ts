@@ -1,26 +1,27 @@
-import { BehaviorSubject, Observable, Subject } from 'rxjs';
-import { signalize } from './signalize';
+import { BehaviorSubject, Observable, Subject } from "rxjs";
 
-describe('signalize', () => {
-    describe('with BehaviorSubject', () => {
-        it('creates a read-only signal with initial value', () => {
+import { signalize } from "./signalize";
+
+describe("signalize", () => {
+    describe("with BehaviorSubject", () => {
+        it("creates a read-only signal with initial value", () => {
             const bs$ = new BehaviorSubject(42);
             const signal = signalize(bs$);
 
             expect(signal.peek()).toBe(42);
         });
 
-        it('peek() returns current value without tracking', () => {
-            const bs$ = new BehaviorSubject('hello');
+        it("peek() returns current value without tracking", () => {
+            const bs$ = new BehaviorSubject("hello");
             const signal = signalize(bs$);
 
-            expect(signal.peek()).toBe('hello');
+            expect(signal.peek()).toBe("hello");
 
-            bs$.next('world');
-            expect(signal.peek()).toBe('world');
+            bs$.next("world");
+            expect(signal.peek()).toBe("world");
         });
 
-        it('calling as function returns current value', () => {
+        it("calling as function returns current value", () => {
             const bs$ = new BehaviorSubject(10);
             const signal = signalize(bs$);
 
@@ -30,7 +31,7 @@ describe('signalize', () => {
             expect(signal()).toBe(20);
         });
 
-        it('obs emits values when source updates', () => {
+        it("obs emits values when source updates", () => {
             const bs$ = new BehaviorSubject(1);
             const signal = signalize(bs$);
 
@@ -46,28 +47,28 @@ describe('signalize', () => {
             expect(values).toEqual([1, 2, 3]);
         });
 
-        it('does not expose a set method (readonly contract)', () => {
+        it("does not expose a set method (readonly contract)", () => {
             const bs$ = new BehaviorSubject(0);
             const signal = signalize(bs$);
 
             expect((signal as any).set).toBeUndefined();
         });
 
-        it('reflects source changes through peek()', () => {
-            const bs$ = new BehaviorSubject('a');
+        it("reflects source changes through peek()", () => {
+            const bs$ = new BehaviorSubject("a");
             const signal = signalize(bs$);
 
-            bs$.next('b');
-            bs$.next('c');
+            bs$.next("b");
+            bs$.next("c");
 
-            expect(signal.peek()).toBe('c');
+            expect(signal.peek()).toBe("c");
         });
     });
 
-    describe('with Observable (synchronous initial value)', () => {
-        it('creates a read-only signal from a plain observable with sync value', () => {
+    describe("with Observable (synchronous initial value)", () => {
+        it("creates a read-only signal from a plain observable with sync value", () => {
             // An observable that emits synchronously on subscribe
-            const obs$ = new Observable<number>(subscriber => {
+            const obs$ = new Observable<number>((subscriber) => {
                 subscriber.next(99);
             });
             const signal = signalize(obs$);
@@ -75,18 +76,18 @@ describe('signalize', () => {
             expect(signal.peek()).toBe(99);
         });
 
-        it('throws when observable emits no synchronous value', () => {
+        it("throws when observable emits no synchronous value", () => {
             const obs$ = new Observable<number>(() => {
                 // never emits
             });
 
             const signal = signalize(obs$);
-            expect(() => signal.peek()).toThrow('No value emitted');
+            expect(() => signal.peek()).toThrow("No value emitted");
         });
     });
 
-    describe('with Subject (via BehaviorSubject)', () => {
-        it('tracks multiple sequential updates', () => {
+    describe("with Subject (via BehaviorSubject)", () => {
+        it("tracks multiple sequential updates", () => {
             const bs$ = new BehaviorSubject(0);
             const signal = signalize(bs$);
 
@@ -98,7 +99,7 @@ describe('signalize', () => {
             expect(signal()).toBe(5);
         });
 
-        it('subscription can be unsubscribed independently', () => {
+        it("subscription can be unsubscribed independently", () => {
             const bs$ = new BehaviorSubject(0);
             const signal = signalize(bs$);
 

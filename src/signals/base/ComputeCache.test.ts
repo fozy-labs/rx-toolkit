@@ -1,8 +1,9 @@
-import { ComputeCache } from './ComputeCache';
-import { Signal } from '@/signals/signals/Signal';
+import { Signal } from "@/signals/signals/Signal";
 
-describe('ComputeCache', () => {
-    it('first call (cache miss) computes the value', () => {
+import { ComputeCache } from "./ComputeCache";
+
+describe("ComputeCache", () => {
+    it("first call (cache miss) computes the value", () => {
         const cache = new ComputeCache<number>();
         const computeFn = vi.fn(() => 42);
 
@@ -12,7 +13,7 @@ describe('ComputeCache', () => {
         expect(computeFn).toHaveBeenCalledOnce();
     });
 
-    it('repeated call (cache hit) returns cached value without recomputing', () => {
+    it("repeated call (cache hit) returns cached value without recomputing", () => {
         const cache = new ComputeCache<number>();
         const state = Signal.state(10);
         const computeFn = vi.fn(() => state() * 2);
@@ -25,7 +26,7 @@ describe('ComputeCache', () => {
         expect(computeFn).toHaveBeenCalledOnce();
     });
 
-    it('recomputes when dependency changes', () => {
+    it("recomputes when dependency changes", () => {
         const cache = new ComputeCache<number>();
         const state = Signal.state(5);
         const computeFn = vi.fn(() => state() + 1);
@@ -39,20 +40,20 @@ describe('ComputeCache', () => {
         expect(computeFn).toHaveBeenCalledTimes(2);
     });
 
-    describe('isValid()', () => {
-        it('returns false before any computation', () => {
+    describe("isValid()", () => {
+        it("returns false before any computation", () => {
             const cache = new ComputeCache<number>();
             expect(cache.isValid()).toBe(false);
         });
 
-        it('returns true after computation with unchanged deps', () => {
+        it("returns true after computation with unchanged deps", () => {
             const cache = new ComputeCache<number>();
             const state = Signal.state(1);
             cache.getOrCompute(() => state());
             expect(cache.isValid()).toBe(true);
         });
 
-        it('returns false after dependency changes', () => {
+        it("returns false after dependency changes", () => {
             const cache = new ComputeCache<number>();
             const state = Signal.state(1);
             cache.getOrCompute(() => state());
@@ -60,7 +61,7 @@ describe('ComputeCache', () => {
             expect(cache.isValid()).toBe(false);
         });
 
-        it('returns false after clear()', () => {
+        it("returns false after clear()", () => {
             const cache = new ComputeCache<number>();
             cache.getOrCompute(() => 42);
             cache.clear();
@@ -68,11 +69,13 @@ describe('ComputeCache', () => {
         });
     });
 
-    it('handles error in computeFn gracefully', () => {
+    it("handles error in computeFn gracefully", () => {
         const cache = new ComputeCache<number>();
-        const badFn = () => { throw new Error('compute-error'); };
+        const badFn = () => {
+            throw new Error("compute-error");
+        };
 
-        expect(() => cache.getOrCompute(badFn)).toThrow('compute-error');
+        expect(() => cache.getOrCompute(badFn)).toThrow("compute-error");
 
         // Cache should remain invalid after error
         expect(cache.isValid()).toBe(false);

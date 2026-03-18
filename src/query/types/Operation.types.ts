@@ -1,18 +1,14 @@
 import {
+    CommandAgentInstance,
     CommandCreateFn,
     CommandCreateOptions,
     CommandDefinition,
     CommandInstance,
-    CommandAgentInstance,
     CommandQueryState,
-} from './Command.types';
+} from "./Command.types";
 
 /** @deprecated Use `CommandCreateFn` instead. Will be removed in v0.6.0. */
-export type OperationCreateFn<
-    ARGS,
-    RESULT,
-    SELECTED = never,
-> = CommandCreateFn<ARGS, RESULT, SELECTED>;
+export type OperationCreateFn<ARGS, RESULT, SELECTED = never> = CommandCreateFn<ARGS, RESULT, SELECTED>;
 
 /** @deprecated Use `CommandCreateOptions` instead. Will be removed in v0.6.0. */
 export type OperationCreateOptions<D extends CommandDefinition> = CommandCreateOptions<D>;
