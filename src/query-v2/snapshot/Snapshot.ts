@@ -1,7 +1,7 @@
 import type { TMachineStatus } from "@/query-v2";
 import { Machine, type TMachineInstance } from "@/query-v2/core/machines/Machine";
 import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
-import type { ResourceV2 } from "@/query-v2/core/ResourceV2";
+import type { ResourceV2 } from "@/query-v2/core/resource/ResourceV2";
 import type { TApiSnapshot, TResourceSnapshot, TResourceV2SnapshotSlice } from "@/query-v2/types/snapshot.types";
 
 export const CURRENT_SNAPSHOT_VERSION = 1;
@@ -64,21 +64,33 @@ export function hydrateSnapshot(
     apiKeyPrefix: string | null,
     maxSnapshotDataAge: number,
 ): void {
-    // S4: version mismatch → skip hydration entirely
+    // Fatal: snapshot format incompatibility — the serialization schema has changed between versions.
+    // This cannot be recovered from; the snapshot must be regenerated.
     if (snapshot.version !== CURRENT_SNAPSHOT_VERSION) {
-        return;
+        throw new Error(
+            `Snapshot version mismatch: expected ${CURRENT_SNAPSHOT_VERSION}, got ${snapshot.version}. ` +
+            `The snapshot format is incompatible with the current version of query-v2.`,
+        );
     }
 
-    // S5: keyPrefix mismatch → silent skip
+    // Fatal: wrong API instance — the snapshot was created by a different keyPrefix configuration.
+    // Applying it would pollute the cache with data from an unrelated API.
     if (snapshot.keyPrefix !== apiKeyPrefix) {
-        return;
+        throw new Error(
+            `Snapshot keyPrefix mismatch: expected "${apiKeyPrefix}", got "${snapshot.keyPrefix}". ` +
+            `Ensure the snapshot was created by the same API instance configuration.`,
+        );
     }
 
     const now = Date.now();
 
     for (const [resourceKey, resourceSnapshot] of Object.entries(snapshot.resources)) {
         const resource = resources.get(resourceKey);
-        if (!resource) continue;
+        if (!resource) {
+            // Non-fatal: a resource may have been removed between versions — skip gracefully.
+            console.warn(`[rx-toolkit] hydrateSnapshot: unknown resource key "${resourceKey}", skipping.`);
+            continue;
+        }
 
         for (const [, slice] of Object.entries(resourceSnapshot.entries)) {
             const machine = Machine.fromSnapshot<unknown>(

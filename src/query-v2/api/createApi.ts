@@ -1,4 +1,4 @@
-import { ResourceV2, type ResourceV2Config } from "@/query-v2/core/ResourceV2";
+import { ResourceV2, type ResourceV2Config } from "@/query-v2/core/resource/ResourceV2";
 import { getSnapshot, hydrateSnapshot } from "@/query-v2/snapshot/Snapshot";
 import type { IApi, ICreateApiOptions } from "@/query-v2/types/api.types";
 import type { IPlugin, PluginAugmentations } from "@/query-v2/types/plugin.types";
@@ -8,6 +8,13 @@ import type { TApiSnapshot } from "@/query-v2/types/snapshot.types";
 const DEFAULT_CACHE_LIFETIME = 60_000;
 const DEFAULT_MAX_SNAPSHOT_DATA_AGE = 300_000; // 5 minutes
 
+/**
+ * Create a query-v2 API instance — the root entry point for managing resources, snapshots, and plugins.
+ *
+ * @param options - Configuration for the API instance (keyPrefix, plugins, snapshot, cache settings).
+ * @returns API instance with `createResource`, `resetAll`, and `getSnapshot` methods.
+ * @see docs/query-v2/README.md
+ */
 export function createApi<TPlugins extends IPlugin[] = []>(
     options: ICreateApiOptions<TPlugins> = {} as ICreateApiOptions<TPlugins>,
 ): IApi<TPlugins> {

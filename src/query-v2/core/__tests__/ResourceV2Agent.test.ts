@@ -1,8 +1,8 @@
 import { SKIP } from "@/query-v2/lib/SKIP_TOKEN";
 import { Signal } from "@/signals";
 
-import { ResourceV2 } from "../ResourceV2";
-import { ResourceV2Agent } from "../ResourceV2Agent";
+import { ResourceV2 } from "../resource/ResourceV2";
+import { ResourceV2Agent } from "../resource/ResourceV2Agent";
 
 /** Controllable queryFn: returns a promise you can resolve/reject from outside */
 function controllableQueryFn<TArgs = unknown, TData = unknown>() {

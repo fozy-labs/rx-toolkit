@@ -3,8 +3,8 @@ import { stableStringify } from "@/query-v2/lib/stableStringify";
 
 import { CacheEntry } from "./CacheEntry";
 import { CacheMap } from "./CacheMap";
-import type { TMachineInstance } from "./machines/Machine";
-import { MachineIdle } from "./machines/MachineIdle";
+import type { TMachineInstance } from "../machines/Machine";
+import { MachineIdle } from "../machines/MachineIdle";
 
 function createEntry() {
     return new CacheEntry<unknown, Error>(MachineIdle.create() as TMachineInstance<unknown, Error>);

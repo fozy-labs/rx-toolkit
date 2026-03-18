@@ -9,14 +9,14 @@ import type { IResourceV2 } from "@/query-v2/types/resource.types";
 import type { TBeforeDevtoolsPushFn, TCompareArgsFn, TQueryFn, TSerializeArgsFn } from "@/query-v2/types/shared.types";
 import { Batcher } from "@/signals";
 
-import { CacheEntry, type CacheEntryOptions } from "./CacheEntry";
-import { CacheMap, type TCacheMapInstance } from "./CacheMap";
-import { LifecycleHooks } from "./LifecycleHooks";
-import type { TMachineInstance } from "./machines/Machine";
-import { MachineIdle } from "./machines/MachineIdle";
-import { MachineRefreshing } from "./machines/MachineRefreshing";
-import { MachineSuccess } from "./machines/MachineSuccess";
-import { MachineWithData } from "./machines/MachineWithData";
+import { CacheEntry, type CacheEntryOptions } from "../common/CacheEntry";
+import { CacheMap, type TCacheMapInstance } from "../common/CacheMap";
+import { LifecycleHooks } from "../common/LifecycleHooks";
+import type { TMachineInstance } from "../machines/Machine";
+import { MachineIdle } from "../machines/MachineIdle";
+import { MachineRefreshing } from "../machines/MachineRefreshing";
+import { MachineSuccess } from "../machines/MachineSuccess";
+import { MachineWithData } from "../machines/MachineWithData";
 import { ResourceV2Agent } from "./ResourceV2Agent";
 
 export interface ResourceV2Config<TArgs, TData, TError = Error> {
@@ -39,6 +39,10 @@ interface InFlightEntry<TData, TError> {
     abortController: AbortController;
 }
 
+/**
+ * Cache-backed resource manager.
+ * Orchestrates queries, caching, lifecycle hooks, GC, and optimistic patches for a single resource type.
+ */
 export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TArgs, TData, TError> {
     private readonly _cache: TCacheMapInstance<TArgs, TData, TError>;
     private readonly _queryFn: TQueryFn<TArgs, TData>;
@@ -84,10 +88,23 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
         });
     }
 
+    /**
+     * Create an agent that tracks a single cache entry with reactive state (SWR).
+     *
+     * @returns A new agent bound to this resource.
+     */
     createAgent(): IResourceV2Agent<TArgs, TData, TError> {
         return new ResourceV2Agent<TArgs, TData, TError>(this);
     }
 
+    /**
+     * Execute a query for the given args, returning the cache entry.
+     * Deduplicates concurrent calls for the same args unless `doForce` is set.
+     *
+     * @param args - Query arguments (used as cache key).
+     * @param doForce - If true, bypass dedup and re-execute the query.
+     * @returns The cache entry after query initiation.
+     */
     async query(args: TArgs, doForce?: boolean): Promise<ICacheEntry<TData, TError>> {
         // SKIP check
         if ((args as unknown) === SKIP) {
@@ -179,6 +196,13 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
         return promise as unknown as Promise<ICacheEntry<TData, TError>>;
     }
 
+    /**
+     * Reactive query — read machine state as a signal dependency.
+     * Initiates the query if not already cached.
+     *
+     * @param args - Query arguments.
+     * @returns Current machine state (registers a reactive subscription).
+     */
     query$(args: TArgs, doForce?: boolean): TMachine<TData, TError> {
         if ((args as unknown) === SKIP) {
             return MachineIdle.create().state as TMachine<TData, TError>;
@@ -205,6 +229,12 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
         return (entryResult.machine$() as TMachineInstance<TData, TError>).state as TMachine<TData, TError>;
     }
 
+    /**
+     * Get the cache entry for the given args without initiating a query (unless `doInitiate` is set).
+     *
+     * @param args - Query arguments.
+     * @returns The cache entry, or `null` if not cached.
+     */
     entry(args: TArgs, doInitiate?: boolean): ICacheEntry<TData, TError> | null {
         const existing = this._cache.get(args);
         if (existing) {
@@ -390,6 +420,7 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
         };
     }
 
+    /** Reset the entire cache — aborts in-flight requests, clears GC timers, completes all entries. */
     resetCache(): void {
         // Abort all in-flight requests
         for (const [, flight] of this._inFlight) {
@@ -492,7 +523,7 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
                 const current = cacheEntry.peek();
                 if (current.state.status === "pending") {
                     const success = (
-                        current as unknown as import("./machines/MachinePending").MachinePending<TData>
+                        current as unknown as import("../machines/MachinePending").MachinePending<TData>
                     ).successHappened(data);
                     cacheEntry.set(success as unknown as TMachineInstance<TData, TError>);
                 } else if (current.state.status === "refreshing") {
@@ -513,7 +544,7 @@ export class ResourceV2<TArgs, TData, TError = Error> implements IResourceV2<TAr
                 const current = cacheEntry.peek();
                 if (current.state.status === "pending") {
                     const errorMachine = (
-                        current as unknown as import("./machines/MachinePending").MachinePending<TData>
+                        current as unknown as import("../machines/MachinePending").MachinePending<TData>
                     ).errorHappened(error as TError);
                     cacheEntry.set(errorMachine as unknown as TMachineInstance<TData, TError>);
                 } else if (current.state.status === "refreshing") {

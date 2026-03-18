@@ -201,6 +201,12 @@ interface IPlugin {
 | `useResourceV2Agent` | `(args: TArgs \| SKIP_TOKEN) => IResourceV2AgentState` | React-хук агента |
 | `useResourceV2Ref` | `(args: TArgs \| SKIP_TOKEN) => IResourceV2Ref` | React-хук ref |
 
+> **Standalone-импорт:** Хуки `useResourceV2Agent` и `useResourceV2Ref` доступны как отдельные функции без `ReactHooksPlugin`:
+> ```typescript
+> import { useResourceV2Agent } from '@fozy-labs/rx-toolkit/query-v2/react';
+> const state = useResourceV2Agent(resource, args);
+> ```
+
 ---
 
 ## Snapshot Types

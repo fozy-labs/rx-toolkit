@@ -97,8 +97,8 @@ describe("Integration: SSR Hydration Round-Trip", () => {
         expect(machine).toBeInstanceOf(MachineSuccess);
     });
 
-    // Version mismatch → snapshot skipped
-    it("version mismatch → snapshot ignored, no hydration", () => {
+    // Version mismatch → throws
+    it("version mismatch → throws descriptive error", () => {
         const snapshot: TApiSnapshot = {
             version: 999, // wrong version
             keyPrefix: null,
@@ -112,17 +112,17 @@ describe("Integration: SSR Hydration Round-Trip", () => {
         };
 
         const api = createApi({ initialSnapshot: snapshot });
-        const resource = api.createResource({
-            key: "items",
-            queryFn: async () => "fresh",
-        });
 
-        // Should not be hydrated
-        expect(resource.entry(1 as any)).toBeNull();
+        expect(() =>
+            api.createResource({
+                key: "items",
+                queryFn: async () => "fresh",
+            }),
+        ).toThrow(/version mismatch/);
     });
 
-    // KeyPrefix mismatch → snapshot skipped
-    it("keyPrefix mismatch → snapshot ignored, no hydration", () => {
+    // KeyPrefix mismatch → throws
+    it("keyPrefix mismatch → throws descriptive error", () => {
         const snapshot: TApiSnapshot = {
             version: CURRENT_SNAPSHOT_VERSION,
             keyPrefix: "server-prefix",
@@ -139,12 +139,13 @@ describe("Integration: SSR Hydration Round-Trip", () => {
             keyPrefix: "client-prefix", // mismatch
             initialSnapshot: snapshot,
         });
-        const resource = api.createResource({
-            key: "items",
-            queryFn: async () => "fresh",
-        });
 
-        expect(resource.entry(1 as any)).toBeNull();
+        expect(() =>
+            api.createResource({
+                key: "items",
+                queryFn: async () => "fresh",
+            }),
+        ).toThrow(/keyPrefix mismatch/);
     });
 
     // maxSnapshotDataAge → triggers refresh

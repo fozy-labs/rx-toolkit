@@ -4,15 +4,19 @@ import type { TBeforeDevtoolsPushFn } from "@/query-v2/types/shared.types";
 import { Signal } from "@/signals";
 import type { SignalFn, SignalOptions } from "@/signals";
 
-import type { TMachineInstance } from "./machines/Machine";
-import { MachineIdle } from "./machines/MachineIdle";
-import { MachineWithData } from "./machines/MachineWithData";
+import type { TMachineInstance } from "../machines/Machine";
+import { MachineIdle } from "../machines/MachineIdle";
+import { MachineWithData } from "../machines/MachineWithData";
 
 export interface CacheEntryOptions {
     keyParts?: string[];
     beforeDevtoolsPush?: TBeforeDevtoolsPushFn<unknown>;
 }
 
+/**
+ * Cache entry wrapping a reactive signal over a state machine instance.
+ * Represents a single cached query result with its full lifecycle (idle → pending → success/error).
+ */
 export class CacheEntry<TData = unknown, TError = Error> {
     private readonly _signal: SignalFn<TMachineInstance<TData, TError>>;
     private readonly _onClean$ = new Subject<void>();
@@ -40,14 +44,17 @@ export class CacheEntry<TData = unknown, TError = Error> {
         });
     }
 
+    /** Reactive accessor for the current machine state — reading this registers a signal dependency. */
     get machine$(): () => TMachineInstance<TData, TError> {
         return this._signal;
     }
 
+    /** Non-reactive read of the current machine state (does not register a signal dependency). */
     peek(): TMachineInstance<TData, TError> {
         return this._signal.peek();
     }
 
+    /** Transition to a new machine state. No-op if the entry has been completed. */
     set(machine: TMachineInstance<TData, TError>): void {
         if (this._completed) return;
         this._signal.set(machine);
@@ -62,6 +69,7 @@ export class CacheEntry<TData = unknown, TError = Error> {
         };
     }
 
+    /** Complete the entry — aborts pending patches, resets to idle, and notifies cleanup listeners. */
     complete(): void {
         if (this._completed) return;
         this._completed = true;

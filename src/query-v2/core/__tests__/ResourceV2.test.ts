@@ -6,7 +6,7 @@ import { MachineIdle } from "../machines/MachineIdle";
 import { MachinePending } from "../machines/MachinePending";
 import { MachineRefreshing } from "../machines/MachineRefreshing";
 import { MachineSuccess } from "../machines/MachineSuccess";
-import { ResourceV2 } from "../ResourceV2";
+import { ResourceV2 } from "../resource/ResourceV2";
 
 /** Controllable queryFn: returns a promise you can resolve/reject from outside */
 function controllableQueryFn<TArgs = unknown, TData = unknown>() {

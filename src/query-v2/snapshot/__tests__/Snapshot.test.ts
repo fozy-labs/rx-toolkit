@@ -1,7 +1,7 @@
 import { Machine } from "@/query-v2/core/machines/Machine";
 import { MachineIdle } from "@/query-v2/core/machines/MachineIdle";
 import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
-import { ResourceV2, type ResourceV2Config } from "@/query-v2/core/ResourceV2";
+import { ResourceV2, type ResourceV2Config } from "@/query-v2/core/resource/ResourceV2";
 import type { TApiSnapshot } from "@/query-v2/types/snapshot.types";
 
 import { CURRENT_SNAPSHOT_VERSION, getSnapshot, hydrateSnapshot } from "../Snapshot";
@@ -147,8 +147,8 @@ describe("Snapshot", () => {
         expect(machine.state.data).toBe("stale-data");
     });
 
-    // S4: version mismatch → snapshot ignored
-    it("S4: version mismatch — snapshot ignored", () => {
+    // S4: version mismatch → throws descriptive error
+    it("S4: version mismatch — throws with expected and actual version", () => {
         const resource = createResource({ key: "res1" });
         const registry = new Map<string, ResourceV2<any, any, any>>();
         registry.set("res1", resource);
@@ -165,14 +165,13 @@ describe("Snapshot", () => {
             },
         };
 
-        hydrateSnapshot(snapshot, registry, null, 300_000);
-
-        const entry = resource.entry(1 as any);
-        expect(entry).toBeNull(); // Not hydrated
+        expect(() => hydrateSnapshot(snapshot, registry, null, 300_000)).toThrow(/version mismatch/);
+        expect(() => hydrateSnapshot(snapshot, registry, null, 300_000)).toThrow(/expected 1/);
+        expect(() => hydrateSnapshot(snapshot, registry, null, 300_000)).toThrow(/got 999/);
     });
 
-    // S5: keyPrefix mismatch → silent skip
-    it("S5: keyPrefix mismatch — snapshot silently skipped", () => {
+    // S5: keyPrefix mismatch → throws descriptive error
+    it("S5: keyPrefix mismatch — throws with expected and actual prefix", () => {
         const resource = createResource({ key: "res1" });
         const registry = new Map<string, ResourceV2<any, any, any>>();
         registry.set("res1", resource);
@@ -189,10 +188,9 @@ describe("Snapshot", () => {
             },
         };
 
-        hydrateSnapshot(snapshot, registry, "main", 300_000); // API has keyPrefix='main'
-
-        const entry = resource.entry(1 as any);
-        expect(entry).toBeNull(); // Not hydrated
+        expect(() => hydrateSnapshot(snapshot, registry, "main", 300_000)).toThrow(/keyPrefix mismatch/);
+        expect(() => hydrateSnapshot(snapshot, registry, "main", 300_000)).toThrow(/expected "main"/);
+        expect(() => hydrateSnapshot(snapshot, registry, "main", 300_000)).toThrow(/got "other-prefix"/);
     });
 
     // S6: compare strategy throws on getSnapshot
@@ -254,5 +252,96 @@ describe("Snapshot", () => {
         expect(restored.state.data).toBe("test-data");
         expect(restored.state.args).toBe(42);
         expect(restored.state.updatedAt).toBe(100);
+    });
+
+    // T31: Unknown resource key logs warning and continues hydrating known entries
+    it("T31: unknown resource key logs console.warn and continues hydrating known entries", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const resource = createResource({ key: "known" });
+        const registry = new Map<string, ResourceV2<any, any, any>>();
+        registry.set("known", resource);
+
+        const snapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            resources: {
+                unknown: {
+                    entries: {
+                        "1": { status: "success", args: 1, data: "unknown-data", updatedAt: Date.now() },
+                    },
+                },
+                known: {
+                    entries: {
+                        "1": { status: "success", args: 1, data: "known-data", updatedAt: Date.now() },
+                    },
+                },
+            },
+        };
+
+        hydrateSnapshot(snapshot, registry, null, 300_000);
+
+        // Warning emitted for unknown key
+        expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("unknown"),
+        );
+
+        // Known resource was still hydrated
+        const entry = resource.entry(1 as any);
+        expect(entry).not.toBeNull();
+        expect(entry!.peek().state.data).toBe("known-data");
+
+        warnSpy.mockRestore();
+    });
+
+    // T32: Partial hydration — mixed known + unknown keys
+    it("T32: partial hydration with mixed known and unknown resource keys", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const resource1 = createResource({ key: "users" });
+        const resource2 = createResource({ key: "items" });
+        const registry = new Map<string, ResourceV2<any, any, any>>();
+        registry.set("users", resource1);
+        registry.set("items", resource2);
+
+        const snapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            resources: {
+                users: {
+                    entries: {
+                        "1": { status: "success", args: 1, data: "user-1", updatedAt: Date.now() },
+                    },
+                },
+                posts: {
+                    entries: {
+                        "1": { status: "success", args: 1, data: "post-1", updatedAt: Date.now() },
+                    },
+                },
+                items: {
+                    entries: {
+                        "1": { status: "success", args: 1, data: "item-1", updatedAt: Date.now() },
+                    },
+                },
+            },
+        };
+
+        hydrateSnapshot(snapshot, registry, null, 300_000);
+
+        // Warning for unknown "posts" key
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("posts"),
+        );
+
+        // Both known resources hydrated
+        const userEntry = resource1.entry(1 as any);
+        const itemEntry = resource2.entry(1 as any);
+        expect(userEntry).not.toBeNull();
+        expect(userEntry!.peek().state.data).toBe("user-1");
+        expect(itemEntry).not.toBeNull();
+        expect(itemEntry!.peek().state.data).toBe("item-1");
+
+        warnSpy.mockRestore();
     });
 });

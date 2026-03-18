@@ -4,8 +4,8 @@ import type { TMachineStatus } from "@/query-v2/types/machine.types";
 import { Signal } from "@/signals";
 import type { ComputeFn, SignalFn } from "@/signals";
 
-import type { CacheEntry } from "./CacheEntry";
-import type { TMachineInstance } from "./machines/Machine";
+import type { CacheEntry } from "../common/CacheEntry";
+import type { TMachineInstance } from "../machines/Machine";
 import type { ResourceV2 } from "./ResourceV2";
 
 interface AgentTracking<TData, TError> {
@@ -13,6 +13,10 @@ interface AgentTracking<TData, TError> {
     current: CacheEntry<TData, TError> | null;
 }
 
+/**
+ * Agent that tracks a single cache entry with reactive state, designed for React hook consumption.
+ * Provides SWR (stale-while-revalidate) semantics by keeping previous data while new data loads.
+ */
 export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV2Agent<TArgs, TData, TError> {
     private readonly _resource: ResourceV2<TArgs, TData, TError>;
     private readonly _tracking$: SignalFn<AgentTracking<TData, TError>>;
@@ -24,12 +28,14 @@ export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV
     constructor(resource: ResourceV2<TArgs, TData, TError>) {
         this._resource = resource;
 
-        this._tracking$ = Signal.state<AgentTracking<TData, TError>>({
-            previous: null,
-            current: null,
-        });
+        // Agent signals are internal derived state for React hooks — only CacheEntry signals belong in devtools
+        this._tracking$ = Signal.state<AgentTracking<TData, TError>>(
+            { previous: null, current: null },
+            { isDisabled: true },
+        );
 
-        this._refreshError$ = Signal.state<TError | null>(null);
+        // Agent signal — excluded from devtools; only CacheEntry signals represent canonical cache state
+        this._refreshError$ = Signal.state<TError | null>(null, { isDisabled: true });
 
         // Subscribe to refresh errors from the resource
         this._unsubRefreshError = this._resource.onRefreshError((args, error) => {
@@ -38,6 +44,7 @@ export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV
             }
         });
 
+        // Agent signal — excluded from devtools; only CacheEntry signals represent canonical cache state
         this._state$ = Signal.compute<IResourceV2AgentState<TArgs, TData, TError>>(() => {
             const { previous, current } = this._tracking$();
 
@@ -95,13 +102,19 @@ export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV
                 isError,
                 refreshError: this._refreshError$(),
             };
-        });
+        }, { isDisabled: true });
     }
 
+    /** Computed reactive state signal — projects CacheEntry machine state into a flat agent state object. */
     get state$(): ComputeFn<IResourceV2AgentState<TArgs, TData, TError>> {
         return this._state$;
     }
 
+    /**
+     * Start (or re-start) the agent with new args. Skips if args are unchanged.
+     *
+     * @param args - Query arguments, or `SKIP_TOKEN` to do nothing.
+     */
     async start(args: TArgs | SKIP_TOKEN): Promise<void> {
         // SKIP: no-op
         if ((args as unknown) === SKIP) {

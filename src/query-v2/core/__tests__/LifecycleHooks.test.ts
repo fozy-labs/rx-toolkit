@@ -1,7 +1,7 @@
 import { stableStringify } from "@/query-v2/lib/stableStringify";
 
-import { CacheEntry } from "../CacheEntry";
-import { LifecycleHooks } from "../LifecycleHooks";
+import { CacheEntry } from "../common/CacheEntry";
+import { LifecycleHooks } from "../common/LifecycleHooks";
 import type { TMachineInstance } from "../machines/Machine";
 import { MachineIdle } from "../machines/MachineIdle";
 import { MachineSuccess } from "../machines/MachineSuccess";

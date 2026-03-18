@@ -7,7 +7,7 @@ import type {
 } from "@/query-v2/types/lifecycle.types";
 
 import type { CacheEntry } from "./CacheEntry";
-import type { TMachineInstance } from "./machines/Machine";
+import type { TMachineInstance } from "../machines/Machine";
 
 interface CacheEntryHookState<TData> {
     $cacheDataLoaded: PromiseResolver<TData>;

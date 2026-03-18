@@ -34,6 +34,9 @@ export { createApi } from "./api/createApi";
 export { ReactHooksPlugin } from "./plugins/ReactHooksPlugin";
 export type { IReactHooksPluginContributions } from "./plugins/ReactHooksPlugin";
 
+// React hooks (standalone)
+export { useResourceV2Agent, useResourceV2Ref } from "./react";
+
 // Snapshot
 export { getSnapshot, hydrateSnapshot, CURRENT_SNAPSHOT_VERSION } from "./snapshot/Snapshot";
 
