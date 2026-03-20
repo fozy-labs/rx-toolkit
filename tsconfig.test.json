@@ -1,9 +1,5 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-        "types": ["vitest/globals"],
-        "noEmit": true
-    },
+    "extends": ["./tsconfig.json", "@fozy-labs/js-configs/typescript/test"],
     "include": ["src/**/*.test.ts", "src/__tests__/**/*"],
     "exclude": ["node_modules", "dist"]
 }

@@ -1,32 +1,19 @@
-import { defineConfig } from 'vitest/config';
-import { fileURLToPath, URL } from 'node:url';
+import { defineConfig, mergeConfig } from "vitest/config";
+import { fileURLToPath, URL } from "node:url";
+import sharedConfig from "@fozy-labs/js-configs/vitest";
 
-export default defineConfig({
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['src/__tests__/setup.ts'],
-    include: ['src/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      include: ['src/common/**', 'src/signals/**', 'src/query/**', 'src/query-v2/**'],
-      exclude: [
-        'src/**/*.test.ts',
-        'src/**/index.ts',
-        'src/**/*.types.ts',
-      ],
-      thresholds: {
-        statements: 80,
-        branches: 80,
-        functions: 80,
-        lines: 80,
-      },
-    },
-    pool: 'forks',
-  },
-});
+export default mergeConfig(
+    sharedConfig,
+    defineConfig({
+        resolve: {
+            alias: {
+                "@": fileURLToPath(new URL("./src", import.meta.url)),
+            },
+        },
+        test: {
+            coverage: {
+                include: ["src/common/**", "src/signals/**", "src/query/**", "src/query-v2/**"],
+            },
+        },
+    }),
+);

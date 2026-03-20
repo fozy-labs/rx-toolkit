@@ -4,6 +4,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
+  "prettier": "@fozy-labs/js-configs/prettier",
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias",
     "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w\")",
@@ -18,8 +19,7 @@
     "format:check": "prettier --check src/"
   },
   "devDependencies": {
-    "@eslint/js": "^9.20.0",
-    "@ianvs/prettier-plugin-sort-imports": "^4.4.0",
+    "@fozy-labs/js-configs": "^0.1.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
@@ -27,7 +27,6 @@
     "@vitest/ui": "^4.0.18",
     "concurrently": "9.2.0",
     "eslint": "^9.20.0",
-    "eslint-config-prettier": "^10.1.0",
     "jiti": "^2.4.0",
     "jsdom": "^28.1.0",
     "prettier": "^3.5.0",
@@ -35,7 +34,6 @@
     "tsc-alias": "^1.8.16",
     "tsconfig-paths": "4.2.0",
     "typescript": "5.9.2",
-    "typescript-eslint": "^8.25.0",
     "vitest": "^4.0.18",
     "zod": "4.1.11"
   },
