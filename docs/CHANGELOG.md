@@ -88,8 +88,8 @@
 - **BatchStrategy**: настройка стратегии обновлений (`'sync'`, `'microtask'`, `'task'`)
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
-[0.5.3-rc.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.3-rc.1...v0.5.3-rc.2
-[0.5.3-rc.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.2...v0.5.3-rc.1
+[0.5.4]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.4.18...v0.5.0
