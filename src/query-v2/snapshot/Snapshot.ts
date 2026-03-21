@@ -69,7 +69,7 @@ export function hydrateSnapshot(
     if (snapshot.version !== CURRENT_SNAPSHOT_VERSION) {
         throw new Error(
             `Snapshot version mismatch: expected ${CURRENT_SNAPSHOT_VERSION}, got ${snapshot.version}. ` +
-            `The snapshot format is incompatible with the current version of query-v2.`,
+                `The snapshot format is incompatible with the current version of query-v2.`,
         );
     }
 
@@ -78,7 +78,7 @@ export function hydrateSnapshot(
     if (snapshot.keyPrefix !== apiKeyPrefix) {
         throw new Error(
             `Snapshot keyPrefix mismatch: expected "${apiKeyPrefix}", got "${snapshot.keyPrefix}". ` +
-            `Ensure the snapshot was created by the same API instance configuration.`,
+                `Ensure the snapshot was created by the same API instance configuration.`,
         );
     }
 

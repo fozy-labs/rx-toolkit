@@ -1,12 +1,13 @@
 import { Signal } from "@/signals";
 
-import { CacheEntry } from "./CacheEntry";
 import { MachineError } from "../machines/MachineError";
 import { MachineIdle } from "../machines/MachineIdle";
 import { MachinePending } from "../machines/MachinePending";
 import { MachineRefreshing } from "../machines/MachineRefreshing";
 import { MachineSuccess } from "../machines/MachineSuccess";
 import { MachineWithData } from "../machines/MachineWithData";
+
+import { CacheEntry } from "./CacheEntry";
 
 describe("CacheEntry", () => {
     it("peek() returns initial machine", () => {

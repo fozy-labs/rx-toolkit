@@ -1,7 +1,8 @@
+import type { ResourceV2 } from "@/query-v2";
+
 import type { IApi } from "./api.types";
 import type { IResourceV2Options } from "./resource.types";
 import type { Prettify } from "./shared.types";
-import type { ResourceV2 } from "@/query-v2";
 
 /** Plugin interface — all plugins must implement this */
 export interface IPlugin {

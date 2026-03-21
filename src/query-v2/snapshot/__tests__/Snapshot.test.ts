@@ -282,9 +282,7 @@ describe("Snapshot", () => {
         hydrateSnapshot(snapshot, registry, null, 300_000);
 
         // Warning emitted for unknown key
-        expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining("unknown"),
-        );
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unknown"));
 
         // Known resource was still hydrated
         const entry = resource.entry(1 as any);
@@ -330,9 +328,7 @@ describe("Snapshot", () => {
 
         // Warning for unknown "posts" key
         expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining("posts"),
-        );
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("posts"));
 
         // Both known resources hydrated
         const userEntry = resource1.entry(1 as any);

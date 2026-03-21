@@ -6,6 +6,7 @@ import type { ComputeFn, SignalFn } from "@/signals";
 
 import type { CacheEntry } from "../common/CacheEntry";
 import type { TMachineInstance } from "../machines/Machine";
+
 import type { ResourceV2 } from "./ResourceV2";
 
 interface AgentTracking<TData, TError> {
@@ -45,64 +46,67 @@ export class ResourceV2Agent<TArgs, TData, TError = Error> implements IResourceV
         });
 
         // Agent signal — excluded from devtools; only CacheEntry signals represent canonical cache state
-        this._state$ = Signal.compute<IResourceV2AgentState<TArgs, TData, TError>>(() => {
-            const { previous, current } = this._tracking$();
+        this._state$ = Signal.compute<IResourceV2AgentState<TArgs, TData, TError>>(
+            () => {
+                const { previous, current } = this._tracking$();
 
-            if (!current) {
+                if (!current) {
+                    return {
+                        status: "idle" as TMachineStatus,
+                        data: null,
+                        error: null,
+                        args: null,
+                        isLoading: false,
+                        isInitialLoading: false,
+                        isRefreshing: false,
+                        isSuccess: false,
+                        isError: false,
+                        refreshError: this._refreshError$(),
+                    };
+                }
+
+                // Read machine$ reactively — this is the key reactive subscription
+                const machine = current.machine$() as TMachineInstance<TData, TError>;
+                const machineState = machine.state;
+                const status = machineState.status as TMachineStatus;
+
+                // Determine previous data for SWR
+                let previousData: TData | null = null;
+                if (previous) {
+                    const prevMachine = previous.machine$() as TMachineInstance<TData, TError>;
+                    const prevState = prevMachine.state;
+                    if (prevState.data != null) {
+                        previousData = prevState.data as TData;
+                    }
+                }
+
+                const currentData = machineState.data as TData | null;
+                const isLoading = status === "pending" || status === "refreshing";
+                const isRefreshing = status === "refreshing";
+
+                // SWR: use previous data if current is loading and has no data yet
+                const data = currentData ?? (isLoading ? previousData : null);
+                const hasPreviousData = previousData !== null;
+                const isInitialLoading = isLoading && !hasPreviousData && currentData === null;
+                const isSuccess = data !== null;
+                const isError = status === "error";
+                const error = isError ? (machineState as { error: TError }).error : null;
+
                 return {
-                    status: "idle" as TMachineStatus,
-                    data: null,
-                    error: null,
-                    args: null,
-                    isLoading: false,
-                    isInitialLoading: false,
-                    isRefreshing: false,
-                    isSuccess: false,
-                    isError: false,
+                    status,
+                    data,
+                    error,
+                    args: (machineState.args as TArgs) ?? null,
+                    isLoading,
+                    isInitialLoading,
+                    isRefreshing,
+                    isSuccess,
+                    isError,
                     refreshError: this._refreshError$(),
                 };
-            }
-
-            // Read machine$ reactively — this is the key reactive subscription
-            const machine = current.machine$() as TMachineInstance<TData, TError>;
-            const machineState = machine.state;
-            const status = machineState.status as TMachineStatus;
-
-            // Determine previous data for SWR
-            let previousData: TData | null = null;
-            if (previous) {
-                const prevMachine = previous.machine$() as TMachineInstance<TData, TError>;
-                const prevState = prevMachine.state;
-                if (prevState.data != null) {
-                    previousData = prevState.data as TData;
-                }
-            }
-
-            const currentData = machineState.data as TData | null;
-            const isLoading = status === "pending" || status === "refreshing";
-            const isRefreshing = status === "refreshing";
-
-            // SWR: use previous data if current is loading and has no data yet
-            const data = currentData ?? (isLoading ? previousData : null);
-            const hasPreviousData = previousData !== null;
-            const isInitialLoading = isLoading && !hasPreviousData && currentData === null;
-            const isSuccess = data !== null;
-            const isError = status === "error";
-            const error = isError ? (machineState as { error: TError }).error : null;
-
-            return {
-                status,
-                data,
-                error,
-                args: (machineState.args as TArgs) ?? null,
-                isLoading,
-                isInitialLoading,
-                isRefreshing,
-                isSuccess,
-                isError,
-                refreshError: this._refreshError$(),
-            };
-        }, { isDisabled: true });
+            },
+            { isDisabled: true },
+        );
     }
 
     /** Computed reactive state signal — projects CacheEntry machine state into a flat agent state object. */

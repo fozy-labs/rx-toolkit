@@ -1,12 +1,12 @@
 import { Observable } from "rxjs";
 import { z, ZodType } from "zod/v4";
 
-import { State } from "@/signals/signals/State";
 import { type SignalOptionsOrKey, type StatefulSignalFn } from "@/signals/types";
 
 import { signalize } from "../operators";
 
 import { Computed } from "./Computed";
+import { State } from "./State";
 
 type StorageLike = {
     getItem(key: string): string | null;

@@ -44,10 +44,9 @@ describe("useResourceV2Agent (standalone)", () => {
         const { fn, calls } = controllableQueryFn<number, string>();
         const resource = createTestResource({ queryFn: fn });
 
-        const { result, rerender } = renderHook(
-            ({ args }) => useResourceV2Agent(resource, args),
-            { initialProps: { args: 1 as number } },
-        );
+        const { result, rerender } = renderHook(({ args }) => useResourceV2Agent(resource, args), {
+            initialProps: { args: 1 as number },
+        });
 
         // Resolve first query
         await act(async () => {
@@ -104,10 +103,9 @@ describe("useResourceV2Agent (standalone)", () => {
         const { fn, calls } = controllableQueryFn<number, string>();
         const resource = createTestResource({ queryFn: fn });
 
-        const { result, rerender } = renderHook(
-            ({ args }) => useResourceV2Agent(resource, args),
-            { initialProps: { args: 1 } },
-        );
+        const { result, rerender } = renderHook(({ args }) => useResourceV2Agent(resource, args), {
+            initialProps: { args: 1 },
+        });
 
         await act(async () => {
             calls[0].resolve("data-1");

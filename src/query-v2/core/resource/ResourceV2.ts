@@ -17,6 +17,7 @@ import { MachineIdle } from "../machines/MachineIdle";
 import { MachineRefreshing } from "../machines/MachineRefreshing";
 import { MachineSuccess } from "../machines/MachineSuccess";
 import { MachineWithData } from "../machines/MachineWithData";
+
 import { ResourceV2Agent } from "./ResourceV2Agent";
 
 export interface ResourceV2Config<TArgs, TData, TError = Error> {

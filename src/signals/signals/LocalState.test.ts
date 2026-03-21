@@ -1,7 +1,6 @@
 import { z } from "zod/v4";
 
 import { LocalSignal, LocalState } from "./LocalState";
-import { Signal } from "./Signal";
 
 const KEY_PREFIX = "__LSValue__";
 
