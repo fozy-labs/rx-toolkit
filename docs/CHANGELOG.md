@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.5.4] - 2026-03-21
+
+### Fixed
+- Removed unused `observable-hooks` dependency from `package.json`
+
 ## [0.5.3] - 2026-03-21
 
 ### Fixed
