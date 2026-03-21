@@ -4,10 +4,3 @@ export interface DevtoolsStateLike<T = any> {
 export interface DevtoolsLike {
     state<T>(name: string, initState: T): DevtoolsStateLike<T>;
 }
-
-export type StateDevtoolsOptions = {
-    isDisabled?: boolean,
-    name?: string,
-    base?: string,
-    _skipValues?: any[],
-} | string

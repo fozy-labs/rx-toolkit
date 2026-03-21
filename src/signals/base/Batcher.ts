@@ -29,7 +29,7 @@ const Scheduled = {
         fns?.forEach((fn) => fn());
         this.run();
     },
-}
+};
 
 export const Batcher = {
     scheduler(rang: number) {
@@ -37,15 +37,18 @@ export const Batcher = {
             schedule: (fn: () => void) => {
                 if (!Scheduled.isLocked) return fn();
                 Scheduled.set(rang, fn);
-            }
-        }
+            },
+        };
     },
     run<T>(fn: () => T) {
         if (Scheduled.isLocked) return fn();
         Scheduled.isLocked = true;
-        const v = fn();
-        Scheduled.run();
-        Scheduled.isLocked = false;
-        return v;
+        try {
+            const v = fn();
+            Scheduled.run();
+            return v;
+        } finally {
+            Scheduled.isLocked = false;
+        }
     },
-}
+};

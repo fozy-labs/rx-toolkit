@@ -2,16 +2,17 @@ import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
+    unstable_queryV2,
     Computed,
-    createOperation,
+    createCommand,
     createResource,
     createResourceDuplicator,
     Effect,
-    LocalSignal,
+    LocalState,
     resetAllQueriesCache,
     Signal,
     SKIP,
-    useOperationAgent,
+    useCommandAgent,
     useResourceAgent,
     useResourceRef,
     useSignal,
@@ -21,12 +22,14 @@ import {
     Card,
     CardBody,
     CardHeader,
+    CardFooter,
     Checkbox,
     Chip,
     Divider,
     Input,
     Select,
     SelectItem,
+    Slider,
     Switch,
     Tab,
     Tabs,
@@ -64,31 +67,34 @@ export function LiveExample({
     const [code, setCode] = React.useState(initialCode);
 
     const defaultScope = {
+        unstable_queryV2,
         Button,
         Card,
         CardBody,
         CardHeader,
+        CardFooter,
         Checkbox,
         Chip,
         Computed,
-        createOperation,
+        createCommand,
         createResource,
         createResourceDuplicator,
         Divider,
         Effect,
         fetches,
         Input,
-        LocalSignal,
+        LocalState,
         React,
         resetAllQueriesCache,
         Select,
         SelectItem,
         Signal,
         SKIP,
+        Slider,
         Switch,
         Tab,
         Tabs,
-        useOperationAgent,
+        useCommandAgent,
         useResourceAgent,
         useResourceRef,
         useSignal,
@@ -143,9 +149,10 @@ export function LiveExample({
                                     />
                                 </div>
                                 <div className="p-6">
-                                    <LivePreview/>
+                                    <LivePreview />
                                     <LiveError
-                                        className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"/>
+                                        className="mt-4 p-3 bg-danger-50 text-danger rounded-md text-sm font-mono whitespace-pre-wrap"
+                                    />
                                 </div>
                             </div>
                         </div>

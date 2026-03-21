@@ -1,0 +1,28 @@
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components/index.ts";
+import { QueryV2 } from "../examples";
+
+# Запросы (команды и ресурсы)
+
+## Примеры
+
+<QueryTabs>
+    <Tab key="simpleResource" title="Простой ресурс">
+        <LiveExample
+            title=""
+            initialCode={QueryV2.examples.simpleResource}
+        />
+    </Tab>
+    <Tab key="optimisticPatches" title="Оптимистичные обновления">
+        <LiveExample
+            title=""
+            initialCode={QueryV2.examples.optimisticPatches}
+        />
+    </Tab>
+    <Tab key="ssrSnapshot" title="Snapshots">
+        <LiveExample
+            title=""
+            initialCode={QueryV2.examples.ssrSnapshot}
+        />
+    </Tab>
+</QueryTabs>

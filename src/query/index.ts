@@ -1,10 +1,19 @@
-export * from './api/createResource';
-export * from './api/createOperation';
-export * from './api/resetAllQueriesCache';
-export * from './api/createResourceDuplicator';
+// Command API
+export * from "./api/createCommand";
+export * from "./react/useCommandAgent";
 
-export * from './SKIP_TOKEN';
+// Resource API
+export * from "./api/createResource";
+export * from "./api/createResourceDuplicator";
+export * from "./api/resetAllQueriesCache";
 
-export * from './react/useResourceAgent';
-export * from './react/useResourceRef';
-export * from './react/useOperationAgent';
+export * from "./SKIP_TOKEN";
+
+export * from "./types";
+
+export * from "./react/useResourceAgent";
+export * from "./react/useResourceRef";
+
+// Deprecated Operation API (backward compatibility)
+export * from "./api/createOperation";
+export * from "./react/useOperationAgent";

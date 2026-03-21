@@ -11,7 +11,7 @@ RxToolkit предоставляет набор React хуков для эффе
 ```tsx
 import { Signal, Computed, useSignal } from '@fozy-labs/rx-toolkit';
 
-const counter$ = Signal.create(0);
+const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
 
 function Counter() {
@@ -83,7 +83,7 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `isDone`           | `boolean`   | Завершен ли запрос                    |
 | `isSuccess`        | `boolean`   | Успешно ли завершен последний запрос  |
 | `isError`          | `boolean`   | Произошла ли ошибка                   |
-| `isLocked`         | `boolean`   | Заблокирован ли ресурс для операцией  |
+| `isLocked`         | `boolean`   | Заблокирован ли ресурс командой       |
 | `error`            | `unknown`   | Объект ошибки                         |
 | `data`             | `D["Data"]` | Данные ресурса                        |
 | `args`             | `D["Args"]` | Аргументы последнего запроса          |
@@ -94,16 +94,18 @@ function UserProfile({ userId }: { userId: string | null }) {
 - Поддержка `SKIP` токена для условного пропуска запроса
 - При смене аргументов показывает предыдущие данные во время загрузки новых
 
-### useOperationAgent
+### useCommandAgent
 
-Создает агент операции и возвращает кортеж `[trigger, state]`.
+Создает агент команды и возвращает кортеж `[trigger, state]`.
+
+> **Note:** `useOperationAgent` является deprecated-алиасом для `useCommandAgent` и будет удалён в v0.6.0.
 
 ```tsx
-import { useOperationAgent } from '@fozy-labs/rx-toolkit';
-import { updateUserOperation } from '../api/updateUserOperation';
+import { useCommandAgent } from '@fozy-labs/rx-toolkit';
+import { updateUserCommand } from '../api/updateUserCommand';
 
 function EditUserForm({ user }: { user: User }) {
-    const [updateUser, updateState] = useOperationAgent(updateUserOperation);
+    const [updateUser, updateState] = useCommandAgent(updateUserCommand);
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -140,13 +142,13 @@ function EditUserForm({ user }: { user: User }) {
 **Возвращаемое значение:**
 ```typescript
 [
-    trigger: (args: Args) => Promise<Data>,  // Функция запуска операции
-    state: OperationQueryState               // Текущее состояние
+    trigger: (args: Args) => Promise<Data>,  // Функция запуска команды
+    state: CommandQueryState                 // Текущее состояние
 ]
 ```
 
 **trigger функция:**
-- Возвращает Promise с результатом операции
+- Возвращает Promise с результатом команды
 - При ошибке Promise реджектится
 - Функция стабильна (не меняется между рендерами)
 
@@ -154,13 +156,13 @@ function EditUserForm({ user }: { user: User }) {
 
 | Поле          | Тип         | Описание                  |
 |---------------|-------------|---------------------------|
-| `isInitiated` | `boolean`   | Была ли операция запущена |
-| `isLoading`   | `boolean`   | Выполняется ли операция   |
-| `isDone`      | `boolean`   | Завершена ли операция     |
+| `isInitiated` | `boolean`   | Была ли команда запущена  |
+| `isLoading`   | `boolean`   | Выполняется ли команда    |
+| `isDone`      | `boolean`   | Завершена ли команда      |
 | `isSuccess`   | `boolean`   | Успешно ли завершена      |
 | `isError`     | `boolean`   | Произошла ли ошибка       |
 | `error`       | `unknown`   | Объект ошибки             |
-| `data`        | `D["Data"]` | Результат операции        |
+| `data`        | `D["Data"]` | Результат команды         |
 
 ### useResourceRef
 
@@ -221,7 +223,7 @@ function TodoItem({ todo }: { todo: Todo }) {
 }
 ```
 
-**Возвращаемое значение (ResourceRefInstanse):**
+**Возвращаемое значение (ResourceRefInstance):**
 
 | Метод | Описание |
 |-------|----------|
@@ -243,7 +245,7 @@ function TodoItem({ todo }: { todo: Todo }) {
 import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
 
 class CounterStore {
-    count$ = Signal.create(0, 'counter');
+    count$ = Signal.state(0, 'counter');
     doubled$ = Signal.compute(() => this.count$() * 2);
     
     increment = () => this.count$.set(this.count$() + 1);

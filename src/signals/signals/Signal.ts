@@ -1,78 +1,27 @@
-import { BehaviorSubject } from "rxjs";
-import { DevtoolsStateLike, StateDevtoolsOptions } from "@/common/devtools";
+import type { SignalOptionsOrKey } from "@/signals/types";
 import { SignalFn } from "@/signals/types";
-import { Computed, Effect } from "@/signals";
-import { Batcher, DependencyTracker, Devtools } from "../base";
 
-export class Signal<T> {
-    private readonly _stateDevtools;
-    private _rang = 0;
-    protected readonly bs$;
-    readonly obs;
+import { Computed } from "./Computed";
+import { Effect } from "./Effect";
+import { State } from "./State";
 
-    constructor(
-        initialValue: T,
-        options?: StateDevtoolsOptions,
-    ) {
-        this.bs$ = new BehaviorSubject<T>(initialValue);
-        this.obs = this.bs$.asObservable();
-
-        this._stateDevtools = Devtools.createState(initialValue, {
-            base: Signal.name,
-            ...(typeof options === 'string' ? { name: options } : options)
-        });
-
-        if (this._stateDevtools) {
-            Signal._finalizationRegistry.register(this, this._stateDevtools);
-        }
+export class Signal<T> extends State<T> {
+    /** @deprecated use `State` instead */
+    // eslint-disable-next-line @typescript-eslint/no-useless-constructor
+    constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
+        super(initialValue, options);
     }
 
-    peek(): T {
-        return this.bs$.getValue();
+    /** @deprecated use `state` instead */
+    static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
+        return this.state(initialValue, options);
     }
 
-    set(value: T) {
-        if (value === this.bs$.value) {
-            return;
-        }
-
-        Batcher.run(() => {
-            this._stateDevtools?.(value);
-            this.bs$.next(value);
-        });
+    static state<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
+        return State.create(initialValue, options);
     }
 
-    get() {
-        DependencyTracker.track({
-            getRang: () => this._rang,
-            obs: this.obs,
-            peek: () => this.peek(),
-        });
-        return this.bs$.getValue();
-    }
-
-    // === static ===
-
-    private static _finalizationRegistry = new FinalizationRegistry((heldValue: DevtoolsStateLike) => {
-        heldValue('$COMPLETED' as any);
-    });
-
-    static create<T>(initialValue: T, options?: StateDevtoolsOptions): SignalFn<T> {
-        const ls = new Signal(initialValue, options);
-
-        function signalFn() {
-            return ls.get();
-        }
-
-        signalFn.peek = () => ls.peek();
-        signalFn.set = (value: T) => ls.set(value);
-        signalFn.get = () => ls.get();
-        signalFn.obs = ls.obs;
-
-        return signalFn;
-    }
-
-    static compute<T>(computeFn: () => T, options?: StateDevtoolsOptions) {
+    static compute<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>) {
         return Computed.create(computeFn, options);
     }
 

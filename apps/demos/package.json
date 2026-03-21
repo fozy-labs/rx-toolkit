@@ -4,7 +4,8 @@
   "description": "Интерактивная документация и демонстрации rx-toolkit",
   "type": "module",
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -22,12 +23,18 @@
     "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.20.0",
     "@tailwindcss/vite": "4.1.17",
     "@types/react": "19.2.4",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "4.7.0",
+    "eslint": "^9.20.0",
+    "eslint-config-prettier": "^10.1.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "jiti": "^2.4.0",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3",
+    "typescript-eslint": "^8.25.0",
     "vite": "5.4.21",
     "vite-tsconfig-paths": "5.1.4"
   }

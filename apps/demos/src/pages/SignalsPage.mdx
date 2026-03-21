@@ -1,23 +1,23 @@
-import { Tab, Tabs } from "@heroui/react";
-import { LiveExample } from "../components";
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components";
 import { Signals } from "../examples";
 
 # Сигналы
 
 ## Примеры
 
-<Tabs>
+<QueryTabs>
     <Tab key="store" title="Счетчик">
         <LiveExample
             title="Реактивный счетчик"
             initialCode={Signals.examples.counterStore}
         />
     </Tab>
-    <Tab key="local" title="LocalSignal">
+    <Tab key="local" title="LocalState">
         <LiveExample
             title="Локальное хранилище"
-            initialCode={Signals.examples.localSignal}
+            initialCode={Signals.examples.localState}
         />
     </Tab>
-</Tabs>
+</QueryTabs>
 

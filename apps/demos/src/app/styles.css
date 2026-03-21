@@ -11,6 +11,7 @@
 .prism-code {
     overflow: auto;
     max-height: 700px;
+    counter-reset: line;
 
     .token-line {
         text-wrap: nowrap;
@@ -32,4 +33,13 @@
         background: gray;
         cursor: default;
     }
+}
+
+.prism-code .token-line::before {
+    counter-increment: line;
+    content: counter(line);
+    display: inline-block;
+    width: 2em;
+    color: gray;
+    opacity: 0.4;
 }

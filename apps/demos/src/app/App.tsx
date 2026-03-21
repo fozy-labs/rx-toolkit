@@ -12,6 +12,7 @@ DefaultOptions.update({
 import HomePage from '../pages/HomePage.mdx';
 import SignalsPage from '../pages/SignalsPage.mdx';
 import QueriesPage from '../pages/QueriesPage.mdx';
+import QueriesV2Page from '../pages/QueriesV2Page.mdx';
 
 export default function App() {
     const location = useLocation();
@@ -28,17 +29,22 @@ export default function App() {
                 <NavbarContent className="gap-4" justify="center">
                     <NavbarItem isActive={location.pathname === '/'}>
                         <Link to="/" className={location.pathname === '/' ? 'text-primary' : 'text-foreground'}>
-                            Главная
+                            Home
                         </Link>
                     </NavbarItem>
                     <NavbarItem isActive={location.pathname === '/signals'}>
                         <Link to="/signals" className={location.pathname === '/signals' ? 'text-primary' : 'text-foreground'}>
-                            Сигналы
+                            Signals
                         </Link>
                     </NavbarItem>
                     <NavbarItem isActive={location.pathname === '/queries'}>
                         <Link to="/queries" className={location.pathname === '/queries' ? 'text-primary' : 'text-foreground'}>
-                            Запросы
+                            Query
+                        </Link>
+                    </NavbarItem>
+                    <NavbarItem isActive={location.pathname === '/queries-v2'}>
+                        <Link to="/queries-v2" className={location.pathname === '/queries-v2' ? 'text-primary' : 'text-foreground'}>
+                            Query-V2
                         </Link>
                     </NavbarItem>
                 </NavbarContent>
@@ -49,6 +55,7 @@ export default function App() {
                     <Route path="/" element={<HomePage />}/>
                     <Route path="/signals" element={<SignalsPage />}/>
                     <Route path="/queries" element={<QueriesPage />}/>
+                    <Route path="/queries-v2" element={<QueriesV2Page />}/>
                 </Routes>
             </main>
         </div>

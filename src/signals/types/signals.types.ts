@@ -7,12 +7,17 @@ export interface ReadableSignalLike<T> {
 }
 
 export interface ReadableSignalFnLike<T> extends ReadableSignalLike<T> {
-    (): T,
+    (): T;
 }
 
 export interface WriteableSignalLike<T> {
     set(value: T): void;
 }
 
+export interface ClearableSignalLike<_T> {
+    clear(): void;
+}
+
+export interface StatefulSignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T>, ClearableSignalLike<T> {}
 export interface SignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T> {}
-export interface ComputeFn<T> extends ReadableSignalFnLike<T> {}
+export type ComputeFn<T> = ReadableSignalFnLike<T>;

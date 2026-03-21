@@ -6,21 +6,21 @@ RxSignals — это реактивная система управления с
 
 ### Реактивность на основе значений
 
-Сигналы (`Signal`) хранят текущее состояние, а производные сущности (`Computed`, `Effect`) автоматически отслеживают зависимости,
-применяея кеширование на основе *значений*. Это приводит к тому, что в отличие от классического RxJS-подхода, 
+Сигналы (`State`) хранят текущее состояние, а производные сущности (`Computed`, `Effect`) автоматически отслеживают зависимости,
+применяя кеширование на основе *значений*. Это приводит к тому, что в отличие от классического RxJS-подхода,  
 где каждое `next()` — это событие, в RxSignals важен именно факт *изменения значения*.
 
-### Signal
+### State
 
-Базовый класс для создания реактивных сигналов с изменяемым состоянием.
+База для создания реактивных сигналов с изменяемым состоянием.
 
 **Пример использования:**
 
 ```typescript
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-const name = Signal.create('John');
-const age = Signal.create(25);
+const name = Signal.state('John');
+const age = Signal.state(25);
 
 // Чтение значения (с отслеживанием зависимостей)
 console.log(name()); // "John"
@@ -53,8 +53,8 @@ subscription.unsubscribe();
 ```typescript
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-const firstName = Signal.create('John');
-const lastName = Signal.create('Doe');
+const firstName = Signal.state('John');
+const lastName = Signal.state('Doe');
 
 const fullName = Signal.compute(() => `${firstName()} ${lastName()}`);
 
@@ -81,8 +81,8 @@ fullName.obs.subscribe(name => console.log(name));
 ```typescript
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-const count = Signal.create(0);
-const message = Signal.create('Hello');
+const count = Signal.state(0);
+const message = Signal.state('Hello');
 
 const effect = Signal.effect(() => {
   // Выведет: "Hello: 0" при инициализации
@@ -117,13 +117,13 @@ const effect = Signal.effect(() => {
 RxSignals поддерживает как функциональный, так и классовый стили создания сигналов, позволяя выбрать подход в зависимости от предпочтений и архитектуры приложения.
 #### Функциональный стиль (рекомендуемый)
 
-Используйте статические методы `Signal.create`,`Signal.compute` и `Signal.effect` для создания сигналов. 
+Используйте статические методы `Signal.state`,`Signal.compute` и `Signal.effect` для создания сигналов. 
 Этот стиль лаконичен, похож на SolidJS и подходит для большинства случаев:
 
 ```tszz
 import { Signal } from '@fozy-labs/rx-toolkit';
 
-const count = Signal.create(0);
+const count = Signal.state(0);
 const doubled = Signal.compute(() => count() * 2);
 const logEffect = Signal.effect(() => console.log(doubled()));
 ```
@@ -135,9 +135,9 @@ const logEffect = Signal.effect(() => console.log(doubled()));
 учтите, что вызов `()` недоступен и нужно использовать `get()`:
 
 ```ts
-import { Signal, Computed, Effect } from '@fozy-labs/rx-toolkit';
+import { State, Computed, Effect } from '@fozy-labs/rx-toolkit';
 
-const count = new Signal(0);
+const count = new State(0);
 const doubled = new Computed(() => count.get() * 2);
 const logEffect = new Effect(() => console.log(doubled.get()));
 ```
@@ -158,13 +158,13 @@ const customSignal = new ReadonlySignal((subscriber) => {
 });
 ```
 
-### LocalSignal
+### LocalState
 
 Сигнал, который автоматически синхронизируется с `localStorage`.
 
 ```typescript
 import { z } from 'zod/v4';
-import { LocalSignal } from '@fozy-labs/rx-toolkit';
+import { LocalState } from '@fozy-labs/rx-toolkit';
 
 enum FILTER {
     ALL = 'all',
@@ -173,24 +173,29 @@ enum FILTER {
     MEETINGS = 'meetings',
 }
 
-const selectedFilter$ = LocalSignal.create({
+const selectedFilter$ = LocalState.create({
     key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
     zodSchema: z.nativeEnum(FILTER), // Опционально: валидация через Zod
 });
 
 // Использование
-console.log(selectedFilter$.peek()); // Значение из localStorage или FILTER.ALL
+console.log(selectedFilter$()); // Значение из localStorage или FILTER.ALL
 selectedFilter$.set(FILTER.CHANNELS); // Сохраняется в localStorage
+
+function logout() {
+    selectedFilter$.clear(); // Удаляет значение из localStorage (сбрасывает на defaultValue)
+}
 ```
 
-**Опции LocalSignal:**
+**Опции LocalState:**
 - `key` — ключ для localStorage
 - `defaultValue` — значение по умолчанию
 - `zodSchema` — опциональная Zod-схема для валидации
 - `userId` — опциональный идентификатор пользователя для изоляции данных
 - `checkEffect` — функция валидации значения
 - `devtoolsOptions` — настройки для devtools
+- `driver` — драйвер для хранения (по умолчанию localStorage, можно заменить на кастомный драйвер)
 
 ## Операторы
 
@@ -227,8 +232,8 @@ RxSignals автоматически группирует множественн
 - Предсказуемый порядок выполнения эффектов
 
 ```typescript
-const a = Signal.create(1);
-const b = Signal.create((2);
+const a = Signal.state(1);
+const b = Signal.state(2);
 const sum = Signal.compute(() => a() + b());
 
 new Effect(() => {
@@ -251,7 +256,7 @@ Batcher.run(() => {
 import { filter, take, debounceTime } from 'rxjs';
 import { Signal, Computed, signalize } from '@fozy-labs/rx-toolkit';
 
-const clicks = Signal.create(0);
+const clicks = Signal.state(0);
 
 // Используем RxJS операторы
 const tenClicks$ = clicks.obs.pipe(
@@ -282,10 +287,10 @@ const doubled = Signal.compute(() => debouncedClicks$() * 2);
 import { Signal } from '@fozy-labs/rx-toolkit';
 
 // С именем для devtools
-const count$ = Signal.create(0, 'counter');
+const count$ = Signal.state(0, 'counter');
 
 // Или с расширенными опциями
-const user$ = Signal.create(null, {
+const user$ = Signal.state(null, {
     isDisabled: false, // Отключить отслеживание в devtools
 });
 ```

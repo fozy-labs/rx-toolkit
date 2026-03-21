@@ -2,14 +2,11 @@ import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody } from "@heroui/react";
 
 class CounterStore {
-    count$ = Signal.create(0);
+    count$ = Signal.state(0);
     doubled$ = Signal.compute(() => this.count$() * 2);
     squared$ = Signal.compute(() => (this.doubled$() / 2) ** 2);
 
-    increment = () => {
-        console.log('INCREMENT');
-        this.count$.set(this.count$() + 1);
-    };
+    increment = () => this.count$.set(this.count$() + 1);
     decrement = () => this.count$.set(this.count$() - 1);
     reset = () => this.count$.set(0);
 }

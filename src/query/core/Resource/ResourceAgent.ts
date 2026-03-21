@@ -1,82 +1,87 @@
+import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
 import { Computed, Signal } from "@/signals";
-import { ResourceAgentInstance, ResourceDefinition, ResourceQueryState } from "@/query/types";
-import type { CoreResourceQueryCache, Resource } from "./Resource"
+
+import type { CoreResourceQueryCache, Resource } from "./Resource";
 
 export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
-    private _resources$ = Signal.create({
-        previous$: null as CoreResourceQueryCache<D> | null,
-        current$: null as CoreResourceQueryCache<D> | null,
-    }, { isDisabled: true });
+    private _resources$ = Signal.state(
+        {
+            previous$: null as CoreResourceQueryCache<D> | null,
+            current$: null as CoreResourceQueryCache<D> | null,
+        },
+        { isDisabled: true },
+    );
 
-    state$ = Computed.create(() => {
-        const resources = this._resources$.get();
-        let prevState;
-        const currState = resources.current$?.value$.get();
+    state$ = Computed.create(
+        () => {
+            const resources = this._resources$.get();
+            let prevState;
+            const currState = resources.current$?.value$.get();
 
-        // Отлавливаем кейс, когда ресурс был спрошен.
-        // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
-        //  но в будущем могут быть и другие причины, что потребует доработку.
-        if (currState && !currState.isInitiated) {
-            this._resource.initiate(currState.args!, { cache: resources.current$! });
-            return {
-                isInitiated: true,
-                isLoading: true,
-                isInitialLoading: true,
-                isDone: false,
-                isSuccess: false,
-                isError: false,
-                isReloading: false,
-                error: undefined,
-                data: undefined,
-                // TODO вообще нет точного представлния, как блокировака доложна работать.
-                //  Мб тут стоит брать currState.isLocked.
-                isLocked: false,
-                args: currState.args!,
+            // Отлавливаем кейс, когда ресурс был спрошен.
+            // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
+            //  но в будущем могут быть и другие причины, что потребует доработку.
+            if (currState && !currState.isInitiated) {
+                this._resource.initiate(currState.args!, { cache: resources.current$! });
+                return {
+                    isInitiated: true,
+                    isLoading: true,
+                    isInitialLoading: true,
+                    isDone: false,
+                    isSuccess: false,
+                    isError: false,
+                    isReloading: false,
+                    error: undefined,
+                    data: undefined,
+                    // TODO вообще нет точного представлния, как блокировака доложна работать.
+                    //  Мб тут стоит брать currState.isLocked.
+                    isLocked: false,
+                    args: currState.args!,
+                };
             }
-        }
 
-        if (!currState?.isDone) {
-            prevState = resources.previous$?.value;
-        }
+            if (!currState?.isDone) {
+                prevState = resources.previous$?.value;
+            }
 
-        // Нет текущего состояния — дефолт
-        if (!currState) {
+            // Нет текущего состояния — дефолт
+            if (!currState) {
+                return {
+                    isInitiated: false,
+                    isLoading: false,
+                    isInitialLoading: false,
+                    isDone: false,
+                    isSuccess: false,
+                    isError: false,
+                    isLocked: false,
+                    isReloading: false,
+                    error: undefined,
+                    data: undefined,
+                    args: undefined as D["Args"],
+                };
+            }
+
+            // Если идёт загрузка, но есть успешные данные из прошлого запроса — показываем их
+            const isShowPrev = currState.isLoading && prevState && prevState.isSuccess;
+
             return {
-                isInitiated: false,
-                isLoading: false,
-                isInitialLoading: false,
-                isDone: false,
-                isSuccess: false,
-                isError: false,
-                isLocked: false,
-                isReloading: false,
-                error: undefined,
-                data: undefined,
-                args: undefined as D["Args"],
+                isInitiated: currState.isInitiated || !!prevState,
+                isLoading: currState.isLoading,
+                isInitialLoading: currState.isLoading && !currState.isDone && !prevState?.isDone,
+                isDone: currState.isDone,
+                isSuccess: currState.isSuccess,
+                isError: currState.isError,
+                isLocked: currState.isLocked,
+                isReloading: currState.isReloading,
+                error: isShowPrev ? (prevState!.error ?? undefined) : (currState.error ?? undefined),
+                data: isShowPrev ? (prevState!.data ?? undefined) : (currState.data ?? undefined),
+                args: currState.args ?? undefined,
             };
-        }
+        },
+        { isDisabled: true },
+    );
 
-        // Если идёт загрузка, но есть успешные данные из прошлого запроса — показываем их
-        const isShowPrev = currState.isLoading && prevState && prevState.isSuccess;
-
-        return {
-            isInitiated: currState.isInitiated || !!prevState,
-            isLoading: currState.isLoading,
-            isInitialLoading: currState.isLoading && !currState.isDone && !prevState?.isDone,
-            isDone: currState.isDone,
-            isSuccess: currState.isSuccess,
-            isError: currState.isError,
-            isLocked: currState.isLocked,
-            isReloading: currState.isReloading,
-            error: isShowPrev ? prevState!.error ?? undefined : currState.error ?? undefined,
-            data: isShowPrev ? prevState!.data ?? undefined : currState.data ?? undefined,
-            args: currState.args ?? undefined,
-        };
-    }, { isDisabled: true });
-
-    constructor(
-        private _resource: Resource<D>,
-    ) {}
+    constructor(private _resource: Resource<D>) {}
 
     initiate(args: D["Args"], force = false): void {
         const current = this._resources$.peek().current$;

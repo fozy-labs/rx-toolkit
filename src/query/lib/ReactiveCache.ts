@@ -1,4 +1,5 @@
 import { BehaviorSubject, finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
+
 import { signalize } from "@/signals";
 import { ReadableSignalLike } from "@/signals/types";
 
@@ -14,7 +15,7 @@ type Options<VALUE> = {
      * @default 60_000 (1 минута)
      */
     cacheLifeTime?: number | false;
-}
+};
 
 /**
  * Класс `ReactiveCache` представляет собой реактивный кэш,
@@ -57,20 +58,20 @@ export class ReactiveCache<VALUE> {
         const cacheLifeTime = options.cacheLifeTime ?? 60_000;
         this._state$ = new BehaviorSubject(options.initialState);
 
-        this.spy$ = this._state$.pipe(
-            takeUntil(this.onClean$)
-        );
+        this.spy$ = this._state$.pipe(takeUntil(this.onClean$));
 
-        this.value$ = signalize(this._state$.pipe(
-            finalize(() => {
-                this.complete();
-            }),
-            share({
-                connector: () => new ReplaySubject(1),
-                resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
-                resetOnComplete: true,
-            }),
-        ));
+        this.value$ = signalize(
+            this._state$.pipe(
+                finalize(() => {
+                    this.complete();
+                }),
+                share({
+                    connector: () => new ReplaySubject(1),
+                    resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
+                    resetOnComplete: true,
+                }),
+            ),
+        );
     }
 
     private _getOnRefCountZero(cacheLifeTime: number | false) {

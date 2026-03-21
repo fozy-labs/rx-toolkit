@@ -1,56 +1,53 @@
+import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, timer } from "rxjs";
+
 import { ResourceDefinition } from "@/query/types";
-import { CoreResourceQueryCache, CoreResourceQueryState, Resource } from "./Resource";
 import { Signal, signalize } from "@/signals";
-import { ReadableSignalFnLike, ReadableSignalLike } from "@/signals/types";
-import { finalize, Observable, ReplaySubject, share, Subject, takeUntil, tap, timer } from "rxjs";
-import { ResourceAgent } from "@/query/core/Resource/ResourceAgent";
+import { ReadableSignalLike } from "@/signals/types";
+
+import { CoreResourceQueryCache, CoreResourceQueryState, Resource } from "./Resource";
 import { ResourceDuplicatorAgent } from "./ResourceDuplicatorAgent";
 
 export type DuplicatorOptions<D extends DuplicatorDefinition> = {
-    resource: Resource<D['RESOURCE_DEFINITION']>;
-    getArgKey: (item: D['ARGS_ITEM']) => string | number
-    getDataKey: (item: D['DATA_ITEM']) => string | number
+    resource: Resource<D["RESOURCE_DEFINITION"]>;
+    getArgKey: (item: D["ARGS_ITEM"]) => string | number;
+    getDataKey: (item: D["DATA_ITEM"]) => string | number;
     cacheLifetime?: number | false;
-}
+};
 
-type FrowardInfo<D extends ResourceDefinition> = {
+type ForwardInfo<D extends ResourceDefinition> = {
     k: number;
-    cache: CoreResourceQueryCache<D>
-}
+    cache: CoreResourceQueryCache<D>;
+};
 
-export type DuplicatorDefinition<
-    D extends ResourceDefinition = ResourceDefinition
-> = {
-    ARGS_ITEM: D['Args'] extends Array<any> ? D['Args'][number] : never;
-    DATA_ITEM: D['Data'] extends Array<any> ? D['Data'][number] : never;
+export type DuplicatorDefinition<D extends ResourceDefinition = ResourceDefinition> = {
+    ARGS_ITEM: D["Args"] extends Array<any> ? D["Args"][number] : never;
+    DATA_ITEM: D["Data"] extends Array<any> ? D["Data"][number] : never;
     RESOURCE_DEFINITION: D;
-}
+};
 
-type State<D extends DuplicatorDefinition> = CoreResourceQueryState<D['RESOURCE_DEFINITION']> & {
-    unreleasedArgs?: D['ARGS_ITEM'][];
-}
+type State<D extends DuplicatorDefinition> = CoreResourceQueryState<D["RESOURCE_DEFINITION"]> & {
+    unreleasedArgs?: D["ARGS_ITEM"][];
+};
 type Cache<D extends DuplicatorDefinition> = ComputedReactiveCache<State<D>>;
 export type CoreResourceDuplicatorCache<D extends DuplicatorDefinition> = Cache<D>;
 
 export class ResourceDuplicator<D extends DuplicatorDefinition> {
-    private _fis = new Map<string | number, FrowardInfo<D['RESOURCE_DEFINITION']>>();
+    private _fis = new Map<string | number, ForwardInfo<D["RESOURCE_DEFINITION"]>>();
     private _caches;
     private get _resource() {
         return this._options.resource;
     }
 
-    constructor(
-        private _options: DuplicatorOptions<D>
-    ) {
+    constructor(private _options: DuplicatorOptions<D>) {
         this._caches = new Map<string, ComputedReactiveCache<State<D>>>();
     }
 
-    getQueryCache(args: D['ARGS_ITEM'][]): Cache<D> | undefined {
+    getQueryCache(args: D["ARGS_ITEM"][]): Cache<D> | undefined {
         const key = this.serialize(args);
         return this._caches.get(key);
     }
 
-    createCache(args: D['ARGS_ITEM'][]): Cache<D> {
+    createCache(args: D["ARGS_ITEM"][]): Cache<D> {
         const key = this.serialize(args);
 
         const { value$ } = this.d_init(args);
@@ -62,7 +59,7 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
         });
 
         cache.onClean$.subscribe(() => {
-            args.forEach(arg => {
+            args.forEach((arg) => {
                 const argKey = this._options.getArgKey(arg);
                 const fi = this._fis.get(argKey);
                 if (!fi) return;
@@ -79,7 +76,7 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
         return cache;
     }
 
-    initiate(args: D['ARGS_ITEM'][], cache?: Cache<D>): Cache<D> {
+    initiate(args: D["ARGS_ITEM"][], cache?: Cache<D>): Cache<D> {
         const cacheInstance = cache ?? this.getQueryCache(args) ?? this.createCache(args);
 
         const unreleasedArgs = cacheInstance.value.unreleasedArgs;
@@ -88,13 +85,11 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
             this._resource.initiate(unreleasedArgs);
         }
 
-        const uninitiatedCaches = new Set<CoreResourceQueryCache<D['RESOURCE_DEFINITION']>>();
+        const uninitiatedCaches = new Set<CoreResourceQueryCache<D["RESOURCE_DEFINITION"]>>();
 
-        console.log({ uninitiatedCaches, fis: this._fis });
-
-        args.forEach(arg => {
+        args.forEach((arg) => {
             const argKey = this._options.getArgKey(arg);
-            let fi = this._fis.get(argKey);
+            const fi = this._fis.get(argKey);
             if (fi && !fi.cache.value.isInitiated) {
                 uninitiatedCaches.add(fi.cache);
             }
@@ -107,29 +102,29 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
         return cacheInstance;
     }
 
-    serialize(args: D['ARGS_ITEM'][]): string {
-        if (!args) return '';
-        const argsKeys = args.map(a => this._options.getArgKey(a));
-        return argsKeys.join('|');
+    serialize(args: D["ARGS_ITEM"][]): string {
+        if (!args) return "";
+        const argsKeys = args.map((a) => this._options.getArgKey(a));
+        return argsKeys.join("|");
     }
 
-    compareArgs(a: D['ARGS_ITEM'][], b: D['ARGS_ITEM'][]): boolean {
+    compareArgs(a: D["ARGS_ITEM"][], b: D["ARGS_ITEM"][]): boolean {
         return this.serialize(a) === this.serialize(b);
     }
 
     createAgent = () => {
         return new ResourceDuplicatorAgent<D>(this);
-    }
+    };
 
     /** @deprecated */
-    d_init(args: D['ARGS_ITEM'][]) {
-        const argsKeys = args.map(a => this._options.getArgKey(a));
-        const releasedCaches = new Set<CoreResourceQueryCache<D['RESOURCE_DEFINITION']>>();
-        const unreleasedArgs: D['ARGS_ITEM'][] = [];
+    d_init(args: D["ARGS_ITEM"][]) {
+        const argsKeys = args.map((a) => this._options.getArgKey(a));
+        const releasedCaches = new Set<CoreResourceQueryCache<D["RESOURCE_DEFINITION"]>>();
+        const unreleasedArgs: D["ARGS_ITEM"][] = [];
 
-        args.forEach(arg => {
+        args.forEach((arg) => {
             const argKey = this._options.getArgKey(arg);
-            let fi = this._fis.get(argKey);
+            const fi = this._fis.get(argKey);
             if (!fi || !fi.cache.value.isInitiated) {
                 unreleasedArgs.push(arg);
                 return;
@@ -138,98 +133,104 @@ export class ResourceDuplicator<D extends DuplicatorDefinition> {
             releasedCaches.add(fi.cache);
         });
 
-        const queryCache = this._resource.createQueryCache(unreleasedArgs);
+        const queryCache = unreleasedArgs?.length > 0 ? this._resource.createQueryCache(unreleasedArgs) : null;
 
-        unreleasedArgs.forEach(arg => {
+        unreleasedArgs.forEach((arg) => {
             const argKey = this._options.getArgKey(arg);
             let fi = this._fis.get(argKey);
             if (!fi) {
                 fi = {
                     k: 1,
-                    cache: queryCache,
+                    cache: queryCache!,
                 };
                 this._fis.set(argKey, fi);
             }
         });
 
         return {
-            value$: Signal.compute<State<D>>(() => {
-                const itemsAcc: State<D>[] = [
-                    queryCache.value$.get(),
-                ];
+            value$: Signal.compute<State<D>>(
+                () => {
+                    const itemsAcc: State<D>[] = [];
 
-                for (const rc of releasedCaches) {
-                    itemsAcc.push(rc.value$.get());
-                }
+                    if (queryCache) {
+                        itemsAcc.push(queryCache.value$.get());
+                    }
 
-                const isNotInitiated = itemsAcc.some(i => !i.isInitiated);
+                    for (const rc of releasedCaches) {
+                        itemsAcc.push(rc.value$.get());
+                    }
 
-                const baseReturn = {
-                    transactions: null,
-                    abortController: null,
-                    args,
-                    savedData: null,
-                    data: null,
-                    error: null,
-                    isError: false,
-                    isLoading: false,
-                    isReloading: false,
-                    isDone: false,
-                    isSuccess: false,
-                    isLocked: false,
-                    isInitiated: true,
-                    lockCount: 0,
-                    unreleasedArgs,
-                };
+                    const isNotInitiated = itemsAcc.some((i) => !i.isInitiated);
 
-                if (isNotInitiated) return {
-                    ...baseReturn,
-                    isInitiated: false,
-                }
+                    const baseReturn = {
+                        transactions: null,
+                        abortController: null,
+                        args,
+                        savedData: null,
+                        data: null,
+                        error: null,
+                        isError: false,
+                        isLoading: false,
+                        isReloading: false,
+                        isDone: false,
+                        isSuccess: false,
+                        isLocked: false,
+                        isInitiated: true,
+                        lockCount: 0,
+                        unreleasedArgs,
+                    };
 
-                const isError = itemsAcc.some(i => i.isError);
+                    if (isNotInitiated)
+                        return {
+                            ...baseReturn,
+                            isInitiated: false,
+                        };
 
-                if (isError) {
-                    const firstError = itemsAcc.find(i => i.isError)!;
+                    const isError = itemsAcc.some((i) => i.isError);
+
+                    if (isError) {
+                        const firstError = itemsAcc.find((i) => i.isError)!;
+                        return {
+                            ...baseReturn,
+                            isError: true,
+                            isDone: true,
+                            error: firstError.error,
+                        };
+                    }
+
+                    const isLoading = itemsAcc.some((i) => i.isLoading);
+
+                    if (isLoading)
+                        return {
+                            ...baseReturn,
+                            isLoading: true,
+                        };
+
+                    const dataAcc: D["DATA_ITEM"][] = [];
+
+                    itemsAcc.forEach((item) => {
+                        item.data?.forEach((d: D["DATA_ITEM"]) => {
+                            const dataKey = this._options.getDataKey(d);
+                            const index = argsKeys.findIndex((ak) => ak === dataKey);
+                            if (index === -1) return;
+                            dataAcc[index] = d;
+                        });
+                    });
+
                     return {
                         ...baseReturn,
-                        isError: true,
+                        isSuccess: true,
                         isDone: true,
-                        error: firstError.error,
-                    }
-                }
-
-                const isLoading = itemsAcc.some(i => i.isLoading);
-
-                if (isLoading) return {
-                    ...baseReturn,
-                    isLoading: true,
-                }
-
-                const dataAcc: D['DATA_ITEM'][] = [];
-
-                itemsAcc.forEach(item => {
-                    item.data?.forEach((d: any[]) => {
-                        const dataKey = this._options.getDataKey(d);
-                        const index = argsKeys.findIndex(ak => ak === dataKey);
-                        if (index === -1) return;
-                        dataAcc[index] = d;
-                    });
-                });
-
-                return {
-                    ...baseReturn,
-                    isSuccess: true,
-                    isDone: true,
-                    data: dataAcc,
-                };
-            }, { isDisabled: true }),
-        }
+                        data: dataAcc,
+                    };
+                },
+                { isDisabled: true },
+            ),
+        };
     }
 }
 
 export class ComputedReactiveCache<T> {
-
     /**
      * Реактивное значене (Observable)
      */
@@ -256,26 +257,22 @@ export class ComputedReactiveCache<T> {
      * @param options.initialState Начальное состояние кэша.
      * @param options.cacheLifeTime Время жизни кэша в миллисекундах (по умолчанию 60_000).
      */
-    constructor(options: {
-        obs: Observable<T>;
-        getValue: () => T;
-        cacheLifeTime: number | false;
-    }) {
+    constructor(options: { obs: Observable<T>; getValue: () => T; cacheLifeTime: number | false }) {
         const cacheLifeTime = options.cacheLifeTime ?? 60_000;
-        this.spy$ = options.obs.pipe(
-            takeUntil(this.onClean$)
-        );
+        this.spy$ = options.obs.pipe(takeUntil(this.onClean$));
 
-        this.value$ = signalize(options.obs.pipe(
-            finalize(() => {
-                this.complete();
-            }),
-            share({
-                connector: () => new ReplaySubject(1),
-                resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
-                resetOnComplete: true,
-            }),
-        ))
+        this.value$ = signalize(
+            options.obs.pipe(
+                finalize(() => {
+                    this.complete();
+                }),
+                share({
+                    connector: () => new ReplaySubject(1),
+                    resetOnRefCountZero: this._getOnRefCountZero(cacheLifeTime),
+                    resetOnComplete: true,
+                }),
+            ),
+        );
 
         this._getValue = options.getValue;
     }
@@ -307,5 +304,4 @@ export class ComputedReactiveCache<T> {
         this.onClean$.next(this._getValue());
         this.onClean$.complete();
     }
-
 }

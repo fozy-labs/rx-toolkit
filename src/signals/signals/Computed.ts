@@ -1,12 +1,14 @@
-import { distinctUntilChanged, ReplaySubject, share, map, finalize } from "rxjs";
-import { StateDevtoolsOptions } from "@/common/devtools";
-import { ComputeFn } from "@/signals/types";
+import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
+
+import { ComputeFn, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
+
 import { ComputeCache, DependencyTracker } from "../base";
+
 import { Effect } from "./Effect";
-import { Signal } from "./Signal";
+import { State } from "./State";
 
 export class Computed<T> {
-    private _ls;
+    private _state$;
     readonly obs;
     private _effect: Effect | null = null;
     /**
@@ -16,17 +18,24 @@ export class Computed<T> {
 
     constructor(
         private _computeFn: () => T,
-        options?: StateDevtoolsOptions
+        options?: SignalOptionsOrKey<T>,
     ) {
-        const lsOptions: StateDevtoolsOptions = {
-            base: Computed.name,
-            ...(typeof options === 'string' ? { name: options } : options),
-            _skipValues: [Computed._EMPTY],
+        const opts = normalizeSignalOptions(options);
+        const stateOptions: SignalOptionsOrKey<symbol | T> = {
+            key: opts.key,
+            name: opts.name,
+            base: opts.base ?? Computed.name,
+            isDisabled: opts.isDisabled,
+            beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {
+                if (value !== Computed._EMPTY) {
+                    push(value);
+                }
+            },
         };
 
-        this._ls = new Signal<symbol | T>(Computed._EMPTY, lsOptions);
+        this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
 
-        this.obs = this._ls.obs.pipe(
+        this.obs = this._state$.obs.pipe(
             map((value) => {
                 if (value === Computed._EMPTY) {
                     return this._start();
@@ -50,7 +59,7 @@ export class Computed<T> {
         DependencyTracker.track({
             getRang: () => {
                 if (!this._effect) {
-                    throw new Error('Effect in not started. Possibly maximum call stack size exceeded.');
+                    throw new Error("Effect in not started. Possibly maximum call stack size exceeded.");
                 }
                 return this._effect!._getRang();
             },
@@ -62,7 +71,7 @@ export class Computed<T> {
     }
 
     peek() {
-        const v = this._ls.peek();
+        const v = this._state$.peek();
 
         if (v === Computed._EMPTY) {
             // Используем кеш для вычисления без создания подписки
@@ -78,17 +87,17 @@ export class Computed<T> {
         this._effect = new Effect(() => {
             if (initialValue === Computed._EMPTY) {
                 initialValue = this._computeFn();
-                this._ls.set(initialValue);
+                this._state$.set(initialValue);
                 return;
             }
 
-            this._ls.set(this._computeFn());
+            this._state$.set(this._computeFn());
         });
 
         this._computeCache.clear();
 
         if (initialValue === Computed._EMPTY) {
-            throw new Error('Computed value is not initialized');
+            throw new Error("Computed value is not initialized");
         }
 
         return initialValue as T;
@@ -100,14 +109,14 @@ export class Computed<T> {
             this._effect = null;
         }
 
-        this._ls.set(Computed._EMPTY);
+        this._state$.set(Computed._EMPTY);
     }
 
     // === static ===
 
-    private static _EMPTY = Symbol('empty');
+    private static _EMPTY = Symbol("empty");
 
-    static create<T>(computeFn: () => T, options?: StateDevtoolsOptions): ComputeFn<T> {
+    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): ComputeFn<T> {
         const lc = new Computed(computeFn, options);
 
         function computedFn() {

@@ -38,7 +38,7 @@ interface PatchDemoItem {
     status: 'pending' | 'committed' | 'aborted';
 }
 
-let nextIdRef = { current: 1 };
+const nextIdRef = { current: 1 };
 
 export function Base() {
     const todoQuery = useResourceAgent(todoListResource, undefined);

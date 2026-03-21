@@ -6,9 +6,7 @@ export class IndirectMap<KEY, VALUE> {
     private _compareCache = new WeakMap<object, KEY>();
     private _map = new Map<KEY, VALUE>();
 
-    constructor(
-        private _compareObjectsFn: CompareFn<KEY> = shallowEqual,
-    ) {}
+    constructor(private _compareObjectsFn: CompareFn<KEY> = shallowEqual) {}
 
     private _getCachedKey(key: KEY): KEY | undefined {
         const cachedKey = this._compareCache.get(key as object);
@@ -28,10 +26,10 @@ export class IndirectMap<KEY, VALUE> {
     }
 
     get(key: KEY): VALUE | undefined {
-        const item = this._map.get(key)
+        const item = this._map.get(key);
 
         if (!item) {
-            const isObject = typeof key === 'object' && key !== null
+            const isObject = typeof key === "object" && key !== null;
 
             if (!isObject) {
                 return undefined;
@@ -46,16 +44,16 @@ export class IndirectMap<KEY, VALUE> {
             return this._map.get(cachedKey);
         }
 
-        return item
+        return item;
     }
 
     set(key: KEY, value: VALUE): void {
-        const has = this._map.has(key)
+        const has = this._map.has(key);
 
         if (has) {
             this._map.set(key, value);
         } else {
-            const isObject = typeof key === 'object' && key !== null
+            const isObject = typeof key === "object" && key !== null;
 
             if (!isObject) {
                 this._map.set(key, value);
@@ -79,7 +77,7 @@ export class IndirectMap<KEY, VALUE> {
      * @param key
      */
     delete(key: KEY): void {
-        const isObject = typeof key === 'object' && key !== null
+        const isObject = typeof key === "object" && key !== null;
 
         if (isObject) {
             const cachedKey = this._getCachedKey(key);
@@ -90,13 +88,13 @@ export class IndirectMap<KEY, VALUE> {
             }
         }
 
-        this._map.delete(key)
+        this._map.delete(key);
     }
 
     has(key: KEY): boolean {
         const has = this._map.has(key);
 
-        if (!has && typeof key === 'object' && key !== null) {
+        if (!has && typeof key === "object" && key !== null) {
             const cachedKey = this._getCachedKey(key);
 
             if (!cachedKey) {

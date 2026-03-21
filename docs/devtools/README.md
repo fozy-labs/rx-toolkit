@@ -1,10 +1,10 @@
 # Devtools
 
-RxToolkit предоставляет интеграцию с популярными инструментами разработчика для отладки реактивных приложений в реальном времени. Вы можете отслеживать изменения сигналов, выполнение операций и состояние ресурсов.
+RxToolkit предоставляет интеграцию с популярными инструментами разработчика для отладки реактивных приложений в реальном времени. Вы можете отслеживать изменения сигналов, выполнение команд и состояние ресурсов.
 
 **Отслеживает изменения:**
 - Сигналов (Signal / Computed)
-- Ресурсов и операций (Resource / Operation)
+- Ресурсов и команд (Resource / Command)
 
 ---
 
@@ -173,13 +173,13 @@ DefaultOptions.update({
 const count$ = new Signal(0, 'counter');
 const user$ = new Signal(null, { name: 'currentUser' });
 
-// Ресурсы и операции
+// Ресурсы и команды
 const userResource = createResource({
     queryFn: fetchUser,
     devtoolsName: 'user-resource', // Имя в devtools
 });
 
-const updateUser = createOperation({
+const updateUser = createCommand({
     queryFn: updateUserApi,
     devtoolsName: 'update-user',
 });

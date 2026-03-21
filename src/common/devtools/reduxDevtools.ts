@@ -1,4 +1,5 @@
 import { Batcher } from "@/signals";
+
 import { DevtoolsLike } from "./types";
 
 interface ReduxDevtoolsExtension {
@@ -16,7 +17,7 @@ interface ReduxDevtoolsConnection {
  * - 'microtask' - пакование в микротаске (queueMicrotask), все обновления в текущем синхронном потоке объединяются
  * - 'task' - пакование в макротаске (setTimeout), с настраиваемой задержкой
  */
-export type BatchStrategy = 'sync' | 'microtask' | 'task';
+export type BatchStrategy = "sync" | "microtask" | "task";
 
 type Options = {
     name?: string;
@@ -31,7 +32,7 @@ type Options = {
      * @default 0
      */
     taskDelay?: number;
-}
+};
 
 /**
  * Создает планировщик обновлений с указанной стратегией батчинга.
@@ -65,15 +66,15 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
         isPending = true;
 
         switch (strategy) {
-            case 'sync':
+            case "sync":
                 // Используем Batcher — выполнится в конце текущего батча сигналов
                 // или сразу, если батч не активен
                 batcherScheduler.schedule(executePending);
                 break;
-            case 'microtask':
+            case "microtask":
                 queueMicrotask(executePending);
                 break;
-            case 'task':
+            case "task":
                 timeoutId = setTimeout(executePending, taskDelay);
                 break;
         }
@@ -116,63 +117,64 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
                 pendingFlush = null;
                 fn();
             }
-        }
+        },
     };
 }
 
 export function reduxDevtools(options: Options = {}): DevtoolsLike {
-    const devtools = options.driver ?? (window as any).__REDUX_DEVTOOLS_EXTENSION__ as ReduxDevtoolsExtension | undefined;
+    const devtools =
+        options.driver ?? ((window as any).__REDUX_DEVTOOLS_EXTENSION__ as ReduxDevtoolsExtension | undefined);
 
     if (!devtools) {
-        throw new Error('Redux Devtools extension is not installed');
+        throw new Error("Redux Devtools extension is not installed");
     }
 
-    const batchStrategy = options.batchStrategy ?? 'microtask';
+    const batchStrategy = options.batchStrategy ?? "microtask";
     const taskDelay = options.taskDelay ?? 0;
 
     let state = {} as Record<string, any>;
-    const connection = devtools.connect({ name: options.name ?? 'RxToolkit' });
+    const connection = devtools.connect({ name: options.name ?? "RxToolkit" });
     connection.init(state);
 
     const scheduler = createBatchScheduler(batchStrategy, taskDelay);
 
     // Отслеживаем тип последнего действия для правильного action type в devtools
-    let pendingActionType: 'create' | 'update' | 'clear' = 'update';
+    let pendingActionType: "create" | "update" | "clear" = "update";
 
     const flushToDevtools = () => {
         connection.send({ type: pendingActionType }, state);
-        pendingActionType = 'update'; // Сбрасываем на дефолт после отправки
+        pendingActionType = "update"; // Сбрасываем на дефолт после отправки
     };
 
     return {
         state(name, initState) {
-            const keys = name.split('/');
+            const keys = name.split("/");
 
             state = applyState(keys, initState, state);
-            pendingActionType = 'create';
+            pendingActionType = "create";
             scheduler.schedule(flushToDevtools);
 
             return (newState) => {
-                if (newState === '$COMPLETED' || newState === '$CLEANED') {
+                if (newState === "$COMPLETED" || newState === "$CLEANED") {
                     state = deleteState(keys, state);
-                    pendingActionType = 'clear';
+                    pendingActionType = "clear";
                     scheduler.schedule(flushToDevtools);
                     return;
                 }
 
                 state = applyState(keys, newState, state);
                 // Не перезаписываем 'create' на 'update' если create еще не отправлен
-                if (pendingActionType !== 'create') {
-                    pendingActionType = 'update';
+                if (pendingActionType !== "create") {
+                    pendingActionType = "update";
                 }
                 scheduler.schedule(flushToDevtools);
             };
-        }
+        },
     };
 }
 
 function applyState(keys: string[], newState: any, state: any) {
-    const acc = {...state};
+    const acc = { ...state };
     let current = acc;
 
     keys.forEach((key, i, arr) => {
@@ -191,20 +193,20 @@ function applyState(keys: string[], newState: any, state: any) {
 function deleteState(keys: string[], state: any) {
     if (keys.length === 0) return state;
 
-    const acc = {...state};
+    const acc = { ...state };
 
     // Рекурсивная функция для удаления с очисткой пустых объектов
     const deleteRecursive = (obj: any, pathKeys: string[], index: number): boolean => {
         const key = pathKeys[index];
 
-        if (!obj || !obj.hasOwnProperty(key)) {
+        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) {
             return false;
         }
 
         if (index === pathKeys.length - 1) {
             delete obj[key];
         } else {
-            obj[key] = {...obj[key]};
+            obj[key] = { ...obj[key] };
             deleteRecursive(obj[key], pathKeys, index + 1);
 
             // Если объект стал пустым, удаляем его
