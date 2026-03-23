@@ -35,8 +35,6 @@ export interface IResourceV2AgentState<TArgs, TData, TError = Error> {
     isSuccess: boolean;
     /** True when in error state */
     isError: boolean;
-    /** Error from a failed background refresh (stale data preserved) */
-    refreshError: TError | null;
 }
 
 /** Ref — imperative access to a specific cache entry by args */

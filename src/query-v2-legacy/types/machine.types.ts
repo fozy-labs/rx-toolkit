@@ -13,9 +13,9 @@ export interface TResourceV2IdleState {
 }
 
 /** Pending state — query in progress, no data yet */
-export interface TResourceV2PendingState<TData = unknown> {
+export interface TResourceV2PendingState<TArgs = unknown, TData = unknown> {
     status: "pending";
-    args: unknown;
+    args: TArgs;
     data: null;
     error: null;
     updatedAt: null;
@@ -23,9 +23,9 @@ export interface TResourceV2PendingState<TData = unknown> {
 }
 
 /** Success state — data loaded successfully */
-export interface TResourceV2SuccessState<TData = unknown> {
+export interface TResourceV2SuccessState<TArgs = unknown, TData = unknown> {
     status: "success";
-    args: unknown;
+    args: TArgs;
     data: TData;
     error: null;
     updatedAt: number;
@@ -34,18 +34,18 @@ export interface TResourceV2SuccessState<TData = unknown> {
 }
 
 /** Error state — query failed */
-export interface TResourceV2ErrorState<TError = Error> {
+export interface TResourceV2ErrorState<TArgs = unknown> {
     status: "error";
-    args: unknown;
+    args: TArgs;
     data: null;
-    error: TError;
+    error: unknown;
     updatedAt: null;
 }
 
 /** Refreshing state — re-fetching while holding stale data */
-export interface TResourceV2RefreshingState<TData = unknown> {
+export interface TResourceV2RefreshingState<TArgs = unknown, TData = unknown> {
     status: "refreshing";
-    args: unknown;
+    args: TArgs;
     data: TData;
     error: null;
     updatedAt: number;
@@ -66,17 +66,9 @@ export type TPatchFn<TData> = (draft: TData) => void;
 /**
  * Discriminated union of all machine states (flat state shapes).
  */
-export type TMachine<TData, TError = Error> =
+export type TMachine<TArgs = unknown, TData = unknown> =
     | TResourceV2IdleState
-    | TResourceV2PendingState<TData>
-    | TResourceV2SuccessState<TData>
-    | TResourceV2ErrorState<TError>
-    | TResourceV2RefreshingState<TData>;
-
-/**
- * Boxed machine — structural type matching runtime machine class instances.
- * Each machine class wraps its flat state in a `readonly state` property.
- */
-export interface IMachineBox<TData = unknown, TError = Error> {
-    readonly state: TMachine<TData, TError>;
-}
+    | TResourceV2PendingState<TArgs, TData>
+    | TResourceV2SuccessState<TArgs, TData>
+    | TResourceV2ErrorState<TArgs>
+    | TResourceV2RefreshingState<TArgs, TData>;

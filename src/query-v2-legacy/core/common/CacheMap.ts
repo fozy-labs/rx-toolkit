@@ -4,8 +4,8 @@ import type { ICacheMapOptions } from "@/query-v2/types/cache.types";
 
 import type { CacheEntry } from "./CacheEntry";
 
-class SerializedCacheMap<TArgs, TData, TError = Error> {
-    private readonly _map = new Map<string, CacheEntry<TData, TError>>();
+class SerializedCacheMap<TArgs, TState> {
+    private readonly _map = new Map<string, CacheEntry<TState>>();
     private readonly _serializeArgs: (args: unknown) => string;
     private readonly _argsMemo: WeakMap<object, string> | null;
 
@@ -26,15 +26,15 @@ class SerializedCacheMap<TArgs, TData, TError = Error> {
         return this._serializeArgs(args);
     }
 
-    get(args: TArgs): CacheEntry<TData, TError> | undefined {
+    get(args: TArgs): CacheEntry<TState> | undefined {
         return this._map.get(this._serialize(args));
     }
 
-    set(args: TArgs, entry: CacheEntry<TData, TError>): void {
+    set(args: TArgs, entry: CacheEntry<TState>): void {
         this._map.set(this._serialize(args), entry);
     }
 
-    getOrCreate(args: TArgs, factory: () => CacheEntry<TData, TError>): CacheEntry<TData, TError> {
+    getOrCreate(args: TArgs, factory: () => CacheEntry<TState>): CacheEntry<TState> {
         const key = this._serialize(args);
         let entry = this._map.get(key);
         if (!entry) {
@@ -52,11 +52,11 @@ class SerializedCacheMap<TArgs, TData, TError = Error> {
         return this._map.has(this._serialize(args));
     }
 
-    values(): Iterable<CacheEntry<TData, TError>> {
+    values(): Iterable<CacheEntry<TState>> {
         return this._map.values();
     }
 
-    entries(): Iterable<[string, CacheEntry<TData, TError>]> {
+    entries(): Iterable<[string, CacheEntry<TState>]> {
         return this._map.entries();
     }
 
@@ -69,8 +69,8 @@ class SerializedCacheMap<TArgs, TData, TError = Error> {
     }
 }
 
-class CompareCacheMap<TArgs, TData, TError = Error> {
-    private readonly _items: Array<{ args: TArgs; entry: CacheEntry<TData, TError> }> = [];
+class CompareCacheMap<TArgs, TState> {
+    private readonly _items: Array<{ args: TArgs; entry: CacheEntry<TState> }> = [];
     private readonly _compareArg: (a: unknown, b: unknown) => boolean;
 
     constructor(compareArg: (a: unknown, b: unknown) => boolean) {
@@ -86,12 +86,12 @@ class CompareCacheMap<TArgs, TData, TError = Error> {
         return -1;
     }
 
-    get(args: TArgs): CacheEntry<TData, TError> | undefined {
+    get(args: TArgs): CacheEntry<TState> | undefined {
         const idx = this._findIndex(args);
         return idx >= 0 ? this._items[idx].entry : undefined;
     }
 
-    set(args: TArgs, entry: CacheEntry<TData, TError>): void {
+    set(args: TArgs, entry: CacheEntry<TState>): void {
         const idx = this._findIndex(args);
         if (idx >= 0) {
             this._items[idx] = { args, entry };
@@ -100,7 +100,7 @@ class CompareCacheMap<TArgs, TData, TError = Error> {
         }
     }
 
-    getOrCreate(args: TArgs, factory: () => CacheEntry<TData, TError>): CacheEntry<TData, TError> {
+    getOrCreate(args: TArgs, factory: () => CacheEntry<TState>): CacheEntry<TState> {
         const idx = this._findIndex(args);
         if (idx >= 0) {
             return this._items[idx].entry;
@@ -123,13 +123,13 @@ class CompareCacheMap<TArgs, TData, TError = Error> {
         return this._findIndex(args) >= 0;
     }
 
-    *values(): Iterable<CacheEntry<TData, TError>> {
+    *values(): Iterable<CacheEntry<TState>> {
         for (const item of this._items) {
             yield item.entry;
         }
     }
 
-    *entries(): Iterable<[TArgs, CacheEntry<TData, TError>]> {
+    *entries(): Iterable<[TArgs, CacheEntry<TState>]> {
         for (const item of this._items) {
             yield [item.args, item.entry];
         }
@@ -144,16 +144,12 @@ class CompareCacheMap<TArgs, TData, TError = Error> {
     }
 }
 
-export type TCacheMapInstance<TArgs, TData, TError = Error> =
-    | SerializedCacheMap<TArgs, TData, TError>
-    | CompareCacheMap<TArgs, TData, TError>;
-
 export const CacheMap = {
-    create<TArgs, TData, TError = Error>(options: ICacheMapOptions<TArgs>): TCacheMapInstance<TArgs, TData, TError> {
+    create<TArgs, TData>(options: ICacheMapOptions<TArgs>){
         if (options.keyStrategy === "compare") {
-            return new CompareCacheMap<TArgs, TData, TError>(options.compareArg ?? shallowEqual);
+            return new CompareCacheMap<TArgs, TData>(options.compareArg ?? shallowEqual);
         }
-        return new SerializedCacheMap<TArgs, TData, TError>(
+        return new SerializedCacheMap<TArgs, TData>(
             options.serializeArgs ?? stableStringify,
             options.doCacheArgs,
         );
