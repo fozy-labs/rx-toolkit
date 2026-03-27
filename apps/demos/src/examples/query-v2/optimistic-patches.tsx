@@ -25,7 +25,7 @@ const api = unstable_queryV2.createApi({
     plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
-const todoResource = api.createResource<void, TodoList>({
+const todoResource = api.createResourceV2<void, TodoList>({
     key: 'todo-patches',
     queryFn: async () => {
         await new Promise(resolve => setTimeout(resolve, 800));
@@ -43,11 +43,10 @@ let nextId = 1;
 
 export function Base() {
     const state = todoResource.useResourceV2Agent(undefined);
-    const ref = todoResource.useResourceV2Ref(undefined);
     const [patches, setPatches] = React.useState<PatchDemoItem[]>([]);
 
     const applyPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
-        const handle = ref.createPatch(patchFn);
+        const handle = state.entry?.createPatch(patchFn);
         if (!handle) {
             console.warn('Патч не создан — нет данных');
             return;
@@ -128,7 +127,7 @@ export function Base() {
                 </CardHeader>
                 <Divider />
                 <CardBody className="space-y-2">
-                    {data.items.map(item => (
+                    {data.items.map((item: TodoItem) => (
                         <div
                             key={item.id}
                             className="flex items-center gap-3 p-3 bg-default-100 rounded-lg"

@@ -16,6 +16,7 @@ interface User {
 const simulatedSnapshot: unstable_queryV2.TApiSnapshot = {
     version: unstable_queryV2.CURRENT_SNAPSHOT_VERSION,
     keyPrefix: 'ssr-demo',
+    timestamp: Date.now(),
     resources: {
         'users': {
             entries: {
@@ -51,9 +52,9 @@ const api = unstable_queryV2.createApi({
     plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
-const usersResource = api.createResource<{ id: string }, User>({
+const usersResource = api.createResourceV2<{ id: string }, User>({
     key: 'users',
-    queryFn: async (args, { abortSignal: _abortSignal }) => {
+    queryFn: async (args: { id: string }, { abortSignal: _abortSignal }: { abortSignal: AbortSignal }) => {
         // В реальном приложении — запрос к серверу
         await new Promise(resolve => setTimeout(resolve, 2000));
         return {

@@ -22,15 +22,15 @@ role: rdpi-architect
 
 Create `docs/query-v2/v0.2/` with:
 
-- **README.md** — Main reference: `createApi`, `createResourceV2`, `createOperationV2`, hooks, SKIP, machine states, lifecycle hooks, plugins. Mirror the structure of `docs/query-v2/v0.1/README.md` but with V2-suffixed API naming per ADR-16 (`createApi` as entry point, `useResourceV2`/`useOperationV2` standalone hooks).
+- **README.md** — Main reference: `createApi`, `createResourceV2`, hooks, SKIP, machine states, lifecycle hooks, plugins. Mirror the structure of `docs/query-v2/v0.1/README.md` but with V2-suffixed API naming per ADR-15 (`createApi` as entry point, `useResourceV2Agent` hook via plugin or standalone).
 - **optimistic-updates.md** — Patch lifecycle, consistency violations, multi-patch edge cases. Same scope as v0.1 version.
 - **ssr.md** — Snapshot capture/hydrate, `maxSnapshotDataAge`, `compare` strategy limitation. Same scope as v0.1 version.
 
 ## Key Concepts Requiring Explanation
 
-- Naming changes from v0.1: V2 suffix on resource/operation/hook names per ADR-16 (`createApi` unchanged, `useResourceV2Agent` preserved, etc.)
+- Naming changes from v0.1: V2 suffix on resource/hook names per ADR-15 (`createApi` unchanged, `useResourceV2Agent` preserved, etc.)
 - No `TError` generic — errors are `unknown`
-- No Command — Resource and Operation only
+- ResourceV2 only (additional entity types are out of scope for this iteration)
 - `getEntry$` reactivity to `resetAll()` via `_status$`/`_lastEntry$` signals
 - GC model: refcount + timer hybrid (v0.1 docs were vague on this)
 - Consistency violation auto-invalidation behavior

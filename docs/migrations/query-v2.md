@@ -169,3 +169,71 @@ api.resetAll();
 | **API factory** | Единая точка конфигурации |
 | **Очередь патчей** | Несколько независимых оптимистичных обновлений |
 | **SKIP_TOKEN** | Пропуск запроса с типобезопасностью |
+
+---
+
+## Миграция v0.1 → v0.2
+
+> Эта секция описывает миграцию внутри query-v2 — с v0.1 на v0.2.
+
+### Ключевые изменения
+
+| v0.1 | v0.2 | Описание |
+|------|------|----------|
+| `api.createResource(opts)` | `api.createResourceV2(opts)` | Переименование метода |
+| `useResourceV2Ref(args)` | `entry` из `useResourceV2Agent(args)` | Ref удалён, entry доступен через agent |
+| `ref.createPatch(fn)` | `entry.createPatch(fn)` | Pathcing через entry |
+| Плагин augmentation через `declare module` | Через generics (`PluginAugmentations`) | ADR-9 |
+| Mutable machine states | Immutable machine classes | Machine, MachineIdle, MachineSuccess и т.д. |
+| `TError` generic | Нет — `error: unknown` | Упрощение API |
+| `hydrateSnapshot` — отсутствовал как public API | `hydrateSnapshot(api, snapshot)` — standalone функция | Добавлен явный public API |
+
+### Шаги миграции
+
+#### 1. Обновите вызовы `createResource` → `createResourceV2`
+
+```typescript
+// v0.1
+const resource = api.createResource({ key: 'users', queryFn: fetchUser });
+
+// v0.2
+const resource = api.createResourceV2({ key: 'users', queryFn: fetchUser });
+```
+
+#### 2. Замените `useResourceV2Ref` на `entry` из agent
+
+```typescript
+// v0.1
+const state = resource.useResourceV2Agent({ id: '1' });
+const ref = resource.useResourceV2Ref({ id: '1' });
+const patch = ref.createPatch(draft => { draft.name = 'new'; });
+
+// v0.2 — entry доступен прямо из agent state
+const state = resource.useResourceV2Agent({ id: '1' });
+const patch = state.entry?.createPatch(draft => { draft.name = 'new'; });
+```
+
+#### 3. Обновите типы машин (если используете напрямую)
+
+Machine states теперь иммутабельные классы. Если вы проверяли состояние через `instanceof`, обновите импорты:
+
+```typescript
+import { unstable_queryV2 } from '@fozy-labs/rx-toolkit';
+const { MachineSuccess, MachineRefreshing } = unstable_queryV2;
+```
+
+Дискриминация по `status` полю остаётся:
+
+```typescript
+if (machine.status === 'success') { /* ... */ }
+```
+
+#### 4. Удалите TError generics
+
+```typescript
+// v0.1 (если использовали)
+// resource: IResourceV2<TArgs, TData, TError>
+
+// v0.2 — только TArgs и TData, ошибки всегда unknown
+const resource = api.createResourceV2<{ id: string }, User>({ /* ... */ });
+```

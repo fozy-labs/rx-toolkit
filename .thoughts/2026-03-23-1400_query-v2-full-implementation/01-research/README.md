@@ -5,6 +5,10 @@ status: Approved
 feature: "Full implementation of query-v2 module with tests, replacing the current hacky attempt with a precise implementation matching v0.1 docs"
 ---
 
+## Note
+
+> **Rename**: The directory `src/query-v2/` has been renamed to `src/query-v2-legacy/` to reduce confusion with the new query-v2 module being designed. All references to `src/query-v2/` in the research documents should be understood as referring to `src/query-v2-legacy/`.
+
 ## Summary
 
 Research covered four areas: the existing query-v2 implementation and its v0.1 documentation, the mature query v1 module as a reference architecture, external best practices from five major query/cache libraries (TanStack Query, RTK Query, SWR, Apollo Client, Relay), and a synthesis of open questions and trade-offs. The current v2 codebase is structurally complete in machine states, caching, API factory, plugins, snapshots, and React hooks — but contains pervasive type inconsistencies (`TError` undeclared as generic, `state$` vs `machine$()` naming mismatch, ~30+ `as unknown as` casts), several critical behavioral bugs (SWR previous data immediately cleared, `CacheEntry.complete()` not aborting patches), and multiple documented features that remain unimplemented (resource-level status signals, consistency violation detection, Commands). The v1 module provides a proven reference for patterns like controllable-promise testing, link-based Command invalidation, and reference-counted cache lifetime. External research confirms that v2's architectural direction (document cache, SWR, Immer-based optimistic updates, plugin system) aligns with industry standards, while highlighting a GC strategy gap (timer-only vs the universal refcount+timer hybrid).

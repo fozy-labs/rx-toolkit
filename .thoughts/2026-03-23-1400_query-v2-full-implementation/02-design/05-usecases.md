@@ -8,7 +8,7 @@ role: rdpi-architect
 # Use Cases & API Examples — query-v2
 
 All examples use type signatures from [03-model.md](03-model.md). No `any` types. No `TError` generic.
-All public API names carry the V2 suffix to distinguish from v1 exports (see [ADR-16](04-decisions.md#adr-16-v2-naming-convention--public-api-suffix)). Factory: `createApi` (no V2 suffix per ADR-16 exception). Standalone hooks: `useResourceV2`, `useOperationV2`. Plugin hook: `useResourceV2Agent`.
+All public API names carry the V2 suffix to distinguish from v1 exports (see [ADR-15](04-decisions.md#adr-15-v2-naming-convention--public-api-suffix)). Factory: `createApi` (no V2 suffix per ADR-15 exception). React hook: `useResourceV2Agent` (standalone and plugin-contributed).
 
 ---
 
@@ -18,13 +18,10 @@ All public API names carry the V2 suffix to distinguish from v1 exports (see [AD
 import {
     createApi,
     createResourceV2,
-    createOperationV2,
-    useResourceV2,
-    useOperationV2,
+    useResourceV2Agent,
     ReactHooksPlugin,
     SKIP,
     type IResourceV2AgentState,
-    type IOperationV2AgentState,
     type SKIP_TOKEN,
 } from "@fozy-labs/rx-toolkit/query-v2";
 
@@ -50,19 +47,20 @@ interface TodoList {
 const api = createApi({
     keyPrefix: "my-app",
     cacheLifetime: 60_000,
-    plugins: [new ReactHooksPlugin()],
+    plugins: [new ReactHooksPlugin()] as const,
 });
 ```
 
 ---
 
-## Resource Use Cases
+## ResourceV2 Use Cases
 
-### UC-1: Basic Resource Creation and Subscription
+### UC-1: Basic ResourceV2 Creation and Subscription
 
 **Scenario**: Simplest happy path — create a resource with `void` args and subscribe via agent.
 
 ```typescript
+// Explicit generics (for documentation clarity):
 const todosResource = api.createResourceV2<void, TodoList>({
     key: "todos",
     queryFn: async (_args, { abortSignal }) => {
@@ -70,6 +68,8 @@ const todosResource = api.createResourceV2<void, TodoList>({
         return res.json();
     },
 });
+// Note: When queryFn's signature fully determines TArgs and TData,
+// explicit generics can be omitted — TypeScript infers them automatically.
 
 // ── Imperative usage ──
 const agent = todosResource.createAgent();
@@ -81,16 +81,16 @@ const unsubscribe = agent.state$.obs.subscribe((state) => {
 });
 
 // Or direct signal read
-const snapshot = agent.state$();
-// snapshot.status: "pending" → "success"
-// snapshot.data: null → TodoList
+const state = agent.state$();
+// state.status: "pending" → "success"
+// state.data: null → TodoList
 ```
 
 **React**:
 
 ```tsx
 function TodoList() {
-    const { data, isLoading, isError } = useResourceV2(todosResource);
+    const { data, isLoading, isError } = useResourceV2Agent(todosResource);
     // void args — no second argument needed
 
     if (isLoading) return <div>Loading...</div>;
@@ -99,14 +99,14 @@ function TodoList() {
 }
 ```
 
-[ref: 03-model.md#14 — `useResourceV2` void args overload]
+[ref: 03-model.md#13 — `useResourceV2Agent` void args overload]
 [ref: 01-architecture.md#8 — No TError generic constraint]
 
 ---
 
-### UC-2: Resource with Arguments — Dynamic Key
+### UC-2: ResourceV2 with Arguments — Dynamic Key
 
-**Scenario**: Resource keyed by `{ id: string }`. Changing args triggers a new fetch; cache is per-args.
+**Scenario**: ResourceV2 keyed by `{ id: string }`. Changing args triggers a new fetch; cache is per-args.
 
 ```typescript
 const userResource = api.createResourceV2<{ id: string }, User>({
@@ -117,6 +117,8 @@ const userResource = api.createResourceV2<{ id: string }, User>({
     },
     cacheLifetime: 30_000,
 });
+// Note: Explicit generics <{ id: string }, User> are shown for clarity.
+// If queryFn's parameter and return types are annotated, TypeScript can infer them.
 
 // ── Agent tracks arg changes ──
 const agent = userResource.createAgent();
@@ -129,7 +131,7 @@ agent.start({ id: "2" }); // fetches user 2, triggers SWR
 
 ```tsx
 function UserProfile({ userId }: { userId: string }) {
-    const { data, isLoading, isInitialLoading } = useResourceV2(userResource, {
+    const { data, isLoading, isInitialLoading } = useResourceV2Agent(userResource, {
         id: userId,
     });
 
@@ -141,7 +143,7 @@ function UserProfile({ userId }: { userId: string }) {
 }
 ```
 
-**Edge case — rapid arg changes**: When `userId` changes from "1" → "2" → "3" quickly, each `start()` call triggers `resource.query(newArgs)`. The agent tracks only the latest `current` entry. Inflight requests for "1" and "2" are not aborted at the agent level — but the agent ignores their results (only `current` entry matters). Resource-level abort occurs only if the same args get a new request.
+**Edge case — rapid arg changes**: When `userId` changes from "1" → "2" → "3" quickly, each `start()` call obtains an entry via the factory callback and triggers `entry.query()`. The agent tracks only the latest `current` entry. Inflight requests for entries "1" and "2" continue independently (other consumers may still use them). The agent ignores their results by only reading `current` entry's state. Abort occurs at the entry level — each `ResourceV2CacheEntry` manages its own `AbortController`, aborting the previous inflight only when a new `query()` call is made to the same entry (e.g., on invalidation or force re-fetch).
 
 ---
 
@@ -153,7 +155,7 @@ function UserProfile({ userId }: { userId: string }) {
 function UserSwitcher() {
     const [userId, setUserId] = React.useState("1");
 
-    const { data, isLoading, isInitialLoading, status } = useResourceV2(
+    const { data, isLoading, isInitialLoading, status } = useResourceV2Agent(
         userResource,
         { id: userId },
     );
@@ -173,13 +175,13 @@ function UserSwitcher() {
 }
 ```
 
-[ref: 01-architecture.md ADR-3 — SWR: keep previous until current resolves]
+[ref: 04-decisions.md ADR-3 — SWR: keep previous until current resolves]
 [ref: 02-dataflow.md#1.2 — SWR on Args Change sequence]
 
 **SWR state derivation in agent** (illustrative):
 
 ```typescript
-// Inside ResourceAgent.state$ computation:
+// Inside ResourceV2Agent.state$ computation:
 // if current is pending and previous exists with success data:
 //   data = previous.data, isLoading = true, isInitialLoading = false
 // if current is pending and no previous:
@@ -194,7 +196,7 @@ function UserSwitcher() {
 
 ```tsx
 function UserWithRetry({ userId }: { userId: string }) {
-    const { data, error, isError, isLoading } = useResourceV2(userResource, {
+    const { data, error, isError, isLoading } = useResourceV2Agent(userResource, {
         id: userId,
     });
 
@@ -221,21 +223,11 @@ agent.start({ id: "1" }); // fails → MachineError
 
 // Calling start() with same args while in error state triggers retry
 // [ref: 02-dataflow.md#1.6 — Error and Retry]
-agent.start({ id: "1" }); // resource.query() sees error state → fetches again
+agent.start({ id: "1" }); // entry.query() sees error state → fetches again
 ```
 
-**Refresh error (background refetch fails)**:
-
-When invalidation/refresh fails, data is preserved per ADR-2. The agent's `refreshError` field is set so consumers can detect it:
-
-```typescript
-// Invalidate triggers background refetch
-userResource.invalidate({ id: "1" });
-// If refetch fails: MachineRefreshing → MachineSuccess (stale data preserved)
-// Agent state: state$.refreshError contains the error, cleared on next success
-```
-
-[ref: 04-decisions.md ADR-2 — Refreshing errorHappened returns MachineSuccess with stale data]
+[ref: 03-model.md#3 — MachineRefreshing.errorHappened(error) returns MachineSuccess with stale data preserved]
+[ref: 02-dataflow.md#4.1 — State Machine specification: Refreshing → errorHappened → MachineSuccess]
 
 ---
 
@@ -245,7 +237,7 @@ userResource.invalidate({ id: "1" });
 
 ```tsx
 function ToggleTodo({ todo }: { todo: Todo }) {
-    const { entry } = useResourceV2(todosResource);
+    const { entry } = useResourceV2Agent(todosResource);
     // entry: IResourceV2CacheEntry<void, TodoList> | null
 
     const handleToggle = async () => {
@@ -295,41 +287,32 @@ const patch2 = entry.createPatch((draft) => {
 // Abort out of order — Immer applyPatches may fail
 patch2?.commit();
 patch1?.abort();
-// Patcher detects consistency violation → resource auto-invalidates
-// Cache shows last valid patched data until fresh data arrives
+// Patcher detects consistency violation → ResourceV2CacheEntry auto-invalidates
+// isConsistencyViolation is tracked in TPatchState on the ResourceV2CacheEntry (_patchState)
+// Cache shows last valid patched data until fresh data arrives from refetch
 ```
 
-[ref: 04-decisions.md ADR-6 — Patcher returns isConsistencyViolation, Resource auto-invalidates]
+[ref: 04-decisions.md ADR-6 — Patcher returns IPatchResolution with TPatchState; isConsistencyViolation preserved]
 
 ---
 
-### UC-6: Resource Invalidation
+### UC-6: ResourceV2 Invalidation
 
 **Scenario**: After a mutation, manually invalidate a resource so it refetches.
 
 ```typescript
-// Direct invalidation
+// Direct invalidation via resource (delegates to entry.invalidate())
 userResource.invalidate({ id: "1" });
+// Looks up ResourceV2CacheEntry via CacheMap, calls entry.invalidate()
 // Entry must be in success state; transitions to MachineRefreshing
 
-// Cross-resource invalidation via lifecycle hooks
-const updateUserOp = api.createOperationV2<{ id: string; name: string }, User>({
-    key: "update-user",
-    queryFn: async (args) => {
-        const res = await fetch(`/api/users/${args.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: args.name }),
-        });
-        return res.json();
-    },
-});
+// Or invalidate via cache entry directly
+const entry = userResource.getEntry({ id: "1" });
+entry?.invalidate(); // same effect as userResource.invalidate({ id: "1" })
 
-// In a component: after mutation, invalidate the resource
-async function handleUpdateUser(id: string, newName: string) {
-    await updateUserOp.execute({ id, name: newName });
-    userResource.invalidate({ id });
-}
+// Or trigger a query via cache entry
+entry?.query(); // initiates fetch if not already in-flight
+entry?.query(true); // force re-fetch regardless of current state
 ```
 
 **Invalidation of non-success entry**: No-op. Only `MachineSuccess` entries can transition to `MachineRefreshing`.
@@ -343,8 +326,8 @@ async function handleUpdateUser(id: string, newName: string) {
 
 ```tsx
 function UserPage({ userId }: { userId: string }) {
-    // useResourceV2 creates agent, subscribes to signal → refcount increments
-    const { data } = useResourceV2(userResource, { id: userId });
+    // useResourceV2Agent creates agent, subscribes to signal → refcount increments
+    const { data } = useResourceV2Agent(userResource, { id: userId });
     // On unmount: agent destroyed, signal unsubscribed → refcount decrements
     // If refcount reaches 0: GC timer starts (30_000ms per userResource config)
     // If remounted before timer: GC cancelled, cached data shown instantly
@@ -365,7 +348,7 @@ function UserPage({ userId }: { userId: string }) {
 
 ```tsx
 function UserProfile({ userId }: { userId: string | null }) {
-    const { data, isLoading, status } = useResourceV2(
+    const { data, isLoading, status } = useResourceV2Agent(
         userResource,
         userId ? { id: userId } : SKIP,
     );
@@ -397,18 +380,18 @@ agent.start({ id: "1" }); // now fetches
 
 ```tsx
 function UserHeader({ userId }: { userId: string }) {
-    const { data } = useResourceV2(userResource, { id: userId });
+    const { data } = useResourceV2Agent(userResource, { id: userId });
     return <h1>{data?.name}</h1>;
 }
 
 function UserSidebar({ userId }: { userId: string }) {
-    const { data } = useResourceV2(userResource, { id: userId });
+    const { data } = useResourceV2Agent(userResource, { id: userId });
     return <aside>{data?.email}</aside>;
 }
 
 function App() {
     // Both components use userResource with { id: "1" }
-    // Only ONE fetch to /api/users/1 occurs (inflight dedup in Resource.query)
+    // Only ONE fetch to /api/users/1 occurs (inflight dedup in ResourceV2.query)
     return (
         <>
             <UserHeader userId="1" />
@@ -418,148 +401,71 @@ function App() {
 }
 ```
 
-**How dedup works**: `Resource.query(args)` checks the inflight map. If a request for the same serialized key is already in flight, it returns the existing promise instead of starting a new one.
+**How dedup works**: Each `ResourceV2CacheEntry` tracks its own inflight promise. When `entry.query()` is called while a request is already in flight for that entry, it returns the existing promise instead of starting a new one. `ResourceV2.query(args)` delegates to the entry's `query()` method via CacheMap lookup.
 
 ---
 
-### UC-10: Resource with Plugins — ReactHooksPlugin
+### UC-10: ResourceV2 with Plugins — ReactHooksPlugin
 
 **Scenario**: Plugin adds `useResourceV2Agent()` method directly to the resource instance.
 
 ```typescript
-// Plugin-contributed hook (via declaration merging)
+// Plugin-contributed hook (type-safe via PluginAugmentations<TPlugins>)
 const state = userResource.useResourceV2Agent({ id: "1" });
-// Equivalent to: useResourceV2(userResource, { id: "1" })
+// Equivalent to: useResourceV2Agent(userResource, { id: "1" })
 // But called as a method on the resource instance
 
 // Standalone hook works without plugin:
-const state2 = useResourceV2(userResource, { id: "1" });
+const state2 = useResourceV2Agent(userResource, { id: "1" });
 ```
 
 [ref: docs/query-v2/v0.1/README.md — ReactHooksPlugin adds useResourceV2Agent]
-[ref: 04-decisions.md ADR-9 — Plugin synchronous Object.assign composition]
+[ref: 04-decisions.md ADR-9 — Plugin synchronous Object.assign composition with generic augmentation]
 
-**Plugin type augmentation** (consumer-side declaration):
-
-```typescript
-// In the plugin package or user's declaration file:
-declare module "@fozy-labs/rx-toolkit/query-v2" {
-    interface PluginContributionMap<TArgs, TData> {
-        ReactHooksPlugin: {
-            useResourceV2Agent(
-                ...args: ArgsOrVoidOrSkip<TArgs>
-            ): IResourceV2AgentState<TArgs, TData>;
-        };
-    }
-}
-```
-
-[ref: 03-model.md#12 — PluginContributionMap declaration merging]
-
----
-
-## Operation Use Cases
-
-### UC-11: Basic Operation Execution
-
-**Scenario**: Create a mutation operation and execute it imperatively.
+**How type augmentation works (no `declare module` needed):**
 
 ```typescript
-const createTodoOp = api.createOperationV2<{ text: string }, Todo>({
-    key: "create-todo",
-    queryFn: async (args) => {
-        const res = await fetch("/api/todos", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(args),
-        });
-        return res.json();
-    },
+// PluginResourceContributions maps ReactHooksPlugin → its contributions
+// via conditional type (compile-time only, defined in types/plugin.types.ts)
+//
+// When createApi is called with plugins as const:
+const api = createApi({ plugins: [new ReactHooksPlugin()] as const });
+// api: IApi<readonly [ReactHooksPlugin]>
+
+const resource = api.createResourceV2<{ id: string }, User>({
+    key: "users",
+    queryFn: fetchUser,
 });
+// resource: IResourceV2<{id: string}, User>
+//         & PluginAugmentations<readonly [ReactHooksPlugin], {id: string}, User>
+//         = IResourceV2<{id: string}, User>
+//         & { useResourceV2Agent(...args): IResourceV2AgentState<{id: string}, User> }
 
-// Execute imperatively
-const newTodo = await createTodoOp.execute({ text: "Buy groceries" });
-console.log(newTodo.id); // server-assigned ID
-
-// Reset to idle after use
-createTodoOp.reset();
+resource.useResourceV2Agent({ id: "1" }); // ✓ type-safe
 ```
 
-[ref: 03-model.md#9.2 — IOperation interface]
-
----
-
-### UC-12: Operation with Loading/Error States in React
-
-**Scenario**: Show loading indicator and handle errors for a mutation.
-
-```tsx
-function CreateTodoForm() {
-    const [trigger, { isLoading, isError, error, data }] = useOperationV2(createTodoOp);
-
-    const handleSubmit = async (text: string) => {
-        try {
-            const todo = await trigger({ text });
-            console.log("Created:", todo.id);
-        } catch (err) {
-            // Error also reflected in state.isError
-            console.error("Failed:", err);
-        }
-    };
-
-    return (
-        <form
-            onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                handleSubmit(fd.get("text") as string);
-            }}
-        >
-            <input name="text" />
-            <button disabled={isLoading}>
-                {isLoading ? "Creating..." : "Create"}
-            </button>
-            {isError && <p>Error: {String(error)}</p>}
-        </form>
-    );
-}
-```
-
-[ref: 03-model.md#14 — useOperationV2 returns [trigger, state] tuple]
-
----
-
-### UC-13: Concurrent Operation Handling
-
-**Scenario**: User clicks "Save" rapidly. Each click triggers execute(). Latest-wins semantics.
-
-```typescript
-const agent = createTodoOp.createAgent();
-
-// Rapid execution
-agent.execute({ text: "First" });  // → MachinePending
-agent.execute({ text: "Second" }); // → MachinePending (overwrites)
-
-// When "First" resolves: ignored (stale execution context)
-// When "Second" resolves: state → MachineSuccess with data from "Second"
-```
-
-[ref: 04-decisions.md ADR-14 — Latest-wins for operations]
-[ref: 02-dataflow.md#2.2 — Concurrent Execution sequence]
-
-**Important**: Operations are not cancellable (no AbortController). Stale network requests still execute server-side. If cancellation is needed, use Resource instead or manage it in `queryFn`.
+[ref: 03-model.md#11 — PluginResourceContributions conditional type]
 
 ---
 
 ## React Integration Use Cases
 
-### UC-14: `useResourceV2()` Hook — Full Lifecycle
+### UC-11: `useResourceV2Agent()` Hook — Full Lifecycle
 
 **Scenario**: Complete component lifecycle: mount → fetch → display → arg change → SWR → unmount.
 
+> **Design note — agent state vs machine state**: The agent's `status` reflects the
+> *current* cache entry's machine status, but `data` may come from the *previous*
+> entry (SWR, per [ADR-3](04-decisions.md#adr-3-swr-previouscurrent-swap-semantics)).
+> Therefore `state.data` is `TData | null` in *every* status, including `"pending"`.
+> On initial fetch (no previous entry), `data` is `null`; on SWR args change,
+> `data` carries the previous entry's successful data. This is an **isolated**
+> design rule of the agent layer — the machine-level `TPendingState.data` is
+> always `null`.
+
 ```tsx
 function UserCard({ userId }: { userId: string }) {
-    const state = useResourceV2(userResource, { id: userId });
+    const state = useResourceV2Agent(userResource, { id: userId });
     // state: IResourceV2AgentState<{ id: string }, User>
 
     // Mount: agent.start({ id: userId }) → resource.query() → pending
@@ -571,6 +477,8 @@ function UserCard({ userId }: { userId: string }) {
         case "idle":
             return null;
         case "pending":
+            // Agent pending ≠ machine pending: data is TData | null here.
+            // Initial fetch → data is null; SWR args change → data is previous entry's data.
             return state.data ? (
                 // SWR: showing previous data while loading
                 <div style={{ opacity: 0.5 }}>{state.data.name}</div>
@@ -604,99 +512,7 @@ function UserCard({ userId }: { userId: string }) {
 
 ---
 
-### UC-15: `useOperationV2()` Hook — Mutation Trigger and Status
-
-```tsx
-interface UpdateUserArgs {
-    id: string;
-    name: string;
-}
-
-const updateUserOp = api.createOperationV2<UpdateUserArgs, User>({
-    key: "update-user",
-    queryFn: async (args) => {
-        const res = await fetch(`/api/users/${args.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: args.name }),
-        });
-        return res.json();
-    },
-});
-
-function EditUserForm({ user }: { user: User }) {
-    const [name, setName] = React.useState(user.name);
-    const [trigger, { isLoading, isSuccess, data }] = useOperationV2(updateUserOp);
-
-    const handleSave = async () => {
-        const updated = await trigger({ id: user.id, name });
-        // Invalidate related resource after mutation
-        userResource.invalidate({ id: user.id });
-    };
-
-    return (
-        <div>
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-            <button onClick={handleSave} disabled={isLoading}>
-                {isLoading ? "Saving..." : "Save"}
-            </button>
-            {isSuccess && <span>Saved: {data!.name}</span>}
-        </div>
-    );
-}
-```
-
----
-
-### UC-16: Combining Resources and Operations
-
-**Scenario**: Read data with resource, mutate with operation, invalidate after mutation.
-
-```tsx
-function TodoPage() {
-    const { data: todos, isLoading, entry } = useResourceV2(todosResource);
-    const [createTodo, createState] = useOperationV2(createTodoOp);
-
-    const handleCreate = async (text: string) => {
-        // Optimistic patch: add item immediately
-        const patch = entry?.createPatch((draft) => {
-            draft.items.push({ id: Date.now(), text, completed: false });
-            draft.total += 1;
-        });
-
-        try {
-            await createTodo({ text });
-            patch?.commit();
-            // Invalidate to get server-assigned IDs
-            todosResource.invalidate(); // void args — no cast needed (ArgsOrVoid)
-        } catch {
-            patch?.abort(); // Rollback on failure
-        }
-    };
-
-    if (isLoading && !todos) return <div>Loading...</div>;
-
-    return (
-        <div>
-            <button
-                onClick={() => handleCreate("New todo")}
-                disabled={createState.isLoading}
-            >
-                {createState.isLoading ? "Adding..." : "Add Todo"}
-            </button>
-            <ul>
-                {todos?.items.map((t) => (
-                    <li key={t.id}>{t.text}</li>
-                ))}
-            </ul>
-        </div>
-    );
-}
-```
-
----
-
-### UC-17: Server-Side Rendering (SSR)
+### UC-12: Server-Side Rendering (SSR)
 
 **Scenario**: Fetch data on server, create snapshot, hydrate on client.
 
@@ -728,23 +544,30 @@ const html = `<script>window.__SNAPSHOT__ = ${JSON.stringify(snapshot)}</script>
 **Client**:
 
 ```typescript
+// Step 1: createApi saves snapshot internally (_savedSnapshot = initialSnapshot)
+// Version and keyPrefix are validated at this time (throw on mismatch)
 const clientApi = createApi({
-    keyPrefix: "my-app", // must match server
+    keyPrefix: "my-app", // must match server — validated against initialSnapshot.keyPrefix
     initialSnapshot: window.__SNAPSHOT__ ?? null,
     maxSnapshotDataAge: 300_000, // 5 min — stale data auto-invalidated
     plugins: [new ReactHooksPlugin()],
 });
+// At this point, snapshot is saved but NOT hydrated yet.
 
+// Step 2: createResourceV2 consumes snapshot slice for "users" key.
+// Matching entries are hydrated via Machine.fromSnapshot<TArgs, TData>(slice).
+// If entry data is stale (age > maxSnapshotDataAge), auto-invalidation is triggered.
+// The snapshot slice for "users" is then DELETED from _savedSnapshot.
 const userResource = clientApi.createResourceV2<{ id: string }, User>({
     key: "users",
     queryFn: fetchUser,
     maxSnapshotDataAge: 60_000, // resource-level override
 });
-
 // Data available immediately — no loading spinner for hydrated entries
+
 function UserProfile({ userId }: { userId: string }) {
-    const { data, isRefreshing } = useResourceV2(userResource, { id: userId });
-    // data is available instantly from snapshot
+    const { data, isRefreshing } = useResourceV2Agent(userResource, { id: userId });
+    // data is available instantly from snapshot (consumed at createResourceV2 time)
     // If snapshot data is older than maxSnapshotDataAge, auto-invalidation triggers refetch
     return (
         <div>
@@ -753,6 +576,15 @@ function UserProfile({ userId }: { userId: string }) {
         </div>
     );
 }
+```
+
+**Step 3 — resetAll deletes saved snapshot:**
+```typescript
+clientApi.resetAll();
+// _savedSnapshot = null (saved snapshot deleted entirely)
+// All cache entries: CacheEntry.complete() → abort patches → idle → fire onClean$ → delete
+// Any subsequent createResourceV2() will NOT see snapshot data
+```
 ```
 
 [ref: docs/query-v2/v0.1/ssr.md — Full SSR flow]
@@ -770,25 +602,28 @@ api.getSnapshot(); // Throws: snapshot not supported with "compare" strategy
 
 ## System Use Cases
 
-### UC-18: Cache Reset — `resetAll()` Behavior
+### UC-13: Cache Reset — `resetAll()` Behavior
 
 **Scenario**: Logout — clear all cached data across all resources.
 
 ```typescript
 // Reset all resources in this API instance
 api.resetAll();
-// All cache entries: CacheEntry.complete() → abort patches → idle → fire onClean$ → delete
+// Step 1: _savedSnapshot = null (saved snapshot deleted entirely)
+// Step 2: For each resource in _resources: Set<ResourceV2>:
+//   All cache entries: CacheEntry.complete() → abort patches → idle → fire onClean$ → delete
 // All agents: state$ recomputes → idle state (data=null)
 // GC timers cancelled
 // _status$ → "idle" on all resources
 // getEntry$() returns null after reset [ref: 04-decisions.md ADR-11]
+// Any subsequent createResourceV2() will NOT see snapshot data
 ```
 
 **React impact**:
 
 ```tsx
 function App() {
-    const { data, status } = useResourceV2(userResource, { id: "1" });
+    const { data, status } = useResourceV2Agent(userResource, { id: "1" });
     // After api.resetAll():
     //   status → "idle", data → null
     //   Component re-renders with empty state
@@ -803,19 +638,11 @@ function App() {
 }
 ```
 
-**Global reset** (across all API instances):
-
-```typescript
-import { resetAllCacheV2 } from "@fozy-labs/rx-toolkit/query-v2";
-
-resetAllCacheV2(); // Resets ALL resources across ALL createApi() instances
-```
-
 [ref: 02-dataflow.md#1.7 — GC Lifecycle]
 
 ---
 
-### UC-19: Plugin Composition — Multiple Plugins
+### UC-14: Plugin Composition — Multiple Plugins
 
 **Scenario**: Compose multiple plugins on a single API instance.
 
@@ -838,20 +665,62 @@ const LoggingPlugin: IPlugin = {
 
 // Compose with ReactHooksPlugin
 const api = createApi({
-    plugins: [new ReactHooksPlugin(), LoggingPlugin],
+    plugins: [new ReactHooksPlugin(), LoggingPlugin] as const,
 });
+// api: IApi<readonly [ReactHooksPlugin, typeof LoggingPlugin]>
 
-const resource = api.createResourceV2<void, TodoList>({
+// Inferred form — TypeScript deduces <void, TodoList> from fetchTodos signature:
+const resource = api.createResourceV2({
     key: "todos",
     queryFn: fetchTodos,
 });
+// Equivalent explicit form (for documentation or when inference is ambiguous):
+// const resource = api.createResourceV2<void, TodoList>({ key: "todos", queryFn: fetchTodos });
 
 // Both plugins' contributions are available:
-resource.useResourceV2Agent(); // from ReactHooksPlugin
-resource.logState();         // from LoggingPlugin
+resource.useResourceV2Agent(); // from ReactHooksPlugin (typed via PluginAugmentations)
+resource.logState();           // from LoggingPlugin (typed as Record<string,unknown> at type level)
 ```
 
-**Key collision detection**:
+**How PluginAugmentations resolves for multiple plugins:**
+
+```typescript
+// PluginAugmentations<readonly [ReactHooksPlugin, typeof LoggingPlugin], void, TodoList>
+//   = Prettify<UnionToIntersection<
+//       PluginResourceContributions<ReactHooksPlugin, void, TodoList>
+//     | PluginResourceContributions<typeof LoggingPlugin, void, TodoList>
+//   >>
+//   = Prettify<UnionToIntersection<
+//       IReactHooksPluginContributions<void, TodoList> | {}
+//   >>
+//   = IReactHooksPluginContributions<void, TodoList>
+//   = { useResourceV2Agent(): IResourceV2AgentState<void, TodoList> }
+//
+// LoggingPlugin does not extend ReactHooksPlugin, so its branch resolves to {}.
+// Its runtime methods (logState) are added via Object.assign but typed as
+// Record<string, unknown> unless LoggingPlugin is given its own conditional branch.
+```
+
+**Adding type-safe contributions for a custom plugin:**
+
+```typescript
+// Define contribution interface alongside plugin class
+interface ILoggingPluginContributions {
+    logState(): void;
+}
+
+// Extend the PluginResourceContributions conditional type
+// (in the same module or a .d.ts file co-located with the plugin)
+type PluginResourceContributions<TPlugin, TArgs, TData> =
+    TPlugin extends ReactHooksPlugin
+        ? IReactHooksPluginContributions<TArgs, TData>
+    : TPlugin extends typeof LoggingPlugin
+        ? ILoggingPluginContributions
+    : {};
+// Now PluginAugmentations resolves LoggingPlugin contributions too.
+```
+
+**Key collision detection** (runtime, unchanged from legacy):
 
 ```typescript
 const BadPlugin: IPlugin = {
@@ -865,20 +734,20 @@ const BadPlugin: IPlugin = {
 };
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin(), BadPlugin],
+    plugins: [new ReactHooksPlugin(), BadPlugin] as const,
 });
 
 api.createResourceV2({ key: "x", queryFn: async () => ({}) });
 // Throws: Error("Plugin key collision: useResourceV2Agent")
 ```
 
-[ref: 04-decisions.md ADR-9 — Sequential plugin application, runtime collision check]
+[ref: 04-decisions.md ADR-9 — Sequential plugin application, runtime collision check, generic augmentation]
 
 ---
 
 ## Lifecycle Hook Use Cases
 
-### UC-20: WebSocket Subscription via onCacheEntryAdded
+### UC-15: WebSocket Subscription via onCacheEntryAdded
 
 **Scenario**: Open a WebSocket when a cache entry is created, close it when the entry is GC'd.
 
@@ -913,6 +782,106 @@ const messagesResource = api.createResourceV2<{ chatId: string }, Message[]>({
 ```
 
 [ref: docs/query-v2/v0.1/README.md — onCacheEntryAdded pattern]
-[ref: 03-model.md#10 — ICacheEntryAddedTools]
+[ref: 03-model.md#9 — ICacheEntryAddedTools]
+
+---
+
+### UC-16: Compare Strategy — Non-Serializable Args
+
+**Scenario**: A resource keyed by a RegExp pattern. RegExp is not serializable via JSON, so the `compare` strategy with a custom comparator is used. Internally, `CompareCacheMap` stores entries in an array and performs linear scan via the comparator.
+
+```typescript
+// API with compare strategy
+const api = createApi({
+    keyStrategy: "compare",
+    compareArg: (a: RegExp, b: RegExp) => a.source === b.source && a.flags === b.flags,
+    plugins: [new ReactHooksPlugin()],
+});
+
+const regexResource = api.createResourceV2<RegExp, string[]>({
+    key: "regex-matches",
+    queryFn: async (pattern, { abortSignal }) => {
+        const res = await fetch(`/api/search?pattern=${encodeURIComponent(pattern.source)}`, {
+            signal: abortSignal,
+        });
+        return res.json();
+    },
+});
+
+// ── Usage ──
+const agent = regexResource.createAgent();
+agent.start(/foo.*bar/i);
+// Internally: CompareCacheMap.getOrCreate(/foo.*bar/i)
+//   1. Linear scan over _entries using compareArg
+//   2. No match found → calls factory(/foo.*bar/i) → creates ResourceV2CacheEntry
+//   3. New entry stored in _entries array
+//   4. entry.query() initiated
+
+agent.start(/foo.*bar/i);
+// Same args (compareArg returns true) → same entry returned, no new fetch
+```
+
+**React**:
+
+```tsx
+function RegexSearch({ pattern }: { pattern: RegExp }) {
+    const { data, isLoading } = useResourceV2Agent(regexResource, pattern);
+    if (isLoading) return <div>Searching...</div>;
+    return <ul>{data?.map((m, i) => <li key={i}>{m}</li>)}</ul>;
+}
+```
+
+**Edge case — snapshot not supported**:
+
+```typescript
+api.getSnapshot();
+// Throws: "Snapshot not supported with 'compare' strategy"
+// CompareCacheMap has no string keys to serialize into TApiSnapshot
+```
+
+[ref: 04-decisions.md ADR-13 — compare strategy throws on snapshot]
+[ref: 04-decisions.md ADR-19 — CacheMap dual implementation: CompareCacheMap uses array + linear scan]
+[ref: 03-model.md#6.3 — CompareCacheMap concrete implementation]
+
+---
+
+### UC-17: CacheMap Factory — Entry Creation Mechanism
+
+**Scenario**: Shows how `CacheMap.getOrCreate(args)` creates entries via the factory callback, preserving CacheMap's genericity.
+
+```typescript
+// Inside ResourceV2 constructor (illustrative — internal code):
+const cache: ICacheMap<TArgs, ResourceV2CacheEntry<TArgs, TData>> = createCacheMap({
+    factory: (args: TArgs) => new ResourceV2CacheEntry({
+        args,
+        queryFn,
+        compareArgs: resolvedCompareArgs,
+        cacheLifetime: resolvedCacheLifetime,
+    }),
+    keyStrategy: options.keyStrategy ?? "serialize",
+    serializeArgs: options.serializeArgs,
+    compareArg: options.compareArg,
+});
+
+// When Agent.start(args) is called:
+// 1. Agent calls _getEntry(args) callback
+// 2. ResourceV2 delegates to cache.getOrCreate(args)
+// 3. CacheMap checks if entry exists for args (by serialized key or comparator)
+// 4. If not found → CacheMap calls factory(args) → ResourceV2CacheEntry created
+// 5. Entry stored in CacheMap, returned to Agent
+// 6. Agent calls entry.query() → fetch initiated
+
+// Another agent with same args:
+// 1. cache.getOrCreate(sameArgs) → finds existing entry → returns it
+// 2. entry.query() returns existing inflight promise (dedup)
+```
+
+This mechanism ensures:
+- CacheMap is generic — it never imports `ResourceV2CacheEntry` or `CacheEntry`
+- Entry creation logic is owned by `ResourceV2`, encapsulated in the factory
+- Multiple consumers (agents, direct `resource.query()`) share the same entry
+
+[ref: 03-model.md#6.4 — getOrCreate mechanism]
+[ref: 04-decisions.md ADR-19 — Factory pattern for entry creation]
 
 

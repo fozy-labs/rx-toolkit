@@ -12,7 +12,7 @@ role: rdpi-qa-designer
 | ID | Risk | Probability | Impact | Strategy | Mitigation |
 |----|------|-------------|--------|----------|------------|
 | R01 | State machine transition produces invalid/unexpected state | Medium | High | Mitigate | Exhaustive unit tests per transition; immutability assertions; type-level enforcement |
-| R02 | Async race conditions in Resource query orchestration | High | High | Mitigate | Controllable-promise tests; explicit abort-signal verification; inflight dedup map isolation |
+| R02 | Async race conditions in ResourceV2 query orchestration | High | High | Mitigate | Controllable-promise tests; explicit abort-signal verification; inflight dedup map isolation |
 | R03 | Memory leaks from signal subscriptions not cleaned up | Medium | High | Mitigate | Refcount tracking; unmount cleanup verification; FinalizationRegistry checks |
 | R04 | Snapshot data inconsistency with concurrent cache updates | Low | High | Mitigate | Snapshot captures via `peek()` (non-reactive, point-in-time); round-trip tests |
 | R05 | Immer `applyPatches` throws on out-of-order abort (consistency violation) | Medium | High | Mitigate | try/catch in Patcher; `isConsistencyViolation` flag; auto-invalidation chain |
@@ -21,7 +21,7 @@ role: rdpi-qa-designer
 | R08 | React 18/19 concurrent mode tearing via `useSyncExternalStore` | Low | High | Mitigate | Use `useSyncExternalStore` correctly (existing pattern from signals/react); component-level tearing test |
 | R09 | `useSyncExternalStore` getSnapshot identity instability causing infinite re-renders | Medium | High | Mitigate | Agent state derivation must return referentially-stable objects when data unchanged; shallow-equal memoization in compute |
 | R10 | Complexity explosion — too many interacting components to implement correctly at once | High | Medium | Mitigate | Layered implementation: lib → core → api → react; each layer tested before next starts |
-| R11 | Scope creep into Command territory | Medium | Medium | Avoid | Explicitly defer Command; design api/plugin interfaces to accommodate it later; document as constraint |
+| R11 | Scope creep beyond ResourceV2 | Medium | Medium | Avoid | Stay within ResourceV2 scope; additional entity types are out of scope for this iteration; design api/plugin interfaces to accommodate future entity types; document as constraint |
 | R12 | v0.1 doc ambiguities requiring interpretation | High | Medium | Mitigate | Each ambiguity resolved via ADRs in 04-decisions.md; implementation follows ADRs, not ambiguous doc text |
 | R13 | Test flakiness from async timing / microtask ordering | High | Medium | Mitigate | Controllable-promise pattern eliminates timing; `flushMicrotasks()` for deterministic async; fake timers only for GC tests |
 | R14 | Coverage gaps in edge cases (abort during refresh, double-commit, etc.) | Medium | Medium | Mitigate | Dedicated edge-case test table (E01–E10); P1/P2 priority ensures they're written |
@@ -29,11 +29,10 @@ role: rdpi-qa-designer
 | R16 | Unnecessary re-renders from signal → React bridge | Medium | Medium | Mitigate | Agent `state$` uses `distinctUntilChanged` internally; shallow-equal on derived state; integration test with render count |
 | R17 | Cache memory growth — entries not GC'd due to refcount bugs | Medium | High | Mitigate | GC integration tests with fake timers; verify entry count after lifecycle; refcount = 0 assertion on unmount |
 | R18 | GC timer pressure — many concurrent timers for large cache | Low | Low | Accept | Standard `setTimeout`; JS engines handle thousands of timers; consider consolidation only if production profiling shows issue |
-| R19 | SWR previous/current swap defeats purpose (current v2 bug re-introduced) | Medium | High | Mitigate | Dedicated SWR test cases (AG03, AG04, AG12, AG13); regression test from known bug pattern |
+| R19 | SWR previous/current swap defeats purpose (current v2 bug re-introduced) | Medium | High | Mitigate | Dedicated SWR test cases (AG03, AG04, AG10, AG11); regression test from known bug pattern |
 | R20 | `Batcher.run()` exception leaves batch lock in dirty state | Low | High | Mitigate | Batcher uses try/finally (existing fix noted in setup.ts); verify in integration test |
-| R21 | CacheEntry.complete() called multiple times causes double-cleanup | Low | Low | Mitigate | Idempotent `complete()` (CE08 test); `_completed` flag prevents re-entry |
-| R22 | Operation latest-wins ignoring stale responses incorrectly | Medium | Medium | Mitigate | Execution ID tracking; OP06/OP07 test stale response handling |
-| R23 | Type system regression — `TError` removal causes downstream type errors | Low | Medium | Mitigate | TypeScript strict mode compilation as CI gate; all public types exported and consumed in test files |
+| R21 | CacheEntry.complete() called multiple times causes double-cleanup | Low | Low | Mitigate | Idempotent `complete()` (CE08 test); `_isCompleted` flag prevents re-entry |
+| R22 | Type system regression — `TError` removal causes downstream type errors | Low | Medium | Mitigate | TypeScript strict mode compilation as CI gate; all public types exported and consumed in test files |
 
 ---
 
@@ -56,15 +55,15 @@ role: rdpi-qa-designer
 
 ---
 
-### R02: Async Race Conditions in Resource Query Orchestration
+### R02: Async Race Conditions in ResourceV2 Query Orchestration
 
 **Risk**: Concurrent `query()` calls, rapid arg changes, and abort/re-query sequences can leave the inflight map, cache entries, or GC timers in inconsistent states. This is the highest-probability high-impact risk.
 
 **Mitigation steps**:
 1. **Controllable promises**: Every async test uses externally resolvable promises — no real timers, no `setTimeout`. Tests control exactly when each queryFn resolves/rejects. [ref: ../01-research/02-codebase-query-v1.md#6.3]
 2. **Inflight dedup verification**: RE02 tests that two concurrent `query()` calls for same args produce one `queryFn` call. RE03 tests force=true bypasses dedup.
-3. **Abort signal verification**: RE11, INT13, E08 verify abort signals are fired on args change, and that aborted queryFn responses are ignored (no state transition).
-4. **Rapid arg change tests**: AG12, AG13 verify only the latest args are tracked, no previous accumulation.
+3. **Abort signal verification**: RE11, INT12, E08 verify abort signals are fired on args change, and that aborted queryFn responses are ignored (no state transition).
+4. **Rapid arg change tests**: AG10, AG11 verify only the latest args are tracked, no previous accumulation.
 5. **Reset-during-inflight**: E06 verifies `resetCache()` during inflight properly aborts and clears without error propagation.
 6. **`flushMicrotasks()`**: After every `resolve()`/`reject()`, `await flushMicrotasks()` ensures deterministic promise chain resolution.
 
@@ -74,10 +73,10 @@ role: rdpi-qa-designer
 
 ### R03: Memory Leaks from Signal Subscriptions
 
-**Risk**: `CacheEntry` wraps `Signal.state`; `ResourceAgent` creates `Signal.compute`. If these aren't cleaned up on component unmount or GC, subscriptions accumulate → memory grows indefinitely.
+**Risk**: `CacheEntry` wraps `Signal.state`; `ResourceV2Agent` creates `Signal.compute`. If these aren't cleaned up on component unmount or GC, subscriptions accumulate → memory grows indefinitely.
 
 **Mitigation steps**:
-1. **React unmount tests**: RH04 verifies that `useResourceV2` cleanup runs on unmount — agent destroyed, signal unsubscribed, refcount decremented.
+1. **React unmount tests**: RH04 verifies that `useResourceV2Agent` cleanup runs on unmount — agent destroyed, signal unsubscribed, refcount decremented.
 2. **GC lifecycle tests**: GC01–GC05 verify entries are cleaned up when refcount=0 and timer expires. CE05 verifies `complete()` fires `onClean$` and resets state.
 3. **Signal subscriber count**: After each integration test, assert that the resource's cache map is empty or that entries have zero subscribers.
 4. **No-op after complete**: CE06 verifies that `set()` after `complete()` is a no-op — prevents zombie signal updates.
@@ -93,10 +92,10 @@ role: rdpi-qa-designer
 **Mitigation steps**:
 1. **Patcher wraps `applyPatches` in try/catch**: Returns `{ isConsistencyViolation: true }` instead of throwing. [ref: ./04-decisions.md#ADR-6]
 2. **PA10, PA11**: Dedicated test cases for out-of-order abort and `applyPatches` internal throw — verify flag is set, no unhandled exception.
-3. **INT10**: Integration test verifying the full chain: multi-patch → out-of-order abort → consistency violation detected → resource auto-invalidates → fresh data arrives.
-4. **Resource checks the flag**: After every `finishPatch`/`abortAllPending` call, Resource checks `isConsistencyViolation` and calls `invalidate(args)`.
+3. **INT09**: Integration test verifying the full chain: multi-patch → out-of-order abort → consistency violation detected → resource auto-invalidates → fresh data arrives.
+4. **ResourceV2 checks the flag**: After every `finishPatch`/`abortAllPending` call, ResourceV2 checks `isConsistencyViolation` and calls `invalidate(args)`.
 
-**Verification**: PA10, PA11, INT10 all pass. Manual test: create 3 patches, commit middle, abort first → verify auto-invalidation fires.
+**Verification**: PA10, PA11, INT09 all pass. Manual test: create 3 patches, commit middle, abort first → verify auto-invalidation fires.
 
 ---
 
@@ -106,10 +105,10 @@ role: rdpi-qa-designer
 
 **Mitigation steps**:
 1. **`useSyncExternalStore`**: The `useSignal` hook (from `signals/react`) already uses `useSyncExternalStore`, which is React's official solution for tearing prevention. [ref: ../01-research/03-external-research.md#6.3]
-2. **RH10**: Component test that simulates concurrent updates — verify both components see consistent state.
+2. **RH08**: Component test that simulates concurrent updates — verify both components see consistent state.
 3. **Batcher integration**: `Batcher.run()` batches all signal updates atomically, reducing the window for mid-render inconsistency.
 
-**Verification**: RH10 passes; no tearing observed in concurrent StrictMode rendering.
+**Verification**: RH08 passes; no tearing observed in concurrent StrictMode rendering.
 
 ---
 
@@ -161,13 +160,13 @@ role: rdpi-qa-designer
 **Risk**: If GC refcount tracking has a bug (e.g., increment without decrement on error paths), entries accumulate indefinitely. Users with long-running SPAs see growing memory.
 
 **Mitigation steps**:
-1. **GC integration tests**: INT06/INT07 test component mount→data→unmount→timer lifecycle. Verify entry exists during mount, deleted after lifetime.
+1. **GC integration tests**: INT05/INT06 test component mount→data→unmount→timer lifecycle. Verify entry exists during mount, deleted after lifetime.
 2. **Refcount symmetry**: Every `lockEntry()` returns an `unlock()` function — tests verify calling unlock decrements count.
 3. **Agent lifecycle**: Agent creation increments refcount, agent destruction (unmount) decrements. RH04 tests this.
-4. **resetCache kills all**: RE15, INT11 verify reset aborts everything and clears the map to size 0.
+4. **resetCache kills all**: RE14, INT10 verify reset aborts everything and clears the map to size 0.
 5. **Stress test (optional P3)**: Create 1000 resources, query each, unmount all, advance timers — verify all entries GC'd.
 
-**Verification**: INT06, INT07, RE15, RE20, RE21 pass. Cache map size is 0 after all agents unmounted and timers advanced.
+**Verification**: INT05, INT06, RE14, RCE15, GC04 pass. Cache map size is 0 after all agents unmounted and timers advanced.
 
 ---
 
@@ -177,7 +176,7 @@ role: rdpi-qa-designer
 
 **Mitigation steps**:
 1. **ADR-3 defines correct behavior**: Keep previous entry until current resolves (success or error). [ref: ./04-decisions.md#ADR-3]
-2. **Dedicated SWR tests**: AG03 (previous data shown during loading), AG04 (previous cleared on resolve), AG12 (rapid changes), AG13 (chain protection).
+2. **Dedicated SWR tests**: AG03 (previous data shown during loading), AG04 (previous cleared on resolve), AG10 (rapid changes), AG11 (chain protection).
 3. **Integration SWR test**: INT02 verifies full pipeline: React hook → args change → SWR data visible → new data after resolve.
 4. **Regression guard**: Test comment explicitly references the known bug pattern in current v2 agent code.
 

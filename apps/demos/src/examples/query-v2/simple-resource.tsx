@@ -6,7 +6,7 @@ const api = unstable_queryV2.createApi({
     plugins: [new unstable_queryV2.ReactHooksPlugin()],
 });
 
-const itemsResource = api.createResource({
+const itemsResource = api.createResourceV2({
     key: 'simple-items',
     queryFn: fetches.getItems,
 });
@@ -35,7 +35,7 @@ export function Base() {
                 {state.isSuccess && state.data && (
                     <>
                         <div className="space-y-2">
-                            {state.data.items.map((item) => (
+                            {state.data.items.map((item: { id: number; name: string; description: string }) => (
                                 <div
                                     key={item.id}
                                     className="p-3 bg-default-100 rounded-lg"
