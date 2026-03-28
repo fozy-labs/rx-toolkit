@@ -1,6 +1,6 @@
 import { SKIP, type SKIP_TOKEN } from "@/query-v2/lib/SKIP_TOKEN";
 import type { ArgsOrVoidOrSkip, IResourceV2Agent, TResourceV2AgentState } from "@/query-v2/types";
-import { type ReadableSignalFnLike, Signal } from "@/signals";
+import { Signal, type ReadableSignalFnLike } from "@/signals";
 import type { ComputeFn } from "@/signals/types";
 
 import type { ResourceV2CacheEntry } from "./ResourceV2CacheEntry";
@@ -29,17 +29,18 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
         this._getEntry$ = getEntry$;
         this._compareArgsFn = compareArgs;
 
-        this.state$ = Signal.compute<TResourceV2AgentState<TArgs, TData>>(() => {
-            return this._deriveState$();
-        }, {
-            isDisabled: true,
-        });
+        this.state$ = Signal.compute<TResourceV2AgentState<TArgs, TData>>(
+            () => {
+                return this._deriveState$();
+            },
+            {
+                isDisabled: true,
+            },
+        );
     }
 
     start(...args: ArgsOrVoidOrSkip<TArgs>): void {
-        const newArgs = args.length > 0
-            ? (args[0] as TArgs | SKIP_TOKEN)
-            : (undefined as unknown as TArgs);
+        const newArgs = args.length > 0 ? (args[0] as TArgs | SKIP_TOKEN) : (undefined as unknown as TArgs);
 
         // If SKIP, clearing tracking (no current or previous), but keep args as NONE to distinguish from initial state
         if (newArgs === SKIP) {
@@ -65,11 +66,14 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
             }
         }
 
-        const current$ = Signal.compute(() => {
-            return this._getEntry$(newArgs);
-        }, {
-            isDisabled: true,
-        });
+        const current$ = Signal.compute(
+            () => {
+                return this._getEntry$(newArgs);
+            },
+            {
+                isDisabled: true,
+            },
+        );
 
         this._previous$ = previous$;
         this._tracking$.set({
@@ -115,7 +119,7 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
         // SWR data: use previous entry's data while current is loading
         let data: TData | null = currentMachine.data ?? null;
 
-        if ((status === "pending" || status === 'error') && previous$) {
+        if ((status === "pending" || status === "error") && previous$) {
             const prevMachine = previous$().machine$();
 
             if (prevMachine.status === "success" || prevMachine.status === "refreshing") {

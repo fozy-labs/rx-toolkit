@@ -28,11 +28,11 @@ describe("Integration: query-flow", () => {
         const agent = resource.createAgent();
         agent.start({ id: 1 });
 
-        // Verify pending state
-        expect(queryFn).toHaveBeenCalledTimes(1);
+        // Verify pending state (reading state$ triggers lazy entry creation)
         expect(agent.state$().status).toBe("pending");
         expect(agent.state$().isLoading).toBe(true);
         expect(agent.state$().data).toBeNull();
+        expect(queryFn).toHaveBeenCalledTimes(1);
 
         // Resolve the query
         calls[0].resolve({ name: "Alice" });
@@ -76,7 +76,10 @@ describe("Integration: query-flow", () => {
 
         // Change args → triggers SWR
         args = { id: 2 };
-        rerender();
+        await act(async () => {
+            rerender();
+            await flushMicrotasks();
+        });
 
         expect(queryFn).toHaveBeenCalledTimes(2);
         // SWR: shows previous data while loading
@@ -102,10 +105,12 @@ describe("Integration: query-flow", () => {
 
         // Start with args1
         agent.start({ id: 1 });
+        agent.state$(); // trigger lazy entry creation
         expect(calls).toHaveLength(1);
 
         // Switch to args2 before args1 resolves
         agent.start({ id: 2 });
+        agent.state$(); // trigger lazy entry creation for id=2
         expect(calls).toHaveLength(2);
 
         // args1 abort signal should NOT be triggered

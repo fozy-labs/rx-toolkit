@@ -2,7 +2,7 @@ import { expectTypeOf } from "vitest";
 
 import { createApi } from "@/query-v2/api/createApi";
 import { ReactHooksPlugin } from "@/query-v2/plugins/ReactHooksPlugin";
-import type { IReactHooksPluginContributions, TResourceV2AgentState, PluginAugmentations } from "@/query-v2/types";
+import type { IReactHooksPluginContributions, PluginAugmentations, TResourceV2AgentState } from "@/query-v2/types";
 
 describe("type-level: PluginAugmentations", () => {
     // PL09: PluginAugmentations resolves correct contribution types at compile time

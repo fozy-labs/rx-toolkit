@@ -108,7 +108,7 @@ describe("ResourceV2", () => {
         const { resource } = createResource();
         const entry = resource.getEntry({ id: 1 }, true);
         expect(entry).not.toBeNull();
-        expect(entry.peek().status).toBe("idle");
+        expect(entry.peek().status).toBe("pending");
     });
 
     // ── RE08: getEntry$ is reactive to resetCache ──

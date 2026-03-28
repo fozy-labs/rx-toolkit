@@ -22,6 +22,10 @@ describe("Integration: reset-and-multi-agent", () => {
         agent1.start({ id: 1 });
         agent2.start({ id: 2 });
 
+        // Trigger lazy entry creation
+        expect(agent1.state$().status).toBe("pending");
+        expect(agent2.state$().status).toBe("pending");
+
         // Resolve all
         c1[0].resolve({ name: "User" });
         c2[0].resolve({ name: "Post" });
@@ -34,13 +38,15 @@ describe("Integration: reset-and-multi-agent", () => {
         // Reset all
         api.resetAll();
 
-        // All agents should see idle
-        expect(agent1.state$().status).toBe("idle");
-        expect(agent2.state$().status).toBe("idle");
+        // All agents immediately re-create entries (pending)
+        expect(agent1.state$().status).toBe("pending");
+        expect(agent2.state$().status).toBe("pending");
 
-        // All caches should be empty
-        expect(r1.getEntry({ id: 1 })).toBeNull();
-        expect(r2.getEntry({ id: 2 })).toBeNull();
+        // Old caches should be empty (new entries created on state$ read)
+        // Resolve new fetches to clean up
+        c1[1].resolve({ name: "User" });
+        c2[1].resolve({ name: "Post" });
+        await flushMicrotasks();
     });
 
     // ── INT11: Multiple agents on same resource — shared cache, independent SWR ──
@@ -58,10 +64,12 @@ describe("Integration: reset-and-multi-agent", () => {
 
         // Agent A starts with args {id: 1}
         agentA.start({ id: 1 });
+        expect(agentA.state$().status).toBe("pending");
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         // Agent B starts with same args {id: 1} — shared cache, no new fetch
         agentB.start({ id: 1 });
+        expect(agentB.state$().status).toBe("pending");
         expect(queryFn).toHaveBeenCalledTimes(1); // Still 1 — dedup
 
         // Resolve the shared fetch
@@ -73,6 +81,7 @@ describe("Integration: reset-and-multi-agent", () => {
 
         // Agent A switches to {id: 2} — independent SWR
         agentA.start({ id: 2 });
+        expect(agentA.state$().status).not.toBe("idle"); // trigger entry creation
         expect(queryFn).toHaveBeenCalledTimes(2);
 
         // Agent A sees SWR (previous data from {id:1})

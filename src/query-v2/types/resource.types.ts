@@ -28,7 +28,7 @@ export type TResourceV2Options<TArgs, TData> = {
     maxSnapshotDataAge?: number;
     doCacheArgs?: boolean;
     devtools?: DevtoolsLike;
-}
+};
 
 /** ResourceV2 instance — the main data fetching unit */
 export interface IResourceV2<TArgs, TData> {

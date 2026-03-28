@@ -5,9 +5,9 @@ import type {
     ICreateApiOptions,
     IPlugin,
     IResourceV2,
-    TResourceV2Options,
     PluginAugmentations,
     TApiSnapshot,
+    TResourceV2Options,
 } from "@/query-v2/types";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query-v2/types";
 
@@ -62,7 +62,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
 
     const _resources = new Map<string, ResourceV2<unknown, unknown>>();
 
-    function apiCreateResourceV2<TArgs, TData>(
+    function apiCreateResourceV2<TArgs = void, TData = unknown>(
         resourceOptions: TResourceV2Options<TArgs, TData>,
     ): IResourceV2<TArgs, TData> & PluginAugmentations<TPlugins, TArgs, TData> {
         const key = resourceOptions.key;

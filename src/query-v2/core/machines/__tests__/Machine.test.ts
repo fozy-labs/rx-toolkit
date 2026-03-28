@@ -1,6 +1,5 @@
 import { Machine } from "@/query-v2/core/machines/Machine";
 import { MachineError } from "@/query-v2/core/machines/MachineError";
-import { MachineIdle } from "@/query-v2/core/machines/MachineIdle";
 import { MachinePending } from "@/query-v2/core/machines/MachinePending";
 import { MachineRefreshing } from "@/query-v2/core/machines/MachineRefreshing";
 import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
@@ -9,45 +8,10 @@ type TestArgs = { id: number };
 type TestData = { name: string };
 
 describe("Machine State Transitions", () => {
-    // === MachineIdle ===
-
-    describe("MachineIdle", () => {
-        it("SM01: Machine.idle() creates MachineIdle", () => {
-            const idle = Machine.idle<TestArgs, TestData>();
-            expect(idle).toBeInstanceOf(MachineIdle);
-            expect(idle.status).toBe("idle");
-            expect(idle.args).toBeNull();
-            expect(idle.data).toBeNull();
-            expect(idle.error).toBeNull();
-        });
-
-        it("SM02: idle.start(args) → MachinePending", () => {
-            const idle = Machine.idle<TestArgs, TestData>();
-            const pending = idle.start({ id: 1 });
-            expect(pending).toBeInstanceOf(MachinePending);
-            expect(pending.status).toBe("pending");
-            expect(pending.args).toEqual({ id: 1 });
-            expect(pending.data).toBeNull();
-        });
-
-        it("SM03: idle.reset() → MachineIdle", () => {
-            const idle = Machine.idle<TestArgs, TestData>();
-            const reset = idle.reset();
-            expect(reset).toBeInstanceOf(MachineIdle);
-        });
-
-        it("SM04: Idle is immutable — start returns new instance", () => {
-            const a = Machine.idle<TestArgs, TestData>();
-            const b = a.start({ id: 1 });
-            expect(a).not.toBe(b);
-            expect(a.status).toBe("idle");
-        });
-    });
-
     // === MachinePending ===
 
     describe("MachinePending", () => {
-        const getPending = () => Machine.idle<TestArgs, TestData>().start({ id: 1 });
+        const getPending = () => Machine.pending<TestArgs, TestData>({ id: 1 });
 
         it("SM05: pending.successHappened(data) → MachineSuccess", () => {
             const pending = getPending();
@@ -68,14 +32,8 @@ describe("Machine State Transitions", () => {
             expect(error.data).toBeNull();
         });
 
-        it("SM07: pending.reset() → MachineIdle", () => {
-            const pending = getPending();
-            const idle = pending.reset();
-            expect(idle).toBeInstanceOf(MachineIdle);
-        });
-
         it("SM08: Pending preserves args from start", () => {
-            const pending = Machine.idle<TestArgs, TestData>().start({ id: 5 });
+            const pending = Machine.pending<TestArgs, TestData>({ id: 5 });
             expect(pending.args).toEqual({ id: 5 });
         });
 
@@ -88,7 +46,7 @@ describe("Machine State Transitions", () => {
     // === MachineSuccess ===
 
     describe("MachineSuccess", () => {
-        const getSuccess = () => Machine.idle<TestArgs, TestData>().start({ id: 1 }).successHappened({ name: "test" });
+        const getSuccess = () => Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "test" });
 
         it("SM10: success.invalidate() → MachineRefreshing", () => {
             const success = getSuccess();
@@ -103,12 +61,6 @@ describe("Machine State Transitions", () => {
             const pending = success.start({ id: 2 });
             expect(pending).toBeInstanceOf(MachinePending);
             expect(pending.args).toEqual({ id: 2 });
-        });
-
-        it("SM12: success.reset() → MachineIdle", () => {
-            const success = getSuccess();
-            const idle = success.reset();
-            expect(idle).toBeInstanceOf(MachineIdle);
         });
 
         it("SM13: Success has updatedAt timestamp", () => {
@@ -141,7 +93,7 @@ describe("Machine State Transitions", () => {
 
     describe("MachineError", () => {
         const getError = () => {
-            const pending = Machine.idle<TestArgs, TestData>().start({ id: 1 });
+            const pending = Machine.pending<TestArgs, TestData>({ id: 1 });
             return pending.errorHappened(new Error("fail"));
         };
 
@@ -159,15 +111,9 @@ describe("Machine State Transitions", () => {
             expect(pending.args).toEqual({ id: 3 });
         });
 
-        it("SM18: error.reset() → MachineIdle", () => {
-            const error = getError();
-            const idle = error.reset();
-            expect(idle).toBeInstanceOf(MachineIdle);
-        });
-
         it("SM19: Error preserves error value", () => {
             const err = new Error("specific error");
-            const pending = Machine.idle<TestArgs, TestData>().start({ id: 1 });
+            const pending = Machine.pending<TestArgs, TestData>({ id: 1 });
             const error = pending.errorHappened(err);
             expect(error.error).toBe(err);
         });
@@ -177,7 +123,7 @@ describe("Machine State Transitions", () => {
 
     describe("MachineRefreshing", () => {
         const getRefreshing = () => {
-            const success = Machine.idle<TestArgs, TestData>().start({ id: 1 }).successHappened({ name: "old" });
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "old" });
             return success.invalidate();
         };
 
@@ -195,23 +141,17 @@ describe("Machine State Transitions", () => {
             expect(success.data).toEqual({ name: "old" });
         });
 
-        it("SM22: refreshing.reset() → MachineIdle", () => {
-            const refreshing = getRefreshing();
-            const idle = refreshing.reset();
-            expect(idle).toBeInstanceOf(MachineIdle);
-        });
-
         it("SM23: Refreshing preserves stale data during background refetch", () => {
-            const success = Machine.idle<TestArgs, TestData>().start({ id: 1 }).successHappened({ name: "stale" });
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "stale" });
             const refreshing = success.invalidate();
             expect(refreshing.data).toEqual({ name: "stale" });
         });
 
         it("SM24: Refreshing preserves patches from success state", () => {
-            const success = Machine.idle<TestArgs, { name: string; x?: number }>()
-                .start({ id: 1 })
-                .successHappened({ name: "data" });
-            const patched = success.createPatch((d) => {
+            const success = Machine.pending<TestArgs, { name: string; x?: number }>({ id: 1 }).successHappened({
+                name: "data",
+            });
+            const patched = success.createPatch((d: { name: string; x?: number }) => {
                 d.x = 42;
             });
             expect(patched).not.toBeNull();
@@ -225,12 +165,6 @@ describe("Machine State Transitions", () => {
     // === Machine Static Factory ===
 
     describe("Machine.fromSnapshot", () => {
-        it("SM25: fromSnapshot(idleState) → MachineIdle", () => {
-            const state = { status: "idle" as const, args: null, data: null, error: null, updatedAt: null };
-            const machine = Machine.fromSnapshot<TestArgs, TestData>(state);
-            expect(machine).toBeInstanceOf(MachineIdle);
-        });
-
         it("SM26: fromSnapshot(successState) → MachineSuccess with data", () => {
             const state = {
                 status: "success" as const,
@@ -286,12 +220,7 @@ describe("Machine State Transitions", () => {
         });
 
         it("SM30: Round-trip: instance → .state → fromSnapshot() → identical logic", () => {
-            const idle = Machine.idle<TestArgs, TestData>();
-            const fromIdle = Machine.fromSnapshot<TestArgs, TestData>(idle.state);
-            expect(fromIdle).toBeInstanceOf(MachineIdle);
-            expect(fromIdle.status).toBe("idle");
-
-            const success = idle.start({ id: 1 }).successHappened({ name: "round-trip" });
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "round-trip" });
             const fromSuccess = Machine.fromSnapshot<TestArgs, TestData>(success.state);
             expect(fromSuccess).toBeInstanceOf(MachineSuccess);
             expect((fromSuccess as MachineSuccess<TestArgs, TestData>).data).toEqual({ name: "round-trip" });
@@ -302,11 +231,11 @@ describe("Machine State Transitions", () => {
 
     describe("MachineWithData (Patcher integration)", () => {
         const getSuccess = () =>
-            Machine.idle<TestArgs, { name: string; x?: number }>().start({ id: 1 }).successHappened({ name: "data" });
+            Machine.pending<TestArgs, { name: string; x?: number }>({ id: 1 }).successHappened({ name: "data" });
 
         it("SM31: createPatch(patchFn) returns { machine, patchHandle }", () => {
             const success = getSuccess();
-            const result = success.createPatch((d) => {
+            const result = success.createPatch((d: { name: string; x?: number }) => {
                 d.x = 1;
             });
             expect(result).not.toBeNull();
@@ -329,7 +258,7 @@ describe("Machine State Transitions", () => {
 
         it("SM33: finishPatch('committed', patch) applies patch permanently", () => {
             const success = getSuccess();
-            const result = success.createPatch((d) => {
+            const result = success.createPatch((d: { name: string; x?: number }) => {
                 d.x = 10;
             });
             expect(result).not.toBeNull();
@@ -347,7 +276,7 @@ describe("Machine State Transitions", () => {
 
         it("SM34: finishPatch('aborted', patch) rolls back patch", () => {
             const success = getSuccess();
-            const result = success.createPatch((d) => {
+            const result = success.createPatch((d: { name: string; x?: number }) => {
                 d.x = 10;
             });
             expect(result).not.toBeNull();
@@ -363,23 +292,21 @@ describe("Machine State Transitions", () => {
         });
 
         it("SM35: abortAllPendingPatches() reverts all pending patches", () => {
-            let machine: MachineSuccess<TestArgs, { name: string; x?: number; y?: number; z?: number }> = Machine.idle<
-                TestArgs,
-                { name: string; x?: number; y?: number; z?: number }
-            >()
-                .start({ id: 1 })
-                .successHappened({ name: "data" });
+            let machine: MachineSuccess<TestArgs, { name: string; x?: number; y?: number; z?: number }> =
+                Machine.pending<TestArgs, { name: string; x?: number; y?: number; z?: number }>({
+                    id: 1,
+                }).successHappened({ name: "data" });
 
             // Create 3 patches
-            const r1 = machine.createPatch((d) => {
+            const r1 = machine.createPatch((d: { name: string; x?: number; y?: number; z?: number }) => {
                 d.x = 1;
             });
             machine = r1!.machine as typeof machine;
-            const r2 = machine.createPatch((d) => {
+            const r2 = machine.createPatch((d: { name: string; x?: number; y?: number; z?: number }) => {
                 d.y = 2;
             });
             machine = r2!.machine as typeof machine;
-            const r3 = machine.createPatch((d) => {
+            const r3 = machine.createPatch((d: { name: string; x?: number; y?: number; z?: number }) => {
                 d.z = 3;
             });
             machine = r3!.machine as typeof machine;
@@ -397,7 +324,7 @@ describe("Machine State Transitions", () => {
 
         it("SM36: Immutability: createPatch returns new instance", () => {
             const a = getSuccess();
-            const result = a.createPatch((d) => {
+            const result = a.createPatch((d: { name: string; x?: number }) => {
                 d.x = 1;
             });
             expect(result).not.toBeNull();

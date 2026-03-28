@@ -2,7 +2,7 @@ import { expectTypeOf, test } from "vitest";
 
 import { createApi } from "@/query-v2/api/createApi";
 import { ReactHooksPlugin } from "@/query-v2/plugins/ReactHooksPlugin";
-import type { IReactHooksPluginContributions, TResourceV2AgentState, PluginAugmentations } from "@/query-v2/types";
+import type { IReactHooksPluginContributions, PluginAugmentations, TResourceV2AgentState } from "@/query-v2/types";
 
 // PL09: PluginAugmentations<[ReactHooksPlugin], TArgs, TData> resolves to
 // IReactHooksPluginContributions<TArgs, TData> at compile time

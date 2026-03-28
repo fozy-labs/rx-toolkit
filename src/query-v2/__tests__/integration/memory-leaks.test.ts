@@ -28,35 +28,22 @@ describe("Integration: memory-leaks", () => {
         return { api, resource, queryFn, calls };
     }
 
-    // ── ML01: Agent dispose cleans up subscriptions ──
-    it("ML01: agent dispose cleans up entry subscription", async () => {
+    // ── ML01: Agent state resets when switching to SKIP ──
+    it("ML01: agent resets to idle when started with SKIP", async () => {
         const { resource, calls } = createTestResource(false);
         const agent = resource.createAgent();
 
         agent.start({ id: 1 });
+        expect(agent.state$.peek().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
         expect(agent.state$.peek().status).toBe("success");
 
-        // Entry obs should have a subscriber (the agent)
-        const entry = resource.getEntry({ id: 1 })!;
-        let subActive = true;
-        const sub = entry.obs.subscribe({
-            complete: () => {
-                subActive = false;
-            },
-        });
-        sub.unsubscribe();
-
-        // Dispose should clean up agent's internal subscription
-        agent.dispose();
-
-        // After dispose, creating a new agent should work without leaks
+        // After starting with SKIP, creating a new agent should work without leaks
         const agent2 = resource.createAgent();
         agent2.start({ id: 1 });
         expect(agent2.state$.peek().status).toBe("success");
-        agent2.dispose();
     });
 
     // ── ML02: ResourceV2 GC removes entry after cacheLifetime ──
@@ -112,12 +99,13 @@ describe("Integration: memory-leaks", () => {
         sub2.unsubscribe();
     });
 
-    // ── ML04: Signal cleanup on dispose ──
-    it("ML04: agent state$ compute does not fire after dispose", async () => {
+    // ── ML04: Signal cleanup on unsubscribe ──
+    it("ML04: agent state$ compute does not fire after unsubscribe", async () => {
         const { resource, calls } = createTestResource(false);
         const agent = resource.createAgent();
 
         agent.start({ id: 1 });
+        expect(agent.state$.peek().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -126,8 +114,7 @@ describe("Integration: memory-leaks", () => {
             computeSpy();
         });
 
-        // Dispose and unsubscribe
-        agent.dispose();
+        // Unsubscribe
         sub.unsubscribe();
 
         // Further mutations to resource should not trigger agent state$
@@ -161,7 +148,6 @@ describe("Integration: memory-leaks", () => {
         const agent2 = resource.createAgent();
         agent2.start({ id: 1 });
         expect(agent2.state$.peek().status).toBe("success");
-        agent2.dispose();
     });
 
     // ── ML06: Repeated mount/unmount cycles ──

@@ -8,9 +8,9 @@ import type {
     ArgsOrVoid,
     IResourceV2,
     IResourceV2CacheEntry,
-    TResourceV2Options,
     TCompareArgsFn,
     TMachineInstance,
+    TResourceV2Options,
 } from "@/query-v2/types";
 import { Signal } from "@/signals";
 import { Batcher } from "@/signals/base/Batcher";
@@ -131,8 +131,6 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
     private _getEntry$(args: TArgs, doInitiate?: boolean): ResourceV2CacheEntry<TArgs, TData> | null {
         const status = this.status$();
 
-        console.log(`[_getEntry$] getEntry$ called with args:`, args, `doInitiate:`, doInitiate, `current status:`, status);
-
         if (status === "idle" && !doInitiate) return null;
 
         if (doInitiate) {
@@ -148,7 +146,7 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
             queryFn: this._queryFn,
             compareArgs: this._compareArgsFn,
             entryOptions: {
-                keyParts: this._key ? ['Resource/', this._key] : undefined,
+                keyParts: this._key ? ["Resource/", this._key] : undefined,
                 cacheLifetime: this._cacheLifetime,
             },
             onDataLoaded: (a, data) => this._lifecycleHooks.resolveDataLoaded(a, data),

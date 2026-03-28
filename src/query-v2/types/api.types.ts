@@ -1,5 +1,5 @@
 import type { IPlugin, PluginAugmentations } from "./plugin.types";
-import type { IResourceV2, TResourceV2Options, TCompareArgsFn, TSerializeArgsFn } from "./resource.types";
+import type { IResourceV2, TCompareArgsFn, TResourceV2Options, TSerializeArgsFn } from "./resource.types";
 import type { TApiSnapshot } from "./snapshot.types";
 
 /** API-level options — generic over plugins for type inference */
@@ -17,7 +17,7 @@ export interface ICreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
 
 /** API instance — generic over plugins for type-safe augmentation */
 export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[]> {
-    createResourceV2<TArgs, TData>(
+    createResourceV2<TArgs = void, TData = unknown>(
         options: TResourceV2Options<TArgs, TData>,
     ): IResourceV2<TArgs, TData> & PluginAugmentations<TPlugins, TArgs, TData>;
 

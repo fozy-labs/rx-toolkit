@@ -1,11 +1,5 @@
 import { CacheEntry } from "@/query-v2/core/CacheEntry";
-import {
-    MachineError,
-    MachinePending,
-    MachineRefreshing,
-    MachineSuccess,
-    Patcher,
-} from "@/query-v2/core/machines";
+import { MachineError, MachinePending, MachineRefreshing, MachineSuccess, Patcher } from "@/query-v2/core/machines";
 import type {
     ICacheEntryOptions,
     IPatchHandle,
@@ -16,7 +10,6 @@ import type {
     TPatchState,
     TQueryFn,
 } from "@/query-v2/types";
-import { Signal } from "@/signals";
 import type { ReadableSignalFnLike } from "@/signals/types";
 
 export interface IResourceV2CacheEntryOptions<TArgs, TData> {

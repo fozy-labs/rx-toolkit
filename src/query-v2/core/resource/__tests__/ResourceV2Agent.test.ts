@@ -25,8 +25,9 @@ describe("ResourceV2Agent", () => {
         const { agent, queryFn, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
 
-        expect(queryFn).toHaveBeenCalledTimes(1);
+        // Entry is created lazily when state$ is first read
         expect(agent.state$().status).toBe("pending");
+        expect(queryFn).toHaveBeenCalledTimes(1);
 
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
@@ -37,6 +38,7 @@ describe("ResourceV2Agent", () => {
     it("AG02: state$ derives flat state from machine after success", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -56,14 +58,15 @@ describe("ResourceV2Agent", () => {
     it("AG03: SWR shows previous data while loading new args", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
         expect(agent.state$().data).toEqual({ name: "Alice" });
 
         agent.start({ id: 2 });
-        // New args are pending, but previous data (Alice) is shown
+        // New args are pending, but previous data (Alice) is shown via SWR
         const state = agent.state$();
-        expect(state.status).toBe("pending");
+        expect(state.status).toBe("refreshing");
         expect(state.data).toEqual({ name: "Alice" });
         expect(state.isLoading).toBe(true);
 
@@ -75,10 +78,12 @@ describe("ResourceV2Agent", () => {
     it("AG04: SWR previous cleared when current resolves", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
         agent.start({ id: 2 });
+        agent.state$(); // trigger entry creation for id=2
         calls[1].resolve({ name: "Bob" });
         await flushMicrotasks();
 
@@ -101,6 +106,7 @@ describe("ResourceV2Agent", () => {
     it("AG06: isInitialLoading is false when SWR data exists", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -127,6 +133,7 @@ describe("ResourceV2Agent", () => {
     it("AG08: same args do not re-fetch when already in success/pending", async () => {
         const { agent, queryFn, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -138,6 +145,7 @@ describe("ResourceV2Agent", () => {
     it("AG09: same args in error state is a no-op", async () => {
         const { agent, queryFn, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].reject(new Error("fail"));
         await flushMicrotasks();
 
@@ -175,6 +183,9 @@ describe("ResourceV2Agent", () => {
         agent.start({ id: 2 });
         agent.start({ id: 3 });
 
+        // Read state to trigger lazy entry creation for latest args
+        expect(agent.state$().status).toBe("pending");
+
         // None resolved — at most 1 previous, 1 current
         calls[2].resolve({ name: "C" });
         await flushMicrotasks();
@@ -211,6 +222,7 @@ describe("ResourceV2Agent", () => {
     it("AG14: entry field provides consumer entry handle", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -223,6 +235,7 @@ describe("ResourceV2Agent", () => {
     it("AG15: isRefreshing true during refreshing state", async () => {
         const { resource, agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -239,6 +252,7 @@ describe("ResourceV2Agent", () => {
     it("AG16: isError true on error and error carries the thrown value", async () => {
         const { agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         const err = new Error("test error");
         calls[0].reject(err);
         await flushMicrotasks();
@@ -265,9 +279,10 @@ describe("ResourceV2Agent", () => {
     });
 
     // ── AG19: resetCache() causes agent to reactively return to idle ──
-    it("AG19: resetCache() causes agent to reactively return to idle state", async () => {
+    it("AG19: resetCache() causes agent to reactively re-fetch", async () => {
         const { resource, agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
@@ -277,28 +292,29 @@ describe("ResourceV2Agent", () => {
         // Reset the resource cache
         resource.resetCache();
 
-        // Agent should reactively become idle
-        expect(agent.state$().status).toBe("idle");
+        // Agent immediately re-creates entry (pending) due to lazy compute re-evaluation
+        expect(agent.state$().status).toBe("pending");
         expect(agent.state$().data).toBeNull();
-        expect(agent.state$().entry).toBeNull();
+        expect(agent.state$().entry).not.toBeNull();
 
-        // Cleanup: auto-refetch fires on microtask
-        await flushMicrotasks();
         calls[1].resolve({ name: "Alice" });
         await flushMicrotasks();
+        expect(agent.state$().status).toBe("success");
     });
 
     // ── AG20: agent recovers after resetCache with start() ──
     it("AG20: agent recovers after resetCache by calling start() again", async () => {
         const { resource, agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
         resource.resetCache();
-        expect(agent.state$().status).toBe("idle");
+        // Agent immediately re-creates entry (pending) due to lazy compute re-evaluation
+        expect(agent.state$().status).toBe("pending");
 
-        // Start again with same args — should re-fetch
+        // Start again with same args — no-op since already tracking same args
         agent.start({ id: 1 });
 
         expect(agent.state$().status).toBe("pending");
@@ -310,38 +326,35 @@ describe("ResourceV2Agent", () => {
     });
 
     // ── AG21: resetCache during pending cancels and resets ──
-    it("AG21: resetCache during pending — agent becomes idle", async () => {
+    it("AG21: resetCache during pending — agent re-creates entry", async () => {
         const { resource, agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
         expect(agent.state$().status).toBe("pending");
 
         resource.resetCache();
 
-        expect(agent.state$().status).toBe("idle");
+        // Agent immediately re-creates entry (pending) due to lazy compute re-evaluation
+        expect(agent.state$().status).toBe("pending");
         expect(agent.state$().data).toBeNull();
 
-        // Cleanup: auto-refetch fires on microtask
-        await flushMicrotasks();
         calls[1].resolve({ name: "test" });
         await flushMicrotasks();
+        expect(agent.state$().status).toBe("success");
     });
 
     // ── AG22: active agent auto-refetches after resetCache ──
     it("AG22: active agent auto-refetches after resetCache without manual start()", async () => {
         const { resource, agent, calls } = createResourceAndAgent();
         agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
         calls[0].resolve({ name: "Alice" });
         await flushMicrotasks();
 
         expect(agent.state$().status).toBe("success");
         expect(agent.state$().data).toEqual({ name: "Alice" });
 
-        // Reset the cache — agent becomes idle then auto-refetches
+        // Reset the cache — agent immediately re-creates entry (pending)
         resource.resetCache();
-        expect(agent.state$().status).toBe("idle");
-
-        // Auto-refetch fires on microtask
-        await flushMicrotasks();
         expect(agent.state$().status).toBe("pending");
 
         // Resolve new fetch — agent recovers with new data

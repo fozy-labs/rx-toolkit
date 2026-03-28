@@ -24,7 +24,7 @@ describe("ResourceV2CacheEntry", () => {
         const { entry } = createEntry();
 
         const state = entry.machine$();
-        expect(state.status).toBe("idle");
+        expect(state.status).toBe("pending");
         expect(entry.state$()).toBe(state);
     });
 
@@ -34,7 +34,7 @@ describe("ResourceV2CacheEntry", () => {
         const computeFn = vi.fn(() => entry.peek());
         const computed = Signal.compute(computeFn);
 
-        expect(computed().status).toBe("idle");
+        expect(computed().status).toBe("pending");
         expect(computeFn).toHaveBeenCalledTimes(1);
 
         // Trigger a state change
@@ -246,7 +246,7 @@ describe("ResourceV2CacheEntry", () => {
     });
 
     // RCE15: entry.complete() is terminal
-    it("RCE15: complete() aborts patches, resets to idle, fires onClean$", async () => {
+    it("RCE15: complete() aborts patches, fires onClean$, and prevents further set()", async () => {
         const { entry, calls } = createEntry();
 
         entry.query();
@@ -266,13 +266,13 @@ describe("ResourceV2CacheEntry", () => {
         // Complete
         entry.complete();
 
-        // Machine should be idle
-        expect(entry.peek().status).toBe("idle");
+        // Machine stays at last state (complete does not reset machine)
+        expect(entry.peek().status).toBe("success");
         // onClean$ should have fired
         expect(cleanSpy).toHaveBeenCalledTimes(1);
         // Subsequent set() is no-op
         entry.set({ status: "pending", args: { id: 1 }, data: null, error: null, updatedAt: null });
-        expect(entry.peek().status).toBe("idle");
+        expect(entry.peek().status).toBe("success");
     });
 
     // Additional behavior tests
@@ -360,6 +360,7 @@ describe("ResourceV2CacheEntry", () => {
 
         entry.complete();
         expect(calls[0].abortSignal.aborted).toBe(true);
-        expect(entry.peek().status).toBe("idle");
+        // Machine stays at pending (complete does not reset machine state)
+        expect(entry.peek().status).toBe("pending");
     });
 });

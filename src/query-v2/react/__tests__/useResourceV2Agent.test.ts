@@ -68,7 +68,10 @@ describe("useResourceV2Agent", () => {
 
         // Change args
         args = { id: 2 };
-        rerender();
+        await act(async () => {
+            rerender();
+            await flushMicrotasks();
+        });
 
         expect(queryFn).toHaveBeenCalledTimes(2);
         // SWR: should still show previous data while loading new

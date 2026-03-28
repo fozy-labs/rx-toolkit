@@ -270,15 +270,17 @@ describe("createApi", () => {
         const entry = resource.getEntry({ id: 1 });
         expect(entry).not.toBeNull();
 
-        // queryFn should have been called due to auto-invalidation
-        expect(queryFn).toHaveBeenCalledTimes(1);
+        // queryFn should have been called due to auto-fetch on entry creation (1) + auto-invalidation (2)
+        expect(queryFn).toHaveBeenCalledTimes(2);
 
         // Machine should be in refreshing (or pending depending on invalidate behavior)
         const machine = entry!.peek();
         expect(machine.status).toBe("refreshing");
 
-        // Resolve the refetch
-        calls[0].resolve({ name: "Fresh Alice" });
+        // Resolve auto-fetch from constructor (stale, will be ignored or overwritten)
+        calls[0].resolve({ name: "Stale Alice" });
+        // Resolve the invalidation refetch (calls[1])
+        calls[1].resolve({ name: "Fresh Alice" });
         await flushMicrotasks();
 
         expect(entry!.peek().status).toBe("success");

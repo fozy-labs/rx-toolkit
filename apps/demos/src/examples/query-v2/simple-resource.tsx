@@ -12,7 +12,7 @@ const itemsResource = api.createResourceV2({
 });
 
 export function Base() {
-    const state = itemsResource.useResourceV2Agent(undefined);
+    const state = itemsResource.useResourceV2Agent();
 
     const handleResetAll = () => {
         api.resetAll();
