@@ -11,7 +11,6 @@ export type {
     TPatchStatus,
     TPatch,
     TPatchState,
-    TIdleState,
     TPendingState,
     TSuccessState,
     TErrorState,
@@ -26,11 +25,11 @@ export type {
     TQueryFn,
     TSerializeArgsFn,
     TCompareArgsFn,
-    IResourceV2Options,
+    TResourceV2Options,
     IResourceV2,
     IResourceV2CacheEntry,
     // agent.types
-    IResourceV2AgentState,
+    TResourceV2AgentState,
     IResourceV2Agent,
     // lifecycle.types
     ICacheEntryAddedTools,
@@ -63,7 +62,6 @@ export { CURRENT_SNAPSHOT_VERSION } from "./types";
 // Machine classes (public)
 export {
     Machine,
-    MachineIdle,
     MachinePending,
     MachineSuccess,
     MachineError,

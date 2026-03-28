@@ -2,7 +2,7 @@ import { vi } from "vitest";
 
 import { createApi } from "@/query-v2/api/createApi";
 import { ReactHooksPlugin } from "@/query-v2/plugins/ReactHooksPlugin";
-import type { IPlugin, IResourceV2, IResourceV2Options } from "@/query-v2/types";
+import type { IPlugin, IResourceV2, TResourceV2Options } from "@/query-v2/types";
 
 function createMockPlugin(name: string, contributions?: Record<string, unknown>): IPlugin {
     return {
@@ -143,7 +143,7 @@ describe("ReactHooksPlugin", () => {
             augmentResource: vi.fn(
                 <TArgs, TData>(
                     resource: IResourceV2<TArgs, TData>,
-                    _options: IResourceV2Options<TArgs, TData>,
+                    _options: TResourceV2Options<TArgs, TData>,
                 ): Record<string, unknown> => {
                     // By the time pluginB runs, pluginA's contributions should be merged
                     sawEarlierContribution = typeof (resource as any).fromA === "function";

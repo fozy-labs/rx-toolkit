@@ -4,7 +4,7 @@ import type { SKIP_TOKEN } from "../lib/SKIP_TOKEN";
 export type ArgsOrVoid<TArgs> = TArgs extends void ? [] : [args: TArgs];
 
 /** Extends ArgsOrVoid to accept SKIP token */
-export type ArgsOrVoidOrSkip<TArgs> = TArgs extends void ? [] | [args: SKIP_TOKEN] : [args: TArgs | SKIP_TOKEN];
+export type ArgsOrVoidOrSkip<TArgs> = TArgs extends void ? ([] | [args: SKIP_TOKEN | TArgs])  : [args: TArgs | SKIP_TOKEN];
 
 /** Flatten intersection types into a readable shape */
 export type Prettify<T> = { [KeyType in keyof T]: T[KeyType] } & {};

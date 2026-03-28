@@ -2,12 +2,12 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createControllableQueryFn } from "@/query-v2/__tests__/helpers";
 import { ResourceV2 } from "@/query-v2/core/resource/ResourceV2";
 import { getSnapshot, hydrateSnapshot } from "@/query-v2/core/Snapshot";
-import { CURRENT_SNAPSHOT_VERSION, type IResourceV2Options } from "@/query-v2/types";
+import { CURRENT_SNAPSHOT_VERSION, type TResourceV2Options } from "@/query-v2/types";
 
 type TArgs = { id: number };
 type TData = { name: string };
 
-function createResource(key: string, overrides?: Partial<IResourceV2Options<TArgs, TData>>) {
+function createResource(key: string, overrides?: Partial<TResourceV2Options<TArgs, TData>>) {
     const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
     const resource = new ResourceV2<TArgs, TData>({
         queryFn,

@@ -5,7 +5,7 @@ import type {
     ICreateApiOptions,
     IPlugin,
     IResourceV2,
-    IResourceV2Options,
+    TResourceV2Options,
     PluginAugmentations,
     TApiSnapshot,
 } from "@/query-v2/types";
@@ -63,7 +63,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
     const _resources = new Map<string, ResourceV2<unknown, unknown>>();
 
     function apiCreateResourceV2<TArgs, TData>(
-        resourceOptions: IResourceV2Options<TArgs, TData>,
+        resourceOptions: TResourceV2Options<TArgs, TData>,
     ): IResourceV2<TArgs, TData> & PluginAugmentations<TPlugins, TArgs, TData> {
         const key = resourceOptions.key;
 
@@ -72,7 +72,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
         }
 
         // Merge API defaults with resource options
-        const mergedOptions: IResourceV2Options<TArgs, TData> = {
+        const mergedOptions: TResourceV2Options<TArgs, TData> = {
             cacheLifetime,
             doCacheArgs,
             ...resourceOptions,

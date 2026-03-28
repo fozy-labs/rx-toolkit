@@ -1,6 +1,5 @@
 export { Machine } from "./Machine";
 export { MachineError } from "./MachineError";
-export { MachineIdle } from "./MachineIdle";
 export { MachinePending } from "./MachinePending";
 export { MachineRefreshing } from "./MachineRefreshing";
 export { MachineSuccess } from "./MachineSuccess";

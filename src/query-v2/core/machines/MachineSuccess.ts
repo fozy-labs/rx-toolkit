@@ -1,6 +1,5 @@
 import type { TPatchState, TSuccessState } from "@/query-v2/types";
 
-import { MachineIdle } from "./MachineIdle";
 import { MachinePending } from "./MachinePending";
 import { MachineRefreshing } from "./MachineRefreshing";
 import { MachineWithData } from "./MachineWithData";
@@ -37,10 +36,6 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
 
     start(args: TArgs): MachinePending<TArgs, TData> {
         return new MachinePending<TArgs, TData>(args);
-    }
-
-    reset(): MachineIdle<TArgs, TData> {
-        return new MachineIdle<TArgs, TData>();
     }
 
     protected cloneWith(updates: Record<string, unknown>): MachineSuccess<TArgs, TData> {

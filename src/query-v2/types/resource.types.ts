@@ -17,19 +17,17 @@ export type TSerializeArgsFn<TArgs = unknown> = (args: TArgs) => string;
 export type TCompareArgsFn<TArgs = unknown> = (a: TArgs, b: TArgs) => boolean;
 
 /** ResourceV2 creation options */
-export interface IResourceV2Options<TArgs, TData> {
-    readonly key?: string;
-    readonly queryFn: TQueryFn<TArgs, TData>;
-    readonly cacheLifetime?: number;
-    readonly serializeArgs?: TSerializeArgsFn<TArgs>;
-    readonly compareArg?: TCompareArgsFn<TArgs>;
-    readonly onCacheEntryAdded?: TOnCacheEntryAdded<TArgs, TData>;
-    readonly onQueryStarted?: TOnQueryStarted<TArgs, TData>;
-    readonly beforeDevtoolsPush?: (value: unknown, push: (v: unknown) => void) => void;
-    readonly maxSnapshotDataAge?: number;
-    readonly doCacheArgs?: boolean;
-    readonly devtools?: DevtoolsLike;
-    readonly devtoolsDebug?: boolean;
+export type TResourceV2Options<TArgs, TData> = {
+    key?: string;
+    queryFn: TQueryFn<TArgs, TData>;
+    cacheLifetime?: number | false;
+    serializeArgs?: TSerializeArgsFn<TArgs>;
+    compareArg?: TCompareArgsFn<TArgs>;
+    onCacheEntryAdded?: TOnCacheEntryAdded<TArgs, TData>;
+    onQueryStarted?: TOnQueryStarted<TArgs, TData>;
+    maxSnapshotDataAge?: number;
+    doCacheArgs?: boolean;
+    devtools?: DevtoolsLike;
 }
 
 /** ResourceV2 instance — the main data fetching unit */

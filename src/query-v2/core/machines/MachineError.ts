@@ -1,6 +1,5 @@
 import type { TErrorState } from "@/query-v2/types";
 
-import { MachineIdle } from "./MachineIdle";
 import { MachinePending } from "./MachinePending";
 
 /**
@@ -35,9 +34,5 @@ export class MachineError<TArgs, TData> {
 
     start(args: TArgs): MachinePending<TArgs, TData> {
         return new MachinePending<TArgs, TData>(args);
-    }
-
-    reset(): MachineIdle<TArgs, TData> {
-        return new MachineIdle<TArgs, TData>();
     }
 }

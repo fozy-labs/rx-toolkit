@@ -1,7 +1,7 @@
 import { finalize, Observable, ReplaySubject, share, Subject, timer } from "rxjs";
 
 import type { ICacheEntry, ICacheEntryOptions } from "@/query-v2/types";
-import { Signal } from "@/signals";
+import { Signal, signalize } from "@/signals";
 import type { SignalFn, SignalOptions } from "@/signals/types";
 
 /**
@@ -9,12 +9,13 @@ import type { SignalFn, SignalOptions } from "@/signals/types";
  * Implements ICacheEntry<TState>.
  */
 export class CacheEntry<TState> implements ICacheEntry<TState> {
-    private _signal$: SignalFn<TState>;
+    private _state$: SignalFn<TState>;
     private _isCompleted = false;
     private _cacheLifetime: number | false = 60_000;
 
     readonly onClean$ = new Subject<void>();
-    readonly obs: Observable<TState>;
+    readonly obs;
+    readonly state$;
 
     constructor(initialState: TState, options?: ICacheEntryOptions<TState>) {
         const signalOpts: SignalOptions<TState> = {
@@ -23,13 +24,13 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         if (options?.beforeDevtoolsPush) {
             signalOpts.beforeDevtoolsPush = options.beforeDevtoolsPush;
         }
-        this._signal$ = Signal.state<TState>(initialState, signalOpts);
+        this._state$ = Signal.state<TState>(initialState, signalOpts);
 
         if (options?.cacheLifetime !== undefined) {
             this._cacheLifetime = options.cacheLifetime;
         }
 
-        this.obs = this._signal$.obs.pipe(
+        this.obs = this._state$.obs.pipe(
             finalize(() => {
                 this.complete();
             }),
@@ -39,22 +40,19 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
                 resetOnComplete: true,
             }),
         );
-    }
 
-    /** Reactive read — registers signal dependency */
-    state$(): TState {
-        return this._signal$();
+        this.state$ = signalize(this.obs);
     }
 
     /** Non-reactive read */
     peek(): TState {
-        return this._signal$.peek();
+        return this._state$.peek();
     }
 
     /** Update stored state (no-op if completed) */
     set(state: TState): void {
         if (this._isCompleted) return;
-        this._signal$.set(state);
+        this._state$.set(state);
     }
 
     /** Fire onClean$ and mark completed. Subsequent set() calls are no-ops. */

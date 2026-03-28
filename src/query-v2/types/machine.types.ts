@@ -1,7 +1,7 @@
 import type { Patch } from "immer";
 
 /** Discriminated union of all machine statuses */
-export type TMachineStatus = "idle" | "pending" | "success" | "error" | "refreshing";
+export type TMachineStatus = "pending" | "success" | "error" | "refreshing";
 
 /** Patch lifecycle status */
 export type TPatchStatus = "pending" | "committed" | "aborted";
@@ -23,15 +23,6 @@ export interface TPatchState<TData> {
     readonly originalData: TData;
     readonly patches: TPatch[];
     readonly isConsistencyViolation: boolean;
-}
-
-/** Idle state — initial, no data */
-export interface TIdleState {
-    readonly status: "idle";
-    readonly args: null;
-    readonly data: null;
-    readonly error: null;
-    readonly updatedAt: null;
 }
 
 /** Pending state — first fetch in progress */
@@ -74,7 +65,6 @@ export interface TRefreshingState<TArgs, TData> {
 
 /** Discriminated union of all machine states */
 export type TMachineState<TArgs = unknown, TData = unknown> =
-    | TIdleState
     | TPendingState<TArgs>
     | TSuccessState<TArgs, TData>
     | TErrorState<TArgs>

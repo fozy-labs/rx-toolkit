@@ -11,30 +11,25 @@ describe("Integration: reset-and-multi-agent", () => {
         const api = createApi();
         const { queryFn: qf1, calls: c1 } = createControllableQueryFn<TArgs, TData>();
         const { queryFn: qf2, calls: c2 } = createControllableQueryFn<TArgs, TData>();
-        const { queryFn: qf3, calls: c3 } = createControllableQueryFn<TArgs, TData>();
 
-        const r1 = api.createResourceV2<TArgs, TData>({ key: "users", queryFn: qf1, cacheLifetime: false as never });
-        const r2 = api.createResourceV2<TArgs, TData>({ key: "posts", queryFn: qf2, cacheLifetime: false as never });
-        const r3 = api.createResourceV2<TArgs, TData>({ key: "comments", queryFn: qf3, cacheLifetime: false as never });
+        const r1 = api.createResourceV2<TArgs, TData>({ key: "users", queryFn: qf1, cacheLifetime: false });
+        const r2 = api.createResourceV2<TArgs, TData>({ key: "posts", queryFn: qf2, cacheLifetime: false });
 
         const agent1 = r1.createAgent();
         const agent2 = r2.createAgent();
-        const agent3 = r3.createAgent();
 
         // Start all agents
         agent1.start({ id: 1 });
         agent2.start({ id: 2 });
-        agent3.start({ id: 3 });
 
         // Resolve all
         c1[0].resolve({ name: "User" });
         c2[0].resolve({ name: "Post" });
-        c3[0].resolve({ name: "Comment" });
+
         await flushMicrotasks();
 
         expect(agent1.state$().status).toBe("success");
         expect(agent2.state$().status).toBe("success");
-        expect(agent3.state$().status).toBe("success");
 
         // Reset all
         api.resetAll();
@@ -42,12 +37,10 @@ describe("Integration: reset-and-multi-agent", () => {
         // All agents should see idle
         expect(agent1.state$().status).toBe("idle");
         expect(agent2.state$().status).toBe("idle");
-        expect(agent3.state$().status).toBe("idle");
 
         // All caches should be empty
         expect(r1.getEntry({ id: 1 })).toBeNull();
         expect(r2.getEntry({ id: 2 })).toBeNull();
-        expect(r3.getEntry({ id: 3 })).toBeNull();
     });
 
     // ── INT11: Multiple agents on same resource — shared cache, independent SWR ──

@@ -1,6 +1,5 @@
 import type { TPatchState, TRefreshingState } from "@/query-v2/types";
 
-import { MachineIdle } from "./MachineIdle";
 import { MachineSuccess } from "./MachineSuccess";
 import { MachineWithData } from "./MachineWithData";
 import { Patcher } from "./Patcher";
@@ -49,10 +48,6 @@ export class MachineRefreshing<TArgs, TData> extends MachineWithData<TArgs, TDat
      */
     errorHappened(_error: unknown): MachineSuccess<TArgs, TData> {
         return new MachineSuccess<TArgs, TData>(this.args, this.data, this.patchState, this.updatedAt);
-    }
-
-    reset(): MachineIdle<TArgs, TData> {
-        return new MachineIdle<TArgs, TData>();
     }
 
     protected cloneWith(updates: Record<string, unknown>): MachineRefreshing<TArgs, TData> {

@@ -2,8 +2,6 @@ import type { Observable, Subject } from "rxjs";
 
 /** Internal reactive container wrapping a Signal.state<TState> */
 export interface ICacheEntry<TState = unknown> {
-    /** Reactive read — registers signal dependency */
-    state$(): TState;
     /** Non-reactive read */
     peek(): TState;
     /** Update stored state (no-op if completed) */

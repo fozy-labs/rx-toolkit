@@ -4,13 +4,13 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createControllableQueryFn } from "@/query-v2/__tests__/helpers";
 import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
 import { ResourceV2 } from "@/query-v2/core/resource/ResourceV2";
-import type { IResourceV2Options } from "@/query-v2/types";
+import type { TResourceV2Options } from "@/query-v2/types";
 import { Signal } from "@/signals";
 
 type TArgs = { id: number };
 type TData = { name: string };
 
-function createResource(overrides?: Partial<IResourceV2Options<TArgs, TData>>) {
+function createResource(overrides?: Partial<TResourceV2Options<TArgs, TData>>) {
     const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
     const resource = new ResourceV2<TArgs, TData>({
         queryFn,

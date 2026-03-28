@@ -1,7 +1,6 @@
 import { CacheEntry } from "@/query-v2/core/CacheEntry";
 import {
     MachineError,
-    MachineIdle,
     MachinePending,
     MachineRefreshing,
     MachineSuccess,
@@ -50,12 +49,14 @@ export class ResourceV2CacheEntry<TArgs, TData>
     private _onDataLoaded: ((args: TArgs, data: TData) => void) | undefined;
 
     constructor(options: IResourceV2CacheEntryOptions<TArgs, TData>) {
-        super(new MachineIdle<TArgs, TData>(), options.entryOptions);
+        super(new MachinePending<TArgs, TData>(options.args), options.entryOptions);
         this._args = options.args;
         this._queryFn = options.queryFn;
         this._compareArgs = options.compareArgs;
         this._onDataLoaded = options.onDataLoaded;
-        this.machine$ = Signal.compute(() => this.state$());
+        this.machine$ = this.state$;
+
+        this._doFetch().catch(() => {});
     }
 
     isMyArgs(args: TArgs): boolean {
@@ -117,9 +118,7 @@ export class ResourceV2CacheEntry<TArgs, TData>
         }
 
         // Transition based on current state
-        if (machine.status === "idle") {
-            this.set(new MachinePending<TArgs, TData>(this._args));
-        } else if (machine.status === "success") {
+        if (machine.status === "success") {
             this.set(
                 new MachineRefreshing<TArgs, TData>(this._args, machine.data, machine.patchState, machine.updatedAt),
             );
@@ -139,9 +138,6 @@ export class ResourceV2CacheEntry<TArgs, TData>
         }
         this._inflightPromise = null;
         this._patchState = null;
-
-        // Reset machine to idle (must happen before super.complete() marks _isCompleted)
-        this.set(new MachineIdle<TArgs, TData>());
 
         // Fire onClean$ and mark completed
         super.complete();

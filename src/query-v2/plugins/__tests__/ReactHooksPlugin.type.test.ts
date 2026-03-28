@@ -2,7 +2,7 @@ import { expectTypeOf } from "vitest";
 
 import { createApi } from "@/query-v2/api/createApi";
 import { ReactHooksPlugin } from "@/query-v2/plugins/ReactHooksPlugin";
-import type { IReactHooksPluginContributions, IResourceV2AgentState, PluginAugmentations } from "@/query-v2/types";
+import type { IReactHooksPluginContributions, TResourceV2AgentState, PluginAugmentations } from "@/query-v2/types";
 
 describe("type-level: PluginAugmentations", () => {
     // PL09: PluginAugmentations resolves correct contribution types at compile time
@@ -12,7 +12,7 @@ describe("type-level: PluginAugmentations", () => {
         expectTypeOf<Result>().toMatchTypeOf<IReactHooksPluginContributions<{ id: number }, { name: string }>>();
 
         type HookReturn = ReturnType<Result["useResourceV2Agent"]>;
-        expectTypeOf<HookReturn>().toMatchTypeOf<IResourceV2AgentState<{ id: number }, { name: string }>>();
+        expectTypeOf<HookReturn>().toMatchTypeOf<TResourceV2AgentState<{ id: number }, { name: string }>>();
     });
 
     // PL10: PluginAugmentations rejects invalid plugin access at compile time

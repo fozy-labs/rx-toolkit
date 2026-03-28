@@ -1,7 +1,6 @@
 import type { TPendingState } from "@/query-v2/types";
 
 import { MachineError } from "./MachineError";
-import { MachineIdle } from "./MachineIdle";
 import { MachineSuccess } from "./MachineSuccess";
 
 /**
@@ -35,9 +34,5 @@ export class MachinePending<TArgs, TData> {
 
     errorHappened(error: unknown): MachineError<TArgs, TData> {
         return new MachineError<TArgs, TData>(this.args, error);
-    }
-
-    reset(): MachineIdle<TArgs, TData> {
-        return new MachineIdle<TArgs, TData>();
     }
 }

@@ -1,5 +1,5 @@
-import type { IResourceV2AgentState } from "./agent.types";
-import type { IResourceV2, IResourceV2Options } from "./resource.types";
+import type { TResourceV2AgentState } from "./agent.types";
+import type { IResourceV2, TResourceV2Options } from "./resource.types";
 import type { ArgsOrVoidOrSkip, Prettify, UnionToIntersection } from "./shared.types";
 
 /** Context passed to plugin.install() */
@@ -15,13 +15,13 @@ export interface IPlugin {
     /** Called per createResourceV2() — return contributed methods */
     augmentResource?<TArgs, TData>(
         resource: IResourceV2<TArgs, TData>,
-        options: IResourceV2Options<TArgs, TData>,
+        options: TResourceV2Options<TArgs, TData>,
     ): Record<string, unknown>;
 }
 
 /** Type-level contributions from ReactHooksPlugin */
 export interface IReactHooksPluginContributions<TArgs, TData> {
-    useResourceV2Agent(...args: ArgsOrVoidOrSkip<TArgs>): IResourceV2AgentState<TArgs, TData>;
+    useResourceV2Agent(...args: ArgsOrVoidOrSkip<TArgs>): TResourceV2AgentState<TArgs, TData>;
 }
 
 /**

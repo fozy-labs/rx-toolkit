@@ -2,7 +2,6 @@
 export {
     Machine,
     MachineError,
-    MachineIdle,
     MachinePending,
     MachineRefreshing,
     MachineSuccess,
