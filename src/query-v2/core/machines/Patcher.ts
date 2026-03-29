@@ -88,7 +88,11 @@ export class Patcher {
                 // Return last valid data state, clear all patches
                 return {
                     data: currentData,
-                    patchState: null,
+                    patchState: {
+                        patches: [],
+                        originalData: currentData,
+                        isConsistencyViolation: true,
+                    },
                 };
             }
         }

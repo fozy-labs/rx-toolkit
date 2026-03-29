@@ -128,7 +128,7 @@ resource.getEntry(undefined)?.peek().data?.items.length;  // 1
 
 ## Использование через onQueryStarted
 
-Хук `onQueryStarted` позволяет автоматически создавать патчи при запросе:
+Хук `onQueryStarted` позволяет автоматически создавать патчи при запросе. Хук вызывается при каждом запуске `queryFn` и предоставляет `$queryFulfilled` для отслеживания результата.
 
 ```typescript
 const resource = api.createResourceV2({

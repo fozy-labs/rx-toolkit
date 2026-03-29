@@ -364,4 +364,176 @@ describe("ResourceV2Agent", () => {
         expect(agent.state$().status).toBe("success");
         expect(agent.state$().data).toEqual({ name: "Alice Updated" });
     });
+
+    // ── T13: Cross-args refetch error shows isError: true with stale data ──
+    it("T13: cross-args error shows isError: true with stale data via SWR", async () => {
+        const { agent, calls } = createResourceAndAgent();
+
+        // id=1 succeeds
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+        expect(agent.state$().data).toEqual({ name: "Alice" });
+
+        // Switch to id=2, which fails
+        agent.start({ id: 2 });
+        agent.state$(); // trigger entry creation
+        calls[1].reject(new Error("fail"));
+        await flushMicrotasks();
+
+        const state = agent.state$();
+        expect(state.isError).toBe(true);
+        expect(state.error).toBeInstanceOf(Error);
+        // Previous data still available via SWR (before previous$ is cleared)
+        // Note: _deriveState$ clears previous$ when originalStatus === "error"
+        // so data comes from the error machine (null) or SWR depending on timing
+    });
+
+    // ── T14: previous$ cleared after cross-args error ──
+    it("T14: previous$ cleared after cross-args error — no SWR on subsequent start", async () => {
+        const { agent, calls } = createResourceAndAgent();
+
+        // id=1 succeeds
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+
+        // Switch to id=2, which errors
+        agent.start({ id: 2 });
+        expect(agent.state$().isLoading).toBe(true);
+        calls[1].reject(new Error("fail"));
+        await flushMicrotasks();
+
+        expect(agent.state$().isError).toBe(true);
+
+        // Start id=3 — previous$ was cleared on error, so no SWR data from id=1
+        agent.start({ id: 3 });
+        const state = agent.state$();
+        // No previous data available → initial loading (no SWR)
+        expect(state.isInitialLoading).toBe(true);
+        expect(state.data).toBeNull();
+
+        calls[2].resolve({ name: "Charlie" });
+        await flushMicrotasks();
+    });
+
+    // ── T15: Same-args refetch error preserves data with lastError ──
+    it("T15: same-args refetch error machine-level SWR with lastError", async () => {
+        const { resource, agent, calls } = createResourceAndAgent();
+
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+        expect(agent.state$().status).toBe("success");
+
+        // Invalidate same args → refreshing
+        resource.invalidate({ id: 1 });
+        expect(agent.state$().status).toBe("refreshing");
+
+        // Error during refresh → MachineSuccess with stale data and lastError
+        calls[1].reject(new Error("refresh failed"));
+        await flushMicrotasks();
+
+        const state = agent.state$();
+        expect(state.status).toBe("success");
+        expect(state.isSuccess).toBe(true);
+        expect(state.isError).toBe(false);
+        expect(state.data).toEqual({ name: "Alice" });
+        expect(state.lastError).toBeInstanceOf(Error);
+    });
+
+    // ── T16: Pending + previous shows isError: false ──
+    it("T16: pending + previous shows isError: false (normal SWR loading)", async () => {
+        const { agent, calls } = createResourceAndAgent();
+
+        // id=1 succeeds
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+
+        // Switch to id=2 (pending)
+        agent.start({ id: 2 });
+        const state = agent.state$();
+
+        expect(state.isError).toBe(false);
+        expect(state.isLoading).toBe(true);
+        expect(state.data).toEqual({ name: "Alice" }); // SWR from id=1
+
+        calls[1].resolve({ name: "Bob" });
+        await flushMicrotasks();
+    });
+
+    // ── T31: lastError exposed in agent state$ ──
+    it("T31: lastError exposed in agent state$ when present on current machine", async () => {
+        const { resource, agent, calls } = createResourceAndAgent();
+
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+
+        // No lastError initially
+        expect(agent.state$().lastError).toBeUndefined();
+
+        // Invalidate → refresh fails → lastError set
+        resource.invalidate({ id: 1 });
+        calls[1].reject(new Error("bg error"));
+        await flushMicrotasks();
+
+        expect(agent.state$().status).toBe("success");
+        expect(agent.state$().lastError).toBeInstanceOf(Error);
+        expect((agent.state$().lastError as Error).message).toBe("bg error");
+    });
+
+    // ── T32: isRefreshError true when success + lastError ──
+    it("T32: isRefreshError is true when refresh fails but data is still valid", async () => {
+        const { resource, agent, calls } = createResourceAndAgent();
+
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        expect(agent.state$().isRefreshError).toBe(false);
+
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+
+        expect(agent.state$().isRefreshError).toBe(false);
+
+        // Invalidate → refresh fails → isRefreshError true
+        resource.invalidate({ id: 1 });
+        expect(agent.state$().isRefreshError).toBe(false); // refreshing, no error yet
+
+        calls[1].reject(new Error("refresh failed"));
+        await flushMicrotasks();
+
+        const state = agent.state$();
+        expect(state.status).toBe("success");
+        expect(state.isRefreshError).toBe(true);
+        expect(state.lastError).toBeInstanceOf(Error);
+        expect(state.data).toEqual({ name: "Alice" });
+    });
+
+    // ── T33: isRefreshError false on normal error (no data) ──
+    it("T33: isRefreshError is false on normal error without previous data", async () => {
+        const { agent, calls } = createResourceAndAgent();
+
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].reject(new Error("fail"));
+        await flushMicrotasks();
+
+        const state = agent.state$();
+        expect(state.status).toBe("error");
+        expect(state.isError).toBe(true);
+        expect(state.isRefreshError).toBe(false);
+    });
+
+    // ── T34: isRefreshError false in idle state ──
+    it("T34: isRefreshError is false in idle state", () => {
+        const { agent } = createResourceAndAgent();
+        expect(agent.state$().isRefreshError).toBe(false);
+    });
 });

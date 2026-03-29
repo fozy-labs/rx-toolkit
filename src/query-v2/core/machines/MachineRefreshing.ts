@@ -46,8 +46,8 @@ export class MachineRefreshing<TArgs, TData> extends MachineWithData<TArgs, TDat
      * Error on refreshing preserves stale data → returns MachineSuccess.
      * Existing data and patchState are preserved.
      */
-    errorHappened(_error: unknown): MachineSuccess<TArgs, TData> {
-        return new MachineSuccess<TArgs, TData>(this.args, this.data, this.patchState, this.updatedAt);
+    errorHappened(error: unknown): MachineSuccess<TArgs, TData> {
+        return new MachineSuccess<TArgs, TData>(this.args, this.data, this.patchState, this.updatedAt, error);
     }
 
     protected cloneWith(updates: Record<string, unknown>): MachineRefreshing<TArgs, TData> {

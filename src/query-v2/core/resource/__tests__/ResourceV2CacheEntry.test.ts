@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createControllableQueryFn } from "@/query-v2/__tests__/helpers";
+import { MachineSuccess } from "@/query-v2/core/machines/MachineSuccess";
 import { ResourceV2CacheEntry } from "@/query-v2/core/resource/ResourceV2CacheEntry";
 import { Signal } from "@/signals";
 
@@ -362,5 +363,155 @@ describe("ResourceV2CacheEntry", () => {
         expect(calls[0].abortSignal.aborted).toBe(true);
         // Machine stays at pending (complete does not reset machine state)
         expect(entry.peek().status).toBe("pending");
+    });
+
+    // ── T01: Hydrated entry with initialMachine does NOT call queryFn ──
+    it("T01: entry with initialMachine does not call queryFn", () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 1 }, { name: "Hydrated" }, null, Date.now());
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            initialMachine,
+        });
+
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(entry.peek().status).toBe("success");
+        expect(entry.peek().data).toEqual({ name: "Hydrated" });
+    });
+
+    // ── T02: Entry without initialMachine calls queryFn (existing behavior preserved) ──
+    it("T02: entry without initialMachine calls queryFn on construction", () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+        });
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.peek().status).toBe("pending");
+    });
+
+    // ── T03: initialMachine forwards to constructor correctly ──
+    it("T03: initialMachine is used as initial state without fetch", () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 5 }, { name: "Pre-loaded" }, null, 12345);
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 5 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            initialMachine,
+        });
+
+        expect(queryFn).not.toHaveBeenCalled();
+        const machine = entry.peek();
+        expect(machine.status).toBe("success");
+        expect(machine.data).toEqual({ name: "Pre-loaded" });
+        if (machine.status === "success") {
+            expect(machine.updatedAt).toBe(12345);
+        }
+    });
+
+    // ── T07: _doFetch calls onQueryStarted before queryFn ──
+    it("T07: _doFetch calls onQueryStarted before queryFn", () => {
+        const callOrder: string[] = [];
+        const { calls } = createControllableQueryFn<TArgs, TData>();
+
+        const queryFn = vi.fn((args: TArgs, tools: { abortSignal: AbortSignal }) => {
+            callOrder.push("queryFn");
+            return new Promise<TData>((resolve, reject) => {
+                calls.push({ args, abortSignal: tools.abortSignal, resolve, reject });
+            });
+        });
+
+        const onQueryStarted = vi.fn(() => {
+            callOrder.push("onQueryStarted");
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        expect(onQueryStarted).toHaveBeenCalledTimes(1);
+        expect(callOrder).toEqual(["onQueryStarted", "queryFn"]);
+    });
+
+    // ── T08: onQueryFulfilled called with { data } on success ──
+    it("T08: onQueryFulfilled called with { data } on success", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const onQueryFulfilled = vi.fn();
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryFulfilled,
+        });
+
+        calls[0].resolve({ name: "result" });
+        await flushMicrotasks();
+
+        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { data: { name: "result" } });
+    });
+
+    // ── T09: onQueryFulfilled called with { error } on failure ──
+    it("T09: onQueryFulfilled called with { error } on failure", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const onQueryFulfilled = vi.fn();
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryFulfilled,
+        });
+
+        const err = new Error("fail");
+        calls[0].reject(err);
+        await flushMicrotasks();
+
+        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { error: err });
+    });
+
+    // ── T10: Stale fetch does not call onQueryFulfilled for first query ──
+    it("T10: aborted (stale) fetch does not trigger onQueryFulfilled for old query", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const onQueryFulfilled = vi.fn();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryFulfilled,
+        });
+
+        // Trigger a second fetch (this aborts the first via new AbortController)
+        entry.query(true);
+        expect(queryFn).toHaveBeenCalledTimes(2);
+
+        // Resolve the first (stale) query — should be ignored
+        calls[0].resolve({ name: "stale" });
+        await flushMicrotasks();
+
+        // onQueryFulfilled should not have been called (stale check in _doFetch)
+        expect(onQueryFulfilled).not.toHaveBeenCalled();
+
+        // Resolve the second (current) query
+        calls[1].resolve({ name: "fresh" });
+        await flushMicrotasks();
+
+        expect(onQueryFulfilled).toHaveBeenCalledTimes(1);
+        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { data: { name: "fresh" } });
     });
 });

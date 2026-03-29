@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createControllableQueryFn } from "@/query-v2/__tests__/helpers";
@@ -135,5 +136,79 @@ describe("Integration: query-flow", () => {
 
         expect(agent.state$().status).toBe("success");
         expect(agent.state$().data).toEqual({ name: "Bob" });
+    });
+
+    // ── T11: onQueryStarted fires during real resource query lifecycle ──
+    it("T11: onQueryStarted fires during resource query lifecycle and $queryFulfilled settles", async () => {
+        let capturedTools: { $queryFulfilled: Promise<{ data: TData }>; getCacheEntry: () => unknown } | null = null;
+        const onQueryStartedSpy = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+        const api = createApi();
+        const resource = api.createResourceV2<TArgs, TData>({
+            key: "users",
+            queryFn,
+            cacheLifetime: false as never,
+            onQueryStarted: onQueryStartedSpy,
+        });
+
+        resource.query({ id: 1 });
+
+        expect(onQueryStartedSpy).toHaveBeenCalledTimes(1);
+        expect(onQueryStartedSpy).toHaveBeenCalledWith(
+            { id: 1 },
+            expect.objectContaining({
+                $queryFulfilled: expect.any(Promise),
+                getCacheEntry: expect.any(Function),
+            }),
+        );
+        expect(capturedTools).not.toBeNull();
+
+        // Resolve the query
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+
+        // $queryFulfilled should have resolved
+        const result = await capturedTools!.$queryFulfilled;
+        expect(result).toEqual({ data: { name: "Alice" } });
+    });
+
+    // ── T17: Full SWR cycle: success → arg change → error → isError → retry → success ──
+    it("T17: full SWR cycle with error transparency", async () => {
+        const { resource, calls } = createTestApi();
+        const agent = resource.createAgent();
+
+        // Step 1: success for id=1
+        agent.start({ id: 1 });
+        expect(agent.state$().status).toBe("pending");
+        calls[0].resolve({ name: "Alice" });
+        await flushMicrotasks();
+        expect(agent.state$().status).toBe("success");
+        expect(agent.state$().data).toEqual({ name: "Alice" });
+
+        // Step 2: arg change to id=2, SWR shows Alice while loading
+        agent.start({ id: 2 });
+        expect(agent.state$().isLoading).toBe(true);
+        expect(agent.state$().data).toEqual({ name: "Alice" });
+
+        // Step 3: id=2 errors — cross-args error should show isError: true
+        calls[1].reject(new Error("network error"));
+        await flushMicrotasks();
+        expect(agent.state$().isError).toBe(true);
+        expect(agent.state$().error).toBeInstanceOf(Error);
+
+        // Step 4: retry id=2
+        const entry2 = resource.getEntry({ id: 2 })!;
+        entry2.query();
+        expect(agent.state$().isLoading).toBe(true);
+
+        // Step 5: success on retry
+        calls[2].resolve({ name: "Bob" });
+        await flushMicrotasks();
+        expect(agent.state$().status).toBe("success");
+        expect(agent.state$().data).toEqual({ name: "Bob" });
+        expect(agent.state$().isError).toBe(false);
     });
 });

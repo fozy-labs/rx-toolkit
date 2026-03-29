@@ -42,6 +42,7 @@ export interface TSuccessState<TArgs, TData> {
     readonly error: null;
     readonly updatedAt: number;
     readonly patchState: TPatchState<TData> | null;
+    readonly lastError?: unknown;
 }
 
 /** Error state — fetch failed, no data */

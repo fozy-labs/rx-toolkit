@@ -187,8 +187,8 @@ describe("Edge cases", () => {
 
         expect(agent.state$().status).toBe("success");
         expect(agent.state$().data).toEqual({ name: "Hydrated" });
-        // Entry auto-fetches on construction, so queryFn is called once
-        expect(queryFn).toHaveBeenCalledTimes(1);
+        // Hydrated entry skips _doFetch — queryFn is NOT called
+        expect(queryFn).not.toHaveBeenCalled();
     });
 
     // ── E08: AbortError from queryFn — no state transition ──

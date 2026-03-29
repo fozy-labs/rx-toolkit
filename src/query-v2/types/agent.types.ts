@@ -11,10 +11,12 @@ export type TResourceV2AgentState<TArgs, TData> =
           /** Current data (maybe stale during loading via SWR) */
           data: TData | null;
           error: unknown;
+          lastError?: unknown;
           args: TArgs | null;
           isLoading: boolean;
           isInitialLoading: boolean;
           isRefreshing: boolean;
+          isRefreshError: boolean;
           isSuccess: boolean;
           isError: boolean;
           entry: IResourceV2CacheEntry<TArgs, TData> | null;
@@ -23,10 +25,12 @@ export type TResourceV2AgentState<TArgs, TData> =
           status: "idle";
           data: null;
           error: null;
+          lastError?: undefined;
           args: null;
           isLoading: false;
           isInitialLoading: false;
           isRefreshing: false;
+          isRefreshError: false;
           isSuccess: false;
           isError: false;
           entry: null;

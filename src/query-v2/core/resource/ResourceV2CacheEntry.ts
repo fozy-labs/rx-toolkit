@@ -18,6 +18,9 @@ export interface IResourceV2CacheEntryOptions<TArgs, TData> {
     compareArgs: TCompareArgsFn<TArgs>;
     entryOptions?: ICacheEntryOptions<TMachineInstance<TArgs, TData>>;
     onDataLoaded?: (args: TArgs, data: TData) => void;
+    onQueryStarted?: (args: TArgs, entry: IResourceV2CacheEntry<TArgs, TData>) => void;
+    onQueryFulfilled?: (args: TArgs, result: { data: TData } | { error: unknown }) => void;
+    initialMachine?: TMachineInstance<TArgs, TData>;
 }
 
 /**
@@ -40,16 +43,22 @@ export class ResourceV2CacheEntry<TArgs, TData>
     private _inflightPromise: Promise<TData> | null = null;
     private _patchState: TPatchState<TData> | null = null;
     private _onDataLoaded: ((args: TArgs, data: TData) => void) | undefined;
+    private _onQueryStarted: ((args: TArgs, entry: IResourceV2CacheEntry<TArgs, TData>) => void) | undefined;
+    private _onQueryFulfilled: ((args: TArgs, result: { data: TData } | { error: unknown }) => void) | undefined;
 
     constructor(options: IResourceV2CacheEntryOptions<TArgs, TData>) {
-        super(new MachinePending<TArgs, TData>(options.args), options.entryOptions);
+        super(options.initialMachine ?? new MachinePending<TArgs, TData>(options.args), options.entryOptions);
         this._args = options.args;
         this._queryFn = options.queryFn;
         this._compareArgs = options.compareArgs;
         this._onDataLoaded = options.onDataLoaded;
+        this._onQueryStarted = options.onQueryStarted;
+        this._onQueryFulfilled = options.onQueryFulfilled;
         this.machine$ = this.state$;
 
-        this._doFetch().catch(() => {});
+        if (!options.initialMachine) {
+            this._doFetch().catch(() => {});
+        }
     }
 
     isMyArgs(args: TArgs): boolean {
@@ -148,6 +157,8 @@ export class ResourceV2CacheEntry<TArgs, TData>
         const controller = new AbortController();
         this._abortController = controller;
 
+        this._onQueryStarted?.(this._args, this);
+
         let queryResult: Promise<TData>;
         try {
             queryResult = this._queryFn(this._args, { abortSignal: controller.signal });
@@ -155,6 +166,7 @@ export class ResourceV2CacheEntry<TArgs, TData>
             this._abortController = null;
             this._inflightPromise = null;
             this.set(new MachineError<TArgs, TData>(this._args, syncError));
+            this._onQueryFulfilled?.(this._args, { error: syncError });
             return Promise.reject(syncError);
         }
 
@@ -185,6 +197,7 @@ export class ResourceV2CacheEntry<TArgs, TData>
                 }
 
                 this._onDataLoaded?.(this._args, data);
+                this._onQueryFulfilled?.(this._args, { data });
 
                 return data;
             },
@@ -197,18 +210,21 @@ export class ResourceV2CacheEntry<TArgs, TData>
 
                 const machine = this.peek();
                 if (machine.status === "refreshing") {
-                    // Error on refreshing preserves stale data
+                    // Error on refreshing preserves stale data with lastError
                     this.set(
                         new MachineSuccess<TArgs, TData>(
                             this._args,
                             machine.data,
                             machine.patchState,
                             machine.updatedAt,
+                            error,
                         ),
                     );
                 } else {
                     this.set(new MachineError<TArgs, TData>(this._args, error));
                 }
+
+                this._onQueryFulfilled?.(this._args, { error });
 
                 throw error;
             },

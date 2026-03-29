@@ -26,6 +26,7 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
     private _cacheLifetime;
     private _key;
 
+    private _pendingInitialMachine: TMachineInstance<TArgs, TData> | undefined;
     private _lastEntry$ = Signal.state<ResourceV2CacheEntry<TArgs, TData> | null>(null, {
         isDisabled: true,
     });
@@ -116,8 +117,9 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
     }
 
     hydrateEntry(args: TArgs, machine: TMachineInstance<TArgs, TData>): void {
-        const entry = this._cache.getOrCreate(args);
-        entry.set(machine);
+        this._pendingInitialMachine = machine;
+        this._cache.getOrCreate(args);
+        this._pendingInitialMachine = undefined;
     }
 
     hasEntry(args: TArgs): boolean {
@@ -141,6 +143,9 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
     }
 
     private _entryFactory(args: TArgs): ResourceV2CacheEntry<TArgs, TData> {
+        const initialMachine = this._pendingInitialMachine;
+        this._pendingInitialMachine = undefined;
+
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args,
             queryFn: this._queryFn,
@@ -150,6 +155,9 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
                 cacheLifetime: this._cacheLifetime,
             },
             onDataLoaded: (a, data) => this._lifecycleHooks.resolveDataLoaded(a, data),
+            onQueryStarted: (a, entry) => this._lifecycleHooks.fireQueryStarted(a, entry),
+            onQueryFulfilled: (a, result) => this._lifecycleHooks.resolveQueryFulfilled(a, result),
+            initialMachine,
         });
 
         // Subscribe to onClean$ for cache removal

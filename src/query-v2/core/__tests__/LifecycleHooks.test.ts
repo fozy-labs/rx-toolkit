@@ -68,6 +68,8 @@ describe("LifecycleHooks", () => {
         const args: TArgs = { id: 1 };
 
         hooks.fireCacheEntryAdded(args, createMockEntry());
+        // Suppress unhandled rejection from $cacheDataLoaded (rejected by fireCacheEntryRemoved)
+        capturedTools.$cacheDataLoaded.catch(() => {});
         hooks.fireCacheEntryRemoved(args);
 
         await expect(capturedTools.$cacheEntryRemoved).resolves.toBeUndefined();
@@ -204,5 +206,49 @@ describe("LifecycleHooks", () => {
         expect(() => {
             hooks.fireCacheEntryAdded({ id: 1 }, createMockEntry());
         }).not.toThrow();
+    });
+
+    // ── T22: fireCacheEntryRemoved rejects pending $cacheDataLoaded ──
+    it("T22: fireCacheEntryRemoved rejects pending $cacheDataLoaded", async () => {
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args, tools) => {
+            capturedTools = tools;
+        });
+        const hooks = new LifecycleHooks<TArgs, TData>(onCacheEntryAdded);
+        const args: TArgs = { id: 1 };
+
+        hooks.fireCacheEntryAdded(args, createMockEntry());
+
+        // Do NOT call resolveDataLoaded — $cacheDataLoaded is still pending
+
+        hooks.fireCacheEntryRemoved(args);
+
+        await expect(capturedTools.$cacheDataLoaded).rejects.toThrow(
+            "Promise never resolved before cacheEntryRemoved.",
+        );
+        await expect(capturedTools.$cacheEntryRemoved).resolves.toBeUndefined();
+    });
+
+    // ── T23: fireCacheEntryRemoved on already-resolved $cacheDataLoaded → no error ──
+    it("T23: fireCacheEntryRemoved on already-resolved $cacheDataLoaded is a no-op", async () => {
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args, tools) => {
+            capturedTools = tools;
+        });
+        const hooks = new LifecycleHooks<TArgs, TData>(onCacheEntryAdded);
+        const args: TArgs = { id: 1 };
+
+        hooks.fireCacheEntryAdded(args, createMockEntry());
+
+        // Resolve data loaded first
+        hooks.resolveDataLoaded(args, { name: "loaded" });
+        const data = await capturedTools.$cacheDataLoaded;
+        expect(data).toEqual({ name: "loaded" });
+
+        // Now remove — reject is a no-op since already resolved
+        hooks.fireCacheEntryRemoved(args);
+
+        // $cacheEntryRemoved should resolve normally
+        await expect(capturedTools.$cacheEntryRemoved).resolves.toBeUndefined();
     });
 });

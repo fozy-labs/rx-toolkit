@@ -83,6 +83,7 @@ export class LifecycleHooks<TArgs, TData> {
     fireCacheEntryRemoved(args: TArgs): void {
         const resolvers = this._entryResolvers.get(args);
         if (resolvers) {
+            resolvers.dataLoaded.reject(new Error("Promise never resolved before cacheEntryRemoved."));
             resolvers.entryRemoved.resolve();
             this._entryResolvers.delete(args);
         }

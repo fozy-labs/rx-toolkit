@@ -143,15 +143,34 @@ const userResource = api.createResourceV2<{ id: string }, User>({
 
 | Состояние | Описание | Данные |
 |-----------|----------|--------|
-| `idle` | Начальное состояние | — |
-| `pending` | Первый запрос выполняется | — |
+| `pending` | Начальное состояние (первый запрос выполняется) | — |
 | `success` | Данные загружены | ✅ |
 | `error` | Запрос завершился с ошибкой | — |
 | `refreshing` | Обновление при наличии данных | ✅ (устаревшие) |
 
-Машины экспортируются как классы (`Machine`, `MachineIdle`, `MachinePending`, `MachineSuccess`, `MachineError`, `MachineRefreshing`, `MachineWithData`) и как типы дискриминированных union (`TMachineState`).
+Машины экспортируются как классы (`Machine`, `MachinePending`, `MachineSuccess`, `MachineError`, `MachineRefreshing`, `MachineWithData`) и как типы дискриминированных union (`TMachineState`). `MachinePending` — начальное состояние при создании кэш-записи.
 
 Состояния `success` и `refreshing` (наследуют `MachineWithData`) содержат `patchState` для оптимистичных обновлений.
+
+### Обработка ошибок (Error Handling)
+
+Query v2 реализует SWR-семантику ошибок: при повторном запросе (refetch) с уже загруженными данными, ошибка **не стирает** предыдущие данные. Это означает, что `isError=true` и `data` (устаревшие) могут сосуществовать одновременно:
+
+```typescript
+// Состояние после неудачного refetch при наличии данных:
+// {
+//   status: "refreshing",
+//   isError: true,
+//   data: staleData,      // предыдущие данные остаются доступны
+//   error: Error,          // текущая ошибка
+// }
+```
+
+При переходе обратно в `MachineSuccess` (после неудачного refetch), поле `lastError` сохраняет последнюю ошибку для отображения уведомлений. `lastError` автоматически очищается при следующем успешном запросе.
+
+Для восстановления после ошибки используйте `invalidate()` или измените аргументы запроса — это запустит повторный fetch.
+
+> **Рекомендация:** Используйте булевые флаги `isError`, `isLoading`, `isSuccess` вместо прямых проверок `status` для условного рендеринга. Это обеспечивает корректное поведение при всех комбинациях состояний, включая SWR-ошибки.
 
 ### Cache Entries (Кэш-записи)
 
@@ -230,15 +249,22 @@ const state = userResource.useResourceV2Agent(
 
 Вызывается при создании новой записи кэша. Полезен для WebSocket-подписок.
 
+> **Важно:** `$cacheDataLoaded` отклоняется (reject) при сбросе кэша (`resetAll()`) или удалении записи до загрузки данных. Всегда оборачивайте `await $cacheDataLoaded` в `try/catch`:
+
 ```typescript
 const resource = api.createResourceV2({
     key: 'messages',
     queryFn: fetchMessages,
     onCacheEntryAdded: async (args, { $cacheDataLoaded, $cacheEntryRemoved }) => {
-        await $cacheDataLoaded;
-        const connection = wsClient.connect(`/ws/messages?userId=${args.id}`);
-        await $cacheEntryRemoved;
-        connection.close();
+        try {
+            await $cacheDataLoaded;
+            // Устанавливаем подписки после загрузки данных
+            const connection = wsClient.connect(`/ws/messages?userId=${args.id}`);
+            await $cacheEntryRemoved;
+            connection.close();
+        } catch {
+            // Запись удалена до загрузки данных — очистка не нужна
+        }
     },
 });
 ```
@@ -252,7 +278,7 @@ const resource = api.createResourceV2({
 
 ### onQueryStarted
 
-Вызывается при каждом старте запроса.
+Вызывается при каждом старте запроса (`queryFn`). `$queryFulfilled` разрешается с `{ data }` при успехе или отклоняется при ошибке:
 
 ```typescript
 const resource = api.createResourceV2({
@@ -279,6 +305,8 @@ const resource = api.createResourceV2({
 |------|-----|----------|
 | `$queryFulfilled` | `Promise<{ data: TData }>` | Разрешается при завершении запроса |
 | `getCacheEntry` | `() => IResourceV2CacheEntry` | Получить текущую кэш-запись |
+
+> **Миграция:** Подробный гайд по миграции с Query v1 на v2 планируется в `docs/migrations/`. Текущие примеры и API уже стабильны для использования.
 
 ---
 
@@ -337,7 +365,6 @@ unstable_queryV2.SKIP;
 
 // Machine classes
 unstable_queryV2.Machine;
-unstable_queryV2.MachineIdle;
 unstable_queryV2.MachinePending;
 unstable_queryV2.MachineSuccess;
 unstable_queryV2.MachineError;

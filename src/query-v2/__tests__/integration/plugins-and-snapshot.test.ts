@@ -96,9 +96,8 @@ describe("Integration: plugins-and-snapshot", () => {
 
         expect(result.current.status).toBe("success");
         expect(result.current.data).toEqual({ name: "Server-Data" });
-        // Client queryFn IS called once (entry auto-fetches on construction)
-        // but hydrated data is set immediately, so hook sees success
-        expect(clientQf).toHaveBeenCalledTimes(1);
+        // Hydrated entry skips _doFetch — client queryFn is NOT called
+        expect(clientQf).not.toHaveBeenCalled();
     });
 
     // ── INT13: Lifecycle hooks fired in correct order during full lifecycle ──
@@ -167,5 +166,53 @@ describe("Integration: plugins-and-snapshot", () => {
         const passedOptions = (augmentSpy as unknown as { mock: { calls: [unknown, { cacheLifetime: number }][] } })
             .mock.calls[0]?.[1];
         expect(passedOptions!.cacheLifetime).toBe(45_000);
+    });
+
+    // ── T05: Stale snapshot entry triggers refetch after hydration ──
+    it("T05: stale snapshot entry (updatedAt exceeds maxSnapshotDataAge) triggers refetch", async () => {
+        const staleTimestamp = Date.now() - 10_000; // 10 seconds ago
+        const snapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: Date.now(),
+            resources: {
+                users: {
+                    entries: {
+                        [JSON.stringify({ id: 1 })]: {
+                            status: "success" as const,
+                            args: { id: 1 },
+                            data: { name: "Stale-Data" },
+                            updatedAt: staleTimestamp,
+                        },
+                    },
+                },
+            },
+        };
+
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+        const api = createApi({
+            initialSnapshot: snapshot,
+            maxSnapshotDataAge: 5_000, // 5 seconds — entry is stale
+        });
+        const resource = api.createResourceV2<TArgs, TData>({
+            key: "users",
+            queryFn,
+            cacheLifetime: false as never,
+        });
+
+        // Entry should be hydrated but auto-invalidated
+        const entry = resource.getEntry({ id: 1 });
+        expect(entry).not.toBeNull();
+        expect(entry!.peek().status).toBe("refreshing");
+
+        // queryFn called once via invalidate() (hydrated entry skips _doFetch)
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        // Resolve the invalidation refetch
+        calls[0].resolve({ name: "Fresh-Data" });
+        await flushMicrotasks();
+
+        expect(entry!.peek().status).toBe("success");
+        expect(entry!.peek().data).toEqual({ name: "Fresh-Data" });
     });
 });

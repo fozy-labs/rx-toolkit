@@ -333,4 +333,59 @@ describe("Machine State Transitions", () => {
             expect(a.data).not.toBe(b.data);
         });
     });
+
+    // === lastError on MachineSuccess ===
+
+    describe("lastError", () => {
+        // ── T26: MachineRefreshing.errorHappened(error) → MachineSuccess with lastError ──
+        it("T26: refreshing.errorHappened(error) → MachineSuccess with lastError", () => {
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "old" });
+            const refreshing = success.invalidate();
+            const err = new Error("fail");
+
+            const result = refreshing.errorHappened(err);
+
+            expect(result).toBeInstanceOf(MachineSuccess);
+            expect(result.status).toBe("success");
+            expect(result.data).toEqual({ name: "old" });
+            expect(result.lastError).toBe(err);
+        });
+
+        // ── T27: MachineRefreshing.successHappened(data) → MachineSuccess without lastError ──
+        it("T27: refreshing.successHappened(data) → MachineSuccess without lastError", () => {
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "old" });
+            const refreshing = success.invalidate();
+
+            const result = refreshing.successHappened({ name: "new" });
+
+            expect(result).toBeInstanceOf(MachineSuccess);
+            expect(result.lastError).toBeUndefined();
+        });
+
+        // ── T28: MachineSuccess.cloneWith() propagates lastError ──
+        it("T28: cloneWith propagates lastError", () => {
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "old" });
+            const refreshing = success.invalidate();
+            const withError = refreshing.errorHappened(new Error("bg fail"));
+
+            expect(withError.lastError).toBeInstanceOf(Error);
+
+            // createPatch calls cloneWith internally
+            const patchResult = withError.createPatch((d: TestData) => {
+                d.name = "patched";
+            });
+            expect(patchResult).not.toBeNull();
+            const patched = patchResult!.machine as MachineSuccess<TestArgs, TestData>;
+            expect(patched.lastError).toBeInstanceOf(Error);
+            expect((patched.lastError as Error).message).toBe("bg fail");
+        });
+
+        // ── T29: Initial MachineSuccess (from fetch) has no lastError ──
+        it("T29: initial MachineSuccess has no lastError", () => {
+            const success = Machine.pending<TestArgs, TestData>({ id: 1 }).successHappened({ name: "fresh" });
+
+            expect(success).toBeInstanceOf(MachineSuccess);
+            expect(success.lastError).toBeUndefined();
+        });
+    });
 });

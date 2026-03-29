@@ -116,4 +116,50 @@ describe("Integration: gc-lifecycle", () => {
         expect(result2.current.status).toBe("success");
         expect(result2.current.data).toEqual({ name: "Alice-fresh" });
     });
+
+    // ── T25: GC-triggered entry removal → $cacheDataLoaded rejects ──
+    it("T25: GC-triggered entry removal causes $cacheDataLoaded to reject", async () => {
+        const lifetime = 2000;
+        let cacheDataLoadedRejected = false;
+        let rejectionError: Error | null = null;
+
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+        const api = createApi();
+        const resource = api.createResourceV2<TArgs, TData>({
+            key: "users",
+            queryFn,
+            cacheLifetime: lifetime,
+            onCacheEntryAdded: (_args, tools) => {
+                tools.$cacheDataLoaded.catch((err: Error) => {
+                    cacheDataLoadedRejected = true;
+                    rejectionError = err;
+                });
+            },
+        });
+
+        // Mount hook to create entry + subscriber
+        const { unmount } = renderHook(() => useResourceV2Agent(resource, { id: 1 }));
+
+        // Entry is pending — don't resolve (so $cacheDataLoaded stays pending)
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        // Unmount — GC timer starts
+        unmount();
+
+        // Advance past GC lifetime — entry is removed
+        await act(async () => {
+            vi.advanceTimersByTime(lifetime + 100);
+        });
+
+        // Entry should have been GC'd
+        expect(resource.getEntry({ id: 1 })).toBeNull();
+
+        // $cacheDataLoaded should have rejected
+        expect(cacheDataLoadedRejected).toBe(true);
+        expect(rejectionError).not.toBeNull();
+
+        // Clean up
+        calls[0].resolve({ name: "orphaned" });
+        await flushMicrotasks();
+    });
 });

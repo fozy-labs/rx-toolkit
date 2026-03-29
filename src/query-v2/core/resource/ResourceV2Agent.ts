@@ -95,6 +95,7 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
             isLoading: false,
             isInitialLoading: false,
             isRefreshing: false,
+            isRefreshError: false,
             isSuccess: false,
             isError: false,
             entry: null,
@@ -114,7 +115,8 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
         const currentEntry = current$();
 
         const currentMachine = currentEntry.machine$();
-        let status = currentMachine.status;
+        const originalStatus = currentMachine.status;
+        let status = originalStatus;
 
         // SWR data: use previous entry's data while current is loading
         let data: TData | null = currentMachine.data ?? null;
@@ -132,8 +134,8 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
         const isInitialLoading = isLoading && data === null;
         const isRefreshing = status === "refreshing";
 
-        // Clear previous when current resolves
-        if (previous$ && (status === "success" || status === "error")) {
+        // Clear previous when current resolves (use originalStatus to avoid SWR override masking)
+        if (previous$ && (originalStatus === "success" || originalStatus === "error")) {
             this._previous$ = null;
         }
 
@@ -142,11 +144,13 @@ export class ResourceV2Agent<TArgs, TData> implements IResourceV2Agent<TArgs, TD
             args,
             data,
             error: currentMachine.error ?? null,
+            lastError: "lastError" in currentMachine ? currentMachine.lastError : undefined,
             isLoading,
             isInitialLoading,
             isRefreshing,
-            isSuccess: status === "success",
-            isError: status === "error",
+            isRefreshError: originalStatus === "success" && !!currentMachine.lastError,
+            isSuccess: originalStatus === "success",
+            isError: originalStatus === "error",
             entry: currentEntry,
         };
     }

@@ -13,10 +13,18 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
     readonly status = "success" as const;
     readonly error = null;
     readonly updatedAt: number;
+    readonly lastError?: unknown;
 
-    constructor(args: TArgs, data: TData, patchState: TPatchState<TData> | null, updatedAt: number) {
+    constructor(
+        args: TArgs,
+        data: TData,
+        patchState: TPatchState<TData> | null,
+        updatedAt: number,
+        lastError?: unknown,
+    ) {
         super(args, data, patchState);
         this.updatedAt = updatedAt;
+        this.lastError = lastError;
     }
 
     get state(): TSuccessState<TArgs, TData> {
@@ -27,6 +35,7 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
             error: null,
             updatedAt: this.updatedAt,
             patchState: this.patchState,
+            lastError: this.lastError,
         };
     }
 
@@ -44,6 +53,7 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
             (updates.data as TData) ?? this.data,
             "patchState" in updates ? (updates.patchState as TPatchState<TData> | null) : this.patchState,
             (updates.updatedAt as number) ?? this.updatedAt,
+            "lastError" in updates ? (updates.lastError as unknown) : this.lastError,
         );
     }
 }

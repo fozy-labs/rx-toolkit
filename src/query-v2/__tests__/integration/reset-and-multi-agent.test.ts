@@ -100,4 +100,39 @@ describe("Integration: reset-and-multi-agent", () => {
         // Agent B still on {id:1}
         expect(agentB.state$().data).toEqual({ name: "Alice" });
     });
+
+    // ── T24: resetCache() with pending query → $cacheDataLoaded rejects ──
+    it("T24: resetCache with pending query causes $cacheDataLoaded to reject", async () => {
+        let cacheDataLoaded: Promise<TData> | null = null;
+        let cacheDataLoadedRejected = false;
+
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+        const api = createApi();
+        const resource = api.createResourceV2<TArgs, TData>({
+            key: "users",
+            queryFn,
+            cacheLifetime: false as never,
+            onCacheEntryAdded: (_args, tools) => {
+                cacheDataLoaded = tools.$cacheDataLoaded;
+                tools.$cacheDataLoaded.catch(() => {
+                    cacheDataLoadedRejected = true;
+                });
+            },
+        });
+
+        // Start a query — entry is created, onCacheEntryAdded fires
+        resource.query({ id: 1 });
+        expect(cacheDataLoaded).not.toBeNull();
+
+        // Reset before query resolves
+        (resource as any).resetCache();
+        await flushMicrotasks();
+
+        // $cacheDataLoaded should have rejected
+        expect(cacheDataLoadedRejected).toBe(true);
+
+        // Clean up
+        calls[0].resolve({ name: "orphaned" });
+        await flushMicrotasks();
+    });
 });
