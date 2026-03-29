@@ -150,7 +150,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
         state(name, initState) {
             const keys = name.split("/");
 
-            state = applyState(keys, initState, state);
+            state = applyState(keys, initState, state, existConsoleWarning);
             pendingActionType = "create";
             scheduler.schedule(flushToDevtools);
 
@@ -173,12 +173,31 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     };
 }
 
-function applyState(keys: string[], newState: any, state: any) {
+function existConsoleWarning(paths: string[]) {
+    if (typeof console === "undefined" || typeof console.warn !== "function") {
+        return false;
+    }
+
+    const path = paths.join("/");
+
+    console.warn(`
+[RxToolkit Redux Devtools] Warning: ${path} is already defined in the state.
+This may lead to unexpected behavior in Redux Devtools.
+Consider using a unique path for each state or ensure that states are properly clearedwhen completed.
+`)
+    return true;
+}
+
+function applyState(keys: string[], newState: any, state: any, warnFn?: (paths: string[]) => void) {
     const acc = { ...state };
     let current = acc;
 
     keys.forEach((key, i, arr) => {
         if (i === arr.length - 1) {
+            if (key in current && warnFn) {
+                warnFn(keys);
+            }
+
             current[key] = newState;
         } else {
             current[key] = { ...(current[key] ?? {}) };

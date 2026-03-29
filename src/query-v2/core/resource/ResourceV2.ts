@@ -44,10 +44,12 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
 
         const keyStrategy = options.compareArg ? ("compare" as const) : ("serialize" as const);
 
+        const serializeFn = options.serializeArgs ?? stableStringify;
+
         this._cache = createCacheMap<TArgs, ResourceV2CacheEntry<TArgs, TData>>({
             keyStrategy,
-            factory: (args) => this._entryFactory(args),
-            serializeArgs: options.serializeArgs ?? stableStringify,
+            factory: (args) => this._entryFactory(args, serializeFn(args)),
+            serializeArgs: serializeFn,
             compareArg: options.compareArg,
             doCacheArgs: options.doCacheArgs,
         });
@@ -142,7 +144,7 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
         return this._cache.get(args) ?? null;
     }
 
-    private _entryFactory(args: TArgs): ResourceV2CacheEntry<TArgs, TData> {
+    private _entryFactory(args: TArgs, argsKey: string): ResourceV2CacheEntry<TArgs, TData> {
         const initialMachine = this._pendingInitialMachine;
         this._pendingInitialMachine = undefined;
 
@@ -151,7 +153,7 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
             queryFn: this._queryFn,
             compareArgs: this._compareArgsFn,
             entryOptions: {
-                keyParts: this._key ? ["Resource/", this._key] : undefined,
+                keyParts: this._key ? ["Resource/", `${this._key}/`, argsKey] : undefined,
                 cacheLifetime: this._cacheLifetime,
             },
             onDataLoaded: (a, data) => this._lifecycleHooks.resolveDataLoaded(a, data),

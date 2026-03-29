@@ -1,8 +1,6 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
 import type { SignalLifecycleHook, SignalOptions } from "@/signals/types";
 
-import { Indexer } from "./Indexer";
-
 export const Devtools = {
     createState<T>(initialValue: T, optionsDry: SignalOptions<T> | string = {}) {
         const options = typeof optionsDry === "string" ? { name: optionsDry } : optionsDry;
@@ -65,8 +63,6 @@ export const Devtools = {
 };
 
 function createKey(key: string | undefined, base: string | undefined) {
-    const i = Indexer.getIndex();
-
     let result = "";
 
     if (key?.includes("{scope}")) {
@@ -77,7 +73,6 @@ function createKey(key: string | undefined, base: string | undefined) {
     if (base && key) result += key.replace("{base}", base);
     else if (!base && key) result += key;
     else if (base && !key) result += `${base}/`;
-    result += `#i=${i}`;
 
     return result;
 }
