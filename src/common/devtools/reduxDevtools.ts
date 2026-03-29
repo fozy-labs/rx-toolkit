@@ -184,7 +184,7 @@ function existConsoleWarning(paths: string[]) {
 [RxToolkit Redux Devtools] Warning: ${path} is already defined in the state.
 This may lead to unexpected behavior in Redux Devtools.
 Consider using a unique path for each state or ensure that states are properly clearedwhen completed.
-`)
+`);
     return true;
 }
 
