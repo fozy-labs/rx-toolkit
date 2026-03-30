@@ -68,6 +68,7 @@ When `resetCache()` is called, the devtools entry resets to `{ status: "pending"
 |--------|------|---------|-------------|
 | `devtools` | `DevtoolsLike` | `undefined` | Devtools instance (e.g., from `reduxDevtools()`) |
 | `beforeDevtoolsPush` | `(value, push) => void` | `undefined` | Intercept state before pushing to devtools |
+| `devtoolsKey` | `(args: TArgs) => string` | `undefined` | Custom devtools key derivation (compare strategy only). Default: monotonic counter (0, 1, 2…) |
 
 ## Example: Full Setup
 
@@ -103,3 +104,7 @@ const ordersResource = api.createResourceV2({
 // Create agent — automatically tracked in devtools as "query-v2:users/agent"
 const agent = usersResource.createAgent();
 ```
+
+### Signal Key Format
+
+Devtools entries use the key format `"Resource/:key/:argsKey"`. For **serialize** strategy, `argsKey` is the serialized args string (e.g., `"Resource/:users/{"id":"1"}"`). For **compare** strategy, `argsKey` is a monotonic counter by default (e.g., `"Resource/:users/:0"`, `"Resource/:users/:1"`). Use the `devtoolsKey` option to provide semantic keys instead: `devtoolsKey: (args) => args.name` produces `"Resource/:users/:Alice"`.

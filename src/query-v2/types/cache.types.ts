@@ -24,17 +24,17 @@ export interface ICacheEntryOptions<TState> {
 /** CacheMap instance — generic storage container, keyed by args */
 export interface ICacheMap<TArgs, TEntry> {
     get(args: TArgs): TEntry | undefined;
+    create(args: TArgs, factory: (argsKey: string) => TEntry): TEntry;
     getOrCreate(args: TArgs): TEntry;
     delete(args: TArgs): boolean;
     has(args: TArgs): boolean;
     clear(): void;
     readonly size: number;
     values(): IterableIterator<TEntry>;
-    entries(): IterableIterator<[string | TArgs, TEntry]>;
 }
 
 /** Factory function used by CacheMap to create new entries */
-export type TCacheMapFactory<TArgs, TEntry> = (args: TArgs) => TEntry;
+export type TCacheMapFactory<TArgs, TEntry> = (args: TArgs, argsKey: string) => TEntry;
 
 /** Configuration for CacheMap creation */
 export interface ICacheMapOptions<TArgs, TEntry> {
@@ -43,4 +43,5 @@ export interface ICacheMapOptions<TArgs, TEntry> {
     serializeArgs?: (args: TArgs) => string;
     compareArg?: (a: TArgs, b: TArgs) => boolean;
     doCacheArgs?: boolean;
+    devtoolsKey?: (args: TArgs) => string;
 }

@@ -114,6 +114,7 @@ const kindColors: Record<LogEntry['kind'], string> = {
 export function Base() {
     const state = dataResource.useResourceV2Agent();
     const logEntries = useLogEntries();
+    const { isRefreshError } = state;
 
     const handleInvalidate = () => {
         logBus.push('action', 'invalidate() — запускает refetch → onQueryStarted', 'info');
@@ -142,8 +143,8 @@ export function Base() {
                         <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                             status: {state.status}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                            isError: {String(state.isError)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            isRefreshError: {String(isRefreshError)}
                         </span>
                     </div>
 
@@ -157,9 +158,12 @@ export function Base() {
                         </div>
                     )}
 
-                    {state.isError && (
-                        <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg">
-                            <p className="text-danger">❌ {String(state.error)}</p>
+                    {isRefreshError && (
+                        <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
+                            <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.lastError)}</p>
+                            <p className="text-xs text-warning-500 mt-1">
+                                Данные остаются доступны — ошибка произошла при рефреше (SWR-семантика).
+                            </p>
                         </div>
                     )}
 

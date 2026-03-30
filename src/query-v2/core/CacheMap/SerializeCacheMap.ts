@@ -33,11 +33,18 @@ export class SerializeCacheMap<TArgs, TEntry> implements ICacheMap<TArgs, TEntry
         return this._map.get(this._getKey(args));
     }
 
+    create(args: TArgs, factory: (argsKey: string) => TEntry): TEntry {
+        const key = this._getKey(args);
+        const entry = factory(key);
+        this._map.set(key, entry);
+        return entry;
+    }
+
     getOrCreate(args: TArgs): TEntry {
         const key = this._getKey(args);
         let entry = this._map.get(key);
         if (!entry) {
-            entry = this._factory(args);
+            entry = this._factory(args, key);
             this._map.set(key, entry);
         }
         return entry;
@@ -61,9 +68,5 @@ export class SerializeCacheMap<TArgs, TEntry> implements ICacheMap<TArgs, TEntry
 
     *values(): IterableIterator<TEntry> {
         yield* this._map.values();
-    }
-
-    *entries(): IterableIterator<[string, TEntry]> {
-        yield* this._map.entries();
     }
 }

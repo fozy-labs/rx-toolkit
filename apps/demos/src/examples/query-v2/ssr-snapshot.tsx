@@ -67,9 +67,10 @@ const usersResource = api.createResourceV2<{ id: string }, User>({
 
 function UserCard({ userId }: { userId: string }) {
     const state = usersResource.useResourceV2Agent({ id: userId });
+    const { isRefreshError } = state;
 
     return (
-        <div className="p-3 bg-default-100 rounded-lg">
+        <div className={`p-3 rounded-lg ${isRefreshError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}>
             {state.isInitialLoading && (
                 <p className="text-default-400">⏳ Загрузка...</p>
             )}
@@ -80,10 +81,10 @@ function UserCard({ userId }: { userId: string }) {
                     {state.isRefreshing && (
                         <p className="text-xs text-warning mt-1">🔄 Обновление...</p>
                     )}
+                    {isRefreshError && (
+                        <p className="text-xs text-danger mt-1">⚠️ Ошибка при обновлении: {String(state.lastError)}</p>
+                    )}
                 </>
-            )}
-            {state.isError && (
-                <p className="text-danger">❌ Ошибка загрузки</p>
             )}
         </div>
     );

@@ -13,6 +13,7 @@ const itemsResource = api.createResourceV2({
 
 export function Base() {
     const state = itemsResource.useResourceV2Agent();
+    const { isRefreshError } = state;
 
     return (
         <Card>
@@ -29,8 +30,8 @@ export function Base() {
                     <span className={`px-2 py-1 rounded text-xs font-mono ${state.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
                         isSuccess: {String(state.isSuccess)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                        isError: {String(state.isError)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                        isRefreshError: {String(isRefreshError)}
                     </span>
                     <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                         status: {state.status}

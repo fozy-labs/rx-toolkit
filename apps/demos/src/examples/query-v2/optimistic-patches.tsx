@@ -44,6 +44,7 @@ let nextId = 1;
 export function Base() {
     const state = todoResource.useResourceV2Agent(undefined);
     const [patches, setPatches] = React.useState<PatchDemoItem[]>([]);
+    const { isRefreshError } = state;
 
     const applyPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
         const handle = state.entry?.createPatch(patchFn);
@@ -103,16 +104,6 @@ export function Base() {
         );
     }
 
-    if (state.isError) {
-        return (
-            <Card className="max-w-4xl">
-                <CardBody className="text-center py-8 text-danger">
-                    ❌ Ошибка: {state.error?.toString()}
-                </CardBody>
-            </Card>
-        );
-    }
-
     const data = state.data;
     if (!data) return null;
 
@@ -121,9 +112,14 @@ export function Base() {
             <Card className="flex-1">
                 <CardHeader className="flex justify-between items-center">
                     <h3 className="text-xl font-bold">📝 Оптимистичные патчи (Query v2)</h3>
-                    <Button color="primary" size="sm" onPress={handleAddItem}>
-                        ➕ Добавить
-                    </Button>
+                    <div className="flex gap-2 items-center">
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            isRefreshError: {String(isRefreshError)}
+                        </span>
+                        <Button color="primary" size="sm" onPress={handleAddItem}>
+                            ➕ Добавить
+                        </Button>
+                    </div>
                 </CardHeader>
                 <Divider />
                 <CardBody className="space-y-2">

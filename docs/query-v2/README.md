@@ -82,7 +82,7 @@ const api = unstable_queryV2.createApi({
 | `plugins` | `IPlugin[]` | `[]` | Массив плагинов |
 | `initialSnapshot` | `TApiSnapshot \| null` | `null` | Начальный snapshot для SSR-гидрации |
 | `maxSnapshotDataAge` | `number` | — | Максимальный возраст данных snapshot (мс) |
-| `doCacheArgs` | `boolean` | `false` | Кэшировать ли аргументы в кэш-записи |
+| `doCacheArgs` | `boolean` | `false` | Кэшировать ли аргументы (только для `keyStrategy: 'serialize'`; стратегия `compare` игнорирует) |
 
 **Методы `IApi`:**
 
@@ -124,8 +124,9 @@ const userResource = api.createResourceV2<{ id: string }, User>({
 | `onCacheEntryAdded` | `(args, tools) => void` | Хук при добавлении записи в кэш |
 | `onQueryStarted` | `(args, tools) => void` | Хук при старте запроса |
 | `beforeDevtoolsPush` | `(value, push) => void` | Перехват состояния перед отправкой в devtools |
+| `devtoolsKey` | `(args: TArgs) => string` | Функция для извлечения ключа devtools из аргументов (только для стратегии `compare`). По умолчанию — монотонный счётчик (0, 1, 2…) |
 | `maxSnapshotDataAge` | `number` | Возраст данных для snapshot |
-| `doCacheArgs` | `boolean` | Кэшировать ли аргументы |
+| `doCacheArgs` | `boolean` | Кэшировать ли аргументы (только для `keyStrategy: 'serialize'`; стратегия `compare` игнорирует) |
 
 **Методы `IResourceV2`:**
 
@@ -231,7 +232,9 @@ const state = userResource.useResourceV2Agent(
 ### Cache Strategies (Стратегии кэша)
 
 - **`serialize`** (по умолчанию) — аргументы сериализуются в строку (поддерживает SSR snapshots)
-- **`compare`** — аргументы сравниваются функцией (не поддерживает snapshots)
+- **`compare`** — аргументы сравниваются по ссылке (не поддерживает snapshots)
+
+Стратегия `compare` использует монотонный счётчик (0, 1, 2…) для идентификации записей в devtools. Для семантических ключей используйте опцию `devtoolsKey: (args) => string`. Опция `doCacheArgs` не применяется к стратегии `compare`.
 
 ### GC (Garbage Collection)
 

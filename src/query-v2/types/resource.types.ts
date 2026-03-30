@@ -1,5 +1,5 @@
 import type { DevtoolsLike } from "@/common/devtools";
-import type { ReadableSignalFnLike } from "@/signals/types";
+import type { ReadableSignalFnLike, TBeforeDevtoolsPushFn } from "@/signals/types";
 
 import type { IResourceV2Agent } from "./agent.types";
 import type { ICacheEntry } from "./cache.types";
@@ -28,6 +28,8 @@ export type TResourceV2Options<TArgs, TData> = {
     maxSnapshotDataAge?: number;
     doCacheArgs?: boolean;
     devtools?: DevtoolsLike;
+    devtoolsKey?: (args: TArgs) => string;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TMachineInstance<TArgs, TData>>;
 };
 
 /** ResourceV2 instance — the main data fetching unit */
@@ -56,6 +58,7 @@ export interface IResourceV2<TArgs, TData> {
 export interface IResourceV2CacheEntry<TArgs, TData> extends ICacheEntry<TMachineInstance<TArgs, TData>> {
     /** Signal property — reactive read of machine state (alias for inherited state$()) */
     readonly machine$: ReadableSignalFnLike<TMachineInstance<TArgs, TData>>;
+    readonly argsKey: string;
     /** Non-reactive read */
     peek(): TMachineInstance<TArgs, TData>;
     /** Check if this entry matches given args */

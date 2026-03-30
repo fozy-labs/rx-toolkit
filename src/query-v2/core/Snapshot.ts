@@ -16,20 +16,20 @@ export function getSnapshot<TArgs = unknown, TData = unknown>(
     const result: Record<string, TResourceSnapshot> = {};
 
     for (const [resourceKey, resource] of resources) {
+        if (resource.keyStrategy === "compare") {
+            throw new Error(
+                `getSnapshot: Resource "${resourceKey}" uses compare strategy with non-serializable keys. ` +
+                    `Only serialize strategy resources can be captured in snapshots.`,
+            );
+        }
+
         const entries: Record<string, TResourceV2SnapshotSlice> = {};
         let hasEntries = false;
 
-        for (const [key, entry] of resource.cacheEntries()) {
-            if (typeof key !== "string") {
-                throw new Error(
-                    `getSnapshot: Resource "${resourceKey}" uses compare strategy with non-serializable keys. ` +
-                        `Only serialize strategy resources can be captured in snapshots.`,
-                );
-            }
-
+        for (const entry of resource.cacheValues()) {
             const machine = entry.peek();
             if (machine.status === "success") {
-                entries[key] = {
+                entries[entry.argsKey] = {
                     status: "success",
                     args: machine.args,
                     data: machine.data,

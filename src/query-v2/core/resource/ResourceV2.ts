@@ -2,7 +2,6 @@ import type { Subscription } from "rxjs";
 
 import { shallowEqual } from "@/common/utils/shallowEqual";
 import { createCacheMap } from "@/query-v2/core/CacheMap/createCacheMap";
-import { LifecycleHooks } from "@/query-v2/core/LifecycleHooks";
 import { stableStringify } from "@/query-v2/lib/stableStringify";
 import type {
     ArgsOrVoid,
@@ -22,11 +21,13 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
     private _cache;
     private _queryFn;
     private _compareArgsFn;
-    private _lifecycleHooks;
+    private _onCacheEntryAdded;
+    private _onQueryStarted;
+    private _beforeDevtoolsPush;
     private _cacheLifetime;
     private _key;
+    private _keyStrategy;
 
-    private _pendingInitialMachine: TMachineInstance<TArgs, TData> | undefined;
     private _lastEntry$ = Signal.state<ResourceV2CacheEntry<TArgs, TData> | null>(null, {
         isDisabled: true,
     });
@@ -39,19 +40,21 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
         this._queryFn = options.queryFn;
         this._compareArgsFn = options.compareArg ?? (shallowEqual as TCompareArgsFn<TArgs>);
         this._cacheLifetime = options.cacheLifetime ?? 60_000;
-        this._lifecycleHooks = new LifecycleHooks<TArgs, TData>(options.onCacheEntryAdded, options.onQueryStarted);
+        this._onCacheEntryAdded = options.onCacheEntryAdded;
+        this._onQueryStarted = options.onQueryStarted;
+        this._beforeDevtoolsPush = options.beforeDevtoolsPush;
         this._key = options.key;
 
         const keyStrategy = options.compareArg ? ("compare" as const) : ("serialize" as const);
-
-        const serializeFn = options.serializeArgs ?? stableStringify;
+        this._keyStrategy = keyStrategy;
 
         this._cache = createCacheMap<TArgs, ResourceV2CacheEntry<TArgs, TData>>({
             keyStrategy,
-            factory: (args) => this._entryFactory(args, serializeFn(args)),
-            serializeArgs: serializeFn,
+            factory: (args, argsKey) => this._entryFactory(args, argsKey),
+            serializeArgs: options.serializeArgs ?? stableStringify,
             compareArg: options.compareArg,
             doCacheArgs: options.doCacheArgs,
+            devtoolsKey: options.devtoolsKey,
         });
     }
 
@@ -108,20 +111,21 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
             for (const entry of entries) {
                 entry.complete();
             }
-            this._lifecycleHooks.clearAll();
             this._lastEntry$.set(null);
             this.status$.set("idle");
         });
     }
 
-    cacheEntries(): IterableIterator<[string | TArgs, ResourceV2CacheEntry<TArgs, TData>]> {
-        return this._cache.entries();
+    cacheValues(): IterableIterator<ResourceV2CacheEntry<TArgs, TData>> {
+        return this._cache.values();
+    }
+
+    get keyStrategy(): "serialize" | "compare" {
+        return this._keyStrategy;
     }
 
     hydrateEntry(args: TArgs, machine: TMachineInstance<TArgs, TData>): void {
-        this._pendingInitialMachine = machine;
-        this._cache.getOrCreate(args);
-        this._pendingInitialMachine = undefined;
+        this._cache.create(args, (argsKey) => this._entryFactory(args, argsKey, machine));
     }
 
     hasEntry(args: TArgs): boolean {
@@ -144,32 +148,30 @@ export class ResourceV2<TArgs, TData> implements IResourceV2<TArgs, TData> {
         return this._cache.get(args) ?? null;
     }
 
-    private _entryFactory(args: TArgs, argsKey: string): ResourceV2CacheEntry<TArgs, TData> {
-        const initialMachine = this._pendingInitialMachine;
-        this._pendingInitialMachine = undefined;
-
+    private _entryFactory(
+        args: TArgs,
+        argsKey: string,
+        initialMachine?: TMachineInstance<TArgs, TData>,
+    ): ResourceV2CacheEntry<TArgs, TData> {
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args,
+            argsKey,
             queryFn: this._queryFn,
             compareArgs: this._compareArgsFn,
             entryOptions: {
                 keyParts: this._key ? ["Resource/", `${this._key}/`, argsKey] : undefined,
+                beforeDevtoolsPush: this._beforeDevtoolsPush,
                 cacheLifetime: this._cacheLifetime,
             },
-            onDataLoaded: (a, data) => this._lifecycleHooks.resolveDataLoaded(a, data),
-            onQueryStarted: (a, entry) => this._lifecycleHooks.fireQueryStarted(a, entry),
-            onQueryFulfilled: (a, result) => this._lifecycleHooks.resolveQueryFulfilled(a, result),
+            onCacheEntryAdded: this._onCacheEntryAdded,
+            onQueryStarted: this._onQueryStarted,
             initialMachine,
         });
 
         // Subscribe to onClean$ for cache removal
         entry.onClean$.subscribe(() => {
             this._cache.delete(args);
-            this._lifecycleHooks.fireCacheEntryRemoved(args);
         });
-
-        // Fire lifecycle hook for new entry
-        this._lifecycleHooks.fireCacheEntryAdded(args, entry);
 
         if (this.status$.peek() === "idle") {
             this.status$.set("ready");

@@ -36,6 +36,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
 
     // Validate initialSnapshot at save time
     let _savedSnapshot: TApiSnapshot | null = null;
+
     if (initialSnapshot) {
         if (initialSnapshot.version !== CURRENT_SNAPSHOT_VERSION) {
             throw new Error(
@@ -109,7 +110,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
             const effectiveMaxAge = resourceOptions.maxSnapshotDataAge ?? maxSnapshotDataAge;
             if (effectiveMaxAge != null) {
                 const now = Date.now();
-                for (const [, entry] of resource.cacheEntries()) {
+                for (const entry of resource.cacheValues()) {
                     const machine = entry.peek();
                     if (machine.status === "success" && now - machine.updatedAt > effectiveMaxAge) {
                         entry.invalidate();

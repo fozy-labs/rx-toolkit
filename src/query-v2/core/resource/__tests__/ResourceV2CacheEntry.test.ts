@@ -13,6 +13,7 @@ function createEntry(args: TArgs = { id: 1 }, overrides?: { compareArgs?: (a: TA
     const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
     const entry = new ResourceV2CacheEntry<TArgs, TData>({
         args,
+        argsKey: "",
         queryFn,
         compareArgs: overrides?.compareArgs ?? ((a, b) => a.id === b.id),
     });
@@ -372,6 +373,7 @@ describe("ResourceV2CacheEntry", () => {
 
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
             initialMachine,
@@ -388,6 +390,7 @@ describe("ResourceV2CacheEntry", () => {
 
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
         });
@@ -403,6 +406,7 @@ describe("ResourceV2CacheEntry", () => {
 
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 5 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
             initialMachine,
@@ -435,6 +439,7 @@ describe("ResourceV2CacheEntry", () => {
 
         new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
             onQueryStarted,
@@ -444,74 +449,705 @@ describe("ResourceV2CacheEntry", () => {
         expect(callOrder).toEqual(["onQueryStarted", "queryFn"]);
     });
 
-    // ── T08: onQueryFulfilled called with { data } on success ──
-    it("T08: onQueryFulfilled called with { data } on success", async () => {
+    // ── T08: $queryFulfilled resolves with { data } on success ──
+    it("T08: $queryFulfilled resolves with { data } on success", async () => {
         const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
 
-        const onQueryFulfilled = vi.fn();
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
 
         new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
-            onQueryFulfilled,
+            onQueryStarted,
         });
 
         calls[0].resolve({ name: "result" });
         await flushMicrotasks();
 
-        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { data: { name: "result" } });
+        const result = await capturedTools.$queryFulfilled;
+        expect(result).toEqual({ data: { name: "result" } });
     });
 
-    // ── T09: onQueryFulfilled called with { error } on failure ──
-    it("T09: onQueryFulfilled called with { error } on failure", async () => {
+    // ── T09: $queryFulfilled rejects on failure ──
+    it("T09: $queryFulfilled rejects on failure", async () => {
         const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
 
-        const onQueryFulfilled = vi.fn();
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
 
         new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
-            onQueryFulfilled,
+            onQueryStarted,
         });
 
         const err = new Error("fail");
         calls[0].reject(err);
         await flushMicrotasks();
 
-        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { error: err });
+        await expect(capturedTools.$queryFulfilled).rejects.toBe(err);
     });
 
-    // ── T10: Stale fetch does not call onQueryFulfilled for first query ──
-    it("T10: aborted (stale) fetch does not trigger onQueryFulfilled for old query", async () => {
+    // ── T10: Stale fetch — old $queryFulfilled rejected, new one created ──
+    it("T10: aborted (stale) fetch rejects old $queryFulfilled, creates new one", async () => {
         const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
 
-        const onQueryFulfilled = vi.fn();
+        const capturedTools: any[] = [];
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools.push(tools);
+        });
 
         const entry = new ResourceV2CacheEntry<TArgs, TData>({
             args: { id: 1 },
+            argsKey: "",
             queryFn,
             compareArgs: (a, b) => a.id === b.id,
-            onQueryFulfilled,
+            onQueryStarted,
         });
 
         // Trigger a second fetch (this aborts the first via new AbortController)
         entry.query(true);
         expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(capturedTools).toHaveLength(2);
 
-        // Resolve the first (stale) query — should be ignored
-        calls[0].resolve({ name: "stale" });
-        await flushMicrotasks();
-
-        // onQueryFulfilled should not have been called (stale check in _doFetch)
-        expect(onQueryFulfilled).not.toHaveBeenCalled();
+        // Old $queryFulfilled should be rejected with "Query superseded"
+        await expect(capturedTools[0].$queryFulfilled).rejects.toThrow("Query superseded");
 
         // Resolve the second (current) query
         calls[1].resolve({ name: "fresh" });
         await flushMicrotasks();
 
-        expect(onQueryFulfilled).toHaveBeenCalledTimes(1);
-        expect(onQueryFulfilled).toHaveBeenCalledWith({ id: 1 }, { data: { name: "fresh" } });
+        const result = await capturedTools[1].$queryFulfilled;
+        expect(result).toEqual({ data: { name: "fresh" } });
+    });
+});
+
+describe("ResourceV2CacheEntry — Per-entry lifecycle", () => {
+    // LH10: onCacheEntryAdded fires in entry constructor with tools
+    it("LH10: onCacheEntryAdded fires in constructor with $cacheDataLoaded + $cacheEntryRemoved tools", () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const onCacheEntryAdded = vi.fn();
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded,
+        });
+
+        expect(onCacheEntryAdded).toHaveBeenCalledTimes(1);
+        expect(onCacheEntryAdded).toHaveBeenCalledWith(
+            { id: 1 },
+            expect.objectContaining({
+                $cacheDataLoaded: expect.any(Promise),
+                $cacheEntryRemoved: expect.any(Promise),
+            }),
+        );
+    });
+
+    // LH11: $cacheDataLoaded resolves on first successful fetch
+    it("LH11: $cacheDataLoaded resolves on first successful fetch", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded,
+        });
+
+        calls[0].resolve({ name: "loaded" });
+        await flushMicrotasks();
+
+        const data = await capturedTools.$cacheDataLoaded;
+        expect(data).toEqual({ name: "loaded" });
+    });
+
+    // LH12: $cacheDataLoaded resolves only once (one-shot)
+    it("LH12: $cacheDataLoaded resolves only once — subsequent refetches do not re-resolve", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded,
+        });
+
+        calls[0].resolve({ name: "first" });
+        await flushMicrotasks();
+
+        const data = await capturedTools.$cacheDataLoaded;
+        expect(data).toEqual({ name: "first" });
+
+        // Refetch
+        entry.invalidate();
+        calls[1].resolve({ name: "second" });
+        await flushMicrotasks();
+
+        // $cacheDataLoaded still resolves to first value (one-shot, already settled)
+        const data2 = await capturedTools.$cacheDataLoaded;
+        expect(data2).toEqual({ name: "first" });
+    });
+
+    // LH13: $cacheEntryRemoved resolves on complete()
+    it("LH13: $cacheEntryRemoved resolves on complete()", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded,
+        });
+
+        calls[0].resolve({ name: "data" });
+        await flushMicrotasks();
+
+        entry.complete();
+
+        await expect(capturedTools.$cacheEntryRemoved).resolves.toBeUndefined();
+    });
+
+    // LH14: $cacheDataLoaded rejects on complete() if still unresolved
+    it("LH14: $cacheDataLoaded rejects on complete() if still unresolved", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onCacheEntryAdded = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded,
+        });
+
+        // queryFn never resolved — complete before data loaded
+        entry.complete();
+
+        await expect(capturedTools.$cacheDataLoaded).rejects.toThrow("Cache entry removed before data loaded");
+    });
+
+    // LH15: onQueryStarted fires in _doFetch with $queryFulfilled and getCacheEntry tools
+    it("LH15: onQueryStarted fires in _doFetch with $queryFulfilled + getCacheEntry tools", () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        expect(onQueryStarted).toHaveBeenCalledTimes(1);
+        expect(capturedTools.$queryFulfilled).toBeInstanceOf(Promise);
+        expect(typeof capturedTools.getCacheEntry).toBe("function");
+    });
+
+    // LH16: $queryFulfilled resolves with {data} on success
+    it("LH16: $queryFulfilled resolves with {data} on success", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        calls[0].resolve({ name: "data" });
+        await flushMicrotasks();
+
+        const result = await capturedTools.$queryFulfilled;
+        expect(result).toEqual({ data: { name: "data" } });
+    });
+
+    // LH17: $queryFulfilled rejects on error
+    it("LH17: $queryFulfilled rejects on error", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        const err = new Error("fail");
+        calls[0].reject(err);
+        await flushMicrotasks();
+
+        await expect(capturedTools.$queryFulfilled).rejects.toBe(err);
+    });
+
+    // LH18: Refetch rejects old $queryFulfilled before creating new one
+    it("LH18: refetch rejects old $queryFulfilled before creating new one", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const capturedTools: any[] = [];
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools.push(tools);
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        // First fetch is from constructor
+        expect(capturedTools).toHaveLength(1);
+
+        // Force refetch
+        entry.query(true);
+        expect(capturedTools).toHaveLength(2);
+
+        // Old $queryFulfilled rejected
+        await expect(capturedTools[0].$queryFulfilled).rejects.toThrow("Query superseded");
+
+        // New one resolves
+        calls[1].resolve({ name: "fresh" });
+        await flushMicrotasks();
+        const result = await capturedTools[1].$queryFulfilled;
+        expect(result).toEqual({ data: { name: "fresh" } });
+    });
+
+    // LH19: getCacheEntry() returns the entry itself
+    it("LH19: getCacheEntry() returns the entry itself", () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let capturedTools: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools = tools;
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        expect(capturedTools.getCacheEntry()).toBe(entry);
+    });
+
+    // LH20: Two concurrent entries have independent $queryFulfilled
+    it("LH20: concurrent entries have independent $queryFulfilled", async () => {
+        const queryFn1Result = createControllableQueryFn<TArgs, TData>();
+        const queryFn2Result = createControllableQueryFn<TArgs, TData>();
+
+        let tools1: any;
+        let tools2: any;
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            if (!tools1) tools1 = tools;
+            else tools2 = tools;
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "0",
+            queryFn: queryFn1Result.queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 2 },
+            argsKey: "1",
+            queryFn: queryFn2Result.queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        expect(onQueryStarted).toHaveBeenCalledTimes(2);
+
+        // Resolve first entry only
+        queryFn1Result.calls[0].resolve({ name: "entry1" });
+        await flushMicrotasks();
+
+        const result1 = await tools1.$queryFulfilled;
+        expect(result1).toEqual({ data: { name: "entry1" } });
+
+        // Second entry's $queryFulfilled should still be pending (not affected)
+        let secondSettled = false;
+        tools2.$queryFulfilled
+            .then(() => {
+                secondSettled = true;
+            })
+            .catch(() => {
+                secondSettled = true;
+            });
+        await flushMicrotasks();
+        expect(secondSettled).toBe(false);
+
+        // Resolve second
+        queryFn2Result.calls[0].resolve({ name: "entry2" });
+        await flushMicrotasks();
+
+        const result2 = await tools2.$queryFulfilled;
+        expect(result2).toEqual({ data: { name: "entry2" } });
+    });
+
+    // LH21: void-args resource lifecycle works without Map key collision
+    it("LH21: void-args entry lifecycle works correctly", async () => {
+        type TVoidArgs = void;
+        const { queryFn, calls } = createControllableQueryFn<TVoidArgs, TData>();
+
+        let capturedEntryTools: any;
+        let capturedQueryTools: any;
+
+        const entry = new ResourceV2CacheEntry<TVoidArgs, TData>({
+            args: undefined as TVoidArgs,
+            argsKey: "0",
+            queryFn,
+            compareArgs: () => true,
+            onCacheEntryAdded: (_args, tools) => {
+                capturedEntryTools = tools;
+            },
+            onQueryStarted: (_args, tools) => {
+                capturedQueryTools = tools;
+            },
+        });
+
+        expect(capturedEntryTools.$cacheDataLoaded).toBeInstanceOf(Promise);
+        expect(capturedQueryTools.$queryFulfilled).toBeInstanceOf(Promise);
+
+        calls[0].resolve({ name: "void-result" });
+        await flushMicrotasks();
+
+        const data = await capturedEntryTools.$cacheDataLoaded;
+        expect(data).toEqual({ name: "void-result" });
+
+        const result = await capturedQueryTools.$queryFulfilled;
+        expect(result).toEqual({ data: { name: "void-result" } });
+    });
+
+    // LH22: Callback error in onCacheEntryAdded is caught, entry still created
+    it("LH22: onCacheEntryAdded error is caught, entry still created", () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded: () => {
+                throw new Error("callback error");
+            },
+        });
+
+        expect(entry.peek().status).toBe("pending");
+    });
+
+    // LH23: Callback error in onQueryStarted is caught, fetch proceeds
+    it("LH23: onQueryStarted error is caught, fetch proceeds", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted: () => {
+                throw new Error("callback error");
+            },
+        });
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        calls[0].resolve({ name: "ok" });
+        await flushMicrotasks();
+        expect(entry.peek().status).toBe("success");
+    });
+
+    // LH24: complete() settles ALL pending resolvers
+    it("LH24: complete() settles all resolvers: _entryDataLoaded rejected, _entryRemoved resolved, _queryFulfilled rejected", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let entryTools: any;
+        let queryTools: any;
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded: (_args, tools) => {
+                entryTools = tools;
+            },
+            onQueryStarted: (_args, tools) => {
+                queryTools = tools;
+            },
+        });
+
+        // Don't resolve queryFn — entry is mid-flight
+        entry.complete();
+
+        await expect(entryTools.$cacheDataLoaded).rejects.toThrow("Cache entry removed before data loaded");
+        await expect(entryTools.$cacheEntryRemoved).resolves.toBeUndefined();
+        await expect(queryTools.$queryFulfilled).rejects.toThrow("Cache entry removed");
+    });
+
+    // LH25: No onCacheEntryAdded — no resolvers, no error
+    it("LH25: no onCacheEntryAdded — no resolvers created, no error", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+        });
+
+        calls[0].resolve({ name: "data" });
+        await flushMicrotasks();
+        expect(entry.peek().status).toBe("success");
+
+        // complete() without lifecycle hooks — no error
+        entry.complete();
+    });
+
+    // LH26: No onQueryStarted — no $queryFulfilled, fetch proceeds
+    it("LH26: no onQueryStarted — fetch proceeds normally", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+        });
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        calls[0].resolve({ name: "ok" });
+        await flushMicrotasks();
+        expect(entry.peek().status).toBe("success");
+    });
+
+    // ── Edge cases ──
+
+    // complete() called twice — idempotent (extends LH24)
+    it("LH24b: complete() called twice is idempotent", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let entryTools: any;
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded: (_args, tools) => {
+                entryTools = tools;
+            },
+        });
+
+        entry.complete();
+        // Second complete should not throw
+        entry.complete();
+
+        await expect(entryTools.$cacheDataLoaded).rejects.toThrow("Cache entry removed before data loaded");
+        await expect(entryTools.$cacheEntryRemoved).resolves.toBeUndefined();
+    });
+
+    // Refetch 3 times rapidly — each old $queryFulfilled rejected (extends LH18)
+    it("LH18b: refetch 3 times rapidly — each old $queryFulfilled rejected", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        const capturedTools: any[] = [];
+        const onQueryStarted = vi.fn((_args: TArgs, tools: any) => {
+            capturedTools.push(tools);
+        });
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+        });
+
+        // 2 more refetches
+        entry.query(true);
+        entry.query(true);
+
+        expect(capturedTools).toHaveLength(3);
+
+        // First two should be rejected
+        await expect(capturedTools[0].$queryFulfilled).rejects.toThrow("Query superseded");
+        await expect(capturedTools[1].$queryFulfilled).rejects.toThrow("Query superseded");
+
+        // Third one still live
+        calls[2].resolve({ name: "final" });
+        await flushMicrotasks();
+        const result = await capturedTools[2].$queryFulfilled;
+        expect(result).toEqual({ data: { name: "final" } });
+    });
+
+    // complete() during inflight fetch — abort + resolver cleanup (extends LH24)
+    it("LH24c: complete() during inflight fetch — abort + resolver cleanup", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+
+        let queryTools: any;
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted: (_args, tools) => {
+                queryTools = tools;
+            },
+        });
+
+        expect(calls[0].abortSignal.aborted).toBe(false);
+
+        entry.complete();
+
+        expect(calls[0].abortSignal.aborted).toBe(true);
+        await expect(queryTools.$queryFulfilled).rejects.toThrow("Cache entry removed");
+    });
+});
+
+describe("ResourceV2CacheEntry — Hydration lifecycle", () => {
+    // LH30: Hydrated entry — $cacheDataLoaded resolves immediately
+    it("LH30: hydrated entry (MachineSuccess) — $cacheDataLoaded resolves immediately", async () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 1 }, { name: "hydrated" }, null, Date.now());
+
+        let capturedTools: any;
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded: (_args, tools) => {
+                capturedTools = tools;
+            },
+            initialMachine,
+        });
+
+        const data = await capturedTools.$cacheDataLoaded;
+        expect(data).toEqual({ name: "hydrated" });
+    });
+
+    // LH31: Hydrated entry — _doFetch NOT called
+    it("LH31: hydrated entry — onQueryStarted NOT invoked during construction", () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 1 }, { name: "hydrated" }, null, Date.now());
+
+        const onQueryStarted = vi.fn();
+
+        new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+            initialMachine,
+        });
+
+        expect(onQueryStarted).not.toHaveBeenCalled();
+        expect(queryFn).not.toHaveBeenCalled();
+    });
+
+    // LH32: Hydrated entry — $cacheEntryRemoved works on complete()
+    it("LH32: hydrated entry — $cacheEntryRemoved resolves on complete()", async () => {
+        const { queryFn } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 1 }, { name: "hydrated" }, null, Date.now());
+
+        let capturedTools: any;
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onCacheEntryAdded: (_args, tools) => {
+                capturedTools = tools;
+            },
+            initialMachine,
+        });
+
+        entry.complete();
+
+        await expect(capturedTools.$cacheEntryRemoved).resolves.toBeUndefined();
+    });
+
+    // LH33: Hydrated entry invalidated — lifecycle hooks fire on subsequent fetch
+    it("LH33: hydrated entry invalidated — onQueryStarted fires on subsequent fetch", async () => {
+        const { queryFn, calls } = createControllableQueryFn<TArgs, TData>();
+        const initialMachine = new MachineSuccess<TArgs, TData>({ id: 1 }, { name: "hydrated" }, null, Date.now());
+
+        const onQueryStarted = vi.fn();
+
+        const entry = new ResourceV2CacheEntry<TArgs, TData>({
+            args: { id: 1 },
+            argsKey: "",
+            queryFn,
+            compareArgs: (a, b) => a.id === b.id,
+            onQueryStarted,
+            initialMachine,
+        });
+
+        expect(onQueryStarted).not.toHaveBeenCalled();
+
+        entry.invalidate();
+        expect(onQueryStarted).toHaveBeenCalledTimes(1);
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        calls[0].resolve({ name: "refreshed" });
+        await flushMicrotasks();
+        expect(entry.peek().data).toEqual({ name: "refreshed" });
     });
 });

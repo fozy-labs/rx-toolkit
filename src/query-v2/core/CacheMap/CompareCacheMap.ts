@@ -1,64 +1,59 @@
-import { shallowEqual } from "@/common/utils/shallowEqual";
 import type { ICacheMap, ICacheMapOptions, TCacheMapFactory } from "@/query-v2/types";
 
 /**
- * CacheMap implementation using linear scan with custom comparison.
+ * CacheMap implementation using Map with reference identity.
  * Used when keyStrategy = "compare" (e.g., for non-serializable args).
  */
 export class CompareCacheMap<TArgs, TEntry> implements ICacheMap<TArgs, TEntry> {
-    private _entries: Array<{ args: TArgs; entry: TEntry }> = [];
+    private _map = new Map<TArgs, TEntry>();
     private _factory: TCacheMapFactory<TArgs, TEntry>;
-    private _compareArg: (a: TArgs, b: TArgs) => boolean;
+    private _counter = 0;
+    private _devtoolsKey: ((args: TArgs) => string) | undefined;
 
     constructor(options: ICacheMapOptions<TArgs, TEntry>) {
         this._factory = options.factory;
-        this._compareArg = (options.compareArg as (a: TArgs, b: TArgs) => boolean) ?? shallowEqual;
-    }
-
-    private _find(args: TArgs): { args: TArgs; entry: TEntry } | undefined {
-        return this._entries.find((e) => this._compareArg(e.args, args));
+        this._devtoolsKey = options.devtoolsKey;
     }
 
     get(args: TArgs): TEntry | undefined {
-        return this._find(args)?.entry;
+        return this._map.get(args);
+    }
+
+    create(args: TArgs, factory: (argsKey: string) => TEntry): TEntry {
+        const argsKey = this._devtoolsKey ? this._devtoolsKey(args) : String(this._counter++);
+        const entry = factory(argsKey);
+        this._map.set(args, entry);
+        return entry;
     }
 
     getOrCreate(args: TArgs): TEntry {
-        const existing = this._find(args);
-        if (existing) return existing.entry;
-        const entry = this._factory(args);
-        this._entries.push({ args, entry });
+        let entry = this._map.get(args);
+        if (entry) return entry;
+
+        const argsKey = this._devtoolsKey ? this._devtoolsKey(args) : String(this._counter++);
+
+        entry = this._factory(args, argsKey);
+        this._map.set(args, entry);
         return entry;
     }
 
     delete(args: TArgs): boolean {
-        const index = this._entries.findIndex((e) => this._compareArg(e.args, args));
-        if (index === -1) return false;
-        this._entries.splice(index, 1);
-        return true;
+        return this._map.delete(args);
     }
 
     has(args: TArgs): boolean {
-        return this._find(args) !== undefined;
+        return this._map.has(args);
     }
 
     clear(): void {
-        this._entries = [];
+        this._map.clear();
     }
 
     get size(): number {
-        return this._entries.length;
+        return this._map.size;
     }
 
     *values(): IterableIterator<TEntry> {
-        for (const { entry } of this._entries) {
-            yield entry;
-        }
-    }
-
-    *entries(): IterableIterator<[TArgs, TEntry]> {
-        for (const { args, entry } of this._entries) {
-            yield [args, entry];
-        }
+        yield* this._map.values();
     }
 }

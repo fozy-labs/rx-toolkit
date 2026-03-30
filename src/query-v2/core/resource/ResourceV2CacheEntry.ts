@@ -1,11 +1,16 @@
+import { PromiseResolver } from "@/common/utils/PromiseResolver";
 import { CacheEntry } from "@/query-v2/core/CacheEntry";
 import { MachineError, MachinePending, MachineRefreshing, MachineSuccess, Patcher } from "@/query-v2/core/machines";
 import type {
+    ICacheEntryAddedTools,
     ICacheEntryOptions,
     IPatchHandle,
+    IQueryStartedTools,
     IResourceV2CacheEntry,
     TCompareArgsFn,
     TMachineInstance,
+    TOnCacheEntryAdded,
+    TOnQueryStarted,
     TPatch,
     TPatchState,
     TQueryFn,
@@ -14,12 +19,12 @@ import type { ReadableSignalFnLike } from "@/signals/types";
 
 export interface IResourceV2CacheEntryOptions<TArgs, TData> {
     args: TArgs;
+    argsKey: string;
     queryFn: TQueryFn<TArgs, TData>;
     compareArgs: TCompareArgsFn<TArgs>;
     entryOptions?: ICacheEntryOptions<TMachineInstance<TArgs, TData>>;
-    onDataLoaded?: (args: TArgs, data: TData) => void;
-    onQueryStarted?: (args: TArgs, entry: IResourceV2CacheEntry<TArgs, TData>) => void;
-    onQueryFulfilled?: (args: TArgs, result: { data: TData } | { error: unknown }) => void;
+    onCacheEntryAdded?: TOnCacheEntryAdded<TArgs, TData>;
+    onQueryStarted?: TOnQueryStarted<TArgs, TData>;
     initialMachine?: TMachineInstance<TArgs, TData>;
 }
 
@@ -35,6 +40,7 @@ export class ResourceV2CacheEntry<TArgs, TData>
     implements IResourceV2CacheEntry<TArgs, TData>
 {
     readonly machine$: ReadableSignalFnLike<TMachineInstance<TArgs, TData>>;
+    readonly argsKey: string;
 
     private _args: TArgs;
     private _queryFn: TQueryFn<TArgs, TData>;
@@ -42,19 +48,23 @@ export class ResourceV2CacheEntry<TArgs, TData>
     private _abortController: AbortController | null = null;
     private _inflightPromise: Promise<TData> | null = null;
     private _patchState: TPatchState<TData> | null = null;
-    private _onDataLoaded: ((args: TArgs, data: TData) => void) | undefined;
-    private _onQueryStarted: ((args: TArgs, entry: IResourceV2CacheEntry<TArgs, TData>) => void) | undefined;
-    private _onQueryFulfilled: ((args: TArgs, result: { data: TData } | { error: unknown }) => void) | undefined;
+    private _onCacheEntryAdded: TOnCacheEntryAdded<TArgs, TData> | undefined;
+    private _onQueryStarted: TOnQueryStarted<TArgs, TData> | undefined;
+    private _entryDataLoaded: PromiseResolver<TData> | null = null;
+    private _entryRemoved: PromiseResolver<void> | null = null;
+    private _queryFulfilled: PromiseResolver<{ data: TData }> | null = null;
 
     constructor(options: IResourceV2CacheEntryOptions<TArgs, TData>) {
         super(options.initialMachine ?? new MachinePending<TArgs, TData>(options.args), options.entryOptions);
         this._args = options.args;
         this._queryFn = options.queryFn;
         this._compareArgs = options.compareArgs;
-        this._onDataLoaded = options.onDataLoaded;
+        this._onCacheEntryAdded = options.onCacheEntryAdded;
         this._onQueryStarted = options.onQueryStarted;
-        this._onQueryFulfilled = options.onQueryFulfilled;
         this.machine$ = this.state$;
+        this.argsKey = options.argsKey;
+
+        this._fireCacheEntryAdded();
 
         if (!options.initialMachine) {
             this._doFetch().catch(() => {});
@@ -141,8 +151,47 @@ export class ResourceV2CacheEntry<TArgs, TData>
         this._inflightPromise = null;
         this._patchState = null;
 
+        // Lifecycle cleanup — resolve/reject all pending resolvers
+        if (this._entryDataLoaded) {
+            this._entryDataLoaded.reject(new Error("Cache entry removed before data loaded"));
+            this._entryDataLoaded = null;
+        }
+        if (this._entryRemoved) {
+            this._entryRemoved.resolve();
+            this._entryRemoved = null;
+        }
+        if (this._queryFulfilled) {
+            this._queryFulfilled.reject(new Error("Cache entry removed"));
+            this._queryFulfilled = null;
+        }
+
         // Fire onClean$ and mark completed
         super.complete();
+    }
+
+    private _fireCacheEntryAdded(): void {
+        if (!this._onCacheEntryAdded) return;
+
+        this._entryDataLoaded = new PromiseResolver<TData>();
+        this._entryRemoved = new PromiseResolver<void>();
+
+        const tools: ICacheEntryAddedTools<TData> = {
+            $cacheDataLoaded: this._entryDataLoaded.promise,
+            $cacheEntryRemoved: this._entryRemoved.promise,
+        };
+
+        try {
+            this._onCacheEntryAdded(this._args, tools);
+        } catch {
+            // Callback errors are caught, not propagated
+        }
+
+        // Resolve immediately if entry starts with data (hydration via Snapshot)
+        const machine = this.peek();
+        if (machine.status === "success" && this._entryDataLoaded) {
+            this._entryDataLoaded.resolve(machine.data);
+            this._entryDataLoaded = null;
+        }
     }
 
     private _doFetch(): Promise<TData> {
@@ -157,7 +206,27 @@ export class ResourceV2CacheEntry<TArgs, TData>
         const controller = new AbortController();
         this._abortController = controller;
 
-        this._onQueryStarted?.(this._args, this);
+        // Lifecycle: reject leftover _queryFulfilled before creating new one
+        if (this._queryFulfilled) {
+            this._queryFulfilled.reject(new Error("Query superseded"));
+            this._queryFulfilled = null;
+        }
+
+        // Lifecycle: fire onQueryStarted
+        if (this._onQueryStarted) {
+            this._queryFulfilled = new PromiseResolver<{ data: TData }>();
+
+            const tools: IQueryStartedTools<TArgs, TData> = {
+                $queryFulfilled: this._queryFulfilled.promise,
+                getCacheEntry: () => this,
+            };
+
+            try {
+                this._onQueryStarted(this._args, tools);
+            } catch {
+                // Callback errors caught
+            }
+        }
 
         let queryResult: Promise<TData>;
         try {
@@ -166,7 +235,10 @@ export class ResourceV2CacheEntry<TArgs, TData>
             this._abortController = null;
             this._inflightPromise = null;
             this.set(new MachineError<TArgs, TData>(this._args, syncError));
-            this._onQueryFulfilled?.(this._args, { error: syncError });
+            if (this._queryFulfilled) {
+                this._queryFulfilled.reject(syncError);
+                this._queryFulfilled = null;
+            }
             return Promise.reject(syncError);
         }
 
@@ -196,8 +268,17 @@ export class ResourceV2CacheEntry<TArgs, TData>
                     this.set(new MachineSuccess<TArgs, TData>(this._args, data, null, Date.now()));
                 }
 
-                this._onDataLoaded?.(this._args, data);
-                this._onQueryFulfilled?.(this._args, { data });
+                // Resolve _entryDataLoaded on first success only
+                if (this._entryDataLoaded) {
+                    this._entryDataLoaded.resolve(data);
+                    this._entryDataLoaded = null;
+                }
+
+                // Resolve _queryFulfilled for this fetch
+                if (this._queryFulfilled) {
+                    this._queryFulfilled.resolve({ data });
+                    this._queryFulfilled = null;
+                }
 
                 return data;
             },
@@ -224,7 +305,11 @@ export class ResourceV2CacheEntry<TArgs, TData>
                     this.set(new MachineError<TArgs, TData>(this._args, error));
                 }
 
-                this._onQueryFulfilled?.(this._args, { error });
+                // Reject _queryFulfilled for this fetch
+                if (this._queryFulfilled) {
+                    this._queryFulfilled.reject(error);
+                    this._queryFulfilled = null;
+                }
 
                 throw error;
             },

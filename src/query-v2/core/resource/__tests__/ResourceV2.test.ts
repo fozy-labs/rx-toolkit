@@ -228,8 +228,8 @@ describe("ResourceV2", () => {
         expect(resource.hasEntry({ id: 2 })).toBe(false);
     });
 
-    // ── RE15: cacheEntries iterates all entries ──
-    it("RE15: cacheEntries() iterates all entries", async () => {
+    // ── RE15: cacheValues iterates all entries ──
+    it("RE15: cacheValues() iterates all entries", async () => {
         const { resource, calls } = createResource();
         resource.query({ id: 1 });
         resource.query({ id: 2 });
@@ -239,7 +239,7 @@ describe("ResourceV2", () => {
         calls[2].resolve({ name: "C" });
         await flushMicrotasks();
 
-        const entries = [...resource.cacheEntries()];
+        const entries = [...resource.cacheValues()];
         expect(entries).toHaveLength(3);
     });
 
