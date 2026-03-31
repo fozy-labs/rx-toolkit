@@ -1,170 +1,95 @@
-import { ReadableSignalLike } from "@/signals/types";
+import type { ComputeFn } from "@/signals/types";
 
-import { ResourceDefinition, ResourceInstance } from "./Resource.types";
-import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
+import type { TOnCommandCacheEntryAdded, TOnCommandQueryStarted } from "./command-lifecycle.types";
+import type { IPatchHandle } from "./machine.types";
+import type { IResource } from "./resource.types";
+import type { ArgsOrVoid } from "./shared.types";
 
-/**
- * Функция создания команды
- */
-export type CommandCreateFn<ARGS, RESULT, SELECTED = never> = (
-    options: CommandCreateOptions<CommandDefinition<ARGS, RESULT, SELECTED>>,
-) => CommandInstance<CommandDefinition<ARGS, RESULT, SELECTED>>;
+/** Query function for commands — receives args + abort tools */
+export type TCommandQueryFn<TArgs, TResult> = (args: TArgs, tools: { abortSignal: AbortSignal }) => Promise<TResult>;
 
-/**
- * Опции создания команды
- */
-export type CommandCreateOptions<D extends CommandDefinition> = {
-    /** Функция селектора для преобразования результата команды */
-    select?: (data: D["Result"]) => D["Selected"];
-    /** Функция выполнения команды */
-    queryFn: (args: D["Args"]) => Promise<D["Result"]>;
-    /** Связанные ресурсы */
-    link?: (link: <RD extends ResourceDefinition>(options: LinkOptions<D, RD>) => void) => void;
-    /**
-     * Время жизни кеша в миллисекундах. По умолчанию 1_000 (1 секунда).
-     * Если указано false - кеш не удаляется автоматически.
-     */
-    cacheLifetime?: number | false;
-    /**
-     * Хук, вызываемый при добавлении нового элемента в кеш.
-     * Также позволяет отследить:
-     *  - когда данные были загружены (впервые)
-     *  - когда элемент был удален из кеша
-     */
-    onCacheEntryAdded?: OnCacheEntryAdded<D["Args"], D["Data"]>;
-    /**
-     * Хук, вызываемый при старте запроса.
-     * Также позволяет отследить:
-     * - завершение запроса с результатом или ошибкой
-     */
-    onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
-    /**
-     * Настройка отображения в devtools
-     */
-    devtoolsName?: string | false;
-};
-
-/**
- * Настройки связи команды с ресурсом
- */
-export type LinkOptions<D extends CommandDefinition, RD extends ResourceDefinition> = {
-    /**
-     * Целевой ресурс, с которым связывается команда
-     * @required
-     */
-    resource: ResourceInstance<RD>;
-
-    /**
-     * Функция для получения аргументов ресурса из аргументов команды.
-     * Используется для определения какой именно элемент в кэше ресурса нужно обновить
-     * @required
-     */
-    forwardArgs: (args: D["Args"]) => RD["Args"];
-
-    /**
-     * Флаг для инвалидации (очистки) кэша ресурса после выполнения команды.
-     * При true - кэш будет очищен и ресурс будет перезагружен при следующем обращении
-     * @optional @default false
-     */
+/** Link definition — connects a command to a Resource for post-mutation effects */
+export interface ICommandLinkOptions<TArgs, TResult, RArgs, RData> {
+    resource: IResource<RArgs, RData>;
+    forwardArgs: (args: TArgs) => RArgs;
     invalidate?: boolean;
-
-    /**
-     * Флаг для блокировки ресурса во время выполнения команды.
-     * При true - ресурс будет заблокирован и не сможет выполнять новые запросы
-     * @optional @default false
-     */
-    lock?: boolean;
-
-    /**
-     * Функция для обновления кэша ресурса после успешного выполнения команды.
-     * Получает draft объект для мутации, аргументы команды и результат команды
-     * @optional
-     */
-    update?: (tools: {
-        /** Immer draft объект для мутации кэша ресурса */
-        draft: RD["Data"];
-        /** Аргументы, с которыми была вызвана команда */
-        args: D["Args"];
-        /** Результат выполнения команды */
-        data: D["Data"];
-    }) => void | RD["Data"] | Promise<RD["Data"]>;
-
-    /**
-     * Функция для оптимистичного обновления кэша ресурса ДО выполнения команды.
-     * Позволяет обновить UI немедленно, до получения ответа от сервера
-     * @optional
-     */
-    optimisticUpdate?: (tools: {
-        /** Immer draft объект для мутации кэша ресурса */
-        draft: RD["Data"];
-        /** Аргументы, с которыми была вызвана команда */
-        args: D["Args"];
-    }) => void | RD["Data"] | Promise<RD["Data"]>;
-
-    /**
-     * Функция для создания нового элемента в кэше ресурса.
-     * Используется когда команда создает новую сущность, которую нужно добавить в кэш
-     * @optional
-     */
-    create?: (tools: {
-        /** Аргументы, с которыми была вызвана команда */
-        args: D["Args"];
-        /** Результат выполнения команды */
-        data: D["Data"];
-    }) => RD["Data"] | Promise<RD["Data"]>;
-};
+    update?: (tools: { draft: RData; args: TArgs; data: TResult }) => void;
+    optimisticUpdate?: (tools: { draft: RData; args: TArgs }) => void;
+}
 
 /**
- * Определение типов команды
+ * Type-erased link. Produced by `commandLink()` helper.
+ * Internal use — consumers should never construct this directly.
  */
-export type CommandDefinition<A = any, R = any, S = any> = {
-    Args: A;
-    Result: R;
-    Selected: S;
-    Data: FallbackOnNever<S, R>;
-};
+/** Type-erased link. Produced by `commandLink()` helper. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface CommandLink<TArgs, TResult> extends ICommandLinkOptions<TArgs, TResult, any, any> {}
 
-/**
- * Экземпляр команды
- */
-export type CommandInstance<D extends CommandDefinition> = {
-    /** Создает агента для выполнения команды */
-    createAgent(): CommandAgentInstance<D>;
-    /**
-     * Выполняет команду с указанными аргументами
-     * @deprecated
-     */
-    mutate: (args: D["Args"]) => Promise<D["Data"]>;
-};
+/** Options for createCommand / api.createCommand */
+export interface TCommandOptions<TArgs, TResult> {
+    queryFn: TCommandQueryFn<TArgs, TResult>;
+    link?: CommandLink<TArgs, TResult>[];
+    onCacheEntryAdded?: TOnCommandCacheEntryAdded<TResult>;
+    onQueryStarted?: TOnCommandQueryStarted<TArgs, TResult>;
+    cacheLifetime?: number | false;
+    devtools?: unknown;
+    devtoolsName?: string;
+}
 
-/**
- * Агент для выполнения команды
- */
-export type CommandAgentInstance<D extends CommandDefinition> = {
-    /** Observable состояния выполнения команды */
-    state$: ReadableSignalLike<CommandQueryState<D>>;
-    /** Инициирует выполнение команды с указанными аргументами */
-    initiate(args: D["Args"]): void;
-    /** Создает новый агент команды */
-    createAgent(): CommandAgentInstance<D>;
-};
+/** Command instance — returned by createCommand / api.createCommand */
+export interface ICommand<TArgs, TResult> {
+    createAgent(): ICommandAgent<TArgs, TResult>;
+    resetCache(): void;
+}
 
-/**
- * Состояние выполнения команды
- */
-export type CommandQueryState<D extends CommandDefinition> = {
-    /** Выполняется ли команда в данный момент */
-    isLoading: boolean;
-    /** Завершена ли команда */
-    isDone: boolean;
-    /** Успешно ли завершена команда (false по умолчанию) */
-    isSuccess: boolean;
-    /** Произошла ли ошибка при выполнении команды (false по умолчанию) */
-    isError: boolean;
-    /** Оригинал ошибки, если есть */
-    error: unknown | undefined;
-    /** Результат выполнения команды */
-    data: D["Data"] | undefined;
-    /** Аргументы команды */
-    args: D["Args"];
-};
+/** Adapter for linking a command to a specific resource + args */
+export interface IResourceRef<RData> {
+    invalidate(): void;
+    patch(patchFn: (draft: RData) => void): IPatchHandle | null;
+}
+
+/** Command agent state — 4-branch discriminated union */
+export type TCommandAgentState<TArgs, TResult> =
+    | {
+          readonly status: "idle";
+          readonly data: null;
+          readonly error: null;
+          readonly args: null;
+          readonly isLoading: false;
+          readonly isSuccess: false;
+          readonly isError: false;
+      }
+    | {
+          readonly status: "loading";
+          readonly data: TResult | null;
+          readonly error: null;
+          readonly args: TArgs;
+          readonly isLoading: true;
+          readonly isSuccess: false;
+          readonly isError: false;
+      }
+    | {
+          readonly status: "success";
+          readonly data: TResult;
+          readonly error: null;
+          readonly args: TArgs;
+          readonly isLoading: false;
+          readonly isSuccess: true;
+          readonly isError: false;
+      }
+    | {
+          readonly status: "error";
+          readonly data: null;
+          readonly error: unknown;
+          readonly args: TArgs;
+          readonly isLoading: false;
+          readonly isSuccess: false;
+          readonly isError: true;
+      };
+
+/** Command agent instance — per-component mutation observer */
+export interface ICommandAgent<TArgs, TResult> {
+    readonly state$: ComputeFn<TCommandAgentState<TArgs, TResult>>;
+    trigger(...args: ArgsOrVoid<TArgs>): Promise<TResult>;
+    reset(): void;
+}

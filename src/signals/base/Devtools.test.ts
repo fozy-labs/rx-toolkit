@@ -16,7 +16,7 @@ describe("Devtools", () => {
             const mockCreateState = vi.fn(() => mockStateFn);
             SharedOptions.DEVTOOLS = { state: mockCreateState };
 
-            const devtoolsState = Devtools.createState(42, { name: "test" });
+            const devtoolsState = Devtools.createState(42, { key: "test" });
 
             expect(devtoolsState).toBeTypeOf("function");
             expect(mockCreateState).toHaveBeenCalledOnce();
@@ -108,8 +108,8 @@ describe("Devtools", () => {
             });
             SharedOptions.DEVTOOLS = { state: mockCreateState };
 
-            Devtools.createState(1, { name: "a" });
-            Devtools.createState(2, { name: "b" });
+            Devtools.createState(1, { key: "a" });
+            Devtools.createState(2, { key: "b" });
 
             expect(keys).toHaveLength(2);
             expect(keys[0]).not.toBe(keys[1]);
@@ -124,7 +124,7 @@ describe("Devtools", () => {
             SharedOptions.DEVTOOLS = { state: mockCreateState };
             SharedOptions.getScopeName = () => "myScope";
 
-            Devtools.createState(1, { name: "pre-{scope}-post" });
+            Devtools.createState(1, { key: "pre-{scope}-post" });
 
             expect(keys[0]).toContain("myScope");
         });
@@ -137,7 +137,7 @@ describe("Devtools", () => {
             });
             SharedOptions.DEVTOOLS = { state: mockCreateState };
 
-            Devtools.createState(1, { name: "{base}/signal", base: "State" });
+            Devtools.createState(1, { key: "{base}/signal", base: "State" });
 
             expect(keys[0]).toContain("State");
         });

@@ -1,142 +1,72 @@
-import { Patch as ImmerPatch } from "immer";
+import type { DevtoolsLike } from "@/common/devtools";
+import type { ReadableSignalFnLike, TBeforeDevtoolsPushFn } from "@/signals/types";
 
-import { ReadableSignalLike } from "@/signals/types";
+import type { IResourceAgent } from "./agent.types";
+import type { ICacheEntry } from "./cache.types";
+import type { TOnCacheEntryAdded, TOnQueryStarted } from "./lifecycle.types";
+import type { IPatchHandle, TMachineInstance } from "./machine.types";
+import type { ArgsOrVoid } from "./shared.types";
 
-import { FallbackOnNever, OnCacheEntryAdded, OnQueryStarted } from "./shared.types";
+/** Query function signature */
+export type TQueryFn<TArgs, TData> = (args: TArgs, tools: { abortSignal: AbortSignal }) => Promise<TData>;
 
-/**
- * Функция создания ресурса
- */
-export type ResourceCreateFn<ARGS, RESULT, SELECTED = never> = (
-    options: ResourceCreateOptions<ResourceDefinition<ARGS, RESULT, SELECTED>>,
-) => ResourceInstance<ResourceDefinition<ARGS, RESULT, SELECTED>>;
+/** Serialization function */
+export type TSerializeArgsFn<TArgs = unknown> = (args: TArgs) => string;
 
-/**
- * Опции создания ресурса
- */
-export type ResourceCreateOptions<D extends ResourceDefinition> = {
-    /** Функция селектора для преобразования данных */
-    select?: (data: D["Result"]) => D["Selected"];
-    /** Функция запроса данных */
-    queryFn: (args: D["Args"], tools: ResourceQueryFnTools) => Promise<D["Result"]>;
-    /**
-     * Время жизни кеша в миллисекундах. По умолчанию 60_000 (1 минута).
-     * Если указано false - кеш не удаляется автоматически.
-     */
+/** Comparison function */
+export type TCompareArgsFn<TArgs = unknown> = (a: TArgs, b: TArgs) => boolean;
+
+/** Resource creation options */
+export type TResourceOptions<TArgs, TData> = {
+    key?: string;
+    queryFn: TQueryFn<TArgs, TData>;
     cacheLifetime?: number | false;
-    /**
-     * Хук, вызываемый при добавлении нового элемента в кеш.
-     * Также позволяет отследить:
-     *  - когда данные были загружены (впервые)
-     *  - когда элемент был удален из кеша
-     */
-    onCacheEntryAdded?: OnCacheEntryAdded<D["Args"], D["Data"]>;
-    /**
-     * Хук, вызываемый при старте запроса.
-     * Также позволяет отследить:
-     * - завершение запроса с результатом или ошибкой
-     */
-    onQueryStarted?: OnQueryStarted<D["Args"], D["Result"]>;
-    /**
-     * Настройка отображения в devtools
-     */
-    devtoolsName?: string | false;
-    /**
-     * Сравнение аргументов между собой
-     */
-    compareArgsFn?: (args1: D["Args"], args2: D["Args"]) => boolean;
+    serializeArgs?: TSerializeArgsFn<TArgs>;
+    compareArg?: TCompareArgsFn<TArgs>;
+    onCacheEntryAdded?: TOnCacheEntryAdded<TArgs, TData>;
+    onQueryStarted?: TOnQueryStarted<TArgs, TData>;
+    maxSnapshotDataAge?: number;
+    doCacheArgs?: boolean;
+    devtools?: DevtoolsLike;
+    devtoolsKey?: (args: TArgs) => string;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TMachineInstance<TArgs, TData>>;
 };
 
-/**
- * Определение типов ресурса
- */
-export type ResourceDefinition<A = any, R = any, S = any> = {
-    Args: A;
-    Result: R;
-    Selected: S;
-    Data: FallbackOnNever<S, R>;
-};
+/** Resource instance — the main data fetching unit */
+export interface IResource<TArgs, TData> {
+    /** Create an agent (SWR observer) */
+    createAgent(): IResourceAgent<TArgs, TData>;
 
-/** Инструменты для функции запроса */
-export type ResourceQueryFnTools = {
-    /** Сигнал для отмены запроса */
-    abortSignal?: AbortSignal;
-};
+    /** Execute query, return promise of data */
+    query(...args: [...ArgsOrVoid<TArgs>, doForce?: boolean]): Promise<TData>;
 
-/**
- * Экземпляр ресурса
- */
-export type ResourceInstance<D extends ResourceDefinition> = {
-    /** Создает агента для работы с ресурсом */
-    createAgent(): ResourceAgentInstance<D>;
+    /** Get cache entry (non-reactive). Returns null when no entry exists. */
+    getEntry(...args: ArgsOrVoid<TArgs>): IResourceCacheEntry<TArgs, TData> | null;
+    /** Get cache entry (non-reactive). Forces creation with doInitiate: true. */
+    getEntry(...args: [...ArgsOrVoid<TArgs>, doInitiate: true]): IResourceCacheEntry<TArgs, TData>;
 
-    /** Создает ссылку на ресурс с указанными аргументами */
-    createRef(args: D["Args"]): ResourceRefInstance<D>;
-};
+    /** Get cache entry (reactive — Signal.compute). Returns null when no entry or after resetAll(). */
+    getEntry$(...args: ArgsOrVoid<TArgs>): IResourceCacheEntry<TArgs, TData> | null;
+    /** Get cache entry (reactive). Forces creation with doInitiate: true. */
+    getEntry$(...args: [...ArgsOrVoid<TArgs>, doInitiate: true]): IResourceCacheEntry<TArgs, TData>;
 
-/**
- * Агент для работы с ресурсом
- */
-export type ResourceAgentInstance<D extends ResourceDefinition> = {
-    /** Observable состояния запроса */
-    state$: ReadableSignalLike<ResourceQueryState<D>>;
-    /** Инициирует запрос с указанными аргументами */
-    initiate(args: D["Args"], force?: boolean): void;
-    /** Сравнивает аргументы между собой */
-    compareArgs(args1: D["Args"], args2: D["Args"]): boolean;
-};
+    /** Force re-fetch for args in success state */
+    invalidate(...args: ArgsOrVoid<TArgs>): void;
+}
 
-/**
- * Состояние запроса ресурса
- */
-export type ResourceQueryState<D extends ResourceDefinition> = {
-    /** Инициализирован ли хотя бы один запрос */
-    isInitiated: boolean;
-    /** Загрузка */
-    isLoading: boolean;
-    /** Первая загрузка */
-    isInitialLoading: boolean;
-    /** Завершен ли запрос */
-    isDone: boolean;
-    /** Успешно ли завершен последний запрос (false по умолчанию) */
-    isSuccess: boolean;
-    /** Произошла ли ошибка последнего запроса (false по умолчанию) */
-    isError: boolean;
-    /** Заблокирован ли ресурс */
-    isLocked: boolean;
-    /** Перезагружается ли ресурс */
-    isReloading: boolean;
-    /** Оригинал ошибки, если есть */
-    error: unknown | undefined;
-    /** Данные, полученные в результате запроса (или select данных) */
-    data: D["Data"] | undefined;
-    /** Аргументы запроса */
-    args: D["Args"] | undefined; // TODO undefined - это костыль для сведения типов, его быть не должно
-};
-
-/**
- * Транзакция ресурса
- */
-export type ResourceTransaction = {
-    patches: ImmerPatch[];
-    inversePatches: ImmerPatch[];
-    status: "pending" | "committed" | "aborted";
-    abort(): void;
-    commit(): void;
-};
-
-/**
- * Эте не ссылка в "классическом" понимании, а абстракция
- * для работы с элементом кеша ресурса.
- */
-export type ResourceRefInstance<D extends ResourceDefinition> = {
-    get has(): boolean;
-    lock(): { unlock: () => void };
-    unlockOne(): void;
-    patch(patchFn: (data: D["Data"]) => void): ResourceTransaction | null;
+/** Consumer-facing cache entry */
+export interface IResourceCacheEntry<TArgs, TData> extends ICacheEntry<TMachineInstance<TArgs, TData>> {
+    /** Signal property — reactive read of machine state (alias for inherited state$()) */
+    readonly machine$: ReadableSignalFnLike<TMachineInstance<TArgs, TData>>;
+    readonly argsKey: string;
+    /** Non-reactive read */
+    peek(): TMachineInstance<TArgs, TData>;
+    /** Check if this entry matches given args */
+    isMyArgs(args: TArgs): boolean;
+    /** Create an optimistic patch. Returns null if no data available. */
+    createPatch(patchFn: (draft: TData) => void): IPatchHandle | null;
+    /** Force re-fetch for this entry */
     invalidate(): void;
-    create(data: D["Data"]): void;
-};
-
-/** @deprecated Use ResourceRefInstance. Will be removed in v0.6.0 */
-export type ResourceRefInstanse<D extends ResourceDefinition> = ResourceRefInstance<D>;
+    /** Execute queryFn for this entry's args */
+    query(doForce?: boolean): Promise<TData>;
+}

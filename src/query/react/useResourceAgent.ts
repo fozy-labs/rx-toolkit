@@ -1,57 +1,19 @@
 import React from "react";
 
 import { useConstant } from "@/common/react";
-import { DuplicatorDefinition, ResourceDuplicator } from "@/query/core/Resource/ResourceDuplicator";
-import { SKIP } from "@/query/SKIP_TOKEN";
-import {
-    Prettify,
-    ResourceAgentInstance,
-    ResourceDefinition,
-    ResourceInstance,
-    ResourceQueryState,
-} from "@/query/types";
-import { useSignal } from "@/signals/react";
-import { ReadableSignalLike } from "@/signals/types";
+import type { ArgsOrVoidOrSkip, IResource, TResourceAgentState } from "@/query/types";
+import { useSignal } from "@/signals";
 
-type Result<D extends ResourceDefinition> = Prettify<ResourceQueryState<D>>;
+export function useResourceAgent<TArgs, TData>(
+    resource: IResource<TArgs, TData>,
+    ...args: ArgsOrVoidOrSkip<TArgs>
+): TResourceAgentState<TArgs, TData> {
+    const agent = useConstant(() => resource.createAgent());
 
-export function useResourceAgent<D extends ResourceDefinition>(
-    res: ResourceInstance<D> | ResourceDuplicator<DuplicatorDefinition<D>>,
-    ...argss: D["Args"] extends void ? [] | [typeof SKIP] : [D["Args"] | typeof SKIP]
-): Result<D> {
-    const args = (argss[0] === SKIP ? SKIP : argss[0]) as D["Args"] | typeof SKIP;
+    // Start agent in effect — fires on mount and when args change
+    React.useEffect(() => {
+        agent.start(...args);
+    }, args);
 
-    const prevArgsRef = React.useRef<D["Args"] | typeof SKIP>(SKIP);
-
-    const agent = useConstant(() => {
-        const agent = res.createAgent();
-
-        if (args !== SKIP) {
-            agent.initiate(args);
-        }
-
-        return agent;
-    });
-
-    if (!compare(args, prevArgsRef.current, agent)) {
-        prevArgsRef.current = args;
-
-        if (args !== SKIP) {
-            agent.initiate(args);
-        }
-    }
-
-    return useSignal(agent.state$ as ReadableSignalLike<Result<D>>);
-}
-
-function compare(args: unknown, prevArgs: unknown, agent: ResourceAgentInstance<ResourceDefinition>): boolean {
-    if (args === SKIP && prevArgs === SKIP) {
-        return true;
-    }
-
-    if (args === SKIP || prevArgs === SKIP) {
-        return false;
-    }
-
-    return agent.compareArgs(args, prevArgs);
+    return useSignal(agent.state$);
 }

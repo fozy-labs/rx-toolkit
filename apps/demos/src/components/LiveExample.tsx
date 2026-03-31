@@ -2,19 +2,18 @@ import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
 import {
-    unstable_queryV2,
     Computed,
-    createCommand,
-    createResource,
-    createResourceDuplicator,
+    createApi,
+    _createCommand,
+    commandLink,
+    CURRENT_SNAPSHOT_VERSION,
     Effect,
     LocalState,
-    resetAllQueriesCache,
+    ReactHooksPlugin,
     Signal,
     SKIP,
     useCommandAgent,
     useResourceAgent,
-    useResourceRef,
     useSignal,
 } from '@fozy-labs/rx-toolkit';
 import {
@@ -67,7 +66,6 @@ export function LiveExample({
     const [code, setCode] = React.useState(initialCode);
 
     const defaultScope = {
-        unstable_queryV2,
         Button,
         Card,
         CardBody,
@@ -76,16 +74,17 @@ export function LiveExample({
         Checkbox,
         Chip,
         Computed,
-        createCommand,
-        createResource,
-        createResourceDuplicator,
+        commandLink,
+        createApi,
+        _createCommand,
+        CURRENT_SNAPSHOT_VERSION,
         Divider,
         Effect,
         fetches,
         Input,
         LocalState,
         React,
-        resetAllQueriesCache,
+        ReactHooksPlugin,
         Select,
         SelectItem,
         Signal,
@@ -96,7 +95,6 @@ export function LiveExample({
         Tabs,
         useCommandAgent,
         useResourceAgent,
-        useResourceRef,
         useSignal,
         ...scope
     };

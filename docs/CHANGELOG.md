@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### 💥 Breaking Changes
+
+- **Removed Query v1**: The entire `query` v1 module has been removed. All v1 APIs (`createResource`, `createCommand`, `useResourceAgent`, `useCommandAgent`, `useResourceRef`, `resetAllQueriesCache`, `createResourceDuplicator`, `SKIP`, `createOperation`, `useOperationAgent`) from the original query module are no longer available.
+- **Renamed Query v2 → Query**: The `unstable_queryV2` namespace has been removed. All query v2 APIs are now exported directly from the package root.
+- **Removed V2 suffix from all symbols**: All types, interfaces, classes, and functions have been renamed to drop the "V2" suffix (e.g., `ResourceV2` → `Resource`, `IResourceV2Agent` → `IResourceAgent`, `useResourceV2Agent` → `useResourceAgent`).
+- **Removed `unstable_queryV2` namespace export**: Import directly from `@fozy-labs/rx-toolkit` instead.
+- **Removed deprecated signals API**: `Signal.create()`, `LocalSignal`, `Effect.complete()`, `SignalOptions.name`, `LocalState` option `validator$`.
+
+### ✨ New Features
+
+- **Pokémon Demo**: New interactive demo showcasing pseudo-authentication, data fetching with `createApi`, `createResource`, `SKIP` token, and `createCommand` with `commandLink` for resource invalidation.
+- **TanStack-style Documentation**: Complete documentation rewrite with guides for Resources, Commands, SKIP Token, Plugins, State Machines, SSR, Optimistic Updates, and DevTools.
+
+### ️ Removed
+
+- `src/query/` (v1) — 44 files deleted
+- `docs/query/` (v1 docs) — Replaced with new v2 docs
+- `apps/demos/src/examples/query/` (v1 demos) — Replaced with v2 demos
+- `sideEffects` entry for `./dist/query/core/Resource/ResourceRef.js`
+
 ## [0.5.4] - 2026-03-21
 
 ### Fixed

@@ -1,133 +1,157 @@
-import { ResourceAgentInstance, ResourceDefinition } from "@/query/types";
-import { Computed, Signal } from "@/signals";
+import { SKIP, type SKIP_TOKEN } from "@/query/lib/SKIP_TOKEN";
+import type { ArgsOrVoidOrSkip, IResourceAgent, TResourceAgentState } from "@/query/types";
+import { Signal, type ReadableSignalFnLike } from "@/signals";
+import type { ComputeFn } from "@/signals/types";
 
-import type { CoreResourceQueryCache, Resource } from "./Resource";
+import type { ResourceCacheEntry } from "./ResourceCacheEntry";
 
-export class ResourceAgent<D extends ResourceDefinition> implements ResourceAgentInstance<D> {
-    private _resources$ = Signal.state(
-        {
-            previous$: null as CoreResourceQueryCache<D> | null,
-            current$: null as CoreResourceQueryCache<D> | null,
-        },
-        { isDisabled: true },
-    );
+interface Tracking<TArgs, TData> {
+    args: TArgs;
+    current$: ReadableSignalFnLike<ResourceCacheEntry<TArgs, TData>>;
+}
 
-    state$ = Computed.create(
-        () => {
-            const resources = this._resources$.get();
-            let prevState;
-            const currState = resources.current$?.value$.get();
+export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData> {
+    private _getEntry$;
+    private _compareArgsFn;
 
-            // Отлавливаем кейс, когда ресурс был спрошен.
-            // На данные момент единсвенная причина сброса - resetAllQueriesCache(),
-            //  но в будущем могут быть и другие причины, что потребует доработку.
-            if (currState && !currState.isInitiated) {
-                this._resource.initiate(currState.args!, { cache: resources.current$! });
-                return {
-                    isInitiated: true,
-                    isLoading: true,
-                    isInitialLoading: true,
-                    isDone: false,
-                    isSuccess: false,
-                    isError: false,
-                    isReloading: false,
-                    error: undefined,
-                    data: undefined,
-                    // TODO вообще нет точного представлния, как блокировака доложна работать.
-                    //  Мб тут стоит брать currState.isLocked.
-                    isLocked: false,
-                    args: currState.args!,
-                };
-            }
+    private _previous$: ReadableSignalFnLike<ResourceCacheEntry<TArgs, TData>> | null = null;
 
-            if (!currState?.isDone) {
-                prevState = resources.previous$?.value;
-            }
+    private _tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, {
+        isDisabled: true,
+    });
 
-            // Нет текущего состояния — дефолт
-            if (!currState) {
-                return {
-                    isInitiated: false,
-                    isLoading: false,
-                    isInitialLoading: false,
-                    isDone: false,
-                    isSuccess: false,
-                    isError: false,
-                    isLocked: false,
-                    isReloading: false,
-                    error: undefined,
-                    data: undefined,
-                    args: undefined as D["Args"],
-                };
-            }
+    readonly state$: ComputeFn<TResourceAgentState<TArgs, TData>>;
 
-            // Если идёт загрузка, но есть успешные данные из прошлого запроса — показываем их
-            const isShowPrev = currState.isLoading && prevState && prevState.isSuccess;
+    constructor(
+        getEntry$: (args: TArgs) => ResourceCacheEntry<TArgs, TData>,
+        compareArgs: (a: TArgs, b: TArgs) => boolean,
+    ) {
+        this._getEntry$ = getEntry$;
+        this._compareArgsFn = compareArgs;
 
-            return {
-                isInitiated: currState.isInitiated || !!prevState,
-                isLoading: currState.isLoading,
-                isInitialLoading: currState.isLoading && !currState.isDone && !prevState?.isDone,
-                isDone: currState.isDone,
-                isSuccess: currState.isSuccess,
-                isError: currState.isError,
-                isLocked: currState.isLocked,
-                isReloading: currState.isReloading,
-                error: isShowPrev ? (prevState!.error ?? undefined) : (currState.error ?? undefined),
-                data: isShowPrev ? (prevState!.data ?? undefined) : (currState.data ?? undefined),
-                args: currState.args ?? undefined,
-            };
-        },
-        { isDisabled: true },
-    );
-
-    constructor(private _resource: Resource<D>) {}
-
-    initiate(args: D["Args"], force = false): void {
-        const current = this._resources$.peek().current$;
-        const cache = this._resource.getQueryCache(args);
-
-        if (!cache) {
-            const newCache = this._resource.initiate(args);
-            this._next(newCache);
-            return;
-        }
-
-        if (force || !(cache.value.isDone || cache.value.isLoading)) {
-            this._resource.initiate(args, { cache });
-        }
-
-        if (current !== cache) {
-            this._next(cache);
-        }
+        this.state$ = Signal.compute<TResourceAgentState<TArgs, TData>>(
+            () => {
+                return this._deriveState$();
+            },
+            {
+                isDisabled: true,
+            },
+        );
     }
 
-    compareArgs(args: D["Args"], otherArgs: D["Args"]): boolean {
-        return this._resource.compareArgs(args, otherArgs);
-    }
+    start(...args: ArgsOrVoidOrSkip<TArgs>): void {
+        const newArgs = args.length > 0 ? (args[0] as TArgs | SKIP_TOKEN) : (undefined as unknown as TArgs);
 
-    private _next(newCache: CoreResourceQueryCache<D>): void {
-        const { previous$, current$ } = this._resources$.peek();
-
-        if (!current$) {
-            this._resources$.set({
-                previous$: null,
-                current$: newCache,
-            });
+        // If SKIP, clearing tracking (no current or previous), but keep args as NONE to distinguish from initial state
+        if (newArgs === SKIP) {
+            this._previous$ = null;
+            this._tracking$.set(null);
             return;
         }
 
-        if (!current$.value$.peek().isDone && previous$?.value$.peek().isDone) {
-            this._resources$.set({
-                previous$: previous$,
-                current$: newCache,
-            });
+        const tracking = this._tracking$.peek();
+
+        if (tracking && this.compareArgs(tracking.args, newArgs)) {
             return;
         }
 
-        this._resources$.set({
-            previous$: current$,
-            current$: newCache,
+        // Different args, start new query and move current to previous (if previous data loaded)
+        let previous$ = tracking?.current$ ?? null;
+
+        if (previous$) {
+            const status = previous$.peek().machine$.peek().status;
+
+            if (status !== "success" && status !== "refreshing") {
+                previous$ = null;
+            }
+        }
+
+        const current$ = Signal.compute(
+            () => {
+                return this._getEntry$(newArgs);
+            },
+            {
+                isDisabled: true,
+            },
+        );
+
+        this._previous$ = previous$;
+        this._tracking$.set({
+            args: newArgs,
+            current$,
         });
+    }
+
+    compareArgs(a: TArgs, b: TArgs): boolean {
+        return this._compareArgsFn(a, b);
+    }
+
+    private _idleState(): TResourceAgentState<TArgs, TData> {
+        return {
+            status: "idle",
+            data: null,
+            error: null,
+            args: null,
+            isLoading: false,
+            isInitialLoading: false,
+            isRefreshing: false,
+            isRefreshError: false,
+            isSuccess: false,
+            isError: false,
+            entry: null,
+        };
+    }
+
+    private _deriveState$(): TResourceAgentState<TArgs, TData> {
+        const tracking = this._tracking$();
+        const previous$ = this._previous$;
+
+        if (tracking === null) {
+            return this._idleState();
+        }
+
+        const { current$, args } = tracking;
+
+        const currentEntry = current$();
+
+        const currentMachine = currentEntry.machine$();
+        const originalStatus = currentMachine.status;
+        let status = originalStatus;
+
+        // SWR data: use previous entry's data while current is loading
+        let data: TData | null = currentMachine.data ?? null;
+
+        if ((status === "pending" || status === "error") && previous$) {
+            const prevMachine = previous$().machine$();
+
+            if (prevMachine.status === "success" || prevMachine.status === "refreshing") {
+                data = prevMachine.data;
+                status = "refreshing";
+            }
+        }
+
+        const isLoading = status === "pending" || status === "refreshing";
+        const isInitialLoading = isLoading && data === null;
+        const isRefreshing = status === "refreshing";
+
+        // Clear previous when current resolves (use originalStatus to avoid SWR override masking)
+        if (previous$ && (originalStatus === "success" || originalStatus === "error")) {
+            this._previous$ = null;
+        }
+
+        return {
+            status,
+            args,
+            data,
+            error: currentMachine.error ?? null,
+            lastError: "lastError" in currentMachine ? currentMachine.lastError : undefined,
+            isLoading,
+            isInitialLoading,
+            isRefreshing,
+            isRefreshError: originalStatus === "success" && !!currentMachine.lastError,
+            isSuccess: originalStatus === "success",
+            isError: originalStatus === "error",
+            entry: currentEntry,
+        };
     }
 }

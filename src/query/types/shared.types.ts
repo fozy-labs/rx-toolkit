@@ -1,32 +1,13 @@
-import { Subject } from "rxjs";
+import type { SKIP_TOKEN } from "../lib/SKIP_TOKEN";
 
+/** Makes args optional when TArgs = void */
+export type ArgsOrVoid<TArgs> = TArgs extends void ? [] : [args: TArgs];
+
+/** Extends ArgsOrVoid to accept SKIP token */
+export type ArgsOrVoidOrSkip<TArgs> = TArgs extends void ? [] | [args: SKIP_TOKEN | TArgs] : [args: TArgs | SKIP_TOKEN];
+
+/** Flatten intersection types into a readable shape */
 export type Prettify<T> = { [KeyType in keyof T]: T[KeyType] } & {};
 
-export type FallbackOnNever<T, F> = [T] extends [never] ? F : T;
-
-export type CacheEntryAddedTools<DATA> = {
-    /** Функция для ожидания загрузки данных в кеш */
-    $cacheDataLoaded: Promise<void>;
-    /** Функция для ожидания удаления кеша */
-    $cacheEntryRemoved: Promise<void>;
-    dataChanged$: Subject<DATA>;
-};
-
-export type QueryStartedTools<DATA> = {
-    /** Функция для уведомления об успешном завершении запроса */
-    $queryFulfilled: Promise<
-        | {
-              data: DATA;
-              error: undefined;
-              isError: false;
-          }
-        | {
-              data: undefined;
-              error: unknown;
-              isError: true;
-          }
-    >;
-};
-
-export type OnCacheEntryAdded<ARGS, DATA> = (args: ARGS, tools: CacheEntryAddedTools<DATA>) => void;
-export type OnQueryStarted<ARGS, DATA> = (args: ARGS, tools: QueryStartedTools<DATA>) => void;
+/** Convert a union type to an intersection type */
+export type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;

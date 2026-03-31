@@ -1,293 +1,48 @@
-import { PromiseResolver } from "@/common/utils";
-import { ResetAllQueriesSignal } from "@/query/core/ResetAllQueriesSignal";
-import type { ReactiveCache } from "@/query/lib/ReactiveCache";
-import type {
-    CommandCreateOptions,
-    CommandDefinition,
-    CommandInstance,
-    FallbackOnNever,
-    LinkOptions,
-    ResourceTransaction,
-} from "@/query/types";
-import { Batcher } from "@/signals";
-
-import { QueriesCache } from "../QueriesCache";
-import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
+import type { ICommand, ICommandAgent, TCommandOptions } from "@/query/types";
+import { Batcher } from "@/signals/base/Batcher";
 
 import { CommandAgent } from "./CommandAgent";
+import { CommandCacheEntry, type ICommandCacheEntryOptions } from "./CommandCacheEntry";
 
-export type CoreCommandQueryState<D extends CommandDefinition> = {
-    arg: D["Args"] | null;
-    data: FallbackOnNever<D["Selected"], D["Result"]> | null;
-    error: unknown | null;
-    isError: boolean;
-    isLoading: boolean;
-    isRepeating: boolean;
-    isDone: boolean;
-    isSuccess: boolean;
-    isInitiated: boolean;
-};
+export class Command<TArgs, TResult> implements ICommand<TArgs, TResult> {
+    private _options: TCommandOptions<TArgs, TResult>;
+    private _entries = new Map<symbol, CommandCacheEntry<TArgs, TResult>>();
 
-class CommandQueryState {
-    static create<D extends CommandDefinition>(): CoreCommandQueryState<D> {
-        return {
-            arg: null,
-            data: null,
-            error: null,
-            isError: false,
-            isRepeating: false,
-            isDone: false,
-            isSuccess: false,
-            isLoading: false,
-            isInitiated: false,
-        };
+    readonly devtoolsName: string | undefined;
+
+    constructor(options: TCommandOptions<TArgs, TResult>) {
+        this._options = options;
+        this.devtoolsName = options.devtoolsName;
     }
 
-    static load<D extends CommandDefinition>(
-        state: CoreCommandQueryState<D> = CommandQueryState.create<D>(),
-        args: D["Args"],
-    ): CoreCommandQueryState<D> {
-        return {
-            ...state,
-            arg: args,
-            isLoading: true,
-            isRepeating: state.isDone,
-            isInitiated: true,
-        };
+    createAgent(): ICommandAgent<TArgs, TResult> {
+        const key = Symbol();
+        return new CommandAgent<TArgs, TResult>(this, key);
     }
 
-    static success<D extends CommandDefinition>(
-        state: CoreCommandQueryState<D>,
-        data: FallbackOnNever<D["Selected"], D["Result"]>,
-    ): CoreCommandQueryState<D> {
-        return {
-            ...state,
-            data,
-            isLoading: false,
-            isRepeating: false,
-            isDone: true,
-            isSuccess: true,
-            isError: false,
-            error: null,
-        };
-    }
-
-    static error<D extends CommandDefinition>(
-        state: CoreCommandQueryState<D>,
-        error: unknown,
-    ): CoreCommandQueryState<D> {
-        return {
-            ...state,
-            isLoading: false,
-            isRepeating: false,
-            isDone: true,
-            isSuccess: false,
-            isError: true,
-            error,
-        };
-    }
-}
-
-export class Command<D extends CommandDefinition> implements CommandInstance<D> {
-    private _queriesCache;
-    private _hooks;
-    private _links: LinkOptions<D, any>[] = [];
-
-    private _DEFAULT_CACHE_LIFETIME = 1_000;
-
-    constructor(private readonly _options: CommandCreateOptions<D>) {
-        this._queriesCache = new QueriesCache<D["Args"], CoreCommandQueryState<D>>(
-            this._options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
-        );
-
-        this._hooks = new QueriesLifetimeHooks<D["Args"], D["Data"]>({
-            onCacheEntryAdded: _options.onCacheEntryAdded,
-            onQueryStarted: _options.onQueryStarted,
-            devtoolsName: _options.devtoolsName,
-        });
-
-        this._createLinks();
-
-        ResetAllQueriesSignal.clean$.subscribe(() => {
-            const caches = Array.from(this._queriesCache.values());
-            caches.forEach((cache) => {
-                cache.next(CommandQueryState.create<D>());
-            });
-        });
-    }
-
-    private _createLinks() {
-        this._options.link?.((linkOptions) => {
-            this._links.push(linkOptions);
-        });
-    }
-
-    createAgent() {
-        return new CommandAgent<D>(this);
-    }
-
-    getQueryCache(args: D["Args"]): ReactiveCache<CoreCommandQueryState<D>> | undefined {
-        return this._queriesCache.getQueryCache(args);
-    }
-
-    createQueryCache(
-        args: D["Args"],
-        state: CoreCommandQueryState<D> = CommandQueryState.create(),
-    ): ReactiveCache<CoreCommandQueryState<D>> {
-        const cache = this._queriesCache.createQueryCache(args, state);
-
-        const hookResolvers = this._hooks.onCacheEntryAdded(args);
-
-        const spySub = cache.spy$.subscribe((state) => {
-            if (!state.isDone) return;
-            hookResolvers.cacheDataLoaded();
-            spySub.unsubscribe();
-        });
-
-        cache.spy$.subscribe((state) => {
-            hookResolvers.dataChanged$.next(state);
-        });
-
-        cache.onClean$.subscribe(() => {
-            hookResolvers.cacheEntryRemoved();
-        });
-
-        return cache;
-    }
-
-    initiate(
-        args: D["Args"],
-        options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> },
-    ): ReactiveCache<CoreCommandQueryState<D>> {
-        return Batcher.run(() => this._initiate(args, options));
-    }
-
-    private _initiate(
-        args: D["Args"],
-        options?: { cache?: ReactiveCache<CoreCommandQueryState<D>> },
-    ): ReactiveCache<CoreCommandQueryState<D>> {
-        let cache = options?.cache ?? this.getQueryCache(args);
-        const state = CommandQueryState.load(cache?.value, args);
-
-        if (!cache) {
-            cache = this.createQueryCache(args, state);
-        } else {
-            cache.next(state);
-        }
-
-        const linksMeta = this._links.map((link) => {
-            const forwardedArgs = link.forwardArgs(args);
-            const ref = link.resource.createRef(forwardedArgs);
-            return { link, ref, state: {} as { unlocker?: { unlock: () => void }; patch: ResourceTransaction | null } };
-        });
-
-        const query = this._options.queryFn(args);
-
-        const hookResolvers = this._hooks.onQueryStarted(args);
-
-        linksMeta.forEach(({ link, ref, state }) => {
-            if (link.lock) {
-                state.unlocker = ref.lock();
-            }
-
-            if (link.optimisticUpdate && ref.has) {
-                state.patch = ref.patch((draft) => {
-                    return link.optimisticUpdate!({ draft, args });
-                });
+    resetCache(): void {
+        Batcher.run(() => {
+            const entries = [...this._entries.values()];
+            this._entries.clear();
+            for (const entry of entries) {
+                entry.complete();
             }
         });
-
-        query
-            .then((result) => {
-                Batcher.run(() => {
-                    const data: D["Data"] = this._options.select ? this._options.select(result) : result;
-                    cache.next(CommandQueryState.success(state, data));
-
-                    /**
-                     * Обновляем связанные ресурсы
-                     */
-                    linksMeta.forEach(({ link, ref, state }) => {
-                        if (link.update && ref.has) {
-                            ref.patch((draft) => {
-                                return link.update!({ draft, args, data });
-                            })?.commit();
-                        }
-
-                        if (link.create && !ref.has) {
-                            ref.create(link.create({ args, data }));
-                        }
-
-                        if (link.invalidate) {
-                            ref.invalidate();
-                        }
-
-                        state.patch?.commit();
-                    });
-
-                    hookResolvers.fulfilledSuccess(data);
-
-                    /**
-                     * Обновляем связанные ресурсы
-                     */
-                    linksMeta.forEach(({ state }) => {
-                        state.unlocker?.unlock();
-                    });
-                });
-            })
-            .catch((error) => {
-                Batcher.run(() => {
-                    cache.next(CommandQueryState.error(state, error));
-
-                    /**
-                     * Обновляем связанные ресурсы
-                     */
-                    linksMeta.forEach(({ state }) => {
-                        state.patch?.abort();
-                    });
-
-                    hookResolvers.fulfilledError(error);
-
-                    /**
-                     * Обновляем связанные ресурсы
-                     */
-                    linksMeta.forEach(({ state }) => {
-                        state.unlocker?.unlock();
-                    });
-                });
-            });
-
-        return cache;
     }
 
-    /**
-     * Используется для обратной совместимости
-     * @deprecated
-     */
-    mutate(args: D["Args"]): Promise<D["Data"]> {
-        const cache = this.initiate(args);
-        const resolver = new PromiseResolver<D["Data"]>();
+    _getOrCreateEntry(key: symbol): CommandCacheEntry<TArgs, TResult> {
+        let entry = this._entries.get(key);
+        if (entry) return entry;
 
-        const subscription = cache.value$.obs.subscribe((state) => {
-            if (!state.isInitiated || state.isLoading || state.isRepeating) return;
-
-            if (state.isError) {
-                resolver.reject(state.error);
-                return;
-            }
-
-            if (!state.isSuccess) {
-                console.error("Unexpected state in mutation:", state);
-                resolver.reject(new Error("Unexpected state in mutation"));
-                return;
-            }
-
-            resolver.resolve(state.data as D["Data"]);
-        });
-
-        resolver.promise.finally(() => {
-            subscription.unsubscribe();
-        });
-
-        return resolver.promise;
+        const entryOptions: ICommandCacheEntryOptions<TArgs, TResult> = {
+            queryFn: this._options.queryFn,
+            link: this._options.link,
+            onCacheEntryAdded: this._options.onCacheEntryAdded,
+            onQueryStarted: this._options.onQueryStarted,
+            cacheLifetime: this._options.cacheLifetime,
+        };
+        entry = new CommandCacheEntry<TArgs, TResult>(entryOptions);
+        this._entries.set(key, entry);
+        return entry;
     }
 }

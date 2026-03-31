@@ -7,34 +7,70 @@ import { Query } from "../examples";
 ## Примеры
 
 <QueryTabs>
-    <Tab key="invalidate" title="Инвалидация кеша">
+    <Tab key="pokemonDemo" title="🎮 Pokémon Demo">
         <LiveExample
-            title="Простой список с resetAllQueriesCache()"
-            initialCode={Query.examples.simpleList}
+            title=""
+            initialCode={Query.examples.pokemonDemo}
         />
     </Tab>
-    <Tab key="cart" title="Оптимистичные обновления">
+    <Tab key="simpleResource" title="Простой ресурс">
         <LiveExample
-            title="Корзина с оптимистичными обновлениями"
-            initialCode={Query.examples.shoppingCart}
+            title=""
+            initialCode={Query.examples.simpleResource}
         />
     </Tab>
-    <Tab key="profile" title="Профиль пользователя">
+    <Tab key="optimisticPatches" title="Оптимистичные обновления">
         <LiveExample
-            title="Динамические запросы с кешированием"
-            initialCode={Query.examples.userProfile}
+            title=""
+            initialCode={Query.examples.optimisticPatches}
         />
     </Tab>
-    <Tab key="patches" title="Патчи ресурсов">
+    <Tab key="ssrSnapshot" title="Snapshots">
         <LiveExample
-            title="Временные изменения с commit/abort"
-            initialCode={Query.examples.todoPatches}
+            title=""
+            initialCode={Query.examples.ssrSnapshot}
         />
     </Tab>
-    <Tab key="duplicator" title="Дупликатор">
+    <Tab key="basicQuery" title="Базовый запрос">
         <LiveExample
-            title="Дупликатор"
-            initialCode={Query.examples.duplicator}
+            title=""
+            initialCode={Query.examples.basicQuery}
+        />
+    </Tab>
+    <Tab key="errorSwrStates" title="Ошибки и SWR">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.errorSwrStates}
+        />
+    </Tab>
+    <Tab key="skipToken" title="Skip Token">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.skipToken}
+        />
+    </Tab>
+    <Tab key="snapshotHydration" title="Гидратация снапшотов">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.snapshotHydration}
+        />
+    </Tab>
+    <Tab key="lifecycleHooks" title="Хуки жизненного цикла">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.lifecycleHooks}
+        />
+    </Tab>
+    <Tab key="basicCommand" title="Базовая команда">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.basicCommand}
+        />
+    </Tab>
+    <Tab key="optimisticCommand" title="Оптимистичная команда">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.optimisticCommand}
         />
     </Tab>
 </QueryTabs>

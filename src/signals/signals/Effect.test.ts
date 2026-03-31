@@ -174,22 +174,6 @@ describe("Effect", () => {
             eff.unsubscribe();
             expect(() => eff.unsubscribe()).not.toThrow();
         });
-
-        it("deprecated complete() is equivalent to unsubscribe()", () => {
-            const count = Signal.state(0);
-            const fn = vi.fn(() => {
-                count();
-            });
-
-            const eff = new Effect(fn);
-            fn.mockClear();
-
-            eff.complete();
-            expect(eff.closed).toBe(true);
-
-            count.set(1);
-            expect(fn).not.toHaveBeenCalled();
-        });
     });
 
     describe("batching", () => {

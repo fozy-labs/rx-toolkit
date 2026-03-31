@@ -100,13 +100,6 @@ export class Effect implements SubscriptionLike {
         return this._rang;
     }
 
-    /**
-     * @deprecated Use `unsubscribe()` method instead.
-     */
-    complete() {
-        this.unsubscribe();
-    }
-
     private _callTeardown() {
         if (this._teardown) {
             this._teardown();

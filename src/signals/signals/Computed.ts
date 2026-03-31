@@ -23,7 +23,6 @@ export class Computed<T> {
         const opts = normalizeSignalOptions(options);
         const stateOptions: SignalOptionsOrKey<symbol | T> = {
             key: opts.key,
-            name: opts.name,
             base: opts.base ?? Computed.name,
             isDisabled: opts.isDisabled,
             beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {

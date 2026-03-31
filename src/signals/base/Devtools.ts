@@ -3,7 +3,7 @@ import type { SignalLifecycleHook, SignalOptions } from "@/signals/types";
 
 export const Devtools = {
     createState<T>(initialValue: T, optionsDry: SignalOptions<T> | string = {}) {
-        const options = typeof optionsDry === "string" ? { name: optionsDry } : optionsDry;
+        const options = typeof optionsDry === "string" ? { key: optionsDry } : optionsDry;
 
         if (options.isDisabled) return null;
 
@@ -11,7 +11,7 @@ export const Devtools = {
 
         if (!createStateDevtools) return null;
 
-        const key = createKey(options.key ?? options.name, options.base);
+        const key = createKey(options.key, options.base);
 
         let stateDevtools: ReturnType<typeof createStateDevtools<T>> | null = null;
 
@@ -41,7 +41,6 @@ export const Devtools = {
     createSignalHooks<T>(initialValue: T, options: SignalOptions<T> = {}): SignalLifecycleHook<T> | null {
         const stateDevtools = this.createState(initialValue, {
             key: options.key,
-            name: options.name,
             base: options.base,
             isDisabled: options.isDisabled,
             beforeDevtoolsPush: options.beforeDevtoolsPush,

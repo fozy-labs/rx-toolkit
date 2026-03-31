@@ -1,575 +1,371 @@
-# RxQuery
+# RxToolkit Query
 
-> **Note:** Экспериментальная версия Query v2 доступна — см. [Query v2](../query-v2/README.md).
+RxToolkit Query is a powerful data-fetching and server-state management library for React applications. Built on reactive primitives (RxJS signals), it provides automatic caching, background refetching, and immutable state machines for predictable data flow.
 
-RxQuery — система для управления асинхронными запросами и кэшированием данных в RxToolkit. Она состоит из двух основных компонентов: **Resources** и **Commands**.
+## Motivation
 
-## Основные концепции
+Managing server state is fundamentally different from client state. Server state is:
 
-### Resources (Ресурсы)
+- Persisted remotely and shared across clients
+- Requires async APIs for fetching and updating
+- Can become stale without your knowledge
 
-Resources предназначены для реактивного кэширования повторяемых запросов. Они автоматически управляют состоянием загрузки, кэшируют результаты и обеспечивают эффективную инвалидацию данных.
+RxToolkit Query solves these challenges with:
 
-**Ключевые особенности:**
-- Автоматическое кэширование по аргументам запроса
-- Поддержка AbortController для отмены запросов
-- Реактивные обновления состояния
-- Оптимистичные обновления
-- Гибкое управление временем жизни кэша
+- **Automatic caching** — Deduplicate requests, cache responses by arguments
+- **Background refetching** — Keep data fresh with SWR (stale-while-revalidate) semantics
+- **Immutable state machines** — Predictable states: `Pending` → `Success` / `Error` → `Refreshing`
+- **Optimistic updates** — Instant UI feedback with automatic rollback via patches
+- **Plugin system** — Extend with React hooks, devtools, and custom plugins
+- **SSR support** — Snapshot serialization and hydration for server-side rendering
+- **Commands** — First-class mutations with resource invalidation and linking
 
-### Commands (Команды)
+## Quick Start
 
-Commands представляют одноразовые команды или мутации. Они не кэшируются, но предоставляют состояние выполнения и могут связываться с ресурсами для их обновления.
+### Installation
 
-**Ключевые особенности:**
-- Отслеживание состояния выполнения
-- Связывание с ресурсами для их обновления
-- Поддержка оптимистичных обновлений
-- Возможность блокировки связанных ресурсов
-- Автоматический откат при ошибках
+```bash
+npm install @fozy-labs/rx-toolkit
+```
 
-### Agents (Агенты)
-
-Agents представляют собой интеллектуальные обертки над ресурсами (или командами), которые обеспечивают более удобную работу с состояниями запросов для потребителей.
-
-**Основная проблема, которую решают агенты:**
-
-Кэш ресурсов содержит "сырые" состояния отдельных запросов, но потребителям нужна более высокоуровневая логика:
-- `isInitialLoading` должно быть true только при первой загрузке ресурса
-- При смене аргументов запроса нужно показывать данные предыдущего запроса, пока загружается новый
-- Состояние загрузки должно отражать контекст использования, а не просто состояние кэша
-
-### ResourceRef (Ссылка на ресурс)
-
-Ref — это абстракция для взаимодействия с элементом кэша ресурса напрямую.
-
-**Особенности:**
-- Команды используют ref под капотом для управления связанным ресурсом
-- Ref может ссылаться на отсутствующий элемент кэша
-- Позволяет выполнять patch-транзакции для оптимистичных обновлений
-
----
-
-## API
-
-### createResource
-
-Создает новый ресурс для кэширования данных.
+### Create an API Instance
 
 ```typescript
-import { createResource } from '@fozy-labs/rx-toolkit';
+import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
 
-interface User {
-    id: string;
-    name: string;
-    email: string;
-}
-
-const userResource = createResource<{ id: string }, User>({
-    async queryFn(args, tools) {
-        const response = await fetch(`/api/users/${args.id}`, {
-            signal: tools.abortSignal // Поддержка отмены запроса
-        });
-        return response.json();
-    },
-    
-    // Опционально: трансформация данных
-    select: (data) => ({
-        id: data.id,
-        name: data.name,
-        email: data.email
-    }),
-    
-    // Опционально: время жизни кэша (по умолчанию 60 секунд)
-    cacheLifetime: 30000, // 30 секунд
-    
-    // Опционально: имя для devtools
-    devtoolsName: 'user-resource',
-    
-    // Опционально: кастомное сравнение аргументов
-    compareArgsFn: (args1, args2) => args1.id === args2.id,
+const api = createApi({
+    plugins: [new ReactHooksPlugin()],
 });
 ```
 
-**Параметры createResource:**
+### Define a Resource (Query)
 
-| Параметр | Тип | Описание |
-|----------|-----|----------|
-| `queryFn` | `(args, tools) => Promise<Result>` | Функция выполнения запроса |
-| `select` | `(data) => Selected` | Опциональная функция трансформации данных |
-| `cacheLifetime` | `number \| false` | Время жизни кэша в мс (default: 60000). `false` — кэш не удаляется |
-| `compareArgsFn` | `(args1, args2) => boolean` | Кастомная функция сравнения аргументов |
-| `onCacheEntryAdded` | `(args, tools) => void` | Хук при добавлении элемента в кэш |
-| `onQueryStarted` | `(args, tools) => void` | Хук при старте запроса |
-| `devtoolsName` | `string \| false` | Имя для devtools (`false` — отключить) |
-
-**Tools в queryFn:**
-- `abortSignal` — AbortSignal для отмены запроса
-
-### createCommand
-
-Создает новую команду для выполнения мутаций.
+A resource represents server data that needs to be fetched and cached.
 
 ```typescript
-import { createCommand } from '@fozy-labs/rx-toolkit';
-
-const updateUser = createCommand<
-    { id: string; data: Partial<User> },
-    User
->({
-    async queryFn(args) {
-        const response = await fetch(`/api/users/${args.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(args.data)
-        });
-        return response.json();
+const todosResource = api.createResource<void, { items: string[] }>({
+    key: 'todos',
+    queryFn: async (_args, { abortSignal }) => {
+        const res = await fetch('/api/todos', { signal: abortSignal });
+        return res.json();
     },
-    
-    // Связывание с ресурсами
-    link(add) {
-        add({
-            resource: userResource,
-            forwardArgs: (args) => ({ id: args.id }),
-            // Обновление кэша после успешного запроса
-            update({ draft, args, data }) {
-                Object.assign(draft, args.data);
-            },
-        });
-    },
-    
-    devtoolsName: 'update-user',
 });
 ```
 
-**Параметры createCommand:**
+### Use in React
 
-| Параметр            | Тип                         | Описание                                      |
-|---------------------|-----------------------------|-----------------------------------------------|
-| `queryFn`           | `(args) => Promise<Result>` | Функция выполнения команды                    |
-| `select`            | `(data) => Selected`        | Опциональная функция трансформации результата |
-| `link`              | `(add) => void`             | Функция связывания с ресурсами                |
-| `cacheLifetime`     | `number \| false`           | Время жизни кэша команды (default: 1000)      |
-| `onCacheEntryAdded` | `(args, tools) => void`     | Хук при добавлении в кэш                      |
-| `onQueryStarted`    | `(args, tools) => void`     | Хук при старте команды                        |
-| `devtoolsName`      | `string \| false`           | Имя для devtools                              |
-
-> **Note:** `createOperation` and `useOperationAgent` are deprecated aliases for `createCommand` and `useCommandAgent` respectively. They will be removed in v0.6.0.
-
----
-
-## Свойства Link
-
-Link позволяет связывать команды с ресурсами для автоматического обновления кэша:
-
-```typescript
-type LinkOptions<D, RD> = {
-    /**
-     * Целевой ресурс, с которым связывается команда
-     * @required
-     */
-    resource: ResourceInstance<RD>;
-
-    /**
-     * Функция для получения аргументов ресурса из аргументов команды.
-     * Используется для определения какой элемент в кэше нужно обновить
-     * @required
-     */
-    forwardArgs: (args: D["Args"]) => RD["Args"];
-
-    /**
-     * Инвалидация кэша после выполнения команды.
-     * При true — кэш будет очищен и ресурс перезагрузится
-     * @default false
-     */
-    invalidate?: boolean;
-
-    /**
-     * Блокировка ресурса во время выполнения команды.
-     * При true — ресурс не сможет выполнять новые запросы
-     * @default false
-     */
-    lock?: boolean;
-
-    /**
-     * Обновление кэша ПОСЛЕ успешного выполнения команды.
-     * Использует Immer для иммутабельных обновлений
-     */
-    update?: (tools: {
-        draft: RD["Data"];      // Immer draft для мутации
-        args: D["Args"];        // Аргументы команды
-        data: D["Data"];        // Результат команды
-    }) => void | RD["Data"];
-
-    /**
-     * Оптимистичное обновление ДО выполнения команды.
-     * Позволяет обновить UI немедленно
-     */
-    optimisticUpdate?: (tools: {
-        draft: RD["Data"];      // Immer draft для мутации
-        args: D["Args"];        // Аргументы команды
-    }) => void | RD["Data"];
-
-    /**
-     * Создание нового элемента в кэше.
-     * Используется когда команда создает новую сущность
-     */
-    create?: (tools: {
-        args: D["Args"];
-        data: D["Data"];
-    }) => RD["Data"] | Promise<RD["Data"]>;
-};
-```
-
-### Пример: Оптимистичные обновления
-
-```typescript
-const toggleCartItem = createCommand({
-    queryFn: async (args: { id: string; enabled: boolean }) => {
-        return fetch(`/api/cart/toggle`, {
-            method: 'POST',
-            body: JSON.stringify(args)
-        }).then(r => r.json());
-    },
-    link(add) {
-        add({
-            resource: cartResource,
-            forwardArgs: () => undefined, // Корзина без параметров
-            
-            // Оптимистичное обновление — UI обновится мгновенно
-            optimisticUpdate: ({ draft, args }) => {
-                const item = draft.items.find(i => i.id === args.id);
-                if (item) {
-                    item.enabled = args.enabled;
-                }
-            }
-            // При ошибке изменения автоматически откатятся
-        });
-    }
-});
-```
-
----
-
-## Состояния запросов
-
-### ResourceQueryState
-
-Состояние запроса ресурса через агента:
-
-```typescript
-type ResourceQueryState<D> = {
-    /** Инициализирован ли хотя бы один запрос */
-    isInitiated: boolean;
-    
-    /** Любая загрузка (первая или повторная) */
-    isLoading: boolean;
-    
-    /** Первая загрузка (данных еще не было) */
-    isInitialLoading: boolean;
-    
-    /** Перезагрузка (данные уже есть) */
-    isReloading: boolean;
-    
-    /** Завершен ли запрос */
-    isDone: boolean;
-    
-    /** Успешно ли завершен последний запрос */
-    isSuccess: boolean;
-    
-    /** Произошла ли ошибка последнего запроса */
-    isError: boolean;
-    
-    /** Заблокирован ли ресурс командой */
-    isLocked: boolean;
-    
-    /** Оригинал ошибки, если есть */
-    error: unknown | undefined;
-    
-    /** Данные (или select данных) */
-    data: D["Data"] | undefined;
-    
-    /** Аргументы последнего запроса */
-    args: D["Args"] | undefined;
-}
-```
-
-### CommandQueryState
-
-Состояние выполнения команды:
-
-```typescript
-type CommandQueryState<D> = {
-    isInitiated: boolean;
-    isLoading: boolean;
-    isDone: boolean;
-    isSuccess: boolean;
-    isError: boolean;
-    error: unknown | undefined;
-    data: D["Data"] | undefined;
-}
-```
-
----
-
-## ResourceRef API
-
-ResourceRef предоставляет низкоуровневый доступ к элементу кэша:
-
-```typescript
-type ResourceRefInstance<D> = {
-    /** Проверка наличия элемента в кэше */
-    get has(): boolean;
-    
-    /** Блокировка ресурса (возвращает функцию разблокировки) */
-    lock(): { unlock: () => void };
-    
-    /** Снятие одной блокировки */
-    unlockOne(): void;
-    
-    /** Patch-транзакция для изменения данных */
-    patch(patchFn: (data: D['Data']) => void): ResourceTransaction | null;
-    
-    /** Инвалидация (очистка) кэша */
-    invalidate(): void;
-    
-    /** Создание элемента в кэше с данными */
-    create(data: D['Data']): void;
-}
-```
-
-### Patch-транзакции
-
-Транзакции позволяют делать изменения с возможностью отката:
-
-```typescript
-type ResourceTransaction = {
-    patches: ImmerPatch[]           // Патчи изменений
-    inversePatches: ImmerPatch[]    // Патчи для отката
-    status: 'pending' | 'committed' | 'aborted'
-    abort(): void                   // Откатить изменения
-    commit(): void                  // Подтвердить изменения
-}
-```
-
-**Пример использования транзакций:**
-
-```typescript
-import { useResourceRef } from '@fozy-labs/rx-toolkit';
-
+```tsx
 function TodoList() {
-    const todoRef = useResourceRef(todoResource, undefined);
-    const [pendingChanges, setPendingChanges] = useState([]);
-    
-    const handleToggle = (itemId: number) => {
-        const transaction = todoRef.patch((draft) => {
-            const item = draft.items.find(i => i.id === itemId);
-            if (item) item.completed = !item.completed;
-        });
-        
-        if (transaction) {
-            setPendingChanges(prev => [...prev, {
-                id: itemId,
-                transaction
-            }]);
-        }
-    };
-    
-    const commitChange = (id: number) => {
-        const change = pendingChanges.find(c => c.id === id);
-        change?.transaction.commit();
-        setPendingChanges(prev => prev.filter(c => c.id !== id));
-    };
-    
-    const abortChange = (id: number) => {
-        const change = pendingChanges.find(c => c.id === id);
-        change?.transaction.abort(); // Данные вернутся к исходным
-        setPendingChanges(prev => prev.filter(c => c.id !== id));
-    };
+    const state = todosResource.useResourceAgent();
+
+    if (state.isInitialLoading) return <div>Loading...</div>;
+    if (state.isError) return <div>Error: {String(state.error)}</div>;
+
+    return (
+        <ul>
+            {state.data?.items.map((item, i) => (
+                <li key={i}>{item}</li>
+            ))}
+        </ul>
+    );
 }
 ```
 
----
+### Define a Command (Mutation)
 
-## Lifecycle хуки
-
-### onCacheEntryAdded
-
-Вызывается при добавлении нового элемента в кэш:
+Commands represent operations that change server state. Use `commandLink` to automatically invalidate related resources.
 
 ```typescript
-const userResource = createResource({
-    queryFn: fetchUser,
-    
-    onCacheEntryAdded(args, { $cacheDataLoaded, $cacheEntryRemoved, dataChanged$ }) {
-        // args — аргументы запроса
-        
-        // Ожидание первой загрузки данных
-        $cacheDataLoaded.then(() => {
-            console.log('Данные загружены в кэш');
+import { commandLink } from '@fozy-labs/rx-toolkit';
+
+const addTodoCommand = api.createCommand<{ text: string }, { id: string; text: string }>({
+    queryFn: async (args) => {
+        const res = await fetch('/api/todos', {
+            method: 'POST',
+            body: JSON.stringify(args),
         });
-        
-        // Ожидание удаления из кэша
-        $cacheEntryRemoved.then(() => {
-            console.log('Элемент удален из кэша');
-        });
-        
-        // Подписка на изменения данных
-        const sub = dataChanged$.subscribe(data => {
-            console.log('Данные изменились:', data);
-        });
-    }
+        return res.json();
+    },
+    link: [
+        commandLink({
+            resource: todosResource,
+            forwardArgs: () => undefined as void,
+            invalidate: true,
+        }),
+    ],
 });
 ```
 
-### onQueryStarted
+### Use Command in React
 
-Вызывается при старте каждого запроса:
+```tsx
+function AddTodo() {
+    const [trigger, state] = addTodoCommand.useCommandAgent();
 
-```typescript
-const userResource = createResource({
-    queryFn: fetchUser,
-    
-    async onQueryStarted(args, { $queryFulfilled }) {
-        console.log('Запрос начат с аргументами:', args);
-        
-        const result = await $queryFulfilled;
-        
-        if (result.isError) {
-            console.error('Ошибка запроса:', result.error);
-        } else {
-            console.log('Запрос успешен:', result.data);
-        }
-    }
-});
-```
-
----
-
-## Утилиты
-
-### resetAllQueriesCache
-
-Сбрасывает кэш всех ресурсов в приложении:
-
-```typescript
-import { resetAllQueriesCache } from '@fozy-labs/rx-toolkit';
-
-function LogoutButton() {
-    const handleLogout = () => {
-        // Очистить все кэшированные данные при выходе
-        resetAllQueriesCache();
-        navigate('/login');
-    };
-    
-    return <button onClick={handleLogout}>Выйти</button>;
+    return (
+        <button
+            onClick={() => trigger({ text: 'New todo' })}
+            disabled={state.isLoading}
+        >
+            {state.isLoading ? 'Adding...' : 'Add Todo'}
+        </button>
+    );
 }
 ```
 
-### SKIP токен
+### Conditional Fetching with SKIP
 
-Используется для условного пропуска запроса:
-
-```typescript
-import { useResourceAgent, SKIP } from '@fozy-labs/rx-toolkit';
+```tsx
+import { SKIP } from '@fozy-labs/rx-toolkit';
 
 function UserProfile({ userId }: { userId: string | null }) {
-    // Запрос будет выполнен только если userId не null
-    const userQuery = useResourceAgent(
-        userResource,
-        userId ? { id: userId } : SKIP
-    );
-    
-    if (!userId) return <div>Выберите пользователя</div>;
-    if (userQuery.isLoading) return <div>Загрузка...</div>;
-    
-    return <div>{userQuery.data?.name}</div>;
+    const state = userResource.useResourceAgent(userId ? { id: userId } : SKIP);
+    // Resource won't fetch until userId is provided
 }
 ```
 
----
+## Core Concepts
 
-## Примеры
+### Resources
 
-### Корзина покупок с оптимистичными обновлениями
+Resources represent server data that needs to be fetched and cached. They automatically:
+
+- Cache responses by arguments (serialized or compared by reference)
+- Refetch stale data in the background (SWR)
+- Share data between multiple components using the same arguments
+- Clean up unused cache entries via garbage collection (refcount + timer)
 
 ```typescript
-import { createResource, createCommand, useResourceAgent, useCommandAgent } from '@fozy-labs/rx-toolkit';
-
-const cartResource = createResource({
-    queryFn: () => fetch('/api/cart').then(r => r.json()),
-    devtoolsName: 'cart'
+const userResource = api.createResource<{ id: string }, User>({
+    key: 'users',
+    queryFn: async (args, { abortSignal }) => {
+        const res = await fetch(`/api/users/${args.id}`, { signal: abortSignal });
+        return res.json();
+    },
+    cacheLifetime: 30_000,
 });
+```
 
-const toggleCartItem = createCommand({
-    queryFn: (args: { id: string; enabled: boolean }) => 
-        fetch('/api/cart/toggle', {
-            method: 'POST',
-            body: JSON.stringify(args)
-        }).then(r => r.json()),
-    
-    link(add) {
-        add({
-            resource: cartResource,
-            forwardArgs: () => undefined,
-            optimisticUpdate: ({ draft, args }) => {
-                const item = draft.items.find(i => i.id === args.id);
-                if (item) item.enabled = args.enabled;
-            }
+### Commands
+
+Commands represent mutations — operations that change server state. They support:
+
+- Automatic resource invalidation via `commandLink`
+- Optimistic updates with automatic rollback
+- Loading / success / error state tracking
+- Linking to multiple resources at once
+
+```typescript
+const deleteUserCommand = api.createCommand<{ id: string }, void>({
+    queryFn: async (args) => {
+        await fetch(`/api/users/${args.id}`, { method: 'DELETE' });
+    },
+    link: [
+        commandLink({
+            resource: userResource,
+            forwardArgs: (args) => args,
+            invalidate: true,
+        }),
+    ],
+});
+```
+
+### State Machines
+
+Every resource and command uses immutable state machines for predictable state transitions.
+
+**Resource states:**
+
+```
+Pending → Success | Error → Refreshing → Success | Error
+```
+
+| State | Description | Has Data |
+|-------|------------|----------|
+| `pending` | Initial state, first fetch is in progress | No |
+| `success` | Data loaded successfully | Yes |
+| `error` | Fetch failed | No (or stale data after failed refetch) |
+| `refreshing` | Background refetch with existing data | Yes (stale) |
+
+**Command states:**
+
+```
+Idle → Loading → Success | Error
+```
+
+Machine classes are exported as `MachinePending`, `MachineSuccess`, `MachineError`, `MachineRefreshing` for resources and `CommandIdle`, `CommandLoading`, `CommandSuccess`, `CommandError` for commands.
+
+> **Tip:** Use boolean flags (`isLoading`, `isError`, `isSuccess`) instead of checking `status` directly. This ensures correct behavior across all state combinations, including SWR error states where `isError` and `data` can coexist.
+
+### Agents
+
+An agent is an SWR observer for a resource. It provides computed state with convenience flags.
+
+```typescript
+const agent = userResource.createAgent();
+agent.start({ id: '1' });
+
+const state = agent.state$();
+// state.status, state.data, state.error
+// state.isLoading, state.isInitialLoading, state.isRefreshing
+// state.isSuccess, state.isError
+// state.entry — cache entry handle for optimistic patches
+```
+
+### Plugins
+
+Plugins extend the API with additional methods on resources and commands.
+
+- `ReactHooksPlugin` — Adds `.useResourceAgent()` and `.useCommandAgent()` hooks directly to resource/command instances
+- Custom plugins can contribute any methods via the plugin interface
+
+```typescript
+const api = createApi({
+    plugins: [new ReactHooksPlugin()],
+});
+```
+
+> React hooks can also be used standalone without the plugin:
+> `useResourceAgent(resource, args)` / `useCommandAgent(command)`
+
+### Lifecycle Hooks
+
+**`onCacheEntryAdded`** — Called when a new cache entry is created. Useful for WebSocket subscriptions:
+
+```typescript
+const resource = api.createResource({
+    key: 'messages',
+    queryFn: fetchMessages,
+    onCacheEntryAdded: async (args, { $cacheDataLoaded, $cacheEntryRemoved }) => {
+        try {
+            await $cacheDataLoaded;
+            const ws = new WebSocket(`/ws/messages?id=${args.id}`);
+            await $cacheEntryRemoved;
+            ws.close();
+        } catch {
+            // Entry removed before data loaded — no cleanup needed
+        }
+    },
+});
+```
+
+**`onQueryStarted`** — Called on every `queryFn` invocation. Useful for optimistic updates:
+
+```typescript
+const resource = api.createResource({
+    key: 'todos',
+    queryFn: fetchTodos,
+    onQueryStarted: async (_args, { $queryFulfilled, getCacheEntry }) => {
+        const entry = getCacheEntry();
+        const patch = entry.createPatch(draft => {
+            draft.items.push({ id: 'temp', text: 'Saving...' });
         });
-    }
+        try {
+            await $queryFulfilled;
+            patch?.commit();
+        } catch {
+            patch?.abort();
+        }
+    },
 });
-
-function ShoppingCart() {
-    const cartQuery = useResourceAgent(cartResource, undefined);
-    const [toggleItem, toggleState] = useCommandAgent(toggleCartItem);
-    
-    return (
-        <div>
-            {cartQuery.data?.items.map(item => (
-                <div key={item.id}>
-                    <span>{item.name}</span>
-                    <button onClick={() => toggleItem({ 
-                        id: item.id, 
-                        enabled: !item.enabled 
-                    })}>
-                        {item.enabled ? 'Убрать' : 'Добавить'}
-                    </button>
-                </div>
-            ))}
-        </div>
-    );
-}
 ```
 
-### Зависимые запросы
+## Guides
+
+- [Optimistic Updates](./optimistic-updates.md) — Instant UI feedback with patches
+- [SSR & Hydration](./ssr.md) — Server-side rendering and snapshots
+- [DevTools](./devtools.md) — Redux DevTools integration
+
+## API Reference
+
+### Exports
 
 ```typescript
-const userResource = createResource({
-    queryFn: (args: { id: number }) => fetch(`/api/users/${args.id}`).then(r => r.json()),
-});
+import {
+    // API
+    createApi,
+    commandLink,
 
-const userStatsResource = createResource({
-    queryFn: (args: { userId: number; period: string }) => 
-        fetch(`/api/users/${args.userId}/stats?period=${args.period}`).then(r => r.json()),
-});
+    // Sentinel tokens
+    SKIP,
 
-function UserDashboard({ userId }: { userId: number }) {
-    const [period, setPeriod] = useState('daily');
-    
-    const userQuery = useResourceAgent(userResource, { id: userId });
-    
-    // Запрос статистики выполняется только после загрузки пользователя
-    const statsQuery = useResourceAgent(
-        userStatsResource,
-        userQuery.isSuccess ? { userId, period } : SKIP
-    );
-    
-    // ...
-}
+    // React hooks (standalone)
+    useResourceAgent,
+    useCommandAgent,
+
+    // Plugins
+    ReactHooksPlugin,
+
+    // Resource machine classes
+    Machine,
+    MachinePending,
+    MachineSuccess,
+    MachineError,
+    MachineRefreshing,
+    MachineWithData,
+
+    // Command machine classes
+    CommandIdle,
+    CommandLoading,
+    CommandSuccess,
+    CommandError,
+
+    // Snapshot
+    CURRENT_SNAPSHOT_VERSION,
+} from '@fozy-labs/rx-toolkit';
 ```
 
-## React интеграция
+### `createApi(options)`
 
-См. [React интеграция](../usage/react/README.md) для подробной информации о React хуках.
+Creates an API instance. All resources and commands are created through the API.
 
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `keyPrefix` | `string \| null` | `null` | Key prefix for namespace isolation |
+| `keyStrategy` | `'serialize' \| 'compare'` | `'serialize'` | Cache key strategy |
+| `serializeArgs` | `(args) => string` | — | Custom argument serialization |
+| `compareArg` | `(a, b) => boolean` | — | Custom argument comparison |
+| `cacheLifetime` | `number` | `60000` | Cache entry lifetime (ms) |
+| `plugins` | `IPlugin[]` | `[]` | Array of plugins |
+| `initialSnapshot` | `TApiSnapshot \| null` | `null` | Initial snapshot for SSR hydration |
+| `maxSnapshotDataAge` | `number` | — | Maximum snapshot data age (ms) |
+| `doCacheArgs` | `boolean` | `false` | Cache deserialized args (only for `serialize` strategy) |
+
+**Methods:** `createResource(options)`, `createCommand(options)`, `resetAll()`, `getSnapshot()`
+
+### `api.createResource<TArgs, TData>(options)`
+
+Defines a cacheable resource.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `key` | `string` | Unique resource key (required for SSR) |
+| `queryFn` | `(args, { abortSignal }) => Promise<TData>` | Fetch function |
+| `cacheLifetime` | `number` | Override API-level cache lifetime |
+| `onCacheEntryAdded` | `(args, tools) => void` | Hook on cache entry creation |
+| `onQueryStarted` | `(args, tools) => void` | Hook on every query start |
+
+**Methods:** `createAgent()`, `query(args, doForce?)`, `getEntry(args)`, `getEntry$(args)`, `invalidate(args)`
+
+### `api.createCommand<TArgs, TResult>(options)`
+
+Defines a mutation command.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `queryFn` | `(args) => Promise<TResult>` | Mutation function |
+| `link` | `CommandLink[]` | Array of resource links for invalidation |
+
+### `commandLink(options)`
+
+Links a command to a resource for automatic invalidation after execution.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `resource` | `IResource` | Target resource to invalidate |
+| `forwardArgs` | `(commandArgs) => resourceArgs` | Map command args to resource args |
+| `invalidate` | `boolean` | Whether to invalidate the resource |
+
+### `SKIP`
+
+Sentinel token to skip fetching. Pass instead of args to `useResourceAgent()` for conditional queries.

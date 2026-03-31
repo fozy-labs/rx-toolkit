@@ -1,71 +1,106 @@
-import type { ReactiveCache } from "@/query/lib/ReactiveCache";
-import type { CommandAgentInstance, CommandDefinition } from "@/query/types";
-import { Computed, Signal } from "@/signals";
+import type { ArgsOrVoid, ICommandAgent, TCommandAgentState } from "@/query/types";
+import { Signal } from "@/signals";
+import type { ComputeFn } from "@/signals/types";
 
-import type { Command, CoreCommandQueryState } from "./Command";
+import type { Command } from "./Command";
+import type { CommandCacheEntry } from "./CommandCacheEntry";
 
-export class CommandAgent<D extends CommandDefinition> implements CommandAgentInstance<D> {
-    private _commands$ = Signal.state(
-        {
-            current$: null as ReactiveCache<CoreCommandQueryState<D>> | null,
-        },
-        { isDisabled: true },
-    );
+function deriveAgentState<TArgs, TResult>(
+    entry: CommandCacheEntry<TArgs, TResult> | null,
+): TCommandAgentState<TArgs, TResult> {
+    if (!entry) {
+        return {
+            status: "idle",
+            data: null,
+            error: null,
+            args: null,
+            isLoading: false as const,
+            isSuccess: false as const,
+            isError: false as const,
+        };
+    }
 
-    state$ = Computed.create(
-        () => {
-            const commands = this._commands$.get();
-            const currState = commands.current$?.value$.get();
+    const machine = entry.peek();
+    const { status } = machine;
 
-            // Нет текущего состояния — дефолт
-            if (!currState) {
-                return {
-                    isLoading: false,
-                    isDone: false,
-                    isSuccess: false,
-                    isError: false,
-                    error: undefined,
-                    data: undefined,
-                    args: undefined as D["Args"],
-                };
-            }
-
+    switch (status) {
+        case "idle":
             return {
-                isLoading: currState.isLoading,
-                isDone: currState.isDone,
-                isSuccess: currState.isSuccess,
-                isError: currState.isError,
-                error: currState.error ?? undefined,
-                data: currState.data ?? undefined,
-                args: currState.arg as D["Args"],
+                status: "idle",
+                data: null,
+                error: null,
+                args: null,
+                isLoading: false as const,
+                isSuccess: false as const,
+                isError: false as const,
             };
-        },
-        { isDisabled: true },
-    );
+        case "loading":
+            return {
+                status: "loading",
+                data: null,
+                error: null,
+                args: machine.args,
+                isLoading: true as const,
+                isSuccess: false as const,
+                isError: false as const,
+            };
+        case "success":
+            return {
+                status: "success",
+                data: machine.data,
+                error: null,
+                args: machine.args,
+                isLoading: false as const,
+                isSuccess: true as const,
+                isError: false as const,
+            };
+        case "error":
+            return {
+                status: "error",
+                data: null,
+                error: machine.error,
+                args: machine.args,
+                isLoading: false as const,
+                isSuccess: false as const,
+                isError: true as const,
+            };
+        default:
+            throw new Error(`Unexpected command status: ${status as string}`);
+    }
+}
 
-    constructor(private _command: Command<D>) {}
+export class CommandAgent<TArgs, TResult> implements ICommandAgent<TArgs, TResult> {
+    private _command: Command<TArgs, TResult>;
+    private _key: symbol;
+    private _entry$ = Signal.state<CommandCacheEntry<TArgs, TResult> | null>(null);
 
-    private _next(newCache: ReactiveCache<CoreCommandQueryState<D>>): void {
-        this._commands$.set({
-            current$: newCache,
-        });
+    readonly state$: ComputeFn<TCommandAgentState<TArgs, TResult>>;
+
+    constructor(command: Command<TArgs, TResult>, key: symbol) {
+        this._command = command;
+        this._key = key;
+
+        this.state$ = Signal.compute<TCommandAgentState<TArgs, TResult>>(() => {
+            const entry = this._entry$();
+            if (!entry) {
+                return deriveAgentState<TArgs, TResult>(null);
+            }
+            // Subscribe to entry's reactive state to track changes
+            entry.state$();
+            return deriveAgentState(entry);
+        }) as ComputeFn<TCommandAgentState<TArgs, TResult>>;
     }
 
-    initiate(args: D["Args"]): void {
-        const cache = this._command.getQueryCache(args);
+    trigger(...args: ArgsOrVoid<TArgs>): Promise<TResult> {
+        const entry = this._command._getOrCreateEntry(this._key);
+        this._entry$.set(entry);
+        return entry.initiate(args[0] as TArgs);
+    }
 
-        if (!cache) {
-            const newCache = this._command.initiate(args);
-            this._next(newCache);
-            return;
+    reset(): void {
+        const entry = this._entry$.peek();
+        if (entry) {
+            entry.resetToIdle();
         }
-
-        // Всегда запускаем команду заново, так как команды обычно не кэшируются как ресурсы
-        const newCache = this._command.initiate(args, { cache });
-        this._next(newCache);
-    }
-
-    createAgent(): CommandAgentInstance<D> {
-        return new CommandAgent(this._command);
     }
 }

@@ -1,334 +1,212 @@
-import { SharedOptions } from "@/common/options/SharedOptions";
-import { ReactiveCache } from "@/query/lib/ReactiveCache";
-import type {
-    ResourceCreateOptions,
-    ResourceDefinition,
-    ResourceInstance,
-    ResourceRefInstance,
-    ResourceTransaction,
-} from "@/query/types";
+import type { Subscription } from "rxjs";
 
-import { QueriesCache } from "../QueriesCache";
-import { QueriesLifetimeHooks } from "../QueriesLifetimeHooks";
-import { ResetAllQueriesSignal } from "../ResetAllQueriesSignal";
+import { shallowEqual } from "@/common/utils/shallowEqual";
+import { createCacheMap } from "@/query/core/CacheMap/createCacheMap";
+import { stableStringify } from "@/query/lib/stableStringify";
+import type {
+    ArgsOrVoid,
+    IResource,
+    IResourceCacheEntry,
+    TCompareArgsFn,
+    TMachineInstance,
+    TResourceOptions,
+} from "@/query/types";
+import { Signal } from "@/signals";
+import { Batcher } from "@/signals/base/Batcher";
 
 import { ResourceAgent } from "./ResourceAgent";
-import { ResourceRef } from "./ResourceRef";
+import { ResourceCacheEntry } from "./ResourceCacheEntry";
 
-export type CoreResourceQueryState<D extends ResourceDefinition> = {
-    transactions: ResourceTransaction[] | null;
-    abortController: AbortController | null;
-    args: D["Args"];
-    savedData: D["Data"] | null;
-    data: D["Data"] | null;
-    error: unknown | null;
-    isError: boolean;
-    isLoading: boolean;
-    isReloading: boolean;
-    isDone: boolean;
-    isSuccess: boolean;
-    isLocked: boolean;
-    isInitiated: boolean;
-    lockCount: number;
-};
+export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
+    private _cache;
+    private _queryFn;
+    private _compareArgsFn;
+    private _onCacheEntryAdded;
+    private _onQueryStarted;
+    private _beforeDevtoolsPush;
+    private _cacheLifetime;
+    private _key;
+    private _keyStrategy;
 
-export type CoreResourceQueryCache<D extends ResourceDefinition> = ReactiveCache<CoreResourceQueryState<D>>;
+    private _lastEntry$ = Signal.state<ResourceCacheEntry<TArgs, TData> | null>(null, {
+        isDisabled: true,
+    });
 
-class ResourceQueryState {
-    static create<D extends ResourceDefinition>(args: D["Args"]): CoreResourceQueryState<D> {
-        return {
-            transactions: null,
-            savedData: null,
-            abortController: null,
-            args,
-            data: null,
-            error: null,
-            isError: false,
-            isReloading: false,
-            isDone: false,
-            isSuccess: false,
-            isLocked: false,
-            isLoading: false,
-            isInitiated: false,
-            lockCount: 0,
-        };
-    }
+    readonly status$ = Signal.state<"idle" | "ready">("idle", {
+        isDisabled: true,
+    });
 
-    static load<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D> | undefined | null,
-        args: D["Args"],
-    ): CoreResourceQueryState<D> {
-        state = state ?? ResourceQueryState.create<D>(args);
+    constructor(options: TResourceOptions<TArgs, TData>) {
+        this._queryFn = options.queryFn;
+        this._compareArgsFn = options.compareArg ?? (shallowEqual as TCompareArgsFn<TArgs>);
+        this._cacheLifetime = options.cacheLifetime ?? 60_000;
+        this._onCacheEntryAdded = options.onCacheEntryAdded;
+        this._onQueryStarted = options.onQueryStarted;
+        this._beforeDevtoolsPush = options.beforeDevtoolsPush;
+        this._key = options.key;
 
-        return {
-            ...state,
-            abortController: new AbortController(),
-            args: args,
-            isLoading: !state.isDone,
-            isReloading: state.isDone,
-            isInitiated: true,
-        };
-    }
+        const keyStrategy = options.compareArg ? ("compare" as const) : ("serialize" as const);
+        this._keyStrategy = keyStrategy;
 
-    static success<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D>,
-        data: D["Data"],
-    ): CoreResourceQueryState<D> {
-        return {
-            ...state,
-            abortController: null,
-            savedData: null,
-            transactions: null,
-            data,
-            isLoading: false,
-            isReloading: false,
-            isDone: true,
-            isSuccess: true,
-            isError: false,
-            error: null,
-        };
-    }
-
-    static error<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D>,
-        error: unknown,
-    ): CoreResourceQueryState<D> {
-        return {
-            ...state,
-            abortController: null,
-            isLoading: false,
-            isReloading: false,
-            isDone: true,
-            isSuccess: false,
-            isError: true,
-            error,
-        };
-    }
-
-    static incrementLock<D extends ResourceDefinition>(state: CoreResourceQueryState<D>): CoreResourceQueryState<D> {
-        const lockCount = state.lockCount + 1;
-        return {
-            ...state,
-            isLocked: lockCount > 0,
-            lockCount,
-        };
-    }
-
-    static decrementLock<D extends ResourceDefinition>(state: CoreResourceQueryState<D>): CoreResourceQueryState<D> {
-        const lockCount = Math.max(0, state.lockCount - 1);
-        return {
-            ...state,
-            isLocked: lockCount > 0,
-            lockCount,
-        };
-    }
-
-    static update<D extends ResourceDefinition>(
-        state: CoreResourceQueryState<D>,
-        data: D["Data"],
-        savedData: D["Data"] | null,
-        transactions: ResourceTransaction[] | null,
-    ): CoreResourceQueryState<D> {
-        return {
-            ...state,
-            transactions,
-            savedData,
-            data,
-        };
-    }
-
-    static createWithData<D extends ResourceDefinition>(data: D["Data"], args: D["Args"]): CoreResourceQueryState<D> {
-        return {
-            savedData: null,
-            transactions: null,
-            data,
-            isLoading: false,
-            isReloading: false,
-            isDone: true,
-            isSuccess: true,
-            isError: false,
-            error: null,
-            abortController: null,
-            args,
-            isInitiated: false,
-            isLocked: false,
-            lockCount: 0,
-        };
-    }
-}
-
-export class Resource<D extends ResourceDefinition> implements ResourceInstance<D> {
-    private readonly _queriesCache;
-    private readonly _hooks;
-
-    private _DEFAULT_CACHE_LIFETIME = 60_000;
-
-    constructor(private readonly _options: ResourceCreateOptions<D>) {
-        this._hooks = new QueriesLifetimeHooks<D["Args"], D["Result"]>({
-            onCacheEntryAdded: _options.onCacheEntryAdded,
-            onQueryStarted: _options.onQueryStarted,
-            devtoolsName: _options.devtoolsName,
+        this._cache = createCacheMap<TArgs, ResourceCacheEntry<TArgs, TData>>({
+            keyStrategy,
+            factory: (args, argsKey) => this._entryFactory(args, argsKey),
+            serializeArgs: options.serializeArgs ?? stableStringify,
+            compareArg: options.compareArg,
+            doCacheArgs: options.doCacheArgs,
+            devtoolsKey: options.devtoolsKey,
         });
+    }
 
-        this._queriesCache = new QueriesCache<D["Args"], CoreResourceQueryState<D>>(
-            _options.cacheLifetime ?? this._DEFAULT_CACHE_LIFETIME,
+    createAgent(): ResourceAgent<TArgs, TData> {
+        return new ResourceAgent<TArgs, TData>(
+            (args) => this._getEntry$(args, true),
+            (a: TArgs, b: TArgs) => this._compareArgsFn(a, b),
         );
+    }
 
-        ResetAllQueriesSignal.clean$.subscribe(() => {
-            const caches = Array.from(this._queriesCache.values());
-            caches.forEach((cache) => {
-                cache.value.abortController?.abort();
-                cache.next(ResourceQueryState.create<D>(cache.value.args));
-            });
+    query(...allArgs: [...ArgsOrVoid<TArgs>, doForce?: boolean]): Promise<TData> {
+        const { args, doForce } = this._parseQueryArgs(allArgs);
+        const entry = this._cache.getOrCreate(args);
+        return entry.query(doForce);
+    }
+
+    getEntry(...args: ArgsOrVoid<TArgs>): IResourceCacheEntry<TArgs, TData> | null;
+    getEntry(...args: [...ArgsOrVoid<TArgs>, doInitiate: true]): IResourceCacheEntry<TArgs, TData>;
+    getEntry(...allArgs: unknown[]): IResourceCacheEntry<TArgs, TData> | null {
+        const { args, doInitiate } = this._parseGetEntryArgs(allArgs);
+        if (doInitiate) {
+            return this._cache.getOrCreate(args);
+        }
+        return this._cache.get(args) ?? null;
+    }
+
+    getEntry$(...args: ArgsOrVoid<TArgs>): IResourceCacheEntry<TArgs, TData> | null;
+    getEntry$(...args: [...ArgsOrVoid<TArgs>, doInitiate: true]): IResourceCacheEntry<TArgs, TData>;
+    getEntry$(...allArgs: unknown[]): IResourceCacheEntry<TArgs, TData> | null {
+        const { args, doInitiate } = this._parseGetEntryArgs(allArgs);
+        return this._getEntry$(args, doInitiate);
+    }
+
+    invalidate(...allArgs: ArgsOrVoid<TArgs>): void {
+        const args = (allArgs.length > 0 ? allArgs[0] : undefined) as TArgs;
+        const entry = this._cache.get(args);
+        if (entry) {
+            entry.invalidate();
+        }
+    }
+
+    subscribe(...allArgs: ArgsOrVoid<TArgs>): Subscription {
+        const args = (allArgs.length > 0 ? allArgs[0] : undefined) as TArgs;
+        const entry = this._cache.getOrCreate(args);
+        return entry.obs.subscribe();
+    }
+
+    // ── Internal methods (called by createApi / Snapshot) ──
+
+    resetCache(): void {
+        Batcher.run(() => {
+            const entries = [...this._cache.values()];
+            this._cache.clear();
+            for (const entry of entries) {
+                entry.complete();
+            }
+            this._lastEntry$.set(null);
+            this.status$.set("idle");
         });
     }
 
-    createAgent = () => {
-        return new ResourceAgent<D>(this);
-    };
-
-    createRef = (args: D["Args"]): ResourceRefInstance<D> => {
-        return new ResourceRef<D>(this, args);
-    };
-
-    getQueryCache(args: D["Args"]): CoreResourceQueryCache<D> | undefined {
-        return this._queriesCache.getQueryCache(args);
+    cacheValues(): IterableIterator<ResourceCacheEntry<TArgs, TData>> {
+        return this._cache.values();
     }
 
-    createQueryCache(args: D["Args"], state = ResourceQueryState.create<D>(args)): CoreResourceQueryCache<D> {
-        const cache = this._queriesCache.createQueryCache(args, state);
+    get keyStrategy(): "serialize" | "compare" {
+        return this._keyStrategy;
+    }
 
-        const hookResolvers = this._hooks.onCacheEntryAdded(args);
+    hydrateEntry(args: TArgs, machine: TMachineInstance<TArgs, TData>): void {
+        this._cache.create(args, (argsKey) => this._entryFactory(args, argsKey, machine));
+    }
 
-        const spySub = cache.spy$.subscribe((state) => {
-            if (!state.isDone) return;
-            hookResolvers.cacheDataLoaded();
-            spySub.unsubscribe();
+    hasEntry(args: TArgs): boolean {
+        return this._cache.has(args);
+    }
+
+    // ── Private ──
+
+    private _getEntry$(args: TArgs, doInitiate: true): ResourceCacheEntry<TArgs, TData>;
+    private _getEntry$(args: TArgs, doInitiate?: boolean): ResourceCacheEntry<TArgs, TData> | null;
+    private _getEntry$(args: TArgs, doInitiate?: boolean): ResourceCacheEntry<TArgs, TData> | null {
+        const status = this.status$();
+
+        if (status === "idle" && !doInitiate) return null;
+
+        if (doInitiate) {
+            return this._cache.getOrCreate(args);
+        }
+
+        return this._cache.get(args) ?? null;
+    }
+
+    private _entryFactory(
+        args: TArgs,
+        argsKey: string,
+        initialMachine?: TMachineInstance<TArgs, TData>,
+    ): ResourceCacheEntry<TArgs, TData> {
+        const entry = new ResourceCacheEntry<TArgs, TData>({
+            args,
+            argsKey,
+            queryFn: this._queryFn,
+            compareArgs: this._compareArgsFn,
+            entryOptions: {
+                keyParts: this._key ? ["Resource/", `${this._key}/`, argsKey] : undefined,
+                beforeDevtoolsPush: this._beforeDevtoolsPush,
+                cacheLifetime: this._cacheLifetime,
+            },
+            onCacheEntryAdded: this._onCacheEntryAdded,
+            onQueryStarted: this._onQueryStarted,
+            initialMachine,
         });
 
-        cache.spy$.subscribe((data) => {
-            hookResolvers.dataChanged$.next(data);
+        // Subscribe to onClean$ for cache removal
+        entry.onClean$.subscribe(() => {
+            this._cache.delete(args);
         });
 
-        cache.onClean$.subscribe(() => {
-            hookResolvers.cacheEntryRemoved();
-        });
-
-        return cache;
-    }
-
-    incrementLock(args: D["Args"], options?: { cache?: CoreResourceQueryCache<D> }) {
-        let cache = options?.cache ?? this.getQueryCache(args);
-        if (!cache) {
-            cache = this.createQueryCache(args);
-        }
-        cache.next(ResourceQueryState.incrementLock(cache.value));
-        return cache;
-    }
-
-    decrementLock(args: D["Args"], options?: { cache?: CoreResourceQueryCache<D> }) {
-        const cache = options?.cache ?? this.getQueryCache(args);
-        if (!cache) {
-            return null;
-        }
-        cache.next(ResourceQueryState.decrementLock(cache.value));
-        return cache;
-    }
-
-    update(
-        args: D["Args"],
-        updateFn: (
-            data: D["Data"],
-            savedData: D["Data"] | null,
-            transactions: ResourceTransaction[] | null,
-        ) => {
-            data: D["Data"];
-            transactions: ResourceTransaction[] | null;
-            savedData: D["Data"] | null;
-        },
-        options?: { cache?: CoreResourceQueryCache<D> },
-    ) {
-        const cache = options?.cache ?? this.getQueryCache(args);
-        if (!cache) {
-            return null;
+        if (this.status$.peek() === "idle") {
+            this.status$.set("ready");
         }
 
-        const cacheValue = cache.value;
+        this._lastEntry$.set(entry);
 
-        if (!cacheValue.isDone) {
-            return cache;
-        }
-
-        const { data, transactions, savedData } = updateFn(
-            cacheValue.data!,
-            cacheValue.savedData,
-            cacheValue.transactions,
-        );
-        cache.next(ResourceQueryState.update(cache.value, data, savedData, transactions));
-        return cache;
+        return entry;
     }
 
-    createWithData(args: D["Args"], data: D["Data"], options?: { cache?: CoreResourceQueryCache<D> }) {
-        let cache = options?.cache ?? this.getQueryCache(args);
-        const state = ResourceQueryState.createWithData(data, args);
-
-        if (!cache) {
-            cache = this.createQueryCache(args, state);
-
-            // Только обновляем кэш новыми данными, если он еще не был инициализирован.
-            // Это предотвращает перезапись уже инициализированного кэша.
-        } else if (!cache.value.isInitiated) {
-            cache.next(state);
+    private _parseQueryArgs(allArgs: unknown[]): { args: TArgs; doForce?: boolean } {
+        if (allArgs.length === 0) {
+            return { args: undefined as TArgs };
         }
-
-        return cache;
+        const last = allArgs[allArgs.length - 1];
+        if (typeof last === "boolean") {
+            return {
+                args: (allArgs.length > 1 ? allArgs[0] : undefined) as TArgs,
+                doForce: last,
+            };
+        }
+        return { args: allArgs[0] as TArgs };
     }
 
-    initiate(args: D["Args"], options?: { cache?: CoreResourceQueryCache<D> }): CoreResourceQueryCache<D> {
-        let cache = options?.cache ?? this.getQueryCache(args);
-        const prevAbortController = cache?.value.abortController ?? null;
-
-        const state = ResourceQueryState.load(cache?.value, args);
-
-        if (!cache) {
-            cache = this.createQueryCache(args, state);
-        } else {
-            cache.next(state);
+    private _parseGetEntryArgs(allArgs: unknown[]): { args: TArgs; doInitiate?: true } {
+        if (allArgs.length === 0) {
+            return { args: undefined as TArgs };
         }
-
-        prevAbortController?.abort();
-        const abortController = state.abortController!;
-
-        const query = this._options.queryFn(args, { abortSignal: abortController.signal });
-
-        const hookResolvers = this._hooks.onQueryStarted(args);
-
-        query
-            .then((result) => {
-                if (abortController.signal.aborted) {
-                    return;
-                }
-
-                const data = this._options.select ? this._options.select(result) : result;
-                cache.next(ResourceQueryState.success(state, data));
-
-                hookResolvers.fulfilledSuccess(data);
-            })
-            .catch((error) => {
-                if (abortController.signal.aborted) {
-                    return;
-                }
-
-                cache.next(ResourceQueryState.error(state, error));
-
-                hookResolvers.fulfilledError(error);
-            });
-
-        return cache;
-    }
-
-    compareArgs(args1: D["Args"], args2: D["Args"]): boolean {
-        const compareFn = this._options.compareArgsFn ?? SharedOptions.defaultCompareArgs;
-        return compareFn(args1, args2);
+        const last = allArgs[allArgs.length - 1];
+        if (last === true) {
+            return {
+                args: (allArgs.length > 1 ? allArgs[0] : undefined) as TArgs,
+                doInitiate: true,
+            };
+        }
+        return { args: allArgs[0] as TArgs };
     }
 }
