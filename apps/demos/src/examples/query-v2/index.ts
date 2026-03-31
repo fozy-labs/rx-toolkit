@@ -6,6 +6,8 @@ import errorSwrStatesRaw from "./error-swr-states.tsx?raw";
 import skipTokenRaw from "./skip-token.tsx?raw";
 import snapshotHydrationRaw from "./snapshot-hydration.tsx?raw";
 import lifecycleHooksRaw from "./lifecycle-hooks.tsx?raw";
+import basicCommandRaw from "./basic-command.tsx?raw";
+import optimisticCommandRaw from "./optimistic-command.tsx?raw";
 
 export const examples = {
     simpleResource: simpleResourceRaw,
@@ -16,4 +18,6 @@ export const examples = {
     skipToken: skipTokenRaw,
     snapshotHydration: snapshotHydrationRaw,
     lifecycleHooks: lifecycleHooksRaw,
+    basicCommand: basicCommandRaw,
+    optimisticCommand: optimisticCommandRaw,
 };

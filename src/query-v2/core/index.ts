@@ -19,5 +19,8 @@ export { createCacheMap } from "./CacheMap";
 // Resource
 export { ResourceV2, ResourceV2Agent, ResourceV2CacheEntry } from "./resource";
 
+// Command
+export { CommandV2, CommandV2Agent, CommandV2CacheEntry, ResourceV2Ref } from "./command";
+
 // Snapshot (hydrateSnapshot intentionally NOT exported — API-layer version is the sole public export)
 export { getSnapshot } from "./Snapshot";

@@ -49,6 +49,32 @@ export type {
     // api.types
     ICreateApiOptions,
     IApi,
+    // command-machine.types
+    TCommandMachineStatus,
+    TCommandIdleState,
+    TCommandLoadingState,
+    TCommandSuccessState,
+    TCommandErrorState,
+    TCommandMachineState,
+    TCommandMachineInstance,
+    // command-lifecycle.types
+    ICommandCacheEntryAddedTools,
+    ICommandQueryStartedTools,
+    TOnCommandCacheEntryAdded,
+    TOnCommandQueryStarted,
+    // command.types
+    TCommandQueryFn,
+    ICommandV2LinkOptions,
+    CommandV2Link,
+    TCommandV2Options,
+    ICommandV2,
+    IResourceV2Ref,
+    TCommandV2AgentState,
+    ICommandV2Agent,
+    // plugin.types (command additions)
+    IReactHooksPluginCommandContributions,
+    PluginCommandContributions,
+    PluginCommandAugmentations,
     // shared.types
     ArgsOrVoid,
     ArgsOrVoidOrSkip,
@@ -70,11 +96,17 @@ export {
     Patcher,
 } from "./core/machines";
 
+// Command machine classes (public)
+export { CommandIdle, CommandLoading, CommandSuccess, CommandError } from "./core/machines";
+
 // API layer
 export { createApi } from "./api";
+export { _createCommandV2 } from "./api";
+export { commandLink } from "./api";
 
 // React layer
 export { useResourceV2Agent } from "./react";
+export { useCommandV2Agent } from "./react";
 
 // Plugins layer
 export { ReactHooksPlugin } from "./plugins";

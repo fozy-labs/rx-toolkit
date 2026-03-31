@@ -1,3 +1,7 @@
+export { CommandError } from "./CommandError";
+export { CommandIdle } from "./CommandIdle";
+export { CommandLoading } from "./CommandLoading";
+export { CommandSuccess } from "./CommandSuccess";
 export { Machine } from "./Machine";
 export { MachineError } from "./MachineError";
 export { MachinePending } from "./MachinePending";
