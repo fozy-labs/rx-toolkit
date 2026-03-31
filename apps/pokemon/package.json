@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@fozy-labs/rx-toolkit": "file:../..",
-    "@fozy-labs/simplest-di": "^0.2.1",
+    "@fozy-labs/simplest-di": "^0.2.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-router-dom": "7.9.6",

@@ -1,10 +1,4 @@
-import { useSignal } from '@fozy-labs/rx-toolkit';
-import { Signal } from '@fozy-labs/rx-toolkit';
-
 import { toggleCatch } from '../model';
-
-// We need a reactive read so React re-renders when the set changes.
-// The Signal is defined in the model layer; we just import the toggle.
 
 interface CatchButtonProps {
     pokemonId: number;
