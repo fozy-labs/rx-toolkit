@@ -2,7 +2,6 @@ import type { ArgsOrVoid, ICommandAgent, TCommandAgentState } from "@/query/type
 import { Signal } from "@/signals";
 import type { ComputeFn } from "@/signals/types";
 
-import type { Command } from "./Command";
 import type { CommandCacheEntry } from "./CommandCacheEntry";
 
 function deriveAgentState<TArgs, TResult>(
@@ -70,7 +69,7 @@ function deriveAgentState<TArgs, TResult>(
 }
 
 export class CommandAgent<TArgs, TResult> implements ICommandAgent<TArgs, TResult> {
-    private _command: Command<TArgs, TResult>;
+    private _getOrCreateEntry: (TArgs: TArgs, key: string) => CommandCacheEntry<TArgs, TResult>;
     private _key: symbol;
     private _entry$ = Signal.state<CommandCacheEntry<TArgs, TResult> | null>(null);
 

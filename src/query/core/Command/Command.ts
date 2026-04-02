@@ -16,8 +16,9 @@ export class Command<TArgs, TResult> implements ICommand<TArgs, TResult> {
     }
 
     createAgent(): ICommandAgent<TArgs, TResult> {
-        const key = Symbol();
-        return new CommandAgent<TArgs, TResult>(this, key);
+        return new CommandAgent<TArgs, TResult>({
+
+        });
     }
 
     resetCache(): void {

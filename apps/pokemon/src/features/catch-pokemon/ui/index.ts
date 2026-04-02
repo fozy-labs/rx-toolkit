@@ -1,1 +1,0 @@
-export { CatchButton } from './CatchButton';
