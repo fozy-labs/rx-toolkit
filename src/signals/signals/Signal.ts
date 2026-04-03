@@ -1,5 +1,4 @@
-import type { SignalOptionsOrKey } from "@/signals/types";
-import type { SignalFn } from "@/signals/types";
+import type { SignalFn, SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
 import { Effect } from "./Effect";

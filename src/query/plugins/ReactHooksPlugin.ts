@@ -1,13 +1,5 @@
-import { useCommandAgent, useResourceAgent } from "@/query/react";
-import type {
-    ArgsOrVoidOrSkip,
-    ICommand,
-    IPlugin,
-    IPluginContext,
-    IResource,
-    TCommandOptions,
-    TResourceOptions,
-} from "@/query/types";
+import { useResourceAgent } from "@/query/react";
+import type { ArgsOrVoidOrSkip, IPlugin, IPluginContext, IResource, TResourceOptions } from "@/query/types";
 
 export class ReactHooksPlugin implements IPlugin {
     readonly name = "ReactHooksPlugin" as const;
@@ -23,17 +15,6 @@ export class ReactHooksPlugin implements IPlugin {
         return {
             useResourceAgent(...args: ArgsOrVoidOrSkip<TArgs>) {
                 return useResourceAgent(resource, ...args);
-            },
-        };
-    }
-
-    augmentCommand<TArgs, TResult>(
-        command: ICommand<TArgs, TResult>,
-        _options: TCommandOptions<TArgs, TResult>,
-    ): Record<string, unknown> {
-        return {
-            useCommandAgent() {
-                return useCommandAgent(command);
             },
         };
     }

@@ -1,16 +1,12 @@
-import { Command } from "@/query/core/command/Command";
 import { Resource } from "@/query/core/resource/Resource";
 import { getSnapshot, hydrateSnapshot } from "@/query/core/Snapshot";
 import type {
     IApi,
-    ICommand,
     ICreateApiOptions,
     IPlugin,
     IResource,
     PluginAugmentations,
-    PluginCommandAugmentations,
     TApiSnapshot,
-    TCommandOptions,
     TResourceOptions,
 } from "@/query/types";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/types";
@@ -66,7 +62,6 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
     }
 
     const _resources = new Map<string, Resource<unknown, unknown>>();
-    const _commands = new Set<Command<unknown, unknown>>();
 
     function apiCreateResource<TArgs = void, TData = unknown>(
         resourceOptions: TResourceOptions<TArgs, TData>,
@@ -151,9 +146,6 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
         for (const resource of _resources.values()) {
             resource.resetCache();
         }
-        for (const command of _commands) {
-            command.resetCache();
-        }
         _savedSnapshot = null;
     }
 
@@ -161,40 +153,8 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
         return getSnapshot(_resources, keyPrefix);
     }
 
-    function apiCreateCommand<TArgs = void, TResult = unknown>(
-        commandOptions: TCommandOptions<TArgs, TResult>,
-    ): ICommand<TArgs, TResult> & PluginCommandAugmentations<TPlugins, TArgs, TResult> {
-        const mergedOptions: TCommandOptions<TArgs, TResult> = {
-            cacheLifetime: 0,
-            ...commandOptions,
-        };
-
-        const command = new Command<TArgs, TResult>(mergedOptions);
-        _commands.add(command as unknown as Command<unknown, unknown>);
-
-        // Plugin augmentation
-        const contributedKeys = new Set<string>();
-        for (const plugin of plugins) {
-            if (plugin.augmentCommand) {
-                const contributions = plugin.augmentCommand(command, mergedOptions);
-                if (contributions) {
-                    for (const contributionKey of Object.keys(contributions)) {
-                        if (contributedKeys.has(contributionKey)) {
-                            throw new Error(`createApi: Plugin key collision: "${contributionKey}".`);
-                        }
-                        contributedKeys.add(contributionKey);
-                    }
-                    Object.assign(command, contributions);
-                }
-            }
-        }
-
-        return command as unknown as ICommand<TArgs, TResult> & PluginCommandAugmentations<TPlugins, TArgs, TResult>;
-    }
-
     return {
         createResource: apiCreateResource,
-        createCommand: apiCreateCommand,
         resetAll,
         getSnapshot: apiGetSnapshot,
         [API_INTERNALS]: {

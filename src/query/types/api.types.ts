@@ -1,5 +1,4 @@
-import type { ICommand, TCommandOptions } from "./command.types";
-import type { IPlugin, PluginAugmentations, PluginCommandAugmentations } from "./plugin.types";
+import type { IPlugin, PluginAugmentations } from "./plugin.types";
 import type { IResource, TCompareArgsFn, TResourceOptions, TSerializeArgsFn } from "./resource.types";
 import type { TApiSnapshot } from "./snapshot.types";
 
@@ -21,10 +20,6 @@ export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[]> 
     createResource<TArgs = void, TData = unknown>(
         options: TResourceOptions<TArgs, TData>,
     ): IResource<TArgs, TData> & PluginAugmentations<TPlugins, TArgs, TData>;
-
-    createCommand<TArgs = void, TResult = unknown>(
-        options: TCommandOptions<TArgs, TResult>,
-    ): ICommand<TArgs, TResult> & PluginCommandAugmentations<TPlugins, TArgs, TResult>;
 
     /** Reset all resources, clear saved snapshot */
     resetAll(): void;
