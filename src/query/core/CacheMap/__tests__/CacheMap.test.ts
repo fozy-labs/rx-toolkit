@@ -15,7 +15,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
 
             const entry = map.getOrCreate({ id: 1 });
@@ -28,7 +28,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
 
             const entry1 = map.getOrCreate({ id: 1 });
@@ -41,18 +41,18 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
 
             map.getOrCreate({ id: 42 });
             expect(factory).toHaveBeenCalledWith({ id: 42 }, expect.any(String));
         });
 
-        it("CM-F04: createCacheMap({ keyStrategy: 'serialize' }) returns SerializeCacheMap", () => {
+        it("CM-F04: createCacheMap({ strategy: 'serialize' }) returns SerializeCacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = createCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
 
             map.getOrCreate({ id: 1 });
@@ -60,11 +60,11 @@ describe("CacheMap", () => {
             expect(values).toHaveLength(1);
         });
 
-        it("CM-F05: createCacheMap({ keyStrategy: 'compare' }) returns CompareCacheMap", () => {
+        it("CM-F05: createCacheMap({ strategy: 'compare' }) returns CompareCacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = createCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
                 compareArg: (a, b) => a.id === b.id,
             });
 
@@ -81,7 +81,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
             return { map, factory };
         };
@@ -134,7 +134,7 @@ describe("CacheMap", () => {
             const customSerialize = vi.fn((args: TestArgs) => `custom-${args.id}`);
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: customSerialize,
             });
 
@@ -161,7 +161,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: serializeSpy,
                 doCacheArgs: true,
             });
@@ -192,7 +192,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             return { map, factory };
         };
@@ -274,7 +274,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: RegExp, _argsKey: string) => ({ value: "regex-entry" }));
             const map = new CompareCacheMap<RegExp, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
 
             const regex = /foo/i;
@@ -289,7 +289,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: RegExp, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<RegExp, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
 
             map.getOrCreate(/foo/i);
@@ -307,7 +307,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((args: TestArgs, _argsKey: string) => ({ value: `entry-${args.id}` }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
                 devtoolsKey: opts?.devtoolsKey,
             });
             return { map, factory };
@@ -431,7 +431,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: void, _argsKey: string) => ({ value: "void-entry" }));
             const map = new CompareCacheMap<void, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const e1 = map.getOrCreate(undefined);
             const e2 = map.getOrCreate(undefined);
@@ -443,7 +443,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: string, _argsKey: string) => ({ value: "str-entry" }));
             const map = new CompareCacheMap<string, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const e1 = map.getOrCreate("abc");
             const e2 = map.getOrCreate("abc");
@@ -455,7 +455,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: number, _argsKey: string) => ({ value: "num-entry" }));
             const map = new CompareCacheMap<number, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const e1 = map.getOrCreate(42);
             const e2 = map.getOrCreate(42);
@@ -472,7 +472,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
                 doCacheArgs: true,
             });
             const args = { id: 1 };
@@ -490,7 +490,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             map.getOrCreate({ id: 1 });
             expect(factory).toHaveBeenCalledWith({ id: 1 }, "0");
@@ -500,7 +500,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const a1 = { id: 1 };
             const a2 = { id: 2 };
@@ -514,7 +514,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const args = { id: 1 };
             map.getOrCreate(args);
@@ -527,7 +527,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const a1 = { id: 1 };
             const a2 = { id: 2 };
@@ -543,7 +543,7 @@ describe("CacheMap", () => {
             const devtoolsKey = vi.fn((args: { name: string }) => args.name);
             const map = new CompareCacheMap<{ name: string }, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
                 devtoolsKey,
             });
             const args = { name: "alice" };
@@ -557,7 +557,7 @@ describe("CacheMap", () => {
             const devtoolsKey = vi.fn((args: { name: string }) => args.name);
             const map = new CompareCacheMap<{ name: string }, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
                 devtoolsKey,
             });
             const a1 = { name: "alice" };
@@ -572,7 +572,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const a1 = { id: 1 };
             const a2 = { id: 2 };
@@ -598,7 +598,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: number, _argsKey: string) => ({ value: "nan-entry" }));
             const map = new CompareCacheMap<number, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const e1 = map.getOrCreate(NaN);
             const e2 = map.getOrCreate(NaN);
@@ -610,7 +610,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: null | undefined, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<null | undefined, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             map.getOrCreate(null);
             map.getOrCreate(undefined);
@@ -622,7 +622,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: number, _argsKey: string) => ({ value: "zero" }));
             const map = new CompareCacheMap<number, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             const e1 = map.getOrCreate(-0);
             const e2 = map.getOrCreate(+0);
@@ -634,7 +634,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new CompareCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "compare",
+                strategy: "compare",
             });
             map.getOrCreate({ id: 1 });
             map.getOrCreate({ id: 2 });
@@ -653,7 +653,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
             map.getOrCreate({ id: 1 });
             expect(factory).toHaveBeenCalledWith({ id: 1 }, '{"id":1}');
@@ -664,7 +664,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: serializeSpy,
             });
             map.getOrCreate({ id: 1 });
@@ -676,7 +676,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: serializeSpy,
             });
             map.getOrCreate({ id: 1 });
@@ -693,7 +693,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: serializeSpy,
                 doCacheArgs: true,
             });
@@ -710,7 +710,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 serializeArgs: customSerializer,
             });
             map.getOrCreate({ id: 42 });
@@ -721,7 +721,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
             });
             expect((map as unknown as Record<string, unknown>)["entries"]).toBeUndefined();
         });
@@ -731,7 +731,7 @@ describe("CacheMap", () => {
             const factory = vi.fn((_args: TestArgs, _argsKey: string) => ({ value: "test" }));
             const map = new SerializeCacheMap<TestArgs, TestEntry>({
                 factory,
-                keyStrategy: "serialize",
+                strategy: "serialize",
                 devtoolsKey,
             });
             map.getOrCreate({ id: 1 });

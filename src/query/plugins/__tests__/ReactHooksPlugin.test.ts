@@ -21,7 +21,7 @@ describe("ReactHooksPlugin", () => {
         createApi({ plugins: [plugin] as const });
 
         expect(installSpy).toHaveBeenCalledTimes(1);
-        expect(installSpy).toHaveBeenCalledWith(expect.objectContaining({ keyStrategy: "serialize" }));
+        expect(installSpy).toHaveBeenCalledWith(expect.objectContaining({ strategy: "serialize" }));
     });
 
     // PL02: plugin.augmentResource called per createResource()

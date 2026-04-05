@@ -25,7 +25,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
 ): IApi<TPlugins> {
     const opts = options ?? ({} as ICreateApiOptions<TPlugins>);
     const keyPrefix = opts.keyPrefix ?? null;
-    const keyStrategy = opts.keyStrategy ?? "serialize";
+    const strategy = opts.strategy ?? "serialize";
     const serializeArgs = opts.serializeArgs;
     const compareArg = opts.compareArg;
     const cacheLifetime = opts.cacheLifetime ?? 60_000;
@@ -56,7 +56,7 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
     }
 
     // Install plugins
-    const pluginContext = { keyStrategy };
+    const pluginContext = { strategy };
     for (const plugin of plugins) {
         plugin.install(pluginContext);
     }
@@ -78,10 +78,10 @@ export function createApi<TPlugins extends readonly IPlugin[] = readonly IPlugin
             doCacheArgs,
             ...resourceOptions,
             // API-level serializeArgs / compareArg as default, resource can override
-            ...(keyStrategy === "compare" && compareArg && !resourceOptions.compareArg
+            ...(strategy === "compare" && compareArg && !resourceOptions.compareArg
                 ? { compareArg: compareArg as unknown as typeof resourceOptions.compareArg }
                 : {}),
-            ...(keyStrategy === "serialize" && serializeArgs && !resourceOptions.serializeArgs
+            ...(strategy === "serialize" && serializeArgs && !resourceOptions.serializeArgs
                 ? { serializeArgs: serializeArgs as unknown as typeof resourceOptions.serializeArgs }
                 : {}),
         };

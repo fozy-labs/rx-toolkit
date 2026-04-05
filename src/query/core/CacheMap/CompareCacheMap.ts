@@ -2,7 +2,7 @@ import type { ICacheMap, ICacheMapOptions, TCacheMapFactory } from "@/query/type
 
 /**
  * CacheMap implementation using Map with reference identity.
- * Used when keyStrategy = "compare" (e.g., for non-serializable args).
+ * Used when strategy = "compare" (e.g., for non-serializable args).
  */
 export class CompareCacheMap<TArgs, TEntry> implements ICacheMap<TArgs, TEntry> {
     private _map = new Map<TArgs, TEntry>();

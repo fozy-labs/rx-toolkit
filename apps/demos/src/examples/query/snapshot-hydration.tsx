@@ -41,7 +41,7 @@ const freshSnapshot: TApiSnapshot = {
 
 const api = createApi({
     keyPrefix: 'snapshot-demo',
-    initialSnapshot: freshSnapshot,
+    initialSnapshot: JSON.parse(JSON.stringify(freshSnapshot)),
     maxSnapshotDataAge: 300_000, // 5 минут
     plugins: [new ReactHooksPlugin()],
 });
@@ -69,7 +69,7 @@ export function Base() {
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                📷 Snapshot-гидрация 
+                📷 Snapshot-гидрация
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">

@@ -26,7 +26,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     private _beforeDevtoolsPush;
     private _cacheLifetime;
     private _key;
-    private _keyStrategy;
+    private _strategy;
 
     private _lastEntry$ = Signal.state<ResourceCacheEntry<TArgs, TData> | null>(null, {
         isDisabled: true,
@@ -45,11 +45,11 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         this._beforeDevtoolsPush = options.beforeDevtoolsPush;
         this._key = options.key;
 
-        const keyStrategy = options.compareArg ? ("compare" as const) : ("serialize" as const);
-        this._keyStrategy = keyStrategy;
+        const strategy = options.compareArg ? ("compare" as const) : ("serialize" as const);
+        this._strategy = strategy;
 
         this._cache = createCacheMap<TArgs, ResourceCacheEntry<TArgs, TData>>({
-            keyStrategy,
+            strategy,
             factory: (args, argsKey) => this._entryFactory(args, argsKey),
             serializeArgs: options.serializeArgs ?? stableStringify,
             compareArg: options.compareArg,
@@ -120,8 +120,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         return this._cache.values();
     }
 
-    get keyStrategy(): "serialize" | "compare" {
-        return this._keyStrategy;
+    get strategy(): "serialize" | "compare" {
+        return this._strategy;
     }
 
     hydrateEntry(args: TArgs, machine: TMachineInstance<TArgs, TData>): void {

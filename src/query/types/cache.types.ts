@@ -39,7 +39,7 @@ export type TCacheMapFactory<TArgs, TEntry> = (args: TArgs, argsKey: string) => 
 /** Configuration for CacheMap creation */
 export interface ICacheMapOptions<TArgs, TEntry> {
     factory: TCacheMapFactory<TArgs, TEntry>;
-    keyStrategy: "serialize" | "compare";
+    strategy: "serialize" | "compare";
     serializeArgs?: (args: TArgs) => string;
     compareArg?: (a: TArgs, b: TArgs) => boolean;
     doCacheArgs?: boolean;

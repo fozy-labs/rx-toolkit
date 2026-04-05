@@ -4,7 +4,7 @@ import type { ArgsOrVoidOrSkip, Prettify, UnionToIntersection } from "./shared.t
 
 /** Context passed to plugin.install() */
 export interface IPluginContext {
-    readonly keyStrategy: "serialize" | "compare";
+    readonly strategy: "serialize" | "compare";
 }
 
 /** Plugin interface */

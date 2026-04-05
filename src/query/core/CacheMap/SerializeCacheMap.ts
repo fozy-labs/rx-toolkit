@@ -3,7 +3,7 @@ import type { ICacheMap, ICacheMapOptions, TCacheMapFactory } from "@/query/type
 
 /**
  * CacheMap implementation using serialized string keys.
- * Default strategy when keyStrategy = "serialize".
+ * Default strategy when strategy = "serialize".
  */
 export class SerializeCacheMap<TArgs, TEntry> implements ICacheMap<TArgs, TEntry> {
     private _map = new Map<string, TEntry>();
