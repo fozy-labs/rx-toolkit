@@ -17,16 +17,15 @@ const addTodoCommand = api.createCommand({
     });
     return res.json();
   },
-  links: [
-    todosResource.link({
-      forwardArgs: () => undefined,
-      invalidate: true,
-    }),
-  ],
+  links: (link) => link({
+    resource: todosResource,
+    forwardArgs: () => undefined,
+    invalidate: true,
+  }),
 });
 ```
 
-`queryFn` — единственная обязательная опция. Принимает аргументы мутации и `AbortSignal`, возвращает промис с данными. `links` — массив связей с ресурсами, которые нужно обновить после выполнения команды.
+`queryFn` — единственная обязательная опция. Принимает аргументы мутации и `AbortSignal`, возвращает промис с данными. `links` — колбэк, описывающий связи с ресурсами, которые нужно обновить после выполнения команды.
 
 
 ## Опции
@@ -80,7 +79,6 @@ function AddTodoForm() {
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
 2. `trigger(args)` запускает `queryFn` и возвращает `Promise<TData>`.
 3. Состояние (`isLoading`, `isSuccess`, `isError`) обновляется реактивно.
-4. При размонтировании — подписка отменяется, кеш-запись сохраняется.
 
 Объект состояния содержит поля: `status`, `data`, `error`, `isLoading`, `isSuccess`, `isError`.
 
@@ -98,35 +96,6 @@ const data = await addTodoCommand.trigger({ text: 'Новая задача' }, '
 ```
 
 Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `key` идентифицирует кеш-запись.
-
-### Ключ (key)
-
-Кеш-ключ команды — это **key**.
-По умолчанию `key` генерируется автоматически (sid — таймстамп + индекс),
-поэтому каждый вызов создаёт отдельную кеш-запись.
-
-Способ передачи ключа зависит от API:
-
-- **Императивно** — ключ передаётся вторым аргументом в `trigger`:
-
-```typescript
-const data = await addTodoCommand.trigger({ text: 'Задача' }, 'my-mutation-1');
-```
-
-- **React-хук** — ключ задаётся на уровне `useCommand`, а `trigger` вызывается только с `args`:
-
-```tsx
-const [trigger, state] = addTodoCommand.useCommand('my-mutation-1');
-await trigger({ text: 'Задача' });
-```
-
-- **Агент** — ключ передаётся в `createAgent`:
-
-```typescript
-const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
-```
-
-Разные потребители могут синхронизировать состояние, используя один и тот же ключ.
 
 ### getEntry
 
@@ -150,6 +119,7 @@ const entry$ = Signal.compute(() => addTodoCommand.getEntry$('my-mutation-1'));
 ### createAgent
 
 Создаёт агент — реактивный наблюдатель за командой. Принимает опциональный `key` для привязки к конкретной кеш-записи.
+Полная таблица методов и статусов — в [API агента команды][api-cmd-agent].
 
 ```typescript
 const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
@@ -160,96 +130,46 @@ agent.trigger({ text: 'New todo' });
 ```
 
 
-## Links
+## Кеш-ключь комманды
 
-Links — механизм связи команды с ресурсами. Позволяет после мутации инвалидировать или обновить кеш связанных ресурсов.
+Кеш-ключ команды — это строка.
+По умолчанию ключ генерируется автоматически (таймстамп + индекс при нескольких вызовах в одном таймстампе),
+поэтому каждый вызов создаёт отдельную кеш-запись.
 
-`link()` — метод на целевом ресурсе. Возвращает объект конфигурации связи.
+Способ указания ключа зависит от API:
 
-| Поле            | Тип                                 | Описание                                                                                |
-|-----------------|-------------------------------------|-----------------------------------------------------------------------------------------|
-| `forwardArgs`   | `(commandArgs) => resourceArgs`     | Обязательное. Преобразование аргументов команды в аргументы ресурса.                    |
-| `invalidate`    | `boolean`                           | Инвалидировать кеш ресурса после выполнения команды.                                    |
-| `optimisticUpdate` | `(draft, commandArgs) => void`      | Немедленно обновить кеш ресурса до получения ответа. При ошибке — автоматический откат. |
-| `update`        | `(draft, commandArgs, result) => void` | Обновить кеш ресурса данными из ответа сервера.                                         |
-
-### Инвалидация
-
-Простейший сценарий — инвалидировать кеш ресурса после мутации. Ресурс будет перезапрошен при следующем обращении:
+- **Императивно** — ключ передаётся вторым аргументом в метод `trigger`:
 
 ```typescript
-links: [
-  todosResource.link({
-    forwardArgs: () => undefined,
-    invalidate: true,
-  }),
-]
+const data = await addTodoCommand.trigger({ text: 'Задача' }, 'my-mutation-1');
 ```
 
-### Обновление после ответа
+- **React-хук** — ключ задаётся на уровне `useCommand`, а функция `trigger` вызывается только с `args`:
 
-Обновляет кеш ресурса данными из ответа сервера:
+```tsx
+const [trigger, state] = addTodoCommand.useCommand('my-mutation-1');
+await trigger({ text: 'Задача' });
+```
+
+- **Агент** — ключ передаётся в `createAgent` и может меняться с помощью методов `trigger` или `setKey`:
 
 ```typescript
-links: [
-  userResource.link({
-    forwardArgs: (args) => args.userId,
-    update: (draft, _, result) => {
-      Object.assign(draft, result.user);
-    },
-  }),
-]
+const agent = addTodoCommand.createAgent('my-mutation-1');
+agent.trigger({ text: 'Задача' }, 'my-mutation-2');
+agent.setKey('my-mutation-3');
 ```
 
-### Оптимистичное обновление
+Разные потребители могут синхронизировать состояние, используя один и тот же ключ.
 
-Немедленно обновляет кеш ресурса, не дожидаясь ответа сервера. При ошибке мутации — автоматический откат:
 
-```typescript
-links: [
-  todosResource.link({
-    forwardArgs: () => undefined,
-    invalidate: true,
-    optimisticUpdate: (draft, args) => {
-      draft.push(args.optimisticTodo);
-    },
-  }),
-]
-```
+## Связи (Links)
 
-`optimisticUpdate` и `invalidate` можно комбинировать в одном вызове `link()`.
+Связи позволяют декларативно связать команду с ресурсами — подробнее в [руководстве по связям][links].
 
 
 ## Хуки жизненного цикла
 
-### onCacheEntryAdded
-
-Вызывается один раз при создании кеш-записи:
-
-```typescript
-const command = api.createCommand({
-  queryFn: executeMutation,
-  onCacheEntryAdded: (args, { entry, $cacheDataLoaded, $cacheEntryRemoved }) => {
-    // entry — кеш-запись
-    // $cacheDataLoaded — разрешается при первом успешном ответе
-    // $cacheEntryRemoved — разрешается при удалении записи из кеша
-  },
-});
-```
-
-### onQueryStarted
-
-Вызывается при каждом запуске `queryFn`:
-
-```typescript
-const command = api.createCommand({
-  queryFn: executeMutation,
-  onQueryStarted: async (args, { entry, $queryFulfilled }) => {
-    const { data } = await $queryFulfilled;
-    // entry — доступ к кеш-записи
-  },
-});
-```
+Хуки позволяют реагировать на события кеша — подробнее в [руководстве по жизненному циклу][lifecycle].
 
 
 ## См. также
@@ -260,3 +180,6 @@ const command = api.createCommand({
 [resource]: ./resource.md
 [machine]: ../concepts/machine.md
 [api-command]: ../api/command.md
+[lifecycle]: ./lifecycle.md
+[links]: ./links.md
+[api-cmd-agent]: ../api/command-agent.md

@@ -15,12 +15,11 @@ const addTodoCommand = api.createCommand({
     });
     return res.json();
   },
-  links: [
-    todosResource.link({
-      forwardArgs: () => undefined,
-      invalidate: true,
-    }),
-  ],
+  links: (link) => link({
+    resource: todosResource,
+    forwardArgs: () => undefined,
+    invalidate: true,
+  }),
 });
 ```
 
@@ -31,10 +30,11 @@ const addTodoCommand = api.createCommand({
 |----------------------|----------------------------------------------|------------------|------------------------------------------------------------------------------|
 | `queryFn`            | `(args: TArgs) => Promise<TData>`            | **обязательный** | Функция выполнения мутации.                                                  |
 | `key`                | `string`                                     | —                | Префикс для ключей кеша и devtools.                                          |
-| `links`              | `LinkEntry[]`                                | —                | Массив связей с ресурсами. См. [links][usage-links].                         |
-| `cacheRetentionTime` | `number \| false`                            | `0`              | Время (мс) удержания кеш-записи после потери подписчиков. `false` — не удалять. |
-| `onCacheEntryAdded`  | `(args, lifecycle) => void`                  | —                | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle].  |
-| `onQueryStarted`     | `(args, lifecycle) => void \| Promise<void>` | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `links`              | `(link) => void`                             | —                | Колбэк для описания связей с ресурсами. См. [links][usage-links].                        |
+| `retentionTime`      | `number \| false`                            | `0`              | Время (мс) удержания кеш-записи после потери подписчиков. `false` — не удалять. Переопределяет `commandRetentionTime` из [API][api-readme]. |
+| `onCacheEntryAdded`  | `(args, ctx) => void`                        | —                | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle].  |
+| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`       | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `sync`               | `boolean`                                    | `false`          | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
 
 
 ## Методы
@@ -54,11 +54,15 @@ const addTodoCommand = api.createCommand({
 - [Ресурс — API][resource-api] — API чтения данных
 - [Стейт-машина запроса][machine] — переходы между статусами
 - [Агент][agent] — реактивный наблюдатель
+- [Агент команды — API][agent-api] — полная таблица методов и статусов агента
 
 
 [usage]: ../usage/command.md
-[usage-links]: ../usage/command.md#links
-[usage-lifecycle]: ../usage/command.md#хуки-жизненного-цикла
+[usage-links]: ../usage/links.md
+[usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
+[agent-api]: ./command-agent.md
+[api-readme]: ./README.md
+[usage-broadcast]: ../usage/broadcast.md

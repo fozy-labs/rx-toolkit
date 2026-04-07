@@ -22,10 +22,11 @@ const usersResource = api.createResource({
 |----------------------|-----------------------------------------------------------|------------------|---------------------------------------------------------------------|
 | `queryFn`            | `(args: TArgs, abortSignal: AbortSignal) => Promise<TData>` | **обязательный** | Функция запроса данных.                                             |
 | `key`                | `string`                                                  | —                | Префикс для ключей кеша и devtools.                                 |
-| `cacheRetentionTime` | `number \| false`                                         | `60_000`         | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. |
+| `retentionTime`      | `number \| false`                                         | `60_000`         | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
 | `serializeArgs`      | `(args: TArgs) => string`                                 | `stableStringify` | Сериализация аргументов в кеш-ключ.                                 |
-| `onCacheEntryAdded`  | `(args, lifecycle) => void`                               | —                | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle]. |
-| `onQueryStarted`     | `(args, lifecycle) => void \| Promise<void>`              | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `onCacheEntryAdded`  | `(args, ctx) => void`                                     | —                | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle]. |
+| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                    | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `sync`               | `boolean`                                                 | `true`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
 
 
 ## Методы
@@ -38,7 +39,6 @@ const usersResource = api.createResource({
 | `getEntry`    | `args: TArgs, doInitiate?: boolean`  | `CacheEntry \| null`    | Синхронно возвращает кеш-запись.                                               |
 | `getEntry$`   | `args: TArgs, doInitiate?: boolean`  | `CacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.       |
 | `createAgent` | —                                    | `Agent<TArgs, TData>`   | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.  |
-| `link`        | `config`                             | `TLinkDeclaration`      | Создаёт конфигурацию связи для `links` [команды][command].                     |
 
 
 ## См. также
@@ -47,11 +47,15 @@ const usersResource = api.createResource({
 - [Команда — API][command-api] — API мутаций
 - [Стейт-машина запроса][machine] — переходы между статусами
 - [Агент][agent] — реактивный наблюдатель ресурса
+- [Агент ресурса — API][agent-api] — полная таблица методов и статусов агента
 
 
 [usage]: ../usage/resource.md
-[usage-lifecycle]: ../usage/resource.md#хуки-жизненного-цикла
+[usage-lifecycle]: ../usage/lifecycle.md
 [command]: ../usage/command.md
 [command-api]: ./command.md
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
+[agent-api]: ./resource-agent.md
+[api-readme]: ./README.md
+[usage-broadcast]: ../usage/broadcast.md

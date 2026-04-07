@@ -58,13 +58,13 @@ graph TD
 
 ### Публичный API
 
-- **createApi** — принимает `plugins`, `initialSnapshot`, `cacheRetentionTime` и другие опции уровня API. Помимо фабрик, предоставляет `.getSnapshot()` и `.resetAll()`.
+- **createApi** — принимает `plugins`, `initialSnapshot`, `resourceRetentionTime`, `commandRetentionTime` и другие опции уровня API. Помимо фабрик, предоставляет `.getSnapshot()` и `.resetAll()`.
 
 ### Кеш
 
 - **CacheMap** — две стратегии индексации: `serialize` (аргументы → строка через `stableStringify`) и `compare` (ссылочное сравнение). Стратегия выбирается при создании ресурса. Сама карта — пассивный контейнер; вытеснение управляется событием `onClean$` записи.
 
-- **CacheEntry** — публикует состояние через Signal + RxJS Observable. При отписке всех подписчиков запускается таймер (`cacheRetentionTime`, по умолчанию 60 с), после которого запись удаляется из `CacheMap`.
+- **CacheEntry** — публикует состояние через Signal + RxJS Observable. При отписке всех подписчиков запускается таймер (`retentionTime`, по умолчанию 60 с для ресурсов), после которого запись удаляется из `CacheMap`.
 
 ### Ядро
 

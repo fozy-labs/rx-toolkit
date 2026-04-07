@@ -62,7 +62,7 @@ function UsersList({ page }: { page: number }) {
 
 1. При монтировании — запускает запрос с переданными аргументами.
 2. При изменении аргументов — автоматически перезапрашивает данные.
-3. При размонтировании — отписывается. Кеш-запись сохраняется в течение `cacheRetentionTime`.
+3. При размонтировании — отписывается. Кеш-запись сохраняется в течение `retentionTime`.
 4. При повторном монтировании с теми же аргументами — данные берутся из кеша мгновенно.
 
 
@@ -158,6 +158,7 @@ const entry$ = Signal.compute(() => usersResource.getEntry$({ page: page$() }));
 Он отслеживает текущую и при необходимости предыдущую запись кеша,
 объединяя их в плоский вычисляемый сигнал.
 Агент является строительным блоком для React-хука `useResource` и не требует явного уничтожения — внутренние сигналы деактивируются при потере подписчиков.
+Полная таблица методов и статусов — в [API агента ресурса][api-res-agent].
 
 ```ts
 const agent = usersResource.createAgent();
@@ -176,47 +177,28 @@ agent.start(SKIP);        // idle: data: null, status: "idle"
 ```
 
 
+## Связи (Links)
+
+Связи позволяют декларативно связать команду с ресурсами — подробнее в [руководстве по связям][links].
+
+
 ## Хуки жизненного цикла
 
-### onCacheEntryAdded
-
-Вызывается один раз при создании кеш-записи для конкретных аргументов:
-
-```typescript
-const usersResource = api.createResource({
-  queryFn: fetchUsers,
-  onCacheEntryAdded: (args, { entry, $cacheDataLoaded, $cacheEntryRemoved }) => {
-    // entry — кеш-запись
-    // $cacheDataLoaded — разрешается при первом успешном ответе
-    // $cacheEntryRemoved — разрешается при удалении записи из кеша
-  },
-});
-```
-
-Типичное применение: подписка на WebSocket для обновления кеша в реальном времени.
-
-### onQueryStarted
-
-Вызывается при каждом запуске `queryFn`:
-
-```typescript
-const usersResource = api.createResource({
-  queryFn: fetchUsers,
-  onQueryStarted: async (args, { entry, $queryFulfilled }) => {
-    const { data } = await $queryFulfilled;
-    // entry — доступ к кеш-записи для программных обновлений
-  },
-});
-```
-
-Типичное применение: обновление связанных кешей после запроса.
+Хуки позволяют реагировать на события кеша — подробнее в [руководстве по жизненному циклу][lifecycle].
 
 
 ## См. также
 
 - [Команда][command] — мутации (создание, обновление, удаление)
 - [Стейт-машина запроса][machine] — детали переходов между статусами
+- [Кеш][cache] — система кеширования записей
+- [Агент][agent] — SWR-наблюдатель, связывающий UI с записью кеша
 
 [command]: ./command.md
 [machine]: ../concepts/machine.md
 [api-resource]: ../api/resource.md
+[lifecycle]: ./lifecycle.md
+[links]: ./links.md
+[cache]: ../concepts/cache.md
+[agent]: ../concepts/agent.md
+[api-res-agent]: ../api/resource-agent.md

@@ -24,10 +24,13 @@ const api = createApi({
 | `keyPrefix`          | `string` \| `null`        | `undefined`       | Префикс, который добавляется ко всем ключам ресурсов и команд, создаваемых через этот API.                                      |
 | `plugins`            | `IPlugin[]`               | `[]`              | Массив плагинов, которые будут использоваться этим API.                                                                         |
 | `serializeArgs`      | `(args: TArgs) => string` | `stableStringify` | Функция сериализации аргументов в строку.                                                                                       |
-| `cacheRetentionTime` | `number` \| `false`       | `60_000 ms`       | Время удержания кеша. `false` - отключить очистку записи (будет удерживаться вечно).                                            |
+| `resourceRetentionTime` | `number` \| `false`       | `60_000 ms`       | Время удержания кеша ресурсов. `false` — не удалять.                                            |
+| `commandRetentionTime`  | `number` \| `false`       | `0`               | Время удержания кеша команд. `false` — не удалять.                                              |
 | `initialSnapshot`    | `TApiSnapshot` \| `null`  | `null`            | Начальный [снимок] состояния всех ресурсов (для SSR или гидрации).                                                              |
 | `snapshotValidTime`  | `number` \| `false`       | `false`           | Время валидности данных в снимке. `false` - данные в [снимке][снимок] считаются всегда валидными.                               |
 | `syncDriver`         | `ISyncDriver`             | `undefined`       | Драйвер для [синхронизации][синхронизация] состояния между несколькими экземплярами API (например, в разных вкладках браузера). |
+| `onCacheEntryAdded`  | `(args, ctx) => void`     | —                 | Хук жизненного цикла уровня API — вызывается при создании любой кеш-записи. См. [lifecycle hooks][lifecycle].                  |
+| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>` | — | Хук жизненного цикла уровня API — вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][lifecycle].                    |
 
 ## Методы API
 
@@ -41,5 +44,6 @@ const api = createApi({
 
 [снимок]: ../usage/snapshot.md
 [синхронизация]: ../usage/broadcast.md
+[lifecycle]: ../usage/lifecycle.md
 [ресурс]: ../usage/resource.md
 [команда]: ../usage/command.md

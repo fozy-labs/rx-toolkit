@@ -17,25 +17,26 @@
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending : Machine.fromSnapshot(state)
+    pending --> success : success(data)
+    
     [*] --> pending : Machine.pending(args)
     [*] --> success : Machine.fromSnapshot(state)
+    [*] --> refreshing : Machine.fromSnapshot(state) | Запись устарела
 
     state "refresh-error" as refresh_error
 
-    pending --> success : successHappened(data)
-    pending --> error : errorHappened(error)
+    pending --> error : fail(error)
 
     success --> refreshing : refresh()
     success --> success : createPatch() / finishPatch() / finishAllPatches()
 
     error --> pending : retry()
 
-    refreshing --> success : successHappened(data)
-    refreshing --> refresh_error : errorHappened(error)
+    refreshing --> success : rebase(data)
+    refreshing --> refresh_error : fail(error)
     refreshing --> refreshing : createPatch() / finishPatch() / finishAllPatches()
 
-    refresh_error --> refreshing : invalidate()
+    refresh_error --> refreshing : refresh()
     refresh_error --> refresh_error : createPatch() / finishPatch() / finishAllPatches()
 ```
 
@@ -85,4 +86,18 @@ interface TRefreshErrorState<TArgs, TData> {
   patchState: TPatchState<TData> | null;
 }
 ```
+
+## Связь с другими компонентами
+
+- [Кеш][cache] — хранит записи, каждая из которых содержит экземпляр машины.
+- [Агент][agent] — наблюдает за записью кеша и транслирует состояние машины в UI.
+- [Ресурс][usage-res] — использует машину для отслеживания состояния чтения данных.
+- [Команда][usage-cmd] — использует машину для отслеживания состояния мутации.
+
+---
+
+[cache]: cache.md
+[agent]: agent.md
+[usage-res]: ../usage/resource.md
+[usage-cmd]: ../usage/command.md
 

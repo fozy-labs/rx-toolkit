@@ -10,7 +10,7 @@
 
 Агент хранит два слота: **текущая** и **предыдущая** запись. При смене аргументов:
 
-1. Если предыдущая запись содержит данные (`success` / `refreshing`/`refreshing-error`), агент сохраняет их как устаревшие.
+1. Если предыдущая запись содержит данные (`success` / `refreshing`/`refresh-error`), агент сохраняет их как устаревшие.
 2. Пока новая запись в (`pending`/`error`), агент отдаёт устаревшие данные и выставляет статус `refreshing`.
 3. Как только новая запись разрешается `success` — предыдущий слот очищается.
 
@@ -31,63 +31,11 @@
 
 Булевые флаги и полная таблица соответствий описаны в руководствах по [ресурсам][usage-res] и [командам][usage-cmd].
 
-## Первый запрос (cache miss)
-
-```mermaid
-sequenceDiagram
-    participant UI as React-компонент
-    participant Agent as Agent
-    participant Res as Resource
-    participant Entry as CacheEntry
-    participant Server as Сервер
-
-    UI->>Agent: useResource(args)
-
-    opt args === SKIP
-        Agent-->>UI: { status: idle }
-    end
-
-    Agent->>Res: getEntry$(args, doInitiate=false)
-    Res-->>Agent: null (нет записи)
-    Agent-->>UI: { status: pending, entry: null }
-
-    Note over UI,Agent: useImmediateEffect срабатывает
-    UI->>Agent: agent.set(args)
-    Agent->>Res: getOrCreate(args)
-    Res->>Entry: new(args, queryFn)
-    Entry->>Server: queryFn(args, { abortSignal })
-    Res-->>Agent: новый Entry (pending)
-
-    alt ответ OK
-        Server-->>Entry: data
-        Entry->>Entry: → MachineSuccess
-        Entry-->>Agent: machine$ → MachineSuccess
-        Agent-->>UI: { status: success, data }
-    else ошибка
-        Server-->>Entry: error
-        Entry->>Entry: → MachineError
-        Entry-->>Agent: machine$ → MachineError
-        Agent-->>UI: { status: error, error }
-    end
-```
-
-## Повторный запрос (cache hit)
-
-```mermaid
-sequenceDiagram
-    participant UI as React-компонент
-    participant Agent as Agent
-    participant Res as Resource
-    participant Entry as CacheEntry
-
-    UI->>Agent: useResource(args)
-    Agent->>Res: getEntry$(args)
-    Res-->>Agent: existing Entry (success)
-    Agent-->>UI: { status: success, data }
-```
+Подробные sequence-диаграммы потоков (cache miss, cache hit, refresh, SWR-fallback и др.) — в [dataflows.md][dataflows].
 
 ## Связь с другими компонентами
 
+- [Потоки данных][dataflows] — диаграммы всех ресурсных и командных потоков.
 - [Стейт-машина][machine] — состояние, которое агент транслирует из записи кеша.
 - [Кеш][cache] — хранилище записей, за которыми наблюдает агент.
 - [Использование ресурсов][usage-res] — хук `useResource` и полная таблица состояний.
@@ -99,6 +47,7 @@ sequenceDiagram
 
 [machine]: machine.md
 [cache]: cache.md
+[dataflows]: dataflows.md
 [usage-res]: ../usage/resource.md
 [usage-cmd]: ../usage/command.md
 [api-res]: ../api/resource.md

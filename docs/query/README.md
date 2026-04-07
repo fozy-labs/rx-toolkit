@@ -45,9 +45,8 @@ function UsersList({ page }: { page: number }) {
 | **Оптимистичные обновления** | [concepts/patching.md][patching] → [usage/links.md][links] |
 | **SSR / гидрация** | [usage/snapshot.md][snapshot] |
 | **Кросс-табовая синхронизация** | [usage/broadcast.md][broadcast] |
-| **API-справочник** | [api/README.md][api] → [api/resource.md][api-resource] → [api/command.md][api-command] → [api/types.md][api-types] |
+| **API-справочник** | [api/README.md][api] → [api/resource.md][api-resource] → [api/command.md][api-command] |
 | **Написание плагинов** | [usage/plugins.md][plugins] |
-| **Контрибьютинг** | [internal/README.md][internal] |
 
 
 [signals]: ../signals/README.md
@@ -63,6 +62,4 @@ function UsersList({ page }: { page: number }) {
 [api]: api/README.md
 [api-resource]: api/resource.md
 [api-command]: api/command.md
-[api-types]: api/types.md
 [plugins]: usage/plugins.md
-[internal]: internal/README.md
