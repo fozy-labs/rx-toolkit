@@ -31,7 +31,7 @@ sequenceDiagram
     UI->>Agent: agent.set(args)
     Agent->>Res: getOrCreate(args)
     Res->>Entry: new(args, queryFn)
-    Entry->>Server: queryFn(args, { abortSignal })
+    Entry->>Server: queryFn(args, abortSignal)
     Res-->>Agent: новый Entry (pending)
 
     alt ответ OK
@@ -108,7 +108,7 @@ sequenceDiagram
     Entry-->>Agent: machine$ → refreshing
     Agent-->>UI: { status: refreshing, data: v1 }
 
-    Entry->>Server: queryFn(args, { abortSignal })
+    Entry->>Server: queryFn(args, abortSignal)
 
     alt ответ OK
         Server-->>Entry: data v2
@@ -142,7 +142,7 @@ sequenceDiagram
     Agent->>Agent: prev = Entry1, current = null
     Agent->>Res: getOrCreate({ id: 2 })
     Res->>Entry2: new({ id: 2 }, queryFn)
-    Entry2->>Server: queryFn({ id: 2 }, { abortSignal })
+    Entry2->>Server: queryFn({ id: 2 }, abortSignal)
     Res-->>Agent: Entry2 (pending)
 
     Agent-->>UI: { status: refreshing, data: data/1 }
@@ -173,7 +173,7 @@ sequenceDiagram
 
     Agent_A->>Res: getOrCreate(args)
     Res->>Entry: new(args, queryFn)
-    Entry->>Server: queryFn(args, { abortSignal })
+    Entry->>Server: queryFn(args, abortSignal)
 
     Agent_B->>Res: getOrCreate(args)
     Res-->>Agent_B: existing Entry (pending)
@@ -210,7 +210,7 @@ sequenceDiagram
     Entry-->>Hook: machine$ → pending
     Hook-->>UI: { status: pending }
 
-    Entry->>Server: queryFn(args, { abortSignal })
+    Entry->>Server: queryFn(args, abortSignal)
 
     alt ответ OK
         Server-->>Entry: data
@@ -233,27 +233,28 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Cmd as Command
-    participant Server as Сервер
-    participant Link as Link
+    participant Srv as Сервер
+    participant Lnk as Link
     participant Res as Resource
     participant Entry as CacheEntry (ресурса)
 
     UI->>Cmd: trigger(args)
-    Cmd->>Server: queryFn(args, { abortSignal })
-    Server-->>Cmd: result (success)
+    Cmd->>Srv: queryFn(args, abortSignal)
+    Srv-->>Cmd: result (success)
 
-    Note over Cmd,Link: invalidate: true → link срабатывает
+    Note over Cmd,Lnk: "invalidate: true — link срабатывает"
 
-    Cmd->>Link: onSuccess(args, result)
-    Link->>Link: forwardArgs(args) → targetArgs
-    Link->>Res: invalidate(targetArgs)
+    Cmd->>Lnk: onSuccess(args, result)
+    Lnk->>Lnk: "forwardArgs(args) -> targetArgs"
+    Lnk->>Res: invalidate(targetArgs)
     Res->>Entry: refresh()
-    Entry->>Entry: success → refreshing
+    Entry->>Entry: "success -> refreshing"
 
-    Entry->>Server: queryFn(targetArgs, { abortSignal })
-    Server-->>Entry: fresh data
-    Entry->>Entry: refreshing → success (rebase)
-    Entry-->>UI: machine$ → success (fresh data)
+    Entry->>Srv: queryFn(targetArgs, abortSignal)
+    Srv-->>Entry: fresh data
+    Entry->>Entry: "refreshing -> success (rebase)"
+    Entry-->>UI: "machine$ -> success (fresh data)"
+
 ```
 
 ## Оптимистичное обновление через link
@@ -264,39 +265,40 @@ Link с `optimisticUpdate` мгновенно применяет Immer-реце�
 sequenceDiagram
     participant UI as React-компонент
     participant Cmd as Command
-    participant Link as Link
+    participant Lnk as Link
     participant Res as Resource
     participant Entry as CacheEntry (ресурса)
     participant Patcher as Patcher
-    participant Server as Сервер
+    participant Srv as Сервер
 
     UI->>Cmd: trigger(args)
 
-    Note over Cmd,Link: optimisticUpdate → немедленно
+    Note over Cmd,Lnk: "optimisticUpdate → немедленно"
 
-    Cmd->>Link: onTrigger(args)
-    Link->>Link: forwardArgs(args) → targetArgs
-    Link->>Res: getEntry(targetArgs)
-    Res-->>Link: Entry
-    Link->>Patcher: createPatch(entry, recipe)
-    Patcher->>Patcher: Immer produce → changes + inversePatches
-    Patcher->>Entry: apply changes → data обновлена
-    Entry-->>UI: machine$ → data (оптимистичная)
+    Cmd->>Lnk: onTrigger(args)
+    Lnk->>Lnk: "forwardArgs(args) → targetArgs"
+    Lnk->>Res: getEntry(targetArgs)
+    Res-->>Lnk: Entry
+    Lnk->>Patcher: createPatch(entry, recipe)
+    Patcher->>Patcher: "Immer produce → changes + inversePatches"
+    Lnk->>Entry: apply changes → data обновлена
+    Entry-->>UI: "machine$ → data (оптимистичная)"
 
-    Cmd->>Server: queryFn(args, { abortSignal })
+    Cmd->>Srv: queryFn(args, abortSignal)
 
     alt ответ OK
-        Server-->>Cmd: result
-        Cmd->>Link: onSuccess
-        Link->>Patcher: patch.commit()
+        Srv-->>Cmd: result
+        Cmd->>Lnk: onSuccess
+        Lnk->>Patcher: patch.commit()
         Patcher->>Entry: patchState очищается
     else ошибка
-        Server-->>Cmd: error
-        Cmd->>Link: onError
-        Link->>Patcher: patch.abort()
-        Patcher->>Entry: inversePatches → rollback
-        Entry-->>UI: machine$ → data (исходная)
+        Srv-->>Cmd: error
+        Cmd->>Lnk: onError
+        Lnk->>Patcher: patch.abort()
+        Patcher->>Entry: "inversePatches → rollback"
+        Entry-->>UI: "machine$ → data (исходная)"
     end
+
 ```
 
 ---

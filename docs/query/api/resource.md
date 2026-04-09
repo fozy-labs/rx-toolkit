@@ -18,15 +18,16 @@ const usersResource = api.createResource({
 
 ## Опции
 
-| Опция               | Тип                                                       | По умолчанию     | Описание                                                            |
-|----------------------|-----------------------------------------------------------|------------------|---------------------------------------------------------------------|
-| `queryFn`            | `(args: TArgs, abortSignal: AbortSignal) => Promise<TData>` | **обязательный** | Функция запроса данных.                                             |
-| `key`                | `string`                                                  | —                | Префикс для ключей кеша и devtools.                                 |
-| `retentionTime`      | `number \| false`                                         | `60_000`         | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
-| `serializeArgs`      | `(args: TArgs) => string`                                 | `stableStringify` | Сериализация аргументов в кеш-ключ.                                 |
-| `onCacheEntryAdded`  | `(args, ctx) => void`                                     | —                | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle]. |
-| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                    | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
-| `sync`               | `boolean`                                                 | `true`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
+| Опция               | Тип                                                         | По умолчанию      | Описание                                                            |
+|----------------------|-------------------------------------------------------------|-------------------|---------------------------------------------------------------------|
+| `queryFn`            | `(args: TArgs, abortSignal: AbortSignal) => Promise<TData>` | **обязательный**  | Функция запроса данных.                                             |
+| `key`                | `string`                                                    | —                 | Префикс для ключей кеша и devtools.                                 |
+| `retentionTime`      | `number \| false`                                           | `60_000`          | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
+| `serializeArgs`      | `(args: TArgs) => string`                                   | `stableStringify` | Сериализация аргументов в кеш-ключ.                                 |
+| `onCacheEntryAdded`  | `(args, ctx) => void`                                       | —                 | Вызывается при создании кеш-записи. См. [lifecycle hooks][usage-lifecycle]. |
+| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                      | —                 | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `sync`               | `boolean`                                                   | `true`            | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
+| `getDevtoolsKey`     | `(args: TArgs, stringArgs: string) => string`               | —                 | Ключ аргументов для отображения в DevTools.                            |
 
 
 ## Методы
