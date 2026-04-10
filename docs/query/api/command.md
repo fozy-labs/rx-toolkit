@@ -44,8 +44,8 @@ const addTodoCommand = api.createCommand({
 | `useCommand`  | `key?: string`         | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. |
 | `trigger`     | `args: TArgs, key?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кеш-запись.  |
 | `createAgent` | `opts?: { key }`       | `Agent`                 | Создаёт реактивный [агент][agent] — наблюдатель за командой.                 |
-| `getEntry`    | `key: string`          | `CacheEntry \| null`    | Синхронно возвращает кеш-запись.                                             |
-| `getEntry$`   | `key: string`          | `CacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
+| `getEntry`    | `key: string`          | `QueryCacheEntry \| null`    | Синхронно возвращает кеш-запись.                                             |
+| `getEntry$`   | `key: string`          | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
 
 
 ## См. также

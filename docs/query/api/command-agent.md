@@ -23,16 +23,16 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 
 ## Состояние (TCommandAgentState)
 
-| Поле | Тип | Описание |
-|------|-----|----------|
+| Поле | Тип                                           | Описание |
+|------|-----------------------------------------------|----------|
 | `status` | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус агента. |
-| `data` | `TData \| null` | Данные результата мутации. `null` до завершения. |
-| `error` | `unknown` | Ошибка мутации. `null` в `idle` / `pending` / `success`. |
-| `args` | `TArgs \| null` | Аргументы последнего вызова `trigger`. `null` в `idle`. |
-| `isLoading` | `boolean` | `true`, пока мутация выполняется (`pending`). |
-| `isSuccess` | `boolean` | `true`, если мутация завершилась успешно. |
-| `isError` | `boolean` | `true`, если мутация завершилась ошибкой. |
-| `entry` | `ICommandCacheEntry<TArgs, TData> \| null` | Текущая запись кеша. `null` в `idle`. |
+| `data` | `TData \| null`                               | Данные результата мутации. `null` до завершения. |
+| `error` | `unknown`                                     | Ошибка мутации. `null` в `idle` / `pending` / `success`. |
+| `args` | `TArgs \| null`                               | Аргументы последнего вызова `trigger`. `null` в `idle`. |
+| `isLoading` | `boolean`                                     | `true`, пока мутация выполняется (`pending`). |
+| `isSuccess` | `boolean`                                     | `true`, если мутация завершилась успешно. |
+| `isError` | `boolean`                                     | `true`, если мутация завершилась ошибкой. |
+| `entry` | `QueryCacheEntry<TArgs, TData> \| null`      | Текущая запись кеша. `null` в `idle`. |
 
 
 ## Статусы

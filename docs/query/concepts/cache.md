@@ -20,7 +20,7 @@ stateDiagram-v2
 
 ## Ключ кеша
 
-Кличь кеша - строка.
+Ключ кеша - строка.
 
 
 ## Время жизни записи
@@ -50,4 +50,3 @@ stateDiagram-v2
 [api-res]: ../api/resource.md
 [api-cmd]: ../api/command.md
 [lifecycle]: ../usage/lifecycle.md
-[snapshot]: ../usage/snapshot.md
