@@ -1,5 +1,5 @@
 import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
-import { Button, Card, CardBody } from "@heroui/react";
+import { Button, Card, CardBody, CardHeader } from "@heroui/react";
 
 class CounterStore {
     count$ = Signal.state(0);
@@ -20,14 +20,16 @@ export function Base() {
 
     return (
         <Card className="pt-4">
+            <CardHeader className="justify-center text-lg font-semibold">Калькулятор</CardHeader>
             <CardBody className="space-y-4">
                 <div className="text-4xl font-bold text-center text-primary">
                     {count}
                 </div>
 
                 <ul className="list-disc list-inside space-y-1 text-sm">
-                    <li>Удвоенное: <span className="font-semibold text-secondary">{doubled}</span></li>
-                    <li>В квадрате: <span className="font-semibold text-secondary">{squared}</span></li>
+                    <li>Кол-во товаров: <span className="font-semibold text-secondary">{count}</span></li>
+                    <li>Сумма (×2): <span className="font-semibold text-secondary">{doubled}</span></li>
+                    <li>Бонус (²): <span className="font-semibold text-secondary">{squared}</span></li>
                 </ul>
 
                 <div className="flex gap-2 justify-center">

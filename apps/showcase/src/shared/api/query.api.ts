@@ -1,5 +1,5 @@
-import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 
 export const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });

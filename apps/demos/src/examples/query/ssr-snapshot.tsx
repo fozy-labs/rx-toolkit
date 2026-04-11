@@ -1,9 +1,9 @@
-import { createApi, ReactHooksPlugin, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
 import { Card, CardBody, CardHeader, Divider } from '@heroui/react';
 
 
 /**
- * Симуляция SSR snapshot — демонстрирует гидрацию без реальной SSR-инфраструктуры.
+ * Профили сотрудников — демонстрирует гидрацию из серверного кэша.
  * В реальном приложении snapshot создаётся на сервере через api.getSnapshot().
  */
 
@@ -49,25 +49,25 @@ const simulatedSnapshot: TApiSnapshot = {
 const api = createApi({
     keyPrefix: 'ssr-demo',
     initialSnapshot: simulatedSnapshot,
-    maxSnapshotDataAge: 600_000, // 10 минут
-    plugins: [new ReactHooksPlugin()],
+    snapshotValidTime: 600_000, // 10 минут
+    plugins: [reactHooksPlugin()],
 });
 
 const usersResource = api.createResource<{ id: string }, User>({
     key: 'users',
-    queryFn: async (args: { id: string }, { abortSignal: _abortSignal }: { abortSignal: AbortSignal }) => {
+    queryFn: async (args: { id: string }, _abortSignal: AbortSignal) => {
         // В реальном приложении — запрос к серверу
         await new Promise(resolve => setTimeout(resolve, 2000));
         return {
             id: args.id,
-            name: `User ${args.id} (загружен с сервера)`,
+            name: `Сотрудник ${args.id} (обновлён с сервера)`,
             email: `user${args.id}@example.com`,
         };
     },
 });
 
 function UserCard({ userId }: { userId: string }) {
-    const state = usersResource.useResourceAgent({ id: userId });
+    const state = usersResource.useResource({ id: userId });
     const { isRefreshError } = state;
 
     return (
@@ -83,7 +83,7 @@ function UserCard({ userId }: { userId: string }) {
                         <p className="text-xs text-warning mt-1">🔄 Обновление...</p>
                     )}
                     {isRefreshError && (
-                        <p className="text-xs text-danger mt-1">⚠️ Ошибка при обновлении: {String(state.lastError)}</p>
+                        <p className="text-xs text-danger mt-1">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                     )}
                 </>
             )}
@@ -95,12 +95,12 @@ export function Base() {
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                🌐 SSR Snapshot (симуляция)
+                🌐 Профили сотрудников
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
                 <p className="text-sm text-default-500">
-                    Данные загружены из snapshot мгновенно, без запроса к серверу.
+                    Каталог сотрудников загружен из серверного кэша мгновенно.
                     В реальном SSR приложении snapshot создаётся через api.getSnapshot()
                     и передаётся в initialSnapshot при гидрации.
                 </p>
@@ -113,8 +113,8 @@ export function Base() {
                 <Divider />
 
                 <p className="text-xs text-default-400 text-center">
-                    Пользователи 1 и 2 отображаются мгновенно из snapshot.
-                    Данные будут обновлены при следующем запросе (stale-while-revalidate).
+                    Профили сотрудников отображаются мгновенно из серверного кэша.
+                    Профили обновятся автоматически при следующем визите (stale-while-revalidate).
                 </p>
             </CardBody>
         </Card>

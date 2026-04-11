@@ -4,6 +4,7 @@ import {
     Card, CardBody, Pagination, Skeleton, Input,
 } from '@heroui/react';
 import { Link } from 'react-router-dom';
+
 import { PokemonApi } from '@/entities/pokemon';
 
 const LIMIT = 24;
@@ -26,7 +27,7 @@ export function PokemonListPage() {
     const [search, setSearch] = useState('');
 
     const offset = (page - 1) * LIMIT;
-    const query = pokemonApi.list.useResourceAgent({ offset, limit: LIMIT });
+    const query = pokemonApi.list.useResource({ offset, limit: LIMIT });
 
     const totalPages = query.data ? Math.ceil(query.data.count / LIMIT) : 1;
 

@@ -5,7 +5,6 @@ import { Effect } from "./Effect";
 import { State } from "./State";
 
 export class Signal<T> extends State<T> {
-    // eslint-disable-next-line @typescript-eslint/no-useless-constructor
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         super(initialValue, options);
     }

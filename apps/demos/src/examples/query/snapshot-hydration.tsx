@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
 import { Card, CardBody, CardHeader, Divider } from '@heroui/react';
 
 interface Product {
@@ -42,8 +42,8 @@ const freshSnapshot: TApiSnapshot = {
 const api = createApi({
     keyPrefix: 'snapshot-demo',
     initialSnapshot: JSON.parse(JSON.stringify(freshSnapshot)),
-    maxSnapshotDataAge: 300_000, // 5 минут
-    plugins: [new ReactHooksPlugin()],
+    snapshotValidTime: 300_000, // 5 минут
+    plugins: [reactHooksPlugin()],
 });
 
 const productsResource = api.createResource<void, ProductList>({
@@ -63,13 +63,13 @@ const productsResource = api.createResource<void, ProductList>({
 });
 
 export function Base() {
-    const state = productsResource.useResourceAgent();
+    const state = productsResource.useResource();
     const [currentFetchCount] = React.useState(() => fetchCount);
 
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                📷 Snapshot-гидрация
+                � Каталог товаров — мгновенная загрузка
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
@@ -89,7 +89,7 @@ export function Base() {
 
                 <div className="p-3 bg-primary-50 border border-primary-200 rounded-lg">
                     <p className="text-sm text-primary-700">
-                        💡 Данные доступны мгновенно из snapshot — без сетевого запроса.
+                        💡 Каталог загружен из CDN-кэша — без задержки сети.
                         Свежий snapshot (age &lt; maxSnapshotDataAge) не вызывает refetch.
                     </p>
                 </div>
@@ -112,14 +112,14 @@ export function Base() {
 
                 {state.isRefreshing && (
                     <div className="text-center text-warning text-sm">
-                        🔄 Обновление данных с сервера...
+                        🔄 Обновление каталога с сервера...
                     </div>
                 )}
 
                 <Divider />
                 <p className="text-xs text-default-400 text-center">
                     createApi(&#123; initialSnapshot, maxSnapshotDataAge &#125;) —
-                    мгновенная гидрация без лишних запросов. При устаревшем snapshot данные обновятся автоматически.
+                    каталог предзагружен на сервере и доступен мгновенно. При устаревшем snapshot данные обновятся автоматически.
                 </p>
             </CardBody>
         </Card>

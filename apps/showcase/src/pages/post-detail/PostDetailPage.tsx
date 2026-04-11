@@ -8,8 +8,8 @@ export function PostDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const postApi = inject(PostApi);
-    const query = postApi.detail.useResourceAgent(id ? Number(id) : SKIP);
-    const [triggerDelete, deleteState] = postApi.delete.useCommandAgent();
+    const query = postApi.detail.useResource(id ? Number(id) : SKIP);
+    const [triggerDelete, deleteState] = postApi.delete.useCommand();
 
     if (!id) {
         return (
@@ -21,8 +21,12 @@ export function PostDetailPage() {
     }
 
     const handleDelete = async () => {
-        await triggerDelete(Number(id));
-        navigate('/posts');
+        try {
+            await triggerDelete(Number(id));
+            navigate('/posts');
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     if (query.isInitialLoading || (!query.data && !query.isError)) {

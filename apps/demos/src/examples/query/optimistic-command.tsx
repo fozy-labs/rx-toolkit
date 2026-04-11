@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin, commandLink } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Checkbox, Divider } from '@heroui/react';
 
 interface TodoItem {
@@ -13,14 +13,14 @@ interface TodoList {
 }
 
 const serverTodos: TodoItem[] = [
-    { id: 1, text: 'Изучить RxToolkit', completed: false },
-    { id: 2, text: 'Попробовать оптимистичные обновления', completed: true },
-    { id: 3, text: 'Написать документацию', completed: false },
-    { id: 4, text: 'Мигрировать на новую версию', completed: false },
+    { id: 1, text: 'Обзор нового API', completed: false },
+    { id: 2, text: 'Гайд по миграции', completed: true },
+    { id: 3, text: 'Советы по производительности', completed: false },
+    { id: 4, text: 'Сравнение фреймворков', completed: false },
 ];
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const todosResource = api.createResource<void, TodoList>({
@@ -44,30 +44,28 @@ const toggleTodoCommand = api.createCommand<{ id: number; completed: boolean }, 
         if (item) item.completed = args.completed;
         return args;
     },
-    link: [
-        commandLink({
-            resource: todosResource,
-            forwardArgs: () => undefined,
-            invalidate: true,
-            optimisticUpdate: ({ draft, args }) => {
-                const item = draft.items.find((t: TodoItem) => t.id === args.id);
-                if (item) item.completed = args.completed;
-            },
-        }),
-    ],
+    links: (link) => link({
+        resource: todosResource,
+        forwardArgs: () => undefined,
+        invalidate: true,
+        optimisticUpdate: (draft: TodoList, args: { id: number; completed: boolean }) => {
+            const item = draft.items.find((t: TodoItem) => t.id === args.id);
+            if (item) item.completed = args.completed;
+        },
+    }),
 });
 
 export function Base() {
-    const resourceState = todosResource.useResourceAgent();
-    const [trigger, commandState] = toggleTodoCommand.useCommandAgent();
+    const resourceState = todosResource.useResource();
+    const [trigger, commandState] = toggleTodoCommand.useCommand();
     const [lastAction, setLastAction] = React.useState<string | null>(null);
 
     const handleToggle = async (item: TodoItem) => {
         const newCompleted = !item.completed;
-        setLastAction(`Переключение "${item.text}" → ${newCompleted ? '✅' : '⬜'}`);
+        setLastAction(`Модерация "${item.text}" → ${newCompleted ? '✅ публикация' : '⬜ снятие'}`);
         try {
             await trigger({ id: item.id, completed: newCompleted });
-            setLastAction(`✅ Подтверждено: "${item.text}" → ${newCompleted ? 'выполнено' : 'не выполнено'}`);
+            setLastAction(`✅ Подтверждено: "${item.text}" → ${newCompleted ? 'опубликовано' : 'снято с публикации'}`);
         } catch {
             setLastAction(`❌ Откат: "${item.text}" — сервер вернул ошибку`);
         }
@@ -81,7 +79,7 @@ export function Base() {
         return (
             <Card>
                 <CardBody className="text-center py-8">
-                    <div className="text-lg">⏳ Загрузка задач...</div>
+                    <div className="text-lg">⏳ Загрузка публикаций...</div>
                 </CardBody>
             </Card>
         );
@@ -94,14 +92,14 @@ export function Base() {
         <div className="flex flex-col gap-4">
             <Card>
                 <CardHeader className="flex justify-between items-center">
-                    <h3 className="text-xl font-bold">⚡ Оптимистичная команда (Command)</h3>
+                    <h3 className="text-xl font-bold">⚡ Модерация контента</h3>
                     <Button
                         size="sm"
                         color="danger"
                         variant="flat"
                         onPress={handleToggleError}
                     >
-                        💥 Следующая — ошибка
+                        💥 Имитировать сбой
                     </Button>
                 </CardHeader>
                 <Divider />
@@ -155,7 +153,7 @@ export function Base() {
 
                     <Divider />
                     <p className="text-xs text-default-400 text-center">
-                        optimisticUpdate обновляет UI мгновенно. При ошибке — автоматический откат. Нажмите «Следующая — ошибка» перед переключением.
+                        Решение модератора применяется мгновенно (optimisticUpdate). При ошибке — автоматический откат. Нажмите «Имитировать сбой» перед переключением.
                     </p>
                 </CardBody>
             </Card>

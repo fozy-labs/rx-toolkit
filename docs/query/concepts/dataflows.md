@@ -5,7 +5,11 @@
 
 ---
 
-## Cache miss
+## Потоки ресурса (Resource)
+
+> Разделы ниже описывают потоки, специфичные для ресурсов. Команды используют упрощённый поток — см. «Мутация».
+
+### Cache miss
 
 
 ```mermaid
@@ -17,6 +21,8 @@ sequenceDiagram
     participant Cache as CacheMap
     participant Entry as QueryCacheEntry
     participant Query as queryFn
+    participant BQ as beforeQuery
+    participant Sync as SyncDriver
 
     UI->>Hook: useResource(args)
     Hook->>Agent: set(args)
@@ -31,7 +37,7 @@ sequenceDiagram
     Agent-->>Hook: pending
     Hook-->>UI: { status: pending }
 
-    Note over Hook: useImmediateEffect срабатывает
+    Note over Hook: useIsomorphicLayoutEffect срабатывает
 
     opt синхронно
         Hook->>Agent: start()
@@ -40,6 +46,25 @@ sequenceDiagram
         Res->>Cache: get(key)
         Cache-->>Res: null
         Res->>Entry: new Entry(options)
+
+        opt beforeQuery настроен (sync: true)
+            Res->>BQ: beforeQuery(key, keyedArgs)
+            BQ->>Sync: REQ { keys, reqId }
+            Note over Sync: BroadcastChannel.postMessage
+            Sync-->>BQ: RES { data } или таймаут
+
+            alt данные получены
+                BQ-->>Entry: hydrate(data)
+                Entry->>Entry: → success (без сетевого запроса)
+                Entry-->>Agent: machine$ → success
+                Agent-->>Hook: success
+                Hook-->>UI: { status: success, data }
+            else таймаут
+                BQ-->>Res: null
+                Note over Res: queryFn вызывается далее
+            end
+        end
+
         Entry->>Query: queryFn(args, abortSignal)
         Query-->>Entry: Promise (pending)
         Entry-->>Res: Entry (pending)
@@ -76,7 +101,7 @@ sequenceDiagram
     end
 ```
 
-## Cache hit
+### Cache hit
 
 
 ```mermaid
@@ -99,7 +124,7 @@ sequenceDiagram
     Hook-->>UI: state
 ```
 
-## Условный запрос (SKIP → реальные args)
+### Условный запрос (SKIP → реальные args)
 
 
 ```mermaid
@@ -126,7 +151,7 @@ sequenceDiagram
     Note over Agent: → поток «Cache miss» или «Cache hit»
 ```
 
-## Refresh / фоновое обновление
+### Refresh / фоновое обновление
 
 ```mermaid
 sequenceDiagram
@@ -163,7 +188,7 @@ sequenceDiagram
     end
 ```
 
-## SWR-fallback при смене аргументов
+### SWR-fallback при смене аргументов
 
 
 ```mermaid
@@ -207,7 +232,7 @@ sequenceDiagram
     end
 ```
 
-## Дедупликация параллельных запросов
+### Дедупликация параллельных запросов
 
 
 ```mermaid
@@ -224,7 +249,9 @@ sequenceDiagram
     Res-->>Agent: void
 ```
 
-## Мутация — базовый поток
+## Потоки команды (Command)
+
+### Мутация — базовый поток
 
 
 ```mermaid
@@ -272,7 +299,9 @@ sequenceDiagram
     end
 ```
 
-## Инвалидация через link после мутации
+## Связи (Links)
+
+### Инвалидация через link после мутации
 
 
 ```mermaid
@@ -319,7 +348,7 @@ sequenceDiagram
     Lnk-->>Cmd: void
 ```
 
-## Оптимистичное обновление через link
+### Оптимистичное обновление через link
 
 
 ```mermaid
@@ -360,42 +389,85 @@ sequenceDiagram
 
 ---
 
-## Кросс-табовая синхронизация (broadcast)
+
+## Кросс-табовая синхронизация
+
+> Синхронизация построена на PULL-модели: вкладка, которой нужны данные, запрашивает их у других вкладок через `beforeQuery` хук и `BroadcastChannel`. Вкладки **не** рассылают данные проактивно после успешного запроса.
 
 ```mermaid
 sequenceDiagram
-    participant A as Вкладка A
+    participant UI as React-компонент
+    participant Hook as useResource
+    participant Agent as Agent
+    participant Res as Resource
+    participant Entry as QueryCacheEntry
+    participant BQ as beforeQuery
     participant Sync as SyncDriver
-    participant B as Вкладка B
+    participant Sync2 as SyncDriver (отвечающий)
+    participant Cache2 as CacheMap
+    participant Query as queryFn
 
-    Note over A: cache miss — запись отсутствует
+    Note over UI, Sync: Tab B — запрашивающая вкладка
+    Note over Sync2, Cache2: Tab A — вкладка с данными (success)
 
-    A->>Sync: REQUEST { key, keyedArgs }
-    Sync->>B: REQUEST { key, keyedArgs }
+    Note over Res: Cache miss — создание новой записи<br/>(подробнее см. «Cache miss»)
+    Res->>Entry: new Entry(options)
 
-    Note over B: запись в success, нет патчей
-    B->>Sync: RESPONSE { key, keyedArgs, data }
-    Sync->>A: RESPONSE { key, keyedArgs, data }
+    opt beforeQuery настроен (sync: true)
+        Res->>BQ: beforeQuery(key, keyedArgs)
+        BQ->>Sync: REQ { keys, reqId }
+        Note over Sync: BroadcastChannel.postMessage
+        Sync-->>Sync2: ISyncMessage { type: "REQ", reqId, keys }
 
-    Note over A: создаёт запись → machine$ → success
-    Note over A,B: данные получены из другой вкладки —<br/>сетевой запрос не потребовался
+        alt данные получены
+            Sync2->>Cache2: get(key)
+            Cache2-->>Sync2: Entry (success, data)
+            Sync2-->>Sync: ISyncMessage { type: "RES", reqId, data }
+            Sync-->>BQ: RES { data }
+            BQ-->>Entry: hydrate(data)
+            Entry->>Entry: → success (queryFn не вызывается)
+            Note over Entry: Мгновенный кэш-хит —<br/>рендер без сетевого запроса
+            Entry-->>Agent: machine$ → success
+            Agent-->>Hook: success
+            Hook-->>UI: { status: success, data }
+        else таймаут
+            Note over Sync2: Нет данных / нет других вкладок → нет ответа
+            Note over BQ: Таймаут — RES не получен
+            BQ-->>Res: null
+            Note over Res: queryFn вызывается далее
+        end
+    end
+
+    Entry->>Query: queryFn(args, abortSignal)
+    Note over Query: Сетевой запрос
+
+    alt ответ OK
+        Query-->>Entry: data
+        Entry->>Entry: → success
+        Entry-->>Agent: machine$ → success
+        Agent-->>Hook: success
+        Hook-->>UI: { status: success, data }
+    else ошибка
+        Query-->>Entry: error
+        Entry->>Entry: → error
+        Entry-->>Agent: machine$ → error
+        Agent-->>Hook: error
+        Hook-->>UI: { status: error, error }
+    end
 ```
+
 
 ## См. также
 
-- [Стейт-машина запроса][machine] — статусы и переходы, на которых построены все потоки
-- [Система кеширования][cache] — жизненный цикл записей и `retentionTime`
+- [Машина состояний запроса][machine] — статусы и переходы, на которых построены все потоки
+- [Система кэширования][cache] — жизненный цикл записей и `retentionTime`
 - [Оптимистичные обновления (links)][usage-links] — `optimisticUpdate` и `invalidate` в действии
 - [Агент][agent] — SWR-наблюдатель, транслирующий состояние машины в UI
 - [Кросс-табовая синхронизация][usage-broadcast] — настройка `syncDriver` и `broadcastSyncDriver`
 
----
 
 [agent]: agent.md
 [machine]: machine.md
 [cache]: cache.md
-[patching]: patching.md
 [usage-links]: ../usage/links.md
 [usage-broadcast]: ../usage/broadcast.md
-[api-res]: ../api/resource.md
-[api-cmd]: ../api/command.md

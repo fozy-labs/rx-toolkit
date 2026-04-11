@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
 
 /**
@@ -49,7 +49,7 @@ const logBus = createLogBus();
 let queryCount = 0;
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const dataResource = api.createResource<void, { message: string; queryNum: number }>({
@@ -60,10 +60,10 @@ const dataResource = api.createResource<void, { message: string; queryNum: numbe
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         if (num % 3 === 0) {
-            throw new Error(`Ошибка в запросе #${num}`);
+            throw new Error(`Сервис аналитики недоступен (запрос #${num})`);
         }
 
-        return { message: `Данные от запроса #${num}`, queryNum: num };
+        return { message: `Отчёт от запроса #${num}`, queryNum: num };
     },
 
     /**
@@ -112,13 +112,13 @@ const kindColors: Record<LogEntry['kind'], string> = {
 };
 
 export function Base() {
-    const state = dataResource.useResourceAgent();
+    const state = dataResource.useResource();
     const logEntries = useLogEntries();
     const { isRefreshError } = state;
 
     const handleInvalidate = () => {
         logBus.push('action', 'invalidate() — запускает refetch → onQueryStarted', 'info');
-        dataResource.invalidate();
+        dataResource.refresh();
     };
 
     const handleResetAll = () => {
@@ -130,7 +130,7 @@ export function Base() {
         <div className="flex flex-col gap-4">
             <Card>
                 <CardHeader className="text-xl font-bold">
-                    🔗 Lifecycle Hooks 
+                    � Аналитика запросов
                 </CardHeader>
                 <Divider />
                 <CardBody className="space-y-4">
@@ -160,7 +160,7 @@ export function Base() {
 
                     {isRefreshError && (
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
-                            <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.lastError)}</p>
+                            <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                             <p className="text-xs text-warning-500 mt-1">
                                 Данные остаются доступны — ошибка произошла при рефреше (SWR-семантика).
                             </p>
@@ -169,22 +169,22 @@ export function Base() {
 
                     <div className="flex gap-2">
                         <Button color="primary" variant="flat" size="sm" onPress={handleInvalidate}>
-                            🔄 Инвалидировать
+                            🔄 Запросить отчёт
                         </Button>
                         <Button color="warning" variant="flat" size="sm" onPress={handleResetAll}>
-                            💥 Сбросить всё
+                            💥 Очистить кэш аналитики
                         </Button>
                     </div>
 
                     <p className="text-xs text-default-400">
-                        Каждый 3-й запрос возвращает ошибку. Нажмите «Инвалидировать» несколько раз и сравните
+                        Каждый 3-й запрос возвращает ошибку. Нажмите «Запросить отчёт» несколько раз и сравните
                         количество onQueryStarted (каждый раз) vs onCacheEntryAdded (только один раз).
                     </p>
                 </CardBody>
             </Card>
 
             <Card>
-                <CardHeader className="font-bold">📜 Лог lifecycle-событий</CardHeader>
+                <CardHeader className="font-bold">📜 Журнал жизненного цикла</CardHeader>
                 <Divider />
                 <CardBody>
                     <div className="space-y-1 font-mono text-xs">

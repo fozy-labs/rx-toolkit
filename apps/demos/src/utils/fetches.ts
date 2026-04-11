@@ -4,11 +4,11 @@ export const fetches = {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return {
             items: [
-                { id: 1, name: 'Задача 1', description: 'Реализовать новую функцию' },
-                { id: 2, name: 'Задача 2', description: 'Исправить баги в коде' },
-                { id: 3, name: 'Задача 3', description: 'Написать документацию' },
-                { id: 4, name: 'Задача 4', description: 'Провести код-ревью' },
-                { id: 5, name: 'Задача 5', description: 'Оптимизировать производительность' }
+                { id: 1, name: 'PROJ-101 Авторизация через OAuth', description: 'Интеграция с провайдерами Google и GitHub' },
+                { id: 2, name: 'PROJ-102 Рефакторинг корзины', description: 'Перевести на новую архитектуру состояния' },
+                { id: 3, name: 'PROJ-103 Документация API', description: 'Описать эндпоинты v2 для внешних клиентов' },
+                { id: 4, name: 'PROJ-104 Код-ревью спринта', description: 'Проверить PR #287–#294 перед релизом' },
+                { id: 5, name: 'PROJ-105 Оптимизация запросов', description: 'Сократить время ответа каталога до <200мс' }
             ],
         };
     },

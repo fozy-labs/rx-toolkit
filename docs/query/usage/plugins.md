@@ -61,7 +61,7 @@ const loggingPlugin: IPlugin = {
   augmentResource(resource) {
     return {
       logState(args: unknown) {
-        // Упрощённый пример — getEntry$ принимает аргументы для идентификации кеш-записи
+        // Упрощённый пример — getEntry$ принимает аргументы для идентификации кэш-записи
         console.log(resource.getEntry(args));
       },
     };
@@ -84,6 +84,12 @@ type PluginResourceContributions<TPlugin, TArgs, TData> =
 Тип `PluginAugmentations` объединяет вклады всех плагинов в массиве и добавляет их к возвращаемому типу `createResource()`. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`.
 
 Для собственного плагина добавьте новую ветку в `PluginResourceContributions`, аналогичную ветке `ReactHooksPlugin`.
+
+
+## См. также
+
+- [Ресурс][resource] — основной примитив запросов, который расширяется плагинами.
+- [Команда][command] — примитив мутаций, также расширяемый через плагины.
 
 
 [resource]: ./resource.md

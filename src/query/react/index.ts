@@ -1,1 +1,3 @@
-export { useResourceAgent } from "./useResourceAgent";
+export * from "./useResource";
+export * from "./useCommand";
+export * from "./ReactHooksPlugin";

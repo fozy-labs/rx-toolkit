@@ -6,22 +6,27 @@ import {
     useDisclosure, Chip,
 } from '@heroui/react';
 import { Link } from 'react-router-dom';
+
 import { PostApi } from '@/entities/post';
 
 export function PostsListPage() {
     const postApi = inject(PostApi);
-    const query = postApi.list.useResourceAgent();
-    const [triggerCreate, createState] = postApi.create.useCommandAgent();
+    const query = postApi.list.useResource(undefined);
+    const [triggerCreate, createState] = postApi.create.useCommand();
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
 
     const handleCreate = async () => {
         if (!title.trim()) return;
-        await triggerCreate({ tempId: -Date.now(), title, body, userId: 1 });
-        setTitle('');
-        setBody('');
-        onClose();
+        try {
+            await triggerCreate({ tempId: -Date.now(), title, body, userId: 1 });
+            setTitle('');
+            setBody('');
+            onClose();
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     const posts = query.data?.slice(0, 30) ?? [];

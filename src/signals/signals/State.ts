@@ -5,7 +5,7 @@ import { normalizeSignalOptions, SignalFn, SignalLifecycleHook, SignalOptionsOrK
 import { Batcher, DependencyTracker, Devtools } from "../base";
 
 export class State<T> {
-    private readonly _hooks: SignalLifecycleHook<T>[] | null;
+    private _hooks: SignalLifecycleHook<T>[] | null;
     private _rang = 0;
     protected readonly bs$;
     readonly obs;
@@ -58,6 +58,18 @@ export class State<T> {
             peek: () => this.peek(),
         });
         return this.bs$.getValue();
+    }
+
+    complete() {
+        this.bs$.complete();
+
+        if (this._hooks) {
+            for (const hook of this._hooks) {
+                hook.onDispose?.();
+            }
+
+            this._hooks = null;
+        }
     }
 
     // === static ===

@@ -111,6 +111,11 @@ export class Computed<T> {
         this._state$.set(Computed._EMPTY);
     }
 
+    destroy() {
+        this._stop();
+        this._computeCache.clear();
+    }
+
     // === static ===
 
     private static _EMPTY = Symbol("empty");
@@ -125,6 +130,7 @@ export class Computed<T> {
         computedFn.peek = () => lc.peek();
         computedFn.get = () => lc.get();
         computedFn.obs = lc.obs;
+        computedFn.destroy = () => lc.destroy();
 
         return computedFn;
     }

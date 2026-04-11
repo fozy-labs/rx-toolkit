@@ -1,4 +1,4 @@
-import { DependencyTracker } from "@/signals";
+import { DependencyTracker } from "./DependencyTracker";
 
 /**
  * Кеш для хранения вычисленного значения и его зависимостей

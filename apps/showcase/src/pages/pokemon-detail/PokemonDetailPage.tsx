@@ -30,7 +30,7 @@ const TYPE_COLORS: Record<string, 'default' | 'primary' | 'secondary' | 'success
 export function PokemonDetailPage() {
     const { id } = useParams<{ id: string }>();
     const pokemonApi = inject(PokemonApi);
-    const query = pokemonApi.detail.useResourceAgent(id ?? SKIP);
+    const query = pokemonApi.detail.useResource(id ?? SKIP);
 
     if (!id) {
         return (

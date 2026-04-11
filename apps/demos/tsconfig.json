@@ -17,7 +17,11 @@
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "@fozy-labs/rx-toolkit": ["../../src/index.ts"],
+      "@/*": ["../../src/*"]
+    }
   },
   "include": ["src"]
 }

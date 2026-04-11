@@ -1,9 +1,9 @@
-# Запись кеша запроса (QueryCacheEntry) — API
+# Запись кэша запроса (QueryCacheEntry) — API
 
 Расширяет [CacheEntry][cache-entry-api], 
     добавляя жизненный цикл запроса: выполнение `queryFn`, 
     дедупликация, прерывание, [патчинг][patching-concept] 
-    и интеграция со [стейт-машиной][machine-concept]. 
+    и интеграция с [машиной состояний][machine-concept]. 
 Используется [ресурсом][resource-api] и [командой][command-api].
 
 
@@ -15,18 +15,18 @@
 | `retentionTime`      | `number \| false`                                                  | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять.                  |
 | `keyedArgs`          | `Keyed<TArgs>`                                                     | (Обязательное поле) | Аргументы для `queryFn`. Используются для дедупликации и отображения в DevTools.                        |
 | `resourceKey`        | `string`                                                           | —                   | Ключ для отображения в DevTools.                                                                        |
-| `initialState`       | `TState`                                                           | —                   | Начальное значение данных.                                                                              |
+| `initialMachine`     | `IMachine<TArgs, TData>`                                           | —                   | Машина состояний для инициализации записи.                                                              |
 | `beforeDevtoolsPush` | `(state: TState) => TState`                                        | —                   | Функция для изменения состояния перед отправкой в DevTools. Полезно для удаления чувствительных данных. |
 
 
 ## Свойства
 
-| Свойство   | Тип                                          | Описание                                                     |
-|------------|----------------------------------------------|--------------------------------------------------------------|
-| `keyedArgs` | `Keyed<TArgs>`                              | Аргументы, с которыми была создана запись.                   |
-| `machine$` | `SignalFn<TMachineInstance<TArgs, TData>>`   | Реактивный сигнал состояния [стейт-машины][machine-concept]. |
+| Свойство   | Тип                                          | Описание                                                    |
+|------------|----------------------------------------------|-------------------------------------------------------------|
+| `keyedArgs` | `Keyed<TArgs>`                              | Аргументы, с которыми была создана запись.                  |
+| `machine$` | `SignalFn<TMachineInstance<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
 
-> Наследуемые свойства `state$`, `completed` — см. [CacheEntry][cache-entry-api].
+> Наследуемые свойства `state$`, `completed$` — см. [CacheEntry][cache-entry-api].
 
 
 ## Методы
@@ -63,7 +63,7 @@
 
 - [CacheEntry — API][cache-entry-api]
 - [CacheMap — API][cache-map-api]
-- [Стейт-машина запроса][machine-concept]
+- [Машина состояний][machine-concept]
 - [Патчинг][patching-concept]
 - [Ресурс — API][resource-api]
 - [Команда — API][command-api]
