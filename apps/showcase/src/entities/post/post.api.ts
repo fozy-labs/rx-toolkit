@@ -1,5 +1,5 @@
 import { injectable } from '@fozy-labs/simplest-di';
-import { api, commandLink } from '@/shared/api';
+import { api } from '@/shared/api';
 import type { Post, CreatePostCommandArgs } from './types';
 
 const BASE = 'https://jsonplaceholder.typicode.com';
@@ -38,30 +38,28 @@ export class PostApi {
 
             return res.json();
         },
-        link: [
-            commandLink({
-                resource: this.list,
-                forwardArgs: () => undefined as void,
-                optimisticUpdate: ({ draft, args }) => {
-                    draft.unshift({
-                        id: args.tempId,
-                        userId: args.userId,
-                        title: args.title,
-                        body: args.body,
-                    });
-                },
-                update: ({ draft, args, data }) => {
-                    const tempPostIndex = draft.findIndex(post => post.id === args.tempId);
+        links: (link) => link({
+            resource: this.list,
+            forwardArgs: () => undefined as void,
+            optimisticUpdate: (draft, args) => {
+                draft.unshift({
+                    id: args.tempId,
+                    userId: args.userId,
+                    title: args.title,
+                    body: args.body,
+                });
+            },
+            update: (draft, args, data) => {
+                const tempPostIndex = draft.findIndex((post: Post) => post.id === args.tempId);
 
-                    if (tempPostIndex === -1) {
-                        draft.unshift(data);
-                        return;
-                    }
+                if (tempPostIndex === -1) {
+                    draft.unshift(data);
+                    return;
+                }
 
-                    draft[tempPostIndex] = data;
-                },
-            }),
-        ],
+                draft[tempPostIndex] = data;
+            },
+        }),
     });
 
     delete = api.createCommand<number, void>({
@@ -72,18 +70,16 @@ export class PostApi {
                 throw new Error(`Failed to delete post #${id}`);
             }
         },
-        link: [
-            commandLink({
-                resource: this.list,
-                forwardArgs: () => undefined as void,
-                optimisticUpdate: ({ draft, args }) => {
-                    const postIndex = draft.findIndex(post => post.id === args);
+        links: (link) => link({
+            resource: this.list,
+            forwardArgs: () => undefined as void,
+            optimisticUpdate: (draft, args) => {
+                const postIndex = draft.findIndex((post: Post) => post.id === args);
 
-                    if (postIndex !== -1) {
-                        draft.splice(postIndex, 1);
-                    }
-                },
-            }),
-        ],
+                if (postIndex !== -1) {
+                    draft.splice(postIndex, 1);
+                }
+            },
+        }),
     });
 }

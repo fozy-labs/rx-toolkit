@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin, commandLink } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider, Input } from '@heroui/react';
 
 interface TodoItem {
@@ -13,15 +13,15 @@ interface TodoList {
 
 let nextId = 6;
 const serverTodos: TodoItem[] = [
-    { id: 1, text: 'Изучить RxToolkit' },
-    { id: 2, text: 'Попробовать Command' },
-    { id: 3, text: 'Написать тесты' },
-    { id: 4, text: 'Провести код-ревью' },
-    { id: 5, text: 'Развернуть на продакшен' },
+    { id: 1, text: 'Заказ #1001 — Ноутбук Pro' },
+    { id: 2, text: 'Заказ #1002 — Монитор 27"' },
+    { id: 3, text: 'Заказ #1003 — Клавиатура механическая' },
+    { id: 4, text: 'Заказ #1004 — Мышь беспроводная' },
+    { id: 5, text: 'Заказ #1005 — Веб-камера HD' },
 ];
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const todosResource = api.createResource<void, TodoList>({
@@ -39,31 +39,33 @@ const addTodoCommand = api.createCommand<{ text: string }, TodoItem>({
         serverTodos.push(newItem);
         return newItem;
     },
-    link: [
-        commandLink({
-            resource: todosResource,
-            forwardArgs: () => undefined as void,
-            invalidate: true,
-        }),
-    ],
+    links: (link) => link({
+        resource: todosResource,
+        forwardArgs: () => undefined,
+        invalidate: true,
+    }),
 });
 
 export function Base() {
-    const resourceState = todosResource.useResourceAgent();
-    const [trigger, commandState] = addTodoCommand.useCommandAgent();
+    const resourceState = todosResource.useResource();
+    const [trigger, commandState] = addTodoCommand.useCommand();
     const [inputText, setInputText] = React.useState('');
 
     const handleAdd = async () => {
         const text = inputText.trim();
         if (!text) return;
         setInputText('');
-        await trigger({ text });
+        try {
+            await trigger({ text });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                🚀 Базовая команда (Command)
+                � Управление заказами
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
@@ -87,7 +89,7 @@ export function Base() {
                 <div className="flex gap-2">
                     <Input
                         size="sm"
-                        placeholder="Новая задача..."
+                        placeholder="Новый заказ..."
                         value={inputText}
                         onValueChange={setInputText}
                         onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
@@ -99,7 +101,7 @@ export function Base() {
                         onPress={handleAdd}
                         isLoading={commandState.isLoading}
                     >
-                        Добавить
+                        Оформить
                     </Button>
                 </div>
 
@@ -113,7 +115,7 @@ export function Base() {
                 {/* Список */}
                 {resourceState.isInitialLoading && (
                     <div className="text-center py-8 text-lg">
-                        ⏳ Загрузка задач...
+                        ⏳ Загрузка заказов...
                     </div>
                 )}
 
@@ -133,7 +135,7 @@ export function Base() {
 
                 <Divider />
                 <p className="text-xs text-default-400 text-center">
-                    createApi → createCommand + createResource → useCommandAgent — добавление элемента с инвалидацией ресурса
+                    createApi → createCommand + createResource → useCommandAgent — оформление заказа с инвалидацией ресурса
                 </p>
             </CardBody>
         </Card>

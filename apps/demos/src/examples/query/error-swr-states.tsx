@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
 
 interface ItemData {
@@ -10,32 +10,32 @@ interface ItemData {
 let fetchCount = 0;
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
-const itemsResource = api.createResource<void, ItemData>({
+const itemsResource = api.createResource({
     key: 'error-swr-items',
-    queryFn: async () => {
+    queryFn: async (): Promise<ItemData> => {
         fetchCount++;
         await new Promise(resolve => setTimeout(resolve, 800));
 
         // Каждый чётный запрос — ошибка (имитация нестабильного сервера)
         if (fetchCount % 2 === 0) {
-            throw new Error(`Сервер недоступен (запрос #${fetchCount})`);
+            throw new Error(`Сервер мониторинга недоступен (запрос #${fetchCount})`);
         }
 
         return {
             items: [
-                { id: 1, name: `Элемент A (запрос #${fetchCount})` },
-                { id: 2, name: `Элемент B (запрос #${fetchCount})` },
+                { id: 1, name: `API Gateway (запрос #${fetchCount})` },
+                { id: 2, name: `Платёжный сервис (запрос #${fetchCount})` },
             ],
             fetchedAt: new Date().toLocaleTimeString(),
-        };
+        }
     },
 });
 
 export function Base() {
-    const state = itemsResource.useResourceAgent();
+    const state = itemsResource.useResource();
     const [log, setLog] = React.useState<string[]>([]);
 
     const { isRefreshError } = state;
@@ -46,14 +46,14 @@ export function Base() {
     }, [state.status, isRefreshError, state.data]);
 
     const handleInvalidate = () => {
-        itemsResource.invalidate();
+        state.refresh();
     };
 
     return (
         <div className="flex flex-col gap-4">
             <Card>
                 <CardHeader className="text-xl font-bold">
-                    SWR-восстановление после ошибки 
+                    📡 Мониторинг сервисов
                 </CardHeader>
                 <Divider />
                 <CardBody className="space-y-4">
@@ -76,9 +76,9 @@ export function Base() {
                     {/* SWR: ошибка при рефреше — данные остаются, error доступен */}
                     {isRefreshError && (
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
-                            <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.lastError)}</p>
+                            <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                             <p className="text-xs text-warning-500 mt-1">
-                                Устаревшие данные остаются доступны (SWR-семантика). isError = false, ошибка в state.error.
+                                Устаревшие данные остаются доступны (SWR-семантика). isError = true, ошибка в state.error.
                             </p>
                         </div>
                     )}
@@ -95,7 +95,7 @@ export function Base() {
                                 Данные от: {state.data.fetchedAt}
                                 {state.isRefreshing && ' 🔄 Обновление...'}
                             </p>
-                            {state.data.items.map(item => (
+                            {state.data.items.map((item: { id: number; name: string }) => (
                                 <div
                                     key={item.id}
                                     className={`p-3 rounded-lg ${isRefreshError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}
@@ -114,11 +114,11 @@ export function Base() {
                         onPress={handleInvalidate}
                         fullWidth
                     >
-                        🔄 Инвалидировать (запустить refetch)
+                        🔄 Обновить статус
                     </Button>
 
                     <p className="text-xs text-default-400 text-center">
-                        Каждый чётный запрос возвращает ошибку. Нажмите кнопку для повторной попытки.
+                        Каждый чётный запрос имитирует таймаут сервера мониторинга. Нажмите кнопку для повторной попытки.
                     </p>
                 </CardBody>
             </Card>

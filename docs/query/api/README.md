@@ -24,12 +24,13 @@ const api = createApi({
 | `keyPrefix`          | `string` \| `null`        | `undefined`       | Префикс, который добавляется ко всем ключам ресурсов и команд, создаваемых через этот API.                                      |
 | `plugins`            | `IPlugin[]`               | `[]`              | Массив плагинов, которые будут использоваться этим API.                                                                         |
 | `serializeArgs`      | `(args: TArgs) => string` | `stableStringify` | Функция сериализации аргументов в строку.                                                                                       |
-| `resourceRetentionTime` | `number` \| `false`       | `60_000 ms`       | Время удержания кеша ресурсов. `false` — не удалять.                                            |
-| `commandRetentionTime`  | `number` \| `false`       | `0`               | Время удержания кеша команд. `false` — не удалять.                                              |
+| `resourceRetentionTime` | `number` \| `false`       | `60_000 ms`       | Время удержания кэша ресурсов. `false` — не удалять.                                            |
+| `commandRetentionTime`  | `number` \| `false`       | `0`               | Время удержания кэша команд. `false` — не удалять.                                              |
 | `initialSnapshot`    | `TApiSnapshot` \| `null`  | `null`            | Начальный [снимок] состояния всех ресурсов (для SSR или гидрации).                                                              |
 | `snapshotValidTime`  | `number` \| `false`       | `false`           | Время валидности данных в снимке. `false` - данные в [снимке][снимок] считаются всегда валидными.                               |
+| `defaultSync`        | `'none'` \| `'resources'` \| `'all'` | `'none'`          | Режим синхронизации по умолчанию для ресурсов. `'none'` — выключена, `'resources'` / `'all'` — включена. Команды не поддерживают синхронизацию. |
 | `syncDriver`         | `ISyncDriver`             | `undefined`       | Драйвер для [синхронизации][синхронизация] состояния между несколькими экземплярами API (например, в разных вкладках браузера). |
-| `onCacheEntryAdded`  | `(args, ctx) => void`     | —                 | Хук жизненного цикла уровня API — вызывается при создании любой кеш-записи. См. [lifecycle hooks][lifecycle].                  |
+| `onCacheEntryAdded`  | `(args, ctx) => void`     | —                 | Хук жизненного цикла уровня API — вызывается при создании любой кэш-записи. См. [lifecycle hooks][lifecycle].                  |
 | `onQueryStarted`     | `(args, ctx) => void \| Promise<void>` | — | Хук жизненного цикла уровня API — вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][lifecycle].                    |
 
 ## Методы API
@@ -40,6 +41,15 @@ const api = createApi({
 | `createCommand`  | `options: TCommandOptions<TArgs, TData>`   | `IApiCommand<TPlugins, TArgs, TData>`   | Создаёт новую [команду][команда].                               |
 | `getSnapshot()`  | -                                          | `TApiSnapshot`                          | Получает текущий [снимок] состояния всех [ресурсов][ресурс].    |
 | `resetAll()`     | -                                          | `void`                                  | Сбрасывает все ресурсы и очищает сохранённый снимок.            |
+
+
+## См. также
+
+- [Ресурс](../usage/resource.md)
+- [Команда](../usage/command.md)
+- [Снимок (SSR / гидрация)](../usage/snapshot.md)
+- [Синхронизация между вкладками](../usage/broadcast.md)
+- [Lifecycle hooks](../usage/lifecycle.md)
 
 
 [снимок]: ../usage/snapshot.md

@@ -1,5 +1,5 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Checkbox, Divider } from '@heroui/react';
 
 
@@ -15,15 +15,15 @@ interface TodoList {
 
 const mockTodoList: TodoList = {
     items: [
-        { id: 1, text: 'Изучить RxToolkit', completed: false },
-        { id: 2, text: 'Попробовать оптимистичные патчи', completed: true },
-        { id: 3, text: 'Добавить SSR snapshots', completed: false },
-        { id: 4, text: 'Мигрировать на новую версию', completed: false },
+        { id: 1, text: 'Иванов А. — отпуск 15–29 июля', completed: false },
+        { id: 2, text: 'Петрова М. — больничный 3 августа', completed: true },
+        { id: 3, text: 'Сидоров К. — отпуск 1–14 сентября', completed: false },
+        { id: 4, text: 'Козлова Е. — отгул 20 августа', completed: false },
     ],
 };
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const todoResource = api.createResource<void, TodoList>({
@@ -43,14 +43,14 @@ interface PatchDemoItem {
 let nextId = 1;
 
 export function Base() {
-    const state = todoResource.useResourceAgent(undefined);
+    const state = todoResource.useResource();
     const [patches, setPatches] = React.useState<PatchDemoItem[]>([]);
     const { isRefreshError } = state;
 
     const applyPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
-        const handle = state.entry?.createPatch(patchFn);
+        const handle = todoResource.getEntry()?.createPatch(patchFn);
         if (!handle) {
-            console.warn('Патч не создан — нет данных');
+            console.warn('Заявка не создана — нет данных');
             return;
         }
 
@@ -79,17 +79,17 @@ export function Base() {
     };
 
     const handleToggleItem = (item: TodoItem) => {
-        applyPatch(`Переключить "${item.text}"`, (draft) => {
+        applyPatch(`Согласовать "${item.text}"`, (draft) => {
             const target = draft.items.find(i => i.id === item.id);
             if (target) target.completed = !target.completed;
         });
     };
 
     const handleAddItem = () => {
-        const text = prompt('Введите текст новой задачи:');
+        const text = prompt('Введите описание заявки:');
         if (!text) return;
 
-        applyPatch(`Добавить: "${text}"`, (draft) => {
+        applyPatch(`Заявка: "${text}"`, (draft) => {
             const maxId = Math.max(...draft.items.map(i => i.id), 0);
             draft.items.push({ id: maxId + 1, text, completed: false });
         });
@@ -99,7 +99,7 @@ export function Base() {
         return (
             <Card className="max-w-4xl">
                 <CardBody className="text-center py-8">
-                    <div className="text-lg">⏳ Загрузка задач...</div>
+                    <div className="text-lg">⏳ Загрузка заявок...</div>
                 </CardBody>
             </Card>
         );
@@ -112,13 +112,13 @@ export function Base() {
         <div className="flex flex-col gap-4">
             <Card className="flex-1">
                 <CardHeader className="flex justify-between items-center">
-                    <h3 className="text-xl font-bold">📝 Оптимистичные патчи </h3>
+                    <h3 className="text-xl font-bold">📝 Заявки на отпуск </h3>
                     <div className="flex gap-2 items-center">
                         <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
                             isRefreshError: {String(isRefreshError)}
                         </span>
                         <Button color="primary" size="sm" onPress={handleAddItem}>
-                            ➕ Добавить
+                            ➕ Новая заявка
                         </Button>
                     </div>
                 </CardHeader>
@@ -143,17 +143,17 @@ export function Base() {
 
             <Card className="flex-1">
                 <CardHeader>
-                    <h3 className="text-xl font-bold">🔧 Панель патчей </h3>
+                    <h3 className="text-xl font-bold">🔧 Ожидают подтверждения </h3>
                 </CardHeader>
                 <Divider />
                 <CardBody className="space-y-3">
                     <p className="text-sm text-default-500">
-                        Каждое изменение создаёт патч через ref.createPatch(). Подтвердите (commit) или отмените (abort).
+                        Каждая заявка создаёт патч через ref.createPatch(). Подтвердите (commit) или отмените (abort).
                     </p>
 
                     {patches.length === 0 && (
                         <div className="text-center py-8 text-default-400 italic">
-                            Нет активных патчей
+                            Нет ожидающих заявок
                         </div>
                     )}
 

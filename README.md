@@ -106,7 +106,6 @@ sub.unsubscribe();
 import {
     createApi,
     ReactHooksPlugin,
-    commandLink,
     useResourceAgent,
     useCommandAgent,
 } from '@fozy-labs/rx-toolkit';
@@ -122,8 +121,8 @@ const getCart = api.createResource({
 
 const toggleCardItem = api.createCommand({
     queryFn: fetchToggleCardItem,
-    link: [
-        commandLink({
+    links(link) {
+        link({
             resource: getCart,
             forwardArgs: () => undefined,
             optimisticUpdate: ({ draft, args }) => {
@@ -132,7 +131,7 @@ const toggleCardItem = api.createCommand({
                 item.enabled = args.enabled;
             }
         })
-    ]
+    }
 });
 
 function ShoppingCart() {

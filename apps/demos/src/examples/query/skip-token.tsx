@@ -1,32 +1,31 @@
 import React from 'react';
-import { createApi, ReactHooksPlugin, SKIP } from '@fozy-labs/rx-toolkit';
-import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
+import { createApi, reactHooksPlugin, SKIP } from '@fozy-labs/rx-toolkit';
+import { Button, Card, CardBody, CardHeader, cn, Divider } from '@heroui/react';
 import { fetches } from "../../utils/fetches";
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const userResource = api.createResource({
     key: 'skip-token-user',
-    queryFn: async (args: { userId: number }) => {
-        return fetches.getUser(args.userId);
-    },
+    queryFn: fetches.getUser,
 });
 
 const userIds = [1, 2, 3, 4, 5];
+const userLabels: Record<number, string> = { 1: 'Алексей И.', 2: 'Мария П.', 3: 'Дмитрий К.', 4: 'Елена С.', 5: 'Сергей В.' };
 
 export function Base() {
     const [selectedId, setSelectedId] = React.useState<number | null>(null);
 
-    const state = userResource.useResourceAgent(
-        selectedId !== null ? { userId: selectedId } : SKIP,
+    const state = userResource.useResource(
+        selectedId !== null ? selectedId : SKIP,
     );
 
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                🚫 SKIP Token 
+                👤 Карточка сотрудника
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
@@ -51,7 +50,7 @@ export function Base() {
                         variant={selectedId === null ? 'solid' : 'flat'}
                         onPress={() => setSelectedId(null)}
                     >
-                        🚫 SKIP
+                        Без выбора
                     </Button>
                     {userIds.map(id => (
                         <Button
@@ -61,7 +60,7 @@ export function Base() {
                             variant={selectedId === id ? 'solid' : 'flat'}
                             onPress={() => setSelectedId(id)}
                         >
-                            👤 User {id}
+                            👤 {userLabels[id]}
                         </Button>
                     ))}
                 </div>
@@ -71,19 +70,19 @@ export function Base() {
                 {/* Результат */}
                 {selectedId === null && (
                     <div className="text-center py-8 text-default-400">
-                        <p className="text-lg">🚫 Запрос пропущен (SKIP)</p>
-                        <p className="text-sm mt-2">Выберите пользователя для загрузки данных</p>
+                        <p className="text-lg">Выберите сотрудника из списка</p>
+                        <p className="text-sm mt-2">Без выбора сотрудника запрос не выполняется (SKIP)</p>
                     </div>
                 )}
 
                 {selectedId !== null && state.isInitialLoading && (
                     <div className="text-center py-8 text-lg">
-                        ⏳ Загрузка пользователя #{selectedId}...
+                        ⏳ Загрузка профиля сотрудника...
                     </div>
                 )}
 
-                {state.isSuccess && state.data && (
-                    <div className="p-4 bg-default-100 rounded-lg">
+                {state.data && (
+                    <div className={cn('p-4 bg-default-100 rounded-lg', state.isRefreshing && 'animate-pulse opacity-75')}>
                         <p className="text-2xl mb-2">{state.data.avatar}</p>
                         <p className="font-semibold text-lg">{state.data.name}</p>
                         <p className="text-sm text-default-500">{state.data.email}</p>
@@ -93,8 +92,8 @@ export function Base() {
 
                 <Divider />
                 <p className="text-xs text-default-400 text-center">
-                    SKIP предотвращает запрос — агент возвращает пустое состояние.
-                    При выборе пользователя запрос запускается автоматически.
+                    Без выбора сотрудника запрос не выполняется (SKIP).
+                    При выборе сотрудника профиль загружается автоматически.
                 </p>
             </CardBody>
         </Card>

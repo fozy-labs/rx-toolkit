@@ -4,6 +4,7 @@ import {
     Card, CardBody, Pagination, Skeleton, Input,
 } from '@heroui/react';
 import { Link } from 'react-router-dom';
+
 import { PokemonApi } from '@/entities/pokemon';
 
 const LIMIT = 24;
@@ -26,7 +27,7 @@ export function PokemonListPage() {
     const [search, setSearch] = useState('');
 
     const offset = (page - 1) * LIMIT;
-    const query = pokemonApi.list.useResourceAgent({ offset, limit: LIMIT });
+    const query = pokemonApi.list.useResource({ offset, limit: LIMIT });
 
     const totalPages = query.data ? Math.ceil(query.data.count / LIMIT) : 1;
 
@@ -54,12 +55,12 @@ export function PokemonListPage() {
                 />
             </div>
 
-            {query.isInitialLoading ? (
+            {query.isLoading ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {Array.from({ length: LIMIT }, (_, i) => (
                         <Card key={i} shadow="sm">
-                            <CardBody className="items-center gap-2 p-4">
-                                <Skeleton className="rounded-lg w-20 h-20" />
+                            <CardBody className="items-center gap-4 p-4 h-44 w-44">
+                                <Skeleton className="rounded-lg w-24 h-24 opacity-50" />
                                 <Skeleton className="h-4 w-16 rounded-lg" />
                             </CardBody>
                         </Card>
@@ -81,13 +82,11 @@ export function PokemonListPage() {
                                 isPressable
                                 shadow="sm"
                             >
-                                <CardBody className="items-center gap-1 p-4">
+                                <CardBody className="items-center gap-1 p-4 h-44 w-44">
                                     <img
                                         src={pokemon.imageUrl}
                                         alt={pokemon.name}
-                                        width={80}
-                                        height={80}
-                                        className="h-20 w-20 object-contain"
+                                        className="h-24 w-24 object-contain"
                                         loading="lazy"
                                         onError={event => handlePokemonImageError(event, pokemon.fallbackImageUrl)}
                                     />

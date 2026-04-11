@@ -1,9 +1,9 @@
-import { createApi, ReactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
 import { fetches } from "../../utils/fetches";
 
 const api = createApi({
-    plugins: [new ReactHooksPlugin()],
+    plugins: [reactHooksPlugin()],
 });
 
 const itemsResource = api.createResource({
@@ -12,17 +12,16 @@ const itemsResource = api.createResource({
 });
 
 export function Base() {
-    const state = itemsResource.useResourceAgent();
+    const state = itemsResource.useResource();
 
     const handleResetAll = () => {
         api.resetAll();
-        console.log('🔄 Все ресурсы сброшены!');
     };
 
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                📋 Простой ресурс 
+                📋 Список задач проекта
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
@@ -54,11 +53,11 @@ export function Base() {
                             onPress={handleResetAll}
                             fullWidth
                         >
-                            🔄 Сбросить все ресурсы
+                            🔄 Очистить кэш
                         </Button>
 
                         <p className="text-xs text-default-400 text-center">
-                            Нажмите кнопку, чтобы вызвать api.resetAll() и сбросить все кеши
+                            Очистить локальный кэш проекта — вызывает api.resetAll()
                         </p>
                     </>
                 )}
