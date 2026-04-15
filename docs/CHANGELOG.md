@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+[Гайд по миграции с 0.5.x](./migrations/0.6.0.md)
+
+### Added
+- `createApi()` — центральная фабрика для создания ресурсов и команд, заменяет standalone-функции
+- Фабричные методы `Machine.pending()`, `Machine.fromSnapshot()`
+- Система плагинов с HKT-типами для типобезопасного расширения
+- SSR-гидрация кеша через опции `initialSnapshot` и `getSnapshot()`
+- Кросс-табовая синхронизация через опции `syncDriver` и `defaultSync`
+- Новые опции `createApi`: `keyPrefix`, `syncDriver`, `defaultSync`, `snapshotValidTime`, `initialSnapshot`, `resourceRetentionTime`, `commandRetentionTime`
+- Статус `isRefreshError` в агентах ресурсов
+- Статус `idle` в агентах (ресурсов и команд)
+- `reactHooksPlugin()` — фабричная функция (альтернатива `new ReactHooksPlugin()`)
+
+### Changed
+- **Полностью переработанный модуль Query** — иммутабельные состояния машины, реактивные кеш-записи, SWR-поведение
+- `Machine` теперь дискриминированное объединение иммутабельных подтипов: `MachinePending`, `MachineSuccess`, `MachineError`, `MachineRefreshing`, `MachineRefreshError`
+- Ресурсы теперь поддерживают реактивные кеш-записи с методами `getEntry$()`, `createAgent()`, `trigger()`, `refresh()`
+- Агенты ресурсов переработаны — SWR-поведение, методы `start`, `set`, `retry`, `refresh`, новый статус `idle`
+- Агенты команд переработаны — методы `trigger`, `setKey`
+- Команды теперь поддерживают оптимистичные обновления, патчи при успехе и инвалидацию связанных ресурсов
+- `link` (callback) переименован в `links` (массив или callback): `optimisticUpdate(draft, args)`, `update(draft, args, result)`, `invalidate` — вместо обёрточного объекта
+- React хуки переписаны: `useResource(resource, args)`, `useCommand(command, key)`
+- Оптимистичные обновления с Immer-патчами и rebase-логикой
+
+### Removed
+- Удалены deprecated-элементы:
+  - `api.createOperation()` → используйте `api.createCommand()`
+  - `useOperationAgent()` → используйте `useCommand()`
+  - Все Operation-типы (`OperationDefinition`, `OperationInstance`, `OperationCreateOptions`, `OperationCreateFn`, `OperationQueryState`, `OperationAgentInstanse`) → удалены (Query модуль полностью переписан, см. [гайд по миграции](./migrations/0.6.0.md))
+  - `ResourceRefInstanse` — удалён (используйте `resource.getEntry()` для доступа к кеш-записям)
+  - `LocalSignal` → используйте `LocalState`
+  - `Signal.create()` — удалён из публичного API (технически доступен через наследование от `State`, но не рекомендуется) → используйте `Signal.state()` / `State.create()`
+- Удалены standalone-функции (заменены методами `createApi()`):
+  - `createResource()` → `api.createResource()`
+  - `createCommand()` → `api.createCommand()`
+  - `createResourceDuplicator()` → удалён без замены
+  - `resetAllQueriesCache()` → `api.resetAll()`
+- Удалены и заменены React-хуки:
+  - `useCommandAgent()` → используйте `useCommand()`
+  - `useResourceAgent()` → используйте `useResource()`
+  - `useResourceRef()` → удалён (используйте `resource.getEntry()`)
+- Удалён namespace `unstable_queryV2` — экспериментальный API стал основным
 
 ## [0.5.4] - 2026-03-21
 
@@ -91,6 +133,7 @@
 - **BatchStrategy**: настройка стратегии обновлений (`'sync'`, `'microtask'`, `'task'`)
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
+[0.6.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.1...v0.5.2

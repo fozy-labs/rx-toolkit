@@ -42,7 +42,7 @@ export function HomePage() {
                         <div className="flex flex-wrap gap-2 mt-2">
                             <Chip size="sm" variant="flat" color="primary">Resource</Chip>
                             <Chip size="sm" variant="flat" color="secondary">Signal.state</Chip>
-                            <Chip size="sm" variant="flat" color="success">useResourceAgent</Chip>
+                            <Chip size="sm" variant="flat" color="success">React hooks</Chip>
                         </div>
                     </CardBody>
                 </Card>
@@ -57,8 +57,8 @@ export function HomePage() {
                         </div>
                         <div className="flex flex-wrap gap-2 mt-2">
                             <Chip size="sm" variant="flat" color="primary">Command</Chip>
-                            <Chip size="sm" variant="flat" color="warning">commandLink</Chip>
-                            <Chip size="sm" variant="flat" color="success">useCommandAgent</Chip>
+                            <Chip size="sm" variant="flat" color="warning">Links</Chip>
+                            <Chip size="sm" variant="flat" color="success">React hooks</Chip>
                         </div>
                     </CardBody>
                 </Card>

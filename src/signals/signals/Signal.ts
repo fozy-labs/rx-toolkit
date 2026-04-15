@@ -4,11 +4,7 @@ import { Computed } from "./Computed";
 import { Effect } from "./Effect";
 import { State } from "./State";
 
-export class Signal<T> extends State<T> {
-    constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
-        super(initialValue, options);
-    }
-
+export class Signal {
     static state<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
         return State.create(initialValue, options);
     }

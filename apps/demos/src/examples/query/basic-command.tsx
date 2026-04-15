@@ -135,7 +135,7 @@ export function Base() {
 
                 <Divider />
                 <p className="text-xs text-default-400 text-center">
-                    createApi → createCommand + createResource → useCommandAgent — оформление заказа с инвалидацией ресурса
+                    createApi → createCommand + createResource → useCommand — оформление заказа с инвалидацией ресурса
                 </p>
             </CardBody>
         </Card>

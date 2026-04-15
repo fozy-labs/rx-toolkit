@@ -9,7 +9,7 @@ RxToolkit предоставляет набор React хуков для эффе
 Подписывается на изменения сигнала и возвращает текущее значение.
 
 ```tsx
-import { Signal, Computed, useSignal } from '@fozy-labs/rx-toolkit';
+import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
 
 const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
@@ -38,16 +38,16 @@ function Counter() {
 
 ## RxQuery хуки
 
-### useResourceAgent
+### useResource
 
 Подписывается на состояние ресурса и автоматически инициирует запрос при монтировании или изменении аргументов.
 
 ```tsx
-import { useResourceAgent, SKIP } from '@fozy-labs/rx-toolkit';
+import { useResource, SKIP } from '@fozy-labs/rx-toolkit';
 import { userResource } from '../api/userResource';
 
 function UserProfile({ userId }: { userId: string | null }) {
-    const userQuery = useResourceAgent(
+    const userQuery = useResource(
         userResource, 
         userId ? { id: userId } : SKIP
     );
@@ -60,7 +60,7 @@ function UserProfile({ userId }: { userId: string | null }) {
         return <div>Ошибка: {String(userQuery.error)}</div>;
     }
     
-    if (userQuery.isReloading) {
+    if (userQuery.isRefreshing) {
         // Показываем данные + индикатор перезагрузки
     }
     
@@ -73,20 +73,22 @@ function UserProfile({ userId }: { userId: string | null }) {
 }
 ```
 
-**Возвращаемое значение (ResourceQueryState):**
+**Возвращаемое значение (TResourceAgentState):**
 
-| Поле               | Тип         | Описание                              |
-|--------------------|-------------|---------------------------------------|
-| `isLoading`        | `boolean`   | Любая загрузка (первая или повторная) |
-| `isInitialLoading` | `boolean`   | Первая загрузка (данных еще нет)      |
-| `isReloading`      | `boolean`   | Перезагрузка (данные уже есть)        |
-| `isDone`           | `boolean`   | Завершен ли запрос                    |
-| `isSuccess`        | `boolean`   | Успешно ли завершен последний запрос  |
-| `isError`          | `boolean`   | Произошла ли ошибка                   |
-| `isLocked`         | `boolean`   | Заблокирован ли ресурс командой       |
-| `error`            | `unknown`   | Объект ошибки                         |
-| `data`             | `D["Data"]` | Данные ресурса                        |
-| `args`             | `D["Args"]` | Аргументы последнего запроса          |
+| Поле               | Тип              | Описание                              |
+|--------------------|------------------|---------------------------------------|
+| `status`           | `TAgentStatus`   | Текущий статус агента                 |
+| `data`             | `TData \| null`  | Данные ресурса                        |
+| `error`            | `unknown`        | Объект ошибки                         |
+| `args`             | `TArgs \| null`  | Аргументы последнего запроса          |
+| `isLoading`        | `boolean`        | Любая загрузка (первая или повторная) |
+| `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
+| `isRefreshing`     | `boolean`        | Перезагрузка (данные уже есть)        |
+| `isRefreshError`   | `boolean`        | Ошибка при перезагрузке               |
+| `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
+| `isError`          | `boolean`        | Произошла ли ошибка                   |
+| `retry()`          | `() => void`     | Повторить последний запрос            |
+| `refresh()`        | `() => void`     | Принудительно обновить данные         |
 
 **Особенности:**
 - Автоматическая подписка на состояние ресурса
@@ -94,18 +96,16 @@ function UserProfile({ userId }: { userId: string | null }) {
 - Поддержка `SKIP` токена для условного пропуска запроса
 - При смене аргументов показывает предыдущие данные во время загрузки новых
 
-### useCommandAgent
+### useCommand
 
 Создает агент команды и возвращает кортеж `[trigger, state]`.
 
-> **Note:** `useOperationAgent` является deprecated-алиасом для `useCommandAgent` и будет удалён в v0.6.0.
-
 ```tsx
-import { useCommandAgent } from '@fozy-labs/rx-toolkit';
+import { useCommand } from '@fozy-labs/rx-toolkit';
 import { updateUserCommand } from '../api/updateUserCommand';
 
 function EditUserForm({ user }: { user: User }) {
-    const [updateUser, updateState] = useCommandAgent(updateUserCommand);
+    const [updateUser, updateState] = useCommand(updateUserCommand);
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -143,7 +143,7 @@ function EditUserForm({ user }: { user: User }) {
 ```typescript
 [
     trigger: (args: Args) => Promise<Data>,  // Функция запуска команды
-    state: CommandQueryState                 // Текущее состояние
+    state: TCommandAgentState                // Текущее состояние
 ]
 ```
 
@@ -154,85 +154,39 @@ function EditUserForm({ user }: { user: User }) {
 
 **state объект:**
 
-| Поле          | Тип         | Описание                  |
-|---------------|-------------|---------------------------|
-| `isInitiated` | `boolean`   | Была ли команда запущена  |
-| `isLoading`   | `boolean`   | Выполняется ли команда    |
-| `isDone`      | `boolean`   | Завершена ли команда      |
-| `isSuccess`   | `boolean`   | Успешно ли завершена      |
-| `isError`     | `boolean`   | Произошла ли ошибка       |
-| `error`       | `unknown`   | Объект ошибки             |
-| `data`        | `D["Data"]` | Результат команды         |
+| Поле        | Тип                                          | Описание               |
+|-------------|----------------------------------------------|------------------------|
+| `status`    | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус команды |
+| `data`      | `TData \| null`                              | Результат команды      |
+| `error`     | `unknown`                                    | Объект ошибки          |
+| `args`      | `TArgs \| null`                              | Аргументы запуска      |
+| `isLoading` | `boolean`                                    | Выполняется ли команда |
+| `isSuccess` | `boolean`                                    | Успешно ли завершена   |
+| `isError`   | `boolean`                                    | Произошла ли ошибка    |
 
-### useResourceRef
+### useResourceRef (удалён в v0.6.0)
 
-Возвращает ссылку на элемент кэша ресурса для низкоуровневых операций.
+> **Удалён:** Хук `useResourceRef` был удалён в v0.6.0. Для низкоуровневых операций с кэшем используйте `resource.getEntry(args, true)` или `resource.createAgent()` напрямую.
 
 ```tsx
-import { useResourceRef, useResourceAgent } from '@fozy-labs/rx-toolkit';
+import { useResource } from '@fozy-labs/rx-toolkit';
 import { todoResource } from '../api/todoResource';
 
 function TodoItem({ todo }: { todo: Todo }) {
-    const todoQuery = useResourceAgent(todoResource, undefined);
-    const todoRef = useResourceRef(todoResource, undefined);
+    const todoQuery = useResource(todoResource, undefined);
     
-    const [pendingTransaction, setPendingTransaction] = useState(null);
+    // Вместо useResourceRef — получаем entry напрямую:
+    const entry = todoResource.getEntry(undefined, true);
     
     const handleToggle = () => {
-        // Создаем транзакцию для изменения
-        const transaction = todoRef.patch((draft) => {
+        const transaction = entry.createPatch((draft) => {
             const item = draft.items.find(i => i.id === todo.id);
             if (item) item.completed = !item.completed;
         });
-        
-        if (transaction) {
-            setPendingTransaction(transaction);
-        }
+        // ...
     };
-    
-    const handleSave = async () => {
-        try {
-            await saveToServer(todo.id, !todo.completed);
-            pendingTransaction?.commit();
-        } catch {
-            pendingTransaction?.abort(); // Откатить изменения
-        }
-        setPendingTransaction(null);
-    };
-    
-    return (
-        <div>
-            <input 
-                type="checkbox" 
-                checked={todo.completed}
-                onChange={handleToggle}
-            />
-            {pendingTransaction && (
-                <>
-                    <button onClick={handleSave}>Сохранить</button>
-                    <button onClick={() => {
-                        pendingTransaction.abort();
-                        setPendingTransaction(null);
-                    }}>
-                        Отмена
-                    </button>
-                </>
-            )}
-        </div>
-    );
 }
 ```
-
-**Возвращаемое значение (ResourceRefInstance):**
-
-| Метод | Описание |
-|-------|----------|
-| `has` | Проверка наличия элемента в кэше |
-| `lock()` | Блокировка ресурса, возвращает `{ unlock }` |
-| `unlockOne()` | Снятие одной блокировки |
-| `patch(fn)` | Создание patch-транзакции |
-| `invalidate()` | Инвалидация кэша |
-| `create(data)` | Создание элемента в кэше |
 
 
 ---
@@ -275,7 +229,7 @@ function Counter() {
 
 ```tsx
 function UserStats({ userId, showStats }) {
-    const statsQuery = useResourceAgent(
+    const statsQuery = useResource(
         statsResource,
         showStats && userId ? { userId } : SKIP
     );
@@ -290,8 +244,8 @@ function UserStats({ userId, showStats }) {
 
 ```tsx
 function Dashboard() {
-    const userQuery = useResourceAgent(userResource, { id: currentUserId });
-    const settingsQuery = useResourceAgent(settingsResource, undefined);
+    const userQuery = useResource(userResource, { id: currentUserId });
+    const settingsQuery = useResource(settingsResource, undefined);
     
     const isLoading = userQuery.isLoading || settingsQuery.isLoading;
     const isError = userQuery.isError || settingsQuery.isError;
