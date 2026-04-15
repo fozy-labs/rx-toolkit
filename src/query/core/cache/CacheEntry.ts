@@ -1,7 +1,7 @@
 import { finalize, Observable, ReplaySubject, share, Subject, timer } from "rxjs";
 
 import type { ICacheEntry, ICacheEntryOptions } from "@/query/types";
-import { Signal, signalize } from "@/signals";
+import { signalize, State } from "@/signals";
 
 /**
  * Internal reactive container wrapping a Signal.state<TState>.
@@ -16,7 +16,7 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
     readonly state$;
 
     constructor(initialState: TState, options: ICacheEntryOptions<TState>) {
-        this._state$ = new Signal<TState>(initialState, {
+        this._state$ = new State<TState>(initialState, {
             key: options?.devtoolsKey,
             beforeDevtoolsPush: options?.beforeDevtoolsPush,
         });
