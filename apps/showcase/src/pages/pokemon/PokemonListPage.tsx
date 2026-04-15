@@ -1,8 +1,6 @@
-import { useMemo, useState, type SyntheticEvent } from 'react';
+import { type SyntheticEvent, useMemo, useState } from 'react';
 import { inject } from '@fozy-labs/simplest-di';
-import {
-    Card, CardBody, Pagination, Skeleton, Input,
-} from '@heroui/react';
+import { Card, CardBody, Input, Pagination, Skeleton } from '@heroui/react';
 import { Link } from 'react-router-dom';
 
 import { PokemonApi } from '@/entities/pokemon';
@@ -55,63 +53,57 @@ export function PokemonListPage() {
                 />
             </div>
 
-            {query.isLoading ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {Array.from({ length: LIMIT }, (_, i) => (
-                        <Card key={i} shadow="sm">
-                            <CardBody className="items-center gap-4 p-4 h-44 w-44">
-                                <Skeleton className="rounded-lg w-24 h-24 opacity-50" />
-                                <Skeleton className="h-4 w-16 rounded-lg" />
-                            </CardBody>
-                        </Card>
-                    ))}
-                </div>
-            ) : query.isError ? (
+            {query.isError && (
                 <div className="text-center py-12">
                     <p className="text-danger text-lg">Failed to load pokemon</p>
                     <p className="text-default-400 text-sm mt-1">{String(query.error)}</p>
                 </div>
-            ) : (
-                <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {filtered.map(pokemon => (
-                            <Card
-                                key={pokemon.name}
-                                as={Link}
-                                to={`/pokemon/${pokemon.id}`}
-                                isPressable
-                                shadow="sm"
-                            >
-                                <CardBody className="items-center gap-1 p-4 h-44 w-44">
-                                    <img
-                                        src={pokemon.imageUrl}
-                                        alt={pokemon.name}
-                                        className="h-24 w-24 object-contain"
-                                        loading="lazy"
-                                        onError={event => handlePokemonImageError(event, pokemon.fallbackImageUrl)}
-                                    />
-                                    <p className="capitalize text-sm font-medium">{pokemon.name}</p>
-                                    <p className="text-xs text-default-400">#{pokemon.id}</p>
-                                </CardBody>
-                            </Card>
-                        ))}
-                    </div>
-
-                    {filtered.length === 0 && search && (
-                        <p className="text-center text-default-400 py-8">No pokemon match "{search}"</p>
-                    )}
-
-                    <div className="flex justify-center pt-4">
-                        <Pagination
-                            total={totalPages}
-                            page={page}
-                            onChange={setPage}
-                            showControls
-                            color="primary"
-                        />
-                    </div>
-                </>
             )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {query.isLoading && Array.from({ length: LIMIT }, (_, i) => (
+                    <Card key={i} shadow="sm">
+                        <CardBody className="items-center gap-6 p-1 h-44 w-44">
+                            <Skeleton className="rounded-lg w-30 h-30 opacity-50"/>
+                            <Skeleton className="h-4 w-16 rounded-lg"/>
+                        </CardBody>
+                    </Card>
+                ))}
+                {!query.isLoading && filtered.map(pokemon => (
+                    <Card
+                        key={pokemon.name}
+                        as={Link}
+                        to={`/pokemon/${pokemon.id}`}
+                        isPressable
+                        shadow="sm"
+                    >
+                        <CardBody className="items-center gap-1 p-1 h-44 w-44">
+                            <img
+                                src={pokemon.imageUrl}
+                                alt={pokemon.name}
+                                className="h-30 w-30 object-contain"
+                                onErrorCapture={(e) => handlePokemonImageError(e, '/pokemon-fallback.png')}
+                            />
+                            <p className="capitalize text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-32">{pokemon.name}</p>
+                            <p className="text-xs text-default-400">#{pokemon.id}</p>
+                        </CardBody>
+                    </Card>
+                ))}
+            </div>
+
+            {filtered.length === 0 && search && (
+                <p className="text-center text-default-400 py-8">No pokemon match "{search}"</p>
+            )}
+
+            <div className="flex justify-center pt-4">
+                <Pagination
+                    total={totalPages}
+                    page={page}
+                    onChange={setPage}
+                    showControls
+                    color="primary"
+                />
+            </div>
         </div>
     );
 }
