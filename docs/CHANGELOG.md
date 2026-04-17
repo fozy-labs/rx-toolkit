@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.6.0] - 2026-04-17
 
 [Гайд по миграции с 0.5.x](./migrations/0.6.0.md)
 
