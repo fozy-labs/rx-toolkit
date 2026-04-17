@@ -1,6 +1,6 @@
 import React from 'react';
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
-import { Button, Card, CardBody, CardHeader, Divider, Input } from '@heroui/react';
+import { createApi, reactHooksPlugin, Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { Button, Card, CardBody, CardHeader, Divider, Input, Spinner } from '@heroui/react';
 
 interface TodoItem {
     id: number;
@@ -43,18 +43,27 @@ const addTodoCommand = api.createCommand<{ text: string }, TodoItem>({
         resource: todosResource,
         forwardArgs: () => undefined,
         invalidate: true,
+        optimisticUpdate: (draft, args) => {
+            const id = -(nextId++);
+            draft.items.push({
+                id,
+                ...args,
+            });
+        }
     }),
 });
+
+const inputText$ = Signal.state('');
 
 export function Base() {
     const resourceState = todosResource.useResource();
     const [trigger, commandState] = addTodoCommand.useCommand();
-    const [inputText, setInputText] = React.useState('');
+    const inputText = useSignal(inputText$);
 
     const handleAdd = async () => {
         const text = inputText.trim();
         if (!text) return;
-        setInputText('');
+        inputText$.set('');
         try {
             await trigger({ text });
         } catch (err) {
@@ -62,10 +71,12 @@ export function Base() {
         }
     };
 
+    console.log('Resource State:', resourceState);
+
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                � Управление заказами
+                ⚙ Управление заказами
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">
@@ -91,7 +102,7 @@ export function Base() {
                         size="sm"
                         placeholder="Новый заказ..."
                         value={inputText}
-                        onValueChange={setInputText}
+                        onValueChange={inputText$.set}
                         onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                         isDisabled={commandState.isLoading}
                     />
@@ -124,10 +135,11 @@ export function Base() {
                         {resourceState.data.items.map((item: TodoItem) => (
                             <div
                                 key={item.id}
-                                className="p-3 bg-default-100 rounded-lg"
+                                className="p-3 bg-default-100 rounded-lg flex items-center gap-1"
                             >
                                 <span className="font-medium">{item.text}</span>
                                 <span className="text-xs text-default-400 ml-2">#{item.id}</span>
+                                {item.id < 0 && <Spinner size="sm" className="my-auto ml-auto pr-2" />}
                             </div>
                         ))}
                     </div>
