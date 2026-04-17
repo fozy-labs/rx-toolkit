@@ -14,15 +14,6 @@ describe("normalizeSignalOptions", () => {
         expect(normalizeSignalOptions(undefined)).toEqual({});
     });
 
-    it("deprecated name → key", () => {
-        expect(normalizeSignalOptions({ name: "counter" })).toEqual({ name: "counter", key: "counter" });
-    });
-
-    it("name + key — key приоритетнее", () => {
-        const opts = { name: "old", key: "new" };
-        expect(normalizeSignalOptions(opts)).toEqual({ name: "old", key: "new" });
-    });
-
     it("объект с hooks[] сохраняется", () => {
         const onInit = () => {};
         const opts = { key: "x", hooks: [{ onInit }] };

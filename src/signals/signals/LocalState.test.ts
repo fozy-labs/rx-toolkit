@@ -1,6 +1,6 @@
 import { z } from "zod/v4";
 
-import { LocalSignal, LocalState } from "./LocalState";
+import { LocalState } from "./LocalState";
 
 const KEY_PREFIX = "__LSValue__";
 
@@ -160,12 +160,6 @@ describe("LocalState", () => {
             s.set(-1);
             expect(s.peek()).toBe(0);
             sub.unsubscribe();
-        });
-    });
-
-    describe("deprecated API", () => {
-        it("LocalSignal is an alias for LocalState", () => {
-            expect(LocalSignal).toBe(LocalState);
         });
     });
 });

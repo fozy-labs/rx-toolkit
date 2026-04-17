@@ -12,7 +12,7 @@ DefaultOptions.update({
 import HomePage from '../pages/HomePage.mdx';
 import SignalsPage from '../pages/SignalsPage.mdx';
 import QueriesPage from '../pages/QueriesPage.mdx';
-import QueriesV2Page from '../pages/QueriesV2Page.mdx';
+import PokemonPage from '../pages/PokemonPage.mdx';
 
 export default function App() {
     const location = useLocation();
@@ -42,9 +42,9 @@ export default function App() {
                             Query
                         </Link>
                     </NavbarItem>
-                    <NavbarItem isActive={location.pathname === '/queries-v2'}>
-                        <Link to="/queries-v2" className={location.pathname === '/queries-v2' ? 'text-primary' : 'text-foreground'}>
-                            Query-V2
+                    <NavbarItem isActive={location.pathname === '/pokemon'}>
+                        <Link to="/pokemon" className={location.pathname === '/pokemon' ? 'text-primary' : 'text-foreground'}>
+                            Pokemon
                         </Link>
                     </NavbarItem>
                 </NavbarContent>
@@ -55,7 +55,7 @@ export default function App() {
                     <Route path="/" element={<HomePage />}/>
                     <Route path="/signals" element={<SignalsPage />}/>
                     <Route path="/queries" element={<QueriesPage />}/>
-                    <Route path="/queries-v2" element={<QueriesV2Page />}/>
+                    <Route path="/pokemon" element={<PokemonPage />}/>
                 </Routes>
             </main>
         </div>

@@ -8,8 +8,6 @@ export type TBeforeDevtoolsPushFn<T = any> = (newValue: T, push: (v: T) => void)
 
 export interface SignalOptions<T = any> {
     key?: string;
-    /** @deprecated use key */
-    name?: string;
     base?: string;
     isDisabled?: boolean;
     beforeDevtoolsPush?: TBeforeDevtoolsPushFn<T>;

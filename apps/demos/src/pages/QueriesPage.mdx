@@ -7,34 +7,58 @@ import { Query } from "../examples";
 ## Примеры
 
 <QueryTabs>
-    <Tab key="invalidate" title="Инвалидация кеша">
+    <Tab key="simpleResource" title="Список задач">
         <LiveExample
-            title="Простой список с resetAllQueriesCache()"
-            initialCode={Query.examples.simpleList}
+            title=""
+            initialCode={Query.examples.simpleResource}
         />
     </Tab>
-    <Tab key="cart" title="Оптимистичные обновления">
+    <Tab key="optimisticPatches" title="Заявки на отпуск">
         <LiveExample
-            title="Корзина с оптимистичными обновлениями"
-            initialCode={Query.examples.shoppingCart}
+            title=""
+            initialCode={Query.examples.optimisticPatches}
         />
     </Tab>
-    <Tab key="profile" title="Профиль пользователя">
+    <Tab key="ssrSnapshot" title="Профили сотрудников">
         <LiveExample
-            title="Динамические запросы с кешированием"
-            initialCode={Query.examples.userProfile}
+            title=""
+            initialCode={Query.examples.ssrSnapshot}
         />
     </Tab>
-    <Tab key="patches" title="Патчи ресурсов">
+    <Tab key="errorSwrStates" title="Мониторинг сервисов">
         <LiveExample
-            title="Временные изменения с commit/abort"
-            initialCode={Query.examples.todoPatches}
+            title=""
+            initialCode={Query.examples.errorSwrStates}
         />
     </Tab>
-    <Tab key="duplicator" title="Дупликатор">
+    <Tab key="skipToken" title="Карточка сотрудника">
         <LiveExample
-            title="Дупликатор"
-            initialCode={Query.examples.duplicator}
+            title=""
+            initialCode={Query.examples.skipToken}
+        />
+    </Tab>
+    <Tab key="snapshotHydration" title="Каталог товаров">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.snapshotHydration}
+        />
+    </Tab>
+    <Tab key="lifecycleHooks" title="Аналитика запросов">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.lifecycleHooks}
+        />
+    </Tab>
+    <Tab key="basicCommand" title="Управление заказами">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.basicCommand}
+        />
+    </Tab>
+    <Tab key="optimisticCommand" title="Модерация контента">
+        <LiveExample
+            title=""
+            initialCode={Query.examples.optimisticCommand}
         />
     </Tab>
 </QueryTabs>

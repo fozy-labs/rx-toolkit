@@ -1,9 +1,6 @@
-import { Observable } from "rxjs";
 import { z, ZodType } from "zod/v4";
 
 import { type SignalOptionsOrKey, type StatefulSignalFn } from "@/signals/types";
-
-import { signalize } from "../operators";
 
 import { Computed } from "./Computed";
 import { State } from "./State";
@@ -18,10 +15,6 @@ type Options<T> = {
     zodSchema?: ZodType<T>;
     key: string;
     userId?: string;
-    /**
-     * @deprecated use checkEffect instead
-     */
-    validator$?: Observable<(value: T) => boolean>;
     checkEffect?: (value: T) => boolean;
     driver?: StorageLike;
     defaultValue: T;
@@ -51,18 +44,8 @@ export class LocalState<T = string | null | number | undefined> {
 
         this._state$ = new State<T>(initialValue, { isDisabled: true });
 
-        const validatorSignal$ = options.validator$ && signalize(options.validator$);
-
         this._computed = new Computed<T>(() => {
             const value = this._state$.get();
-
-            if (validatorSignal$) {
-                const validator = validatorSignal$.get();
-
-                if (!validator(value)) {
-                    return options.defaultValue;
-                }
-            }
 
             if (options.checkEffect) {
                 return options.checkEffect(value) ? value : options.defaultValue;
@@ -183,8 +166,3 @@ export class LocalState<T = string | null | number | undefined> {
         return signalFn as unknown as StatefulSignalFn<T>;
     }
 }
-
-/**
- * @deprecated use LocalState instead
- */
-export const LocalSignal = LocalState;

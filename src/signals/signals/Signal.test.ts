@@ -87,21 +87,4 @@ describe("Signal (facade)", () => {
             eff.unsubscribe();
         });
     });
-
-    describe("deprecated API", () => {
-        it("new Signal(initial) creates a State-like instance", () => {
-            const s = new Signal(42) as any;
-            expect(s.peek()).toBe(42);
-            expect(s.obs).toBeDefined();
-            s.set(100);
-            expect(s.peek()).toBe(100);
-        });
-
-        it("Signal.create(initial) returns a SignalFn", () => {
-            const s = Signal.create(7);
-            expect(s()).toBe(7);
-            s.set(14);
-            expect(s()).toBe(14);
-        });
-    });
 });

@@ -20,4 +20,4 @@ export interface ClearableSignalLike<_T> {
 
 export interface StatefulSignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T>, ClearableSignalLike<T> {}
 export interface SignalFn<T> extends ReadableSignalFnLike<T>, WriteableSignalLike<T> {}
-export type ComputeFn<T> = ReadableSignalFnLike<T>;
+export type ComputeFn<T> = ReadableSignalFnLike<T> & { destroy(): void };

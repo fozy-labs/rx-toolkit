@@ -1,11 +1,9 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
 import type { SignalLifecycleHook, SignalOptions } from "@/signals/types";
 
-import { Indexer } from "./Indexer";
-
 export const Devtools = {
     createState<T>(initialValue: T, optionsDry: SignalOptions<T> | string = {}) {
-        const options = typeof optionsDry === "string" ? { name: optionsDry } : optionsDry;
+        const options = typeof optionsDry === "string" ? { key: optionsDry } : optionsDry;
 
         if (options.isDisabled) return null;
 
@@ -13,7 +11,7 @@ export const Devtools = {
 
         if (!createStateDevtools) return null;
 
-        const key = createKey(options.key ?? options.name, options.base);
+        const key = createKey(options.key, options.base);
 
         let stateDevtools: ReturnType<typeof createStateDevtools<T>> | null = null;
 
@@ -43,7 +41,6 @@ export const Devtools = {
     createSignalHooks<T>(initialValue: T, options: SignalOptions<T> = {}): SignalLifecycleHook<T> | null {
         const stateDevtools = this.createState(initialValue, {
             key: options.key,
-            name: options.name,
             base: options.base,
             isDisabled: options.isDisabled,
             beforeDevtoolsPush: options.beforeDevtoolsPush,
@@ -65,8 +62,6 @@ export const Devtools = {
 };
 
 function createKey(key: string | undefined, base: string | undefined) {
-    const i = Indexer.getIndex();
-
     let result = "";
 
     if (key?.includes("{scope}")) {
@@ -77,7 +72,6 @@ function createKey(key: string | undefined, base: string | undefined) {
     if (base && key) result += key.replace("{base}", base);
     else if (!base && key) result += key;
     else if (base && !key) result += `${base}/`;
-    result += `#i=${i}`;
 
     return result;
 }

@@ -8,6 +8,11 @@ export default [
                 tsconfigRootDir: import.meta.dirname,
             },
         },
+        rules: {
+            "@typescript-eslint/no-useless-constructor": "off",
+            "@typescript-eslint/unified-signatures": "off",
+        },
     },
     { ignores: ["apps/"] },
+
 ];

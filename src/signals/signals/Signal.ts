@@ -1,22 +1,10 @@
-import type { SignalOptionsOrKey } from "@/signals/types";
-import { SignalFn } from "@/signals/types";
+import type { SignalFn, SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
 import { Effect } from "./Effect";
 import { State } from "./State";
 
-export class Signal<T> extends State<T> {
-    /** @deprecated use `State` instead */
-    // eslint-disable-next-line @typescript-eslint/no-useless-constructor
-    constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
-        super(initialValue, options);
-    }
-
-    /** @deprecated use `state` instead */
-    static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
-        return this.state(initialValue, options);
-    }
-
+export class Signal {
     static state<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
         return State.create(initialValue, options);
     }

@@ -23,7 +23,6 @@ export class Computed<T> {
         const opts = normalizeSignalOptions(options);
         const stateOptions: SignalOptionsOrKey<symbol | T> = {
             key: opts.key,
-            name: opts.name,
             base: opts.base ?? Computed.name,
             isDisabled: opts.isDisabled,
             beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {
@@ -112,6 +111,11 @@ export class Computed<T> {
         this._state$.set(Computed._EMPTY);
     }
 
+    destroy() {
+        this._stop();
+        this._computeCache.clear();
+    }
+
     // === static ===
 
     private static _EMPTY = Symbol("empty");
@@ -126,6 +130,7 @@ export class Computed<T> {
         computedFn.peek = () => lc.peek();
         computedFn.get = () => lc.get();
         computedFn.obs = lc.obs;
+        computedFn.destroy = () => lc.destroy();
 
         return computedFn;
     }
