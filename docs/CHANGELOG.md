@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.6.2] - 2026-05-17
+
+### Fixed
+- Исправлен вывод типов в `links` 
+
 ## [0.6.0] - 2026-04-17
 
 [Гайд по миграции с 0.5.x](./migrations/0.6.0.md)
@@ -133,6 +138,7 @@
 - **BatchStrategy**: настройка стратегии обновлений (`'sync'`, `'microtask'`, `'task'`)
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
+[0.6.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.0...v0.6.2
 [0.6.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.2...v0.5.3

@@ -22,10 +22,7 @@ npm version patch   # для патч-версии (0.4.18 -> 0.4.19)
 npm version minor   # для минорной версии (0.4.18 -> 0.5.0)
 npm version major   # для мажорной версии (0.4.18 -> 1.0.0)
 
-# 4. Публикация в npm
-npm publish 
-
-# 5. Пуш тегов в репозиторий
+# 4. Пуш тегов в репозиторий
 git push origin develop --tags
 ```
 
@@ -44,10 +41,7 @@ npm run build
 npm version prerelease --preid=rc
 # пример: 1.2.0 → 1.2.0-rc.0
 
-# 4. Публикация RC (НЕ latest!)
-npm publish --tag rc
-
-# 5. Пуш тегов
+# 4. Пуш тегов
 git push origin develop --tags
 ```
 

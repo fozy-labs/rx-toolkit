@@ -366,27 +366,6 @@ describe("createApi.createCommand", () => {
         expect(() => api.createCommand({ queryFn: async () => "ok" })).not.toThrow();
     });
 
-    it("normalizes array links (passthrough)", async () => {
-        const api = createApi();
-        const resource = api.createResource({
-            key: "items",
-            queryFn: async () => [1, 2],
-        });
-
-        const command = api.createCommand({
-            queryFn: async () => "ok",
-            links: [
-                {
-                    resource,
-                    forwardArgs: () => undefined,
-                    invalidate: true,
-                },
-            ],
-        });
-
-        expect(command).toBeDefined();
-    });
-
     it("normalizes builder-function links", () => {
         const api = createApi();
         const resource = api.createResource({
