@@ -15,9 +15,7 @@ export interface TLinkConfig<TArgs, TData, TResArgs, TResData> {
     update?: (draft: TResData, commandArgs: TArgs, result: TData) => void;
 }
 
-export type TLinksInput<TArgs, TData> =
-    | TLinkConfig<TArgs, TData, any, any>[]
-    | ((link: (config: TLinkConfig<TArgs, TData, any, any>) => void) => void);
+export type TLinksInput<TArgs, TData> = (link: <TResArgs, TResData>(config: TLinkConfig<TArgs, TData, TResArgs, TResData>) => void) => void;
 
 // ==================== Command Interface ====================
 
