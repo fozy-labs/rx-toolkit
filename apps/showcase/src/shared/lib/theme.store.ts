@@ -1,11 +1,11 @@
 import { injectable } from '@fozy-labs/simplest-di';
-import { LocalState } from '@fozy-labs/rx-toolkit';
+import { LocalSignal } from '@fozy-labs/rx-toolkit';
 
 export type Theme = 'light' | 'dark';
 
 @injectable('SINGLETON')
 export class ThemeStore {
-    theme$ = LocalState.create<Theme>({
+    theme$ = LocalSignal.create<Theme>({
         key: 'showcase-theme',
         defaultValue: 'light',
         devtoolsOptions: { base: 'showcase/ui', key: 'theme' },

@@ -11,7 +11,7 @@ type StorageLike = {
     removeItem(key: string): void;
 };
 
-type Options<T> = {
+export type LocalStateOptions<T> = {
     zodSchema?: ZodType<T>;
     key: string;
     userId?: string;
@@ -33,7 +33,7 @@ export class LocalState<T = string | null | number | undefined> {
         return this._options.driver || LocalState.DEFAULT_DRIVER;
     }
 
-    constructor(options: Options<T>) {
+    constructor(options: LocalStateOptions<T>) {
         this._options = options;
 
         let initialValue = this._getStorageValue(options);
@@ -79,7 +79,7 @@ export class LocalState<T = string | null | number | undefined> {
         this._state$.set(this._options.defaultValue);
     }
 
-    private _getStorageValue(options: Options<any>) {
+    private _getStorageValue(options: LocalStateOptions<any>) {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey);
 
@@ -102,7 +102,7 @@ export class LocalState<T = string | null | number | undefined> {
         return parsed.data[subKey];
     }
 
-    private _setStorageValue<T>(options: Options<T>, value: T) {
+    private _setStorageValue<T>(options: LocalStateOptions<T>, value: T) {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey) || "{}";
 
@@ -120,7 +120,7 @@ export class LocalState<T = string | null | number | undefined> {
         this._driver.setItem(storageKey, JSON.stringify(data));
     }
 
-    private _deleteStorageValue(options: Options<any>) {
+    private _deleteStorageValue(options: LocalStateOptions<any>) {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey);
 
@@ -154,7 +154,10 @@ export class LocalState<T = string | null | number | undefined> {
     static KEY_PREFIX = "__LSValue__";
     static DEFAULT_DRIVER = localStorage;
 
-    static create<T = string | null | number | undefined>(options: Options<T>): StatefulSignalFn<T> {
+    /**
+     * @deprecated use `LocalSignal.state` instead
+     */
+    static create<T = string | null | number | undefined>(options: LocalStateOptions<T>): StatefulSignalFn<T> {
         const localState = new LocalState<T>(options);
 
         function signalFn() {

@@ -1,11 +1,11 @@
 import { injectable } from '@fozy-labs/simplest-di';
-import { LocalState, Signal } from '@fozy-labs/rx-toolkit';
+import { LocalSignal, Signal } from '@fozy-labs/rx-toolkit';
 import type { User } from '@/entities/user';
 import { findUserByEmail } from './auth.utils';
 
 @injectable('SINGLETON')
 export class AuthStore {
-    currentUser$ = LocalState.create<User | null>({
+    currentUser$ = LocalSignal.create<User | null>({
         key: 'showcase-current-user',
         defaultValue: null,
         devtoolsOptions: { base: 'showcase/auth', key: 'currentUser' },

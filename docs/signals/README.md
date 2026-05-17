@@ -162,13 +162,13 @@ const customSignal = new ReadonlySignal((subscriber) => {
 });
 ```
 
-### LocalState
+### LocalSignal
 
 Сигнал, который автоматически синхронизируется с `localStorage`.
 
 ```typescript
 import { z } from 'zod/v4';
-import { LocalState } from '@fozy-labs/rx-toolkit';
+import { LocalSignal } from '@fozy-labs/rx-toolkit';
 
 enum FILTER {
     ALL = 'all',
@@ -177,7 +177,7 @@ enum FILTER {
     MEETINGS = 'meetings',
 }
 
-const selectedFilter$ = LocalState.create({
+const selectedFilter$ = LocalSignal.create({
     key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
     zodSchema: z.nativeEnum(FILTER), // Опционально: валидация через Zod
@@ -192,7 +192,7 @@ function logout() {
 }
 ```
 
-**Опции LocalState:**
+**Опции `LocalSignal.create(...)` (`LocalStateOptions`):**
 - `key` — ключ для localStorage
 - `defaultValue` — значение по умолчанию
 - `zodSchema` — опциональная Zod-схема для валидации

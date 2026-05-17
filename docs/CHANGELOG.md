@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- Добавлен `LocalSignal.state(...)` для замены `LocalSignal.create(...)` с более последовательным назавнием.
+
+### Deprecated
+- `LocalState.create(...)` помечен как deprecated, используйте `LocalSignal.create(...)`
+
+
 ## [0.7.0] - 2026-05-17
 
 ### Added
@@ -11,6 +20,7 @@
 
 ### Fixed
 - Исправлен вывод типов в `links` 
+
 
 ## [0.6.0] - 2026-04-17
 
@@ -57,10 +67,12 @@
   - `useResourceRef()` → удалён (используйте `resource.getEntry()`)
 - Удалён namespace `unstable_queryV2` — экспериментальный API стал основным
 
+
 ## [0.5.4] - 2026-03-21
 
 ### Fixed
 - Removed unused `observable-hooks` dependency from `package.json`
+
 
 ## [0.5.3] - 2026-03-21
 
@@ -89,7 +101,6 @@
 - Новый примитив **State** — замена `Signal` с идентичным API
 - `Signal.state()` — рекомендуемый статический метод создания сигнала
 
-
 ### Deprecated
 - `ResourceRefInstanse` — use `ResourceRefInstance` (will be removed in v0.6.0)
 - `createOperation()` → используйте `createCommand()` (будет удалён в v0.6.0)
@@ -104,14 +115,14 @@
 ## [0.5.2] — 2025-12-19
 
 ### Fixed
-
 - Исправлена работа `SKIP_TOKEN`
+
 
 ## [0.5.1] — 2025-12-19
 
 ### Fixed
-
 - Исправление типизации
+
 
 ## [0.5.0] — 2025-12-18
 
@@ -144,6 +155,7 @@
 
 - **BatchStrategy**: настройка стратегии обновлений (`'sync'`, `'microtask'`, `'task'`)
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
+
 
 [0.7.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.0...v0.6.2
