@@ -140,10 +140,17 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
 
     // Отслеживаем тип последнего действия для правильного action type в devtools
     let pendingActionType: "create" | "update" | "clear" = "update";
+    let pendingActionName: string | null = null;
 
     const flushToDevtools = () => {
-        connection.send({ type: pendingActionType }, state);
+        const type = pendingActionName
+            ? `${pendingActionType.toUpperCase()}: ${pendingActionName}`
+            : pendingActionType.toUpperCase();
+
+        connection.send({ type }, state);
+
         pendingActionType = "update"; // Сбрасываем на дефолт после отправки
+        pendingActionName = null; // Сбрасываем имя после отправки
     };
 
     return {
@@ -154,7 +161,11 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
             pendingActionType = "create";
             scheduler.schedule(flushToDevtools);
 
-            return (newState) => {
+            return (newState, actionName?: string) => {
+                if (!pendingActionName && actionName) {
+                    pendingActionName = actionName;
+                }
+
                 if (newState === "$COMPLETED" || newState === "$CLEANED") {
                     state = deleteState(keys, state);
                     pendingActionType = "clear";
@@ -185,6 +196,7 @@ function existConsoleWarning(paths: string[]) {
 This may lead to unexpected behavior in Redux Devtools.
 Consider using a unique path for each state or ensure that states are properly clearedwhen completed.
 `);
+
     return true;
 }
 

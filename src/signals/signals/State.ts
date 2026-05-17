@@ -36,7 +36,7 @@ export class State<T> {
         return this.bs$.getValue();
     }
 
-    set(value: T) {
+    set(value: T, actionName?: string) {
         if (value === this.bs$.value) {
             return;
         }
@@ -44,15 +44,15 @@ export class State<T> {
         Batcher.run(() => {
             if (this._hooks) {
                 for (const hook of this._hooks) {
-                    hook.onChange?.(value);
+                    hook.onChange?.(value, actionName);
                 }
             }
             this.bs$.next(value);
         });
     }
 
-    update(updater: (value: T) => T) {
-        this.set(updater(this.peek()));
+    update(updater: (value: T) => T, actionName?: string) {
+        this.set(updater(this.peek()), actionName);
     }
 
     get() {
@@ -92,8 +92,8 @@ export class State<T> {
         }
 
         signalFn.peek = () => ls.peek();
-        signalFn.set = (value: T) => ls.set(value);
-        signalFn.update = (updater: (value: T) => T) => ls.update(updater);
+        signalFn.set = (value: T, actionName?: string) => ls.set(value, actionName);
+        signalFn.update = (updater: (value: T) => T, actionName?: string) => ls.update(updater, actionName);
         signalFn.get = () => ls.get();
         signalFn.obs = ls.obs;
 

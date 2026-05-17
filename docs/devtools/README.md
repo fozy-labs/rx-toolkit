@@ -170,8 +170,12 @@ DefaultOptions.update({
 
 ```typescript
 // Сигналы
-const count$ = new Signal(0, 'counter');
-const user$ = new Signal(null, { name: 'currentUser' });
+const count$ = Signal.state(0, 'counter');
+const user$ = Signal.state(null, { name: 'currentUser' });
+
+count$.set(1); // UPDATE
+count$.set(0, 'reset'); // UPDATE: reset
+count$.update((value) => value + 1, 'increment'); // UPDATE: increment
 
 // Ресурсы и команды
 const userResource = createResource({
@@ -185,7 +189,7 @@ const updateUser = createCommand({
 });
 
 // Отключение devtools для конкретного сигнала
-const internalSignal = new Signal(0, { isDisabled: true });
+const internalSignal = Signal.state(0, { isDisabled: true });
 
 // Отключение devtools для ресурса
 const internalResource = createResource({
@@ -206,7 +210,7 @@ interface DevtoolsLike {
 }
 
 interface DevtoolsStateLike<T = any> {
-    (newState: T | '$COMPLETED' | '$CLEANED'): void;
+    (newState: T | '$COMPLETED' | '$CLEANED', actionName?: string): void;
 }
 ```
 

@@ -59,7 +59,7 @@ describe("reduxDevtools", () => {
             // Wait for microtask flush
             await Promise.resolve();
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "create" }, { counter: 0 });
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { counter: 0 });
         });
 
         it('updater schedules an "update" send', async () => {
@@ -75,7 +75,7 @@ describe("reduxDevtools", () => {
 
             await Promise.resolve();
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "update" }, { counter: 42 });
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE" }, { counter: 42 });
         });
 
         it('$COMPLETED triggers "clear" and removes state key', async () => {
@@ -90,7 +90,7 @@ describe("reduxDevtools", () => {
 
             await Promise.resolve();
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "clear" }, {});
+            expect(connection.send).toHaveBeenCalledWith({ type: "CLEAR" }, {});
         });
 
         it('$CLEANED triggers "clear" and removes state key', async () => {
@@ -105,7 +105,7 @@ describe("reduxDevtools", () => {
 
             await Promise.resolve();
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "clear" }, {});
+            expect(connection.send).toHaveBeenCalledWith({ type: "CLEAR" }, {});
         });
 
         it('nested state keys via "/" separator', async () => {
@@ -115,7 +115,7 @@ describe("reduxDevtools", () => {
 
             await Promise.resolve();
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "create" }, { group: { counter: 10 } });
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { group: { counter: 10 } });
         });
     });
 
@@ -143,7 +143,7 @@ describe("reduxDevtools", () => {
 
             vi.advanceTimersByTime(50);
 
-            expect(connection.send).toHaveBeenCalledWith({ type: "create" }, { x: 1 });
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { x: 1 });
             vi.useRealTimers();
         });
 
@@ -160,7 +160,7 @@ describe("reduxDevtools", () => {
 
             // All batched into one send — only the last state is sent
             expect(connection.send).toHaveBeenCalledTimes(1);
-            expect(connection.send).toHaveBeenCalledWith({ type: "create" }, { counter: 2 });
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { counter: 2 });
         });
     });
 });

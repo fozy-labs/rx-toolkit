@@ -18,7 +18,7 @@ describe("combineDevtools", () => {
         expect(mock.state).toHaveBeenCalledWith("test", { count: 0 });
 
         updater({ count: 1 });
-        expect(mock.updater).toHaveBeenCalledWith({ count: 1 });
+        expect(mock.updater).toHaveBeenCalledWith({ count: 1 }, undefined);
     });
 
     it("multiple devtools — all state() methods called with init", () => {
@@ -39,8 +39,8 @@ describe("combineDevtools", () => {
         const updater = combined.state("test", 0);
         updater(42);
 
-        expect(mock1.updater).toHaveBeenCalledWith(42);
-        expect(mock2.updater).toHaveBeenCalledWith(42);
+        expect(mock1.updater).toHaveBeenCalledWith(42, undefined);
+        expect(mock2.updater).toHaveBeenCalledWith(42, undefined);
     });
 
     it("multiple state registrations are independent", () => {

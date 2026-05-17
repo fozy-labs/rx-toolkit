@@ -23,7 +23,7 @@ describe("Devtools", () => {
 
             // Calling the returned function should forward to the mock
             devtoolsState!(100);
-            expect(mockStateFn).toHaveBeenCalledWith(100);
+            expect(mockStateFn).toHaveBeenCalledWith(100, undefined);
         });
 
         it("returns null when options.isDisabled is true", () => {
@@ -187,7 +187,7 @@ describe("Devtools", () => {
             const hook = Devtools.createSignalHooks(0, { key: "test" });
             hook!.onChange!(100);
 
-            expect(mockStateFn).toHaveBeenCalledWith(100);
+            expect(mockStateFn).toHaveBeenCalledWith(100, undefined);
         });
 
         it("onDispose sends $COMPLETED", () => {
@@ -198,7 +198,7 @@ describe("Devtools", () => {
             const hook = Devtools.createSignalHooks(0, { key: "test" });
             hook!.onDispose!();
 
-            expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED");
+            expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED", undefined);
         });
 
         it("generates unique keys via Indexer", () => {
@@ -289,7 +289,7 @@ describe("Devtools", () => {
                 });
 
                 hook!.onChange!(5);
-                expect(mockStateFn).toHaveBeenCalledWith(10);
+                expect(mockStateFn).toHaveBeenCalledWith(10, undefined);
             });
 
             it("onDispose works independently", () => {
@@ -305,7 +305,7 @@ describe("Devtools", () => {
                 });
 
                 hook!.onDispose!();
-                expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED");
+                expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED", undefined);
             });
 
             it("onDispose without prior push — no error", () => {

@@ -46,8 +46,8 @@ subscription.unsubscribe();
 **API Signal:**
 - `()`|`get()` — получить значение и зарегистрировать зависимость (для использования внутри Computed/Effect)
 - `peek()` — получить значение без регистрации зависимости
-- `set(value)` — установить новое значение
-- `update(updater)` — вычислить и установить новое значение из текущего
+- `set(value, actionName?)` — установить новое значение (опционально с именем действия для devtools)
+- `update(updater, actionName?)` — вычислить и установить новое значение из текущего (опционально с именем действия для devtools)
 - `obs` — RxJS Observable для подписки на изменения
 
 ### Computed
@@ -292,6 +292,10 @@ import { Signal } from '@fozy-labs/rx-toolkit';
 
 // С именем для devtools
 const count$ = Signal.state(0, 'counter');
+
+count$.set(1); // Action type: "UPDATE"
+count$.set(0, 'reset'); // Action type: "UPDATE: reset"
+count$.update((value) => value + 1, 'increment'); // Action type: "UPDATE: increment"
 
 // Или с расширенными опциями
 const user$ = Signal.state(null, {

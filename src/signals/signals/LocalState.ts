@@ -57,13 +57,13 @@ export class LocalState<T = string | null | number | undefined> {
         this.obs = this._computed.obs;
     }
 
-    set(value: T) {
+    set(value: T, actionName?: string) {
         this._setStorageValue(this._options, value);
-        this._state$.set(value);
+        this._state$.set(value, actionName);
     }
 
-    update(updater: (value: T) => T) {
-        this.set(updater(this.peek()));
+    update(updater: (value: T) => T, actionName?: string) {
+        this.set(updater(this.peek()), actionName);
     }
 
     peek() {
@@ -163,8 +163,8 @@ export class LocalState<T = string | null | number | undefined> {
 
         signalFn.peek = () => localState.peek();
         signalFn.get = () => localState.get();
-        signalFn.set = (value: T) => localState.set(value);
-        signalFn.update = (updater: (value: T) => T) => localState.update(updater);
+        signalFn.set = (value: T, actionName?: string) => localState.set(value, actionName);
+        signalFn.update = (updater: (value: T) => T, actionName?: string) => localState.update(updater, actionName);
         signalFn.clear = () => localState.clear();
         signalFn.obs = localState.obs;
 

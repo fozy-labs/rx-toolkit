@@ -4,6 +4,7 @@
 
 ### Added
 - Добавлен метод `update(updater)` для writeable-сигналов (`Signal.state`, `State.create`, `LocalState.create`) как функциональная альтернатива `set(...)`
+- Добавлена поддержка `actionName` в `set(value, actionName?)` и `update(updater, actionName?)` для writeable-сигналов с отображением в devtools как `UPDATE: actionName`
 
 
 ## [0.6.2] - 2026-05-17

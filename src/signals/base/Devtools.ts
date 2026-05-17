@@ -15,12 +15,12 @@ export const Devtools = {
 
         let stateDevtools: ReturnType<typeof createStateDevtools<T>> | null = null;
 
-        const push = (value: T) => {
+        const push = (value: T, actionName?: string) => {
             if (!stateDevtools) {
                 stateDevtools = createStateDevtools!(key, value);
                 return;
             }
-            stateDevtools(value);
+            stateDevtools(value, actionName);
         };
 
         // Init
@@ -30,11 +30,11 @@ export const Devtools = {
             push(initialValue);
         }
 
-        return (newState: T) => {
+        return (newState: T, actionName?: string) => {
             if (options.beforeDevtoolsPush) {
-                options.beforeDevtoolsPush(newState, push);
+                options.beforeDevtoolsPush(newState, push, actionName);
             } else {
-                push(newState);
+                push(newState, actionName);
             }
         };
     },
@@ -48,8 +48,8 @@ export const Devtools = {
         if (!stateDevtools) return null;
 
         return {
-            onChange(newValue: T) {
-                stateDevtools(newValue);
+            onChange(newValue: T, actionName?: string) {
+                stateDevtools(newValue, actionName);
             },
             onDispose() {
                 stateDevtools("$COMPLETED" as any);
