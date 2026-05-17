@@ -31,6 +31,9 @@ console.log(name.peek()); // "John"
 // Запись нового значения
 name.set('Jane');
 
+// Обновление значения
+age.update((value) => value + 1);
+
 // Подписка на изменения через RxJS Observable
 const subscription = name.obs.subscribe(newName => {
   console.log(`Name changed to: ${newName}`);
@@ -44,6 +47,7 @@ subscription.unsubscribe();
 - `()`|`get()` — получить значение и зарегистрировать зависимость (для использования внутри Computed/Effect)
 - `peek()` — получить значение без регистрации зависимости
 - `set(value)` — установить новое значение
+- `update(updater)` — вычислить и установить новое значение из текущего
 - `obs` — RxJS Observable для подписки на изменения
 
 ### Computed

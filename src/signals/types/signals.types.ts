@@ -12,6 +12,7 @@ export interface ReadableSignalFnLike<T> extends ReadableSignalLike<T> {
 
 export interface WriteableSignalLike<T> {
     set(value: T): void;
+    update(updater: (value: T) => T): void;
 }
 
 export interface ClearableSignalLike<_T> {

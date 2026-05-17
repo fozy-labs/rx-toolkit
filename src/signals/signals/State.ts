@@ -51,6 +51,10 @@ export class State<T> {
         });
     }
 
+    update(updater: (value: T) => T) {
+        this.set(updater(this.peek()));
+    }
+
     get() {
         DependencyTracker.track({
             getRang: () => this._rang,
@@ -89,6 +93,7 @@ export class State<T> {
 
         signalFn.peek = () => ls.peek();
         signalFn.set = (value: T) => ls.set(value);
+        signalFn.update = (updater: (value: T) => T) => ls.update(updater);
         signalFn.get = () => ls.get();
         signalFn.obs = ls.obs;
 

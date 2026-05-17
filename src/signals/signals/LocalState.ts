@@ -62,6 +62,10 @@ export class LocalState<T = string | null | number | undefined> {
         this._state$.set(value);
     }
 
+    update(updater: (value: T) => T) {
+        this.set(updater(this.peek()));
+    }
+
     peek() {
         return this._computed.peek();
     }
@@ -160,6 +164,7 @@ export class LocalState<T = string | null | number | undefined> {
         signalFn.peek = () => localState.peek();
         signalFn.get = () => localState.get();
         signalFn.set = (value: T) => localState.set(value);
+        signalFn.update = (updater: (value: T) => T) => localState.update(updater);
         signalFn.clear = () => localState.clear();
         signalFn.obs = localState.obs;
 

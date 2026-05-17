@@ -43,12 +43,20 @@ describe("LocalState", () => {
         });
     });
 
-    describe("set / peek / clear", () => {
+    describe("set / update / peek / clear", () => {
         it("set() updates the value", () => {
             const s = LocalState.create({ key: "sp1", defaultValue: 0 });
             const sub = activate(s);
             s.set(99);
             expect(s.peek()).toBe(99);
+            sub.unsubscribe();
+        });
+
+        it("update() updates the value", () => {
+            const s = LocalState.create({ key: "sp1u", defaultValue: 0 });
+            const sub = activate(s);
+            s.update((value) => value + 1);
+            expect(s.peek()).toBe(1);
             sub.unsubscribe();
         });
 
@@ -60,6 +68,16 @@ describe("LocalState", () => {
             expect(raw).not.toBeNull();
             const data = JSON.parse(raw!);
             expect(data.common).toBe(42);
+        });
+
+        it("update() persists to localStorage", () => {
+            const s = LocalState.create({ key: "sp2u", defaultValue: 10 });
+            s.update((value) => value + 5);
+
+            const raw = localStorage.getItem(storageKey("sp2u"));
+            expect(raw).not.toBeNull();
+            const data = JSON.parse(raw!);
+            expect(data.common).toBe(15);
         });
 
         it("clear() resets to defaultValue", () => {

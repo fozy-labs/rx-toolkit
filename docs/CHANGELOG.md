@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- Добавлен метод `update(updater)` для writeable-сигналов (`Signal.state`, `State.create`, `LocalState.create`) как функциональная альтернатива `set(...)`
+
+
 ## [0.6.2] - 2026-05-17
 
 ### Fixed

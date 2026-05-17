@@ -7,10 +7,11 @@ describe("Signal (facade)", () => {
             expect(s()).toBe(42);
         });
 
-        it("returns object with peek, set, get, obs", () => {
+        it("returns object with peek, set, update, get, obs", () => {
             const s = Signal.state(0);
             expect(typeof s.peek).toBe("function");
             expect(typeof s.set).toBe("function");
+            expect(typeof s.update).toBe("function");
             expect(typeof s.get).toBe("function");
             expect(s.obs).toBeDefined();
         });
@@ -20,6 +21,13 @@ describe("Signal (facade)", () => {
             s.set(99);
             expect(s()).toBe(99);
             expect(s.peek()).toBe(99);
+        });
+
+        it("update() updates the value", () => {
+            const s = Signal.state(1);
+            s.update((value) => value + 1);
+            expect(s()).toBe(2);
+            expect(s.peek()).toBe(2);
         });
     });
 

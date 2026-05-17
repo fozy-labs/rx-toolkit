@@ -40,6 +40,12 @@ describe("State", () => {
             expect(s()).toBe(2);
         });
 
+        it("update(updater) updates from the current value", () => {
+            const s = Signal.state(1);
+            s.update((value) => value + 1);
+            expect(s()).toBe(2);
+        });
+
         it("set(sameValue) with === equality is skipped (no emission)", () => {
             const s = Signal.state(1);
             const values: number[] = [];
@@ -49,6 +55,19 @@ describe("State", () => {
 
             s.set(1); // same value
             expect(values).toEqual([1]); // no new emission
+
+            sub.unsubscribe();
+        });
+
+        it("update(sameValue) with === equality is skipped (no emission)", () => {
+            const s = Signal.state(1);
+            const values: number[] = [];
+            const sub = s.obs.subscribe((v: number) => values.push(v));
+
+            expect(values).toEqual([1]);
+
+            s.update((value) => value);
+            expect(values).toEqual([1]);
 
             sub.unsubscribe();
         });
