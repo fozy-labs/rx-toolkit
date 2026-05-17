@@ -156,6 +156,55 @@ describe("ResourceAgent SWR", () => {
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("data-B");
     });
+
+    it("keeps stale data across multiple arg changes before the middle request settles", async () => {
+        let resolveB!: (v: string) => void;
+        let resolveC!: (v: string) => void;
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: (_n: number) => {
+                callCount++;
+
+                if (callCount === 1) return Promise.resolve("data-A");
+
+                if (callCount === 2) {
+                    return new Promise((resolve) => {
+                        resolveB = resolve;
+                    });
+                }
+
+                return new Promise((resolve) => {
+                    resolveC = resolve;
+                });
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+        expect(s.get().data).toBe("data-A");
+
+        agent.set(2);
+        expect(s.get().status).toBe("refreshing");
+        expect(s.get().data).toBe("data-A");
+
+        agent.set(3);
+        expect(s.get().status).toBe("refreshing");
+        expect(s.get().data).toBe("data-A");
+
+        resolveC("data-C");
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+        expect(s.get().data).toBe("data-C");
+
+        resolveB("data-B");
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+        expect(s.get().data).toBe("data-C");
+    });
 });
 
 // ==================== 5. Error + previous data ====================

@@ -5,6 +5,9 @@
 ### Added
 - Добавлен `LocalSignal.state(...)` для замены `LocalSignal.create(...)` с более последовательным назавнием.
 
+### Fixed
+- Исправлено SWR-поведение `ResourceAgent`: при последовательной смене аргументов (A→B→C) до завершения промежуточного запроса сохраняются stale-данные вместо перехода в initial loading.
+
 ### Deprecated
 - `LocalState.create(...)` помечен как deprecated, используйте `LocalSignal.create(...)`
 

@@ -153,8 +153,6 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
             const status = current$.peek()?.machine$.peek().state.status;
             if (status === "success" || status === "refreshing" || status === "refresh-error") {
                 this._previous$ = current$;
-            } else {
-                this._previous$ = null;
             }
         }
     }
