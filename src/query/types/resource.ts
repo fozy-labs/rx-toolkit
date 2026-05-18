@@ -1,4 +1,4 @@
-import type { ArgsOrVoidOrSkip, TResourceSnapshot } from "@/query";
+import type { ArgsOrVoidOrSkip, TMachineStatus, TResourceSnapshot } from "@/query";
 import type { ReadableSignalFnLike } from "@/signals/types";
 
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
@@ -19,6 +19,20 @@ export interface IResource<TArgs, TData> {
     createAgent(): IResourceAgent<TArgs, TData>;
     serialize(args: Args<TArgs>): string;
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
+    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData>;
+}
+
+export interface IResourceLiteState<TArgs, TData> {
+    status: TMachineStatus | "idle";
+    data: TData | null;
+    error: unknown;
+    args: TArgs | null;
+    isLoading: boolean;
+    isInitialLoading: boolean;
+    isRefreshing: boolean;
+    isRefreshError: boolean;
+    isSuccess: boolean;
+    isError: boolean;
 }
 
 // ==================== Resource Agent Interface ====================

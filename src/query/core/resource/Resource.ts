@@ -4,6 +4,7 @@ import type {
     IResource,
     IResourceAgent,
     IResourceConfig,
+    IResourceLiteState,
     Keyed,
     TCacheEntryAddedContext,
     TQueryStartedContext,
@@ -194,6 +195,77 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     /** Iterate over all cache entries. */
     getEntries(): IterableIterator<QueryCacheEntry<TArgs, TData>> {
         return this._cache.values();
+    }
+
+    /**
+     * Get a simplified state object for the given arguments.
+     */
+    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData> {
+        const entry = this.getEntry(args, false);
+
+        if (!entry) {
+            return {
+                status: "idle",
+                data: null,
+                error: null,
+                args: null,
+                isLoading: false,
+                isInitialLoading: false,
+                isRefreshing: false,
+                isRefreshError: false,
+                isSuccess: false,
+                isError: false,
+            };
+        }
+
+        const machine = entry.machine$.peek();
+
+        if (machine.status === "pending") {
+            return {
+                status: "pending",
+                data: null,
+                error: null,
+                args: entry.keyedArgs.value,
+                isLoading: true,
+                isInitialLoading: true,
+                isRefreshing: false,
+                isRefreshError: false,
+                isSuccess: false,
+                isError: false,
+            };
+        }
+
+        if (machine.status === "refreshing" || machine.status === "refresh-error" || machine.status === "success") {
+            return {
+                status: machine.status,
+                data: machine.state.data,
+                error: machine.status === "refresh-error" ? machine.state.error : null,
+                args: entry.keyedArgs.value,
+                isLoading: machine.status === "refreshing" || machine.status === "refresh-error",
+                isInitialLoading: false,
+                isRefreshing: machine.status === "refreshing",
+                isRefreshError: machine.status === "refresh-error",
+                isSuccess: machine.status === "success",
+                isError: false,
+            };
+        }
+
+        if (machine.status === "error") {
+            return {
+                status: "error",
+                data: null,
+                error: machine.state.error,
+                args: entry.keyedArgs.value,
+                isLoading: false,
+                isInitialLoading: false,
+                isRefreshing: false,
+                isRefreshError: false,
+                isSuccess: false,
+                isError: true,
+            };
+        }
+
+        throw new Error(`Unknown machine status: ${(machine as any).status}`);
     }
 
     /** Clear all cache entries. */

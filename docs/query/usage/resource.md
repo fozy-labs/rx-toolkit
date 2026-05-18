@@ -152,6 +152,20 @@ if (entry) {
 const entry$ = Signal.compute(() => usersResource.getEntry$({ page: page$() }));
 ```
 
+### getState
+
+Синхронно возвращает упрощённое состояние ресурса для аргументов: `status`, `data`, `error` и булевые флаги (`isLoading`, `isSuccess`, `isError` и т. д.).
+
+Подходит для императивной логики вне реактивного контекста, когда нужна моментальная проверка состояния без подписки:
+
+```ts
+const state = usersResource.getState({ page: 1 });
+
+if (state.isSuccess) {
+  console.log(state.data);
+}
+```
+
 ### createAgent
 
 Агент — реактивный наблюдатель ресурса.
