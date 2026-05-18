@@ -1,6 +1,7 @@
 # CHANGELOG
 
-## [Unreleased]
+
+## [0.7.1] - 2026-05-17
 
 ### Added
 - Добавлен `LocalSignal.state(...)` для замены `LocalSignal.create(...)` с более последовательным назавнием.
@@ -160,6 +161,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
+[0.7.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.0...v0.6.2
 [0.6.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.5.4...v0.6.0
