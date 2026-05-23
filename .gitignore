@@ -7,3 +7,5 @@
 coverage
 
 .thoughts
+
+.claude/settings.local.json
