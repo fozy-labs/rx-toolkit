@@ -1,19 +1,24 @@
 # CHANGELOG
 
 ## [Unreleased] - 2026-05-18
+
+### Added
 - Добавлен `Resource.getState(args)` для синхронного получения состояния ресурса без реактивной подписки.
+
+### Fixed
+- Исправлено имя метода `LocalSignal.create(...)` → `LocalSignal.state(...)` для соответствия конвенции `Signal.state` и записи в CHANGELOG 0.7.1.
 
 
 ## [0.7.1] - 2026-05-17
 
 ### Added
-- Добавлен `LocalSignal.state(...)` для замены `LocalSignal.create(...)` с более последовательным назавнием.
+- Добавлен `LocalSignal.state(...)` для замены `LocalState.create(...)` с более последовательным названием.
 
 ### Fixed
 - Исправлено SWR-поведение `ResourceAgent`: при последовательной смене аргументов (A→B→C) до завершения промежуточного запроса сохраняются stale-данные вместо перехода в initial loading.
 
 ### Deprecated
-- `LocalState.create(...)` помечен как deprecated, используйте `LocalSignal.create(...)`
+- `LocalState.create(...)` помечен как deprecated, используйте `LocalSignal.state(...)`
 
 
 ## [0.7.0] - 2026-05-17
