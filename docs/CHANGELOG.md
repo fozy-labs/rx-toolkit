@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased] - 2026-05-18
+## [0.7.2] - 2026-05-23
 
 ### Added
 - Добавлен `Resource.getState(args)` для синхронного получения состояния ресурса без реактивной подписки.
@@ -169,6 +169,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
+[0.7.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.6.0...v0.6.2
