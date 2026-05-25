@@ -33,7 +33,7 @@ export class LocalState<T = string | null | number | undefined> {
         const driver = this._options.driver || LocalState.DEFAULT_DRIVER;
 
         if (driver === null) {
-            throw new Error('[LocalSignal]: localStorage does not exist and no driver was passed.')
+            throw new Error("[LocalSignal]: localStorage does not exist and no driver was passed.");
         }
 
         return driver;
