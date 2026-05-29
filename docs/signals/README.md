@@ -177,7 +177,7 @@ enum FILTER {
     MEETINGS = 'meetings',
 }
 
-const selectedFilter$ = LocalSignal.create({
+const selectedFilter$ = LocalSignal.state({
     key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
     zodSchema: z.nativeEnum(FILTER), // Опционально: валидация через Zod
@@ -192,7 +192,7 @@ function logout() {
 }
 ```
 
-**Опции `LocalSignal.create(...)` (`LocalStateOptions`):**
+**Опции `LocalSignal.state(...)` (`LocalStateOptions`):**
 - `key` — ключ для localStorage
 - `defaultValue` — значение по умолчанию
 - `zodSchema` — опциональная Zod-схема для валидации

@@ -30,7 +30,13 @@ export class LocalState<T = string | null | number | undefined> {
     readonly obs;
 
     private get _driver() {
-        return this._options.driver || LocalState.DEFAULT_DRIVER;
+        const driver = this._options.driver || LocalState.DEFAULT_DRIVER;
+
+        if (driver === null) {
+            throw new Error("[LocalSignal]: localStorage does not exist and no driver was passed.");
+        }
+
+        return driver;
     }
 
     constructor(options: LocalStateOptions<T>) {
@@ -152,7 +158,7 @@ export class LocalState<T = string | null | number | undefined> {
     // === static ===
 
     static KEY_PREFIX = "__LSValue__";
-    static DEFAULT_DRIVER = localStorage;
+    static DEFAULT_DRIVER = typeof localStorage === "undefined" ? null : localStorage;
 
     /**
      * @deprecated use `LocalSignal.state` instead

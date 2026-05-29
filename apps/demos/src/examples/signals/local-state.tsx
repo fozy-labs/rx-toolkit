@@ -1,7 +1,7 @@
 import { LocalSignal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody, CardFooter, CardHeader, Slider } from "@heroui/react";
 
-const volume$ = LocalSignal.create({
+const volume$ = LocalSignal.state({
     key: "user-volume",
     defaultValue: 1,
 });
