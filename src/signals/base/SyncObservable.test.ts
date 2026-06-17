@@ -34,6 +34,32 @@ describe("SyncObservable", () => {
         });
     });
 
+    describe("defaultValue", () => {
+        it("returns the default value when nothing is emitted synchronously", () => {
+            const sync$ = new SyncObservable<number>(() => {
+                // never emits
+            }, 7);
+
+            expect(sync$.value).toBe(7);
+        });
+
+        it("prefers a synchronously emitted value over the default", () => {
+            const sync$ = new SyncObservable<number>((subscriber) => {
+                subscriber.next(42);
+            }, 7);
+
+            expect(sync$.value).toBe(42);
+        });
+
+        it("treats undefined as a valid default (does not throw)", () => {
+            const sync$ = new SyncObservable<number | undefined>(() => {
+                // never emits
+            }, undefined);
+
+            expect(sync$.value).toBeUndefined();
+        });
+    });
+
     describe("subscribe()", () => {
         it("works like a normal Observable", () => {
             const values: number[] = [];

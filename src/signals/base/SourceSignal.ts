@@ -9,8 +9,8 @@ export class SourceSignal<T> {
     protected rang = 0;
     readonly obs;
 
-    constructor(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic) {
-        this.obs = new SyncObservable<T>(subscribe);
+    constructor(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic, ...defaultValue: [defaultValue?: T]) {
+        this.obs = new SyncObservable<T>(subscribe, ...defaultValue);
     }
 
     get(): T {
@@ -26,8 +26,11 @@ export class SourceSignal<T> {
         return this.obs.value;
     }
 
-    static create<T>(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic): ReadonlySignal<T> {
-        const signal = new SourceSignal<T>(subscribe);
+    static create<T>(
+        subscribe?: (subscriber: Subscriber<T>) => TeardownLogic,
+        ...defaultValue: [defaultValue?: T]
+    ): ReadonlySignal<T> {
+        const signal = new SourceSignal<T>(subscribe, ...defaultValue);
 
         function readonlySignalFn(): T {
             return signal.get();

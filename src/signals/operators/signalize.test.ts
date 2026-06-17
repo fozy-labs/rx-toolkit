@@ -1,4 +1,4 @@
-import { BehaviorSubject, Observable, Subject } from "rxjs";
+import { BehaviorSubject, Observable, ReplaySubject, Subject } from "rxjs";
 
 import { signalize } from "./signalize";
 
@@ -113,6 +113,32 @@ describe("signalize", () => {
             expect(values).toEqual([0, 1]);
             // Signal still reflects latest source value
             expect(signal.peek()).toBe(2);
+        });
+    });
+
+    describe("with defaultValue", () => {
+        it("returns the default until an async source emits", () => {
+            const subject = new ReplaySubject<number>(1);
+            const signal = signalize(subject, 0);
+
+            expect(signal.peek()).toBe(0);
+
+            subject.next(10);
+            expect(signal.peek()).toBe(10);
+        });
+
+        it("throws without a default when the source emits no synchronous value", () => {
+            const subject = new Subject<number>();
+            const signal = signalize(subject);
+
+            expect(() => signal.peek()).toThrow("No value emitted");
+        });
+
+        it("treats undefined as a valid default", () => {
+            const subject = new Subject<number | undefined>();
+            const signal = signalize(subject, undefined);
+
+            expect(signal.peek()).toBeUndefined();
         });
     });
 });

@@ -1,4 +1,4 @@
-import { BehaviorSubject } from "rxjs";
+import { BehaviorSubject, ReplaySubject } from "rxjs";
 
 import { SourceSignal } from "./SourceSignal";
 
@@ -61,6 +61,29 @@ describe("SourceSignal", () => {
             });
 
             expect(signal).not.toHaveProperty("set");
+        });
+    });
+
+    describe("defaultValue", () => {
+        it("returns the default until the source emits", () => {
+            const subject = new ReplaySubject<number>(1);
+            const signal = SourceSignal.create<number>((subscriber) => {
+                subject.subscribe(subscriber);
+            }, 0);
+
+            expect(signal()).toBe(0);
+            expect(signal.peek()).toBe(0);
+
+            subject.next(5);
+            expect(signal()).toBe(5);
+        });
+
+        it("throws without a default when the source has no synchronous value", () => {
+            const signal = SourceSignal.create<number>(() => {
+                // never emits
+            });
+
+            expect(() => signal()).toThrow("No value emitted");
         });
     });
 });
