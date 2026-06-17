@@ -24,7 +24,7 @@
 | Свойство   | Тип                                          | Описание                                                    |
 |------------|----------------------------------------------|-------------------------------------------------------------|
 | `keyedArgs` | `Keyed<TArgs>`                              | Аргументы, с которыми была создана запись.                  |
-| `machine$` | `SignalFn<TMachineInstance<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
+| `machine$` | `ReadonlySignal<TMachineInstance<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
 
 > Наследуемые свойства `state$`, `completed$` — см. [CacheEntry][cache-entry-api].
 
