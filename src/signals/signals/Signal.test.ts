@@ -2,7 +2,7 @@ import { Signal } from "./Signal";
 
 describe("Signal (facade)", () => {
     describe("Signal.state()", () => {
-        it("creates a callable SignalFn with initial value", () => {
+        it("creates a callable StateSignal with initial value", () => {
             const s = Signal.state(42);
             expect(s()).toBe(42);
         });
@@ -32,7 +32,7 @@ describe("Signal (facade)", () => {
     });
 
     describe("Signal.compute()", () => {
-        it("creates a callable ComputeFn", () => {
+        it("creates a callable DisposableSignal", () => {
             const c = Signal.compute(() => 10);
             expect(typeof c).toBe("function");
             expect(typeof c.peek).toBe("function");

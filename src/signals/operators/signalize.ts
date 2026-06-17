@@ -1,11 +1,10 @@
 import { Observable } from "rxjs";
 
-import { ReadableSignalFnLike } from "@/signals/types";
+import { SourceSignal } from "../base";
+import { type ReadonlySignal } from "../types";
 
-import { ReadonlySignal } from "../base";
-
-export function signalize<T>(observable: Observable<T>): ReadableSignalFnLike<T> {
-    return ReadonlySignal.create((destination) => {
+export function signalize<T>(observable: Observable<T>): ReadonlySignal<T> {
+    return SourceSignal.create((destination) => {
         return observable.subscribe(destination);
     });
 }

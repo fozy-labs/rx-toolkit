@@ -343,7 +343,7 @@ describe("Resource.getEntry$ reactivity", () => {
         expect(values[values.length - 1]).toBe(true);
 
         eff.unsubscribe();
-        hasEntry$.destroy();
+        hasEntry$.dispose();
     });
 
     it("re-evaluates inside Signal.effect when entry is completed and removed", async () => {

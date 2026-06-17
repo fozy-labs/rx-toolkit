@@ -52,7 +52,7 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         this._isCompleted = true;
         this.completed$.next();
         this.completed$.complete();
-        this._state$.complete();
+        this._state$.dispose();
     }
 
     private _getResetOnRefCountZero(retentionTime: number | false): boolean | (() => Observable<number>) {

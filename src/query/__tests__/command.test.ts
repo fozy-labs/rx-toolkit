@@ -289,7 +289,7 @@ describe("Command.getEntry$", () => {
         expect(values[values.length - 1]).toBe(true);
 
         eff.unsubscribe();
-        hasEntry$.destroy();
+        hasEntry$.dispose();
     });
 
     it("re-evaluates inside Signal.effect when a second trigger replaces the entry", async () => {

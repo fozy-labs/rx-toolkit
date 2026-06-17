@@ -1,4 +1,4 @@
-import type { ReadableSignalFnLike } from "@/signals/types";
+import type { ReadonlySignal } from "@/signals/types";
 
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args } from "./common";
@@ -31,7 +31,7 @@ export interface ICommand<TArgs, TData> {
 // ==================== Command Agent Interface ====================
 
 export interface ICommandAgent<TArgs, TData> {
-    state$: ReadableSignalFnLike<TCommandAgentState<TArgs, TData>>;
+    state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
     trigger(args: Args<TArgs>, key?: string): Promise<TData>;
     setKey(key: string): void;
 }

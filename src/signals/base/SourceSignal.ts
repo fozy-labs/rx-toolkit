@@ -1,15 +1,15 @@
-import { Observable, Subscriber, TeardownLogic } from "rxjs";
+import { Subscriber, TeardownLogic } from "rxjs";
 
-import { ReadableSignalFnLike, ReadableSignalLike } from "@/signals/types";
+import { type ReadonlySignal } from "@/signals/types";
 
 import { DependencyTracker } from "./DependencyTracker";
 import { SyncObservable } from "./SyncObservable";
 
-export class ReadonlySignal<T> implements ReadableSignalLike<T> {
+export class SourceSignal<T> {
     protected rang = 0;
     readonly obs;
 
-    constructor(subscribe?: (this: Observable<T>, subscriber: Subscriber<T>) => TeardownLogic) {
+    constructor(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic) {
         this.obs = new SyncObservable<T>(subscribe);
     }
 
@@ -26,10 +26,8 @@ export class ReadonlySignal<T> implements ReadableSignalLike<T> {
         return this.obs.value;
     }
 
-    static create<T>(
-        subscribe?: (this: Observable<T>, subscriber: Subscriber<T>) => TeardownLogic,
-    ): ReadableSignalFnLike<T> {
-        const signal = new ReadonlySignal<T>(subscribe);
+    static create<T>(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic): ReadonlySignal<T> {
+        const signal = new SourceSignal<T>(subscribe);
 
         function readonlySignalFn(): T {
             return signal.get();

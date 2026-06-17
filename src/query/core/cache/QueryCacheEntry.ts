@@ -1,5 +1,5 @@
 import type { IPatchHandle, IQueryCacheEntry, IQueryCacheEntryOptions, Keyed } from "@/query/types";
-import type { ReadableSignalFnLike } from "@/signals/types";
+import type { ReadonlySignal } from "@/signals/types";
 
 import { Machine } from "../machine/Machine";
 
@@ -12,7 +12,7 @@ export class QueryCacheEntry<TArgs, TData>
     implements IQueryCacheEntry<TArgs, TData>
 {
     readonly keyedArgs: Keyed<TArgs>;
-    readonly machine$: ReadableSignalFnLike<Machine<TArgs, TData>>;
+    readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
 
     private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData>;
     private _abortController: AbortController | null = null;

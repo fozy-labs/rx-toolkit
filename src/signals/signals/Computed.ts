@@ -1,8 +1,9 @@
 import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
 
-import { ComputeFn, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
+import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
 
 import { ComputeCache, DependencyTracker } from "../base";
+import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 import { Effect } from "./Effect";
 import { State } from "./State";
@@ -111,16 +112,27 @@ export class Computed<T> {
         this._state$.set(Computed._EMPTY);
     }
 
+    /**
+     * @deprecated use dispose instead
+     **/
     destroy() {
+        this.dispose();
+    }
+
+    dispose() {
         this._stop();
         this._computeCache.clear();
+    }
+
+    [SYMBOL_DISPOSE]() {
+        this.dispose();
     }
 
     // === static ===
 
     private static _EMPTY = Symbol("empty");
 
-    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): ComputeFn<T> {
+    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): DisposableSignal<T> {
         const lc = new Computed(computeFn, options);
 
         function computedFn() {
@@ -130,7 +142,11 @@ export class Computed<T> {
         computedFn.peek = () => lc.peek();
         computedFn.get = () => lc.get();
         computedFn.obs = lc.obs;
-        computedFn.destroy = () => lc.destroy();
+        const dispose = () => lc.dispose();
+        computedFn.dispose = dispose;
+        computedFn[SYMBOL_DISPOSE] = dispose;
+        /** @deprecated use dispose instead */
+        computedFn.destroy = dispose;
 
         return computedFn;
     }

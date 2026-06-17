@@ -1,11 +1,11 @@
 import { BehaviorSubject } from "rxjs";
 
-import { ReadonlySignal } from "./ReadonlySignal";
+import { SourceSignal } from "./SourceSignal";
 
-describe("ReadonlySignal", () => {
-    describe("ReadonlySignal.create(subscribe)", () => {
+describe("SourceSignal", () => {
+    describe("SourceSignal.create(subscribe)", () => {
         it("creates a callable signal from subscribe function", () => {
-            const signal = ReadonlySignal.create<number>((subscriber) => {
+            const signal = SourceSignal.create<number>((subscriber) => {
                 subscriber.next(42);
             });
 
@@ -16,7 +16,7 @@ describe("ReadonlySignal", () => {
 
     describe("peek()", () => {
         it("returns current value synchronously", () => {
-            const signal = ReadonlySignal.create<string>((subscriber) => {
+            const signal = SourceSignal.create<string>((subscriber) => {
                 subscriber.next("hello");
             });
 
@@ -27,7 +27,7 @@ describe("ReadonlySignal", () => {
     describe("obs", () => {
         it("returns Observable that emits values on subscription", () => {
             const subject = new BehaviorSubject(10);
-            const signal = ReadonlySignal.create<number>((subscriber) => {
+            const signal = SourceSignal.create<number>((subscriber) => {
                 subject.subscribe(subscriber);
             });
 
@@ -44,7 +44,7 @@ describe("ReadonlySignal", () => {
 
     describe("calling signal()", () => {
         it("returns the current value (equivalent to get())", () => {
-            const signal = ReadonlySignal.create<number>((subscriber) => {
+            const signal = SourceSignal.create<number>((subscriber) => {
                 subscriber.next(99);
             });
 
@@ -56,7 +56,7 @@ describe("ReadonlySignal", () => {
 
     describe("readonly contract", () => {
         it("has no set() method", () => {
-            const signal = ReadonlySignal.create<number>((subscriber) => {
+            const signal = SourceSignal.create<number>((subscriber) => {
                 subscriber.next(1);
             });
 
