@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- Новые типы сигналов: `ReadonlySignal<T>`, `DisposableSignal<T>`, `StateSignal<T>` — единая иерархия для read-only, завершаемых и записываемых сигналов.
+- Метод `dispose()` для завершения сигналов (`Signal.state(...)`, `Signal.compute(...)`, `State`, `Computed`).
+- Поддержка `Symbol.dispose` у сигналов — совместимость с `using` (TC39 Explicit Resource Management).
+- Опциональный `defaultValue` для `signalize(observable, defaultValue?)` (и `SourceSignal.create` / `SyncObservable`).
+
+### Changed
+- Класс `ReadonlySignal` переименован в `SourceSignal` (ломающее изменение при прямом использовании `ReadonlySignal.create(...)`).
+
+### Deprecated
+- `destroy()` у результата `Signal.compute(...)` (`Computed`) — используйте `dispose()`.
+- Типы `SignalFn`, `ComputeFn`, `ReadableSignalLike`, `ReadableSignalFnLike`, `WriteableSignalLike`, `ClearableSignalLike`, `StatefulSignalFn`.
+
+
 ## [0.7.3] - 2026-05-25
 
 ### Fixed
@@ -175,6 +191,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.3...HEAD
 [0.7.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.0...v0.7.1

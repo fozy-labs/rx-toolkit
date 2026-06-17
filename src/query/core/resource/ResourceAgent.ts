@@ -7,7 +7,7 @@ import type {
     TMachineState,
     TResourceAgentState,
 } from "@/query/types";
-import { Batcher, Signal, type ReadableSignalFnLike } from "@/signals";
+import { Batcher, Signal, type ReadonlySignal } from "@/signals";
 
 import { SKIP } from "../../constants";
 import type { QueryCacheEntry } from "../cache/QueryCacheEntry";
@@ -18,7 +18,7 @@ import type { Resource } from "./Resource";
 
 interface Tracking<TArgs, TData> {
     keyed: Keyed<TArgs>;
-    current$: ReadableSignalFnLike<QueryCacheEntry<TArgs, TData> | null>;
+    current$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
 }
 
 /**
@@ -40,7 +40,7 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
         isDisabled: true,
     });
 
-    private _previous$: ReadableSignalFnLike<QueryCacheEntry<TArgs, TData> | null> | null = null;
+    private _previous$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> | null = null;
     private _isStarted = false;
     private _isMarked = false;
 

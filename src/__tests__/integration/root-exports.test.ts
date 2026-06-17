@@ -68,9 +68,9 @@ describe("Root module exports (@/index)", () => {
             expect(mod.Devtools).toBeDefined();
         });
 
-        it("exports ReadonlySignal", async () => {
+        it("exports SourceSignal", async () => {
             const mod = await import("@/index");
-            expect(mod.ReadonlySignal).toBeDefined();
+            expect(mod.SourceSignal).toBeDefined();
         });
 
         it("exports SyncObservable", async () => {

@@ -1,6 +1,6 @@
 import type { Args, ICommandAgent, IQueryCacheEntry, TCommandAgentState, TMachineState } from "@/query/types";
 import { Signal } from "@/signals";
-import type { ComputeFn } from "@/signals/types";
+import type { ReadonlySignal } from "@/signals/types";
 
 // Minimal contract that CommandAgent needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
@@ -13,7 +13,7 @@ export interface ICommandForAgent<TArgs, TData> {
 
 interface Tracking<TArgs, TData> {
     key: string;
-    current$: ComputeFn<IQueryCacheEntry<TArgs, TData> | null>;
+    current$: ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
 }
 
 export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
@@ -21,7 +21,7 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
 
     private readonly _tracking$: ReturnType<typeof Signal.state<Tracking<TArgs, TData> | null>>;
 
-    readonly state$: ComputeFn<TCommandAgentState<TArgs, TData>>;
+    readonly state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
 
     constructor(command: ICommandForAgent<TArgs, TData>, key?: string) {
         this._command = command;

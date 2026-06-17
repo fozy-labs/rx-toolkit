@@ -1,5 +1,5 @@
 import type { ArgsOrVoidOrSkip, TMachineStatus, TResourceSnapshot } from "@/query";
-import type { ReadableSignalFnLike } from "@/signals/types";
+import type { ReadonlySignal } from "@/signals/types";
 
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args, ArgsOrVoid, Keyed } from "./common";
@@ -11,10 +11,7 @@ export interface IResource<TArgs, TData> {
     trigger(args: Args<TArgs>, doForce?: boolean): void;
     refresh(args: Args<TArgs>): void;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
-    getEntry$(
-        args: ArgsOrVoid<TArgs>,
-        doInitiate?: boolean,
-    ): ReadableSignalFnLike<IQueryCacheEntry<TArgs, TData> | null>;
+    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
     getEntries(): IterableIterator<IQueryCacheEntry<TArgs, TData>>;
     createAgent(): IResourceAgent<TArgs, TData>;
     serialize(args: Args<TArgs>): string;
@@ -38,7 +35,7 @@ export interface IResourceLiteState<TArgs, TData> {
 // ==================== Resource Agent Interface ====================
 
 export interface IResourceAgent<TArgs, TData> {
-    state$: ReadableSignalFnLike<TResourceAgentState<TArgs, TData>>;
+    state$: ReadonlySignal<TResourceAgentState<TArgs, TData>>;
     start(): void;
     set(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
     retry(): void;

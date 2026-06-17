@@ -9,10 +9,10 @@ import {
     LocalState,
     // types
     normalizeSignalOptions,
-    ReadonlySignal,
     Signal,
     // operators
     signalize,
+    SourceSignal,
     // signals
     State,
     SyncObservable,
@@ -45,9 +45,9 @@ describe("Signals module exports", () => {
             expect(typeof Devtools.createState).toBe("function");
         });
 
-        it("exports ReadonlySignal", () => {
-            expect(ReadonlySignal).toBeDefined();
-            expect(typeof ReadonlySignal.create).toBe("function");
+        it("exports SourceSignal", () => {
+            expect(SourceSignal).toBeDefined();
+            expect(typeof SourceSignal.create).toBe("function");
         });
 
         it("exports SyncObservable", () => {

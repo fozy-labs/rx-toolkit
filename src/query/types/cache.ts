@@ -1,7 +1,7 @@
 import { Subject } from "rxjs";
 
 import type { Machine } from "@/query/core/machine";
-import type { ReadableSignalFnLike } from "@/signals/types";
+import type { ReadonlySignal } from "@/signals/types";
 
 import type { IPatchHandle, Keyed } from "./common";
 
@@ -15,7 +15,7 @@ export interface ICacheEntryOptions<TState> {
 
 export interface ICacheEntry<TState> {
     readonly completed$: Subject<void>;
-    readonly state$: ReadableSignalFnLike<TState>;
+    readonly state$: ReadonlySignal<TState>;
     peek(): TState;
     set(state: TState): void;
     complete(): void;
@@ -45,7 +45,7 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
 export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArgs, TData>> {
     readonly keyedArgs: Keyed<TArgs>;
     // state$ is inherited from ICacheEntry<Machine<TArgs, TData>>
-    readonly machine$: ReadableSignalFnLike<Machine<TArgs, TData>>;
+    readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
     refresh(): void;
     retry(): void;
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null;

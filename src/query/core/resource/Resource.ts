@@ -9,7 +9,7 @@ import type {
     TCacheEntryAddedContext,
     TQueryStartedContext,
 } from "@/query/types";
-import { Signal, type ReadableSignalFnLike } from "@/signals";
+import { Signal, type ReadonlySignal } from "@/signals";
 
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { CacheMap } from "../cache/CacheMap";
@@ -132,16 +132,13 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * @param doInitiate - When `true`, creates and starts the entry if absent.
      * @returns The cache entry, or `null` if not found and `doInitiate` is `false`.
      */
-    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate: true): ReadableSignalFnLike<QueryCacheEntry<TArgs, TData>>;
-    getEntry$(
-        args: ArgsOrVoid<TArgs>,
-        doInitiate?: boolean,
-    ): ReadableSignalFnLike<QueryCacheEntry<TArgs, TData> | null>;
-    getEntry$(args: Keyed<TArgs>, doInitiate?: boolean): ReadableSignalFnLike<QueryCacheEntry<TArgs, TData> | null>;
+    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate: true): ReadonlySignal<QueryCacheEntry<TArgs, TData>>;
+    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
+    getEntry$(args: Keyed<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
     getEntry$(
         args: ArgsOrVoid<TArgs> | Keyed<TArgs>,
         doInitiate = false,
-    ): ReadableSignalFnLike<QueryCacheEntry<TArgs, TData> | null> {
+    ): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> {
         return Signal.compute(
             () => {
                 const keyed = this.toKeyed(args as Args<TArgs>);

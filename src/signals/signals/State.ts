@@ -1,8 +1,14 @@
 import { BehaviorSubject } from "rxjs";
 
-import { normalizeSignalOptions, SignalFn, SignalLifecycleHook, SignalOptionsOrKey } from "@/signals/types";
+import {
+    normalizeSignalOptions,
+    type SignalLifecycleHook,
+    type SignalOptionsOrKey,
+    type StateSignal,
+} from "@/signals/types";
 
 import { Batcher, DependencyTracker, Devtools } from "../base";
+import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 export class State<T> {
     private _hooks: SignalLifecycleHook<T>[] | null;
@@ -64,7 +70,7 @@ export class State<T> {
         return this.bs$.getValue();
     }
 
-    complete() {
+    dispose() {
         this.bs$.complete();
 
         if (this._hooks) {
@@ -76,6 +82,10 @@ export class State<T> {
         }
     }
 
+    [SYMBOL_DISPOSE]() {
+        this.dispose();
+    }
+
     // === static ===
 
     private static _finalizationRegistry = new FinalizationRegistry((hooks: SignalLifecycleHook<any>[]) => {
@@ -84,7 +94,7 @@ export class State<T> {
         }
     });
 
-    static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): SignalFn<T> {
+    static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): StateSignal<T> {
         const ls = new State(initialValue, options);
 
         function signalFn() {
@@ -96,6 +106,9 @@ export class State<T> {
         signalFn.update = (updater: (value: T) => T, actionName?: string) => ls.update(updater, actionName);
         signalFn.get = () => ls.get();
         signalFn.obs = ls.obs;
+        const dispose = () => ls.dispose();
+        signalFn.dispose = dispose;
+        signalFn[SYMBOL_DISPOSE] = dispose;
 
         return signalFn;
     }
