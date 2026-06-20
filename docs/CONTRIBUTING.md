@@ -211,14 +211,6 @@ signal.obs     // RxJS Observable
 - `<module>/index.ts` — точка экспорта для конкретного "модуля".
 
 
-## AI-assisted разработка
-
-Проект настроен для работы с **GitHub Copilot**.
-
-[//]: # (For humans only guide:)
-Описание подхода: [docs/contributing/ai-assisted-development.md](contributing/ai-assisted-development.md).
-
-
 ## Релиз
 
 Релизы делятся на:

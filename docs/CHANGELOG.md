@@ -1,6 +1,7 @@
 # CHANGELOG
 
-## [Unreleased]
+
+## [0.8.0] - 2026-06-20
 
 [Гайд по миграции с 0.7.x](./migrations/0.8.0.md)
 
@@ -13,6 +14,7 @@
 - Удалён метод `destroy()` у `Computed` и у результата `Signal.compute(...)` — используйте `dispose()`.
 - Удалена статическая фабрика `LocalState.create(...)` — используйте `LocalSignal.state(...)`.
 - Удалены устаревшие типы сигналов: `ReadableSignalLike`, `ReadableSignalFnLike`, `WriteableSignalLike`, `ClearableSignalLike`, `StatefulSignalFn`, `SignalFn`, `ComputeFn` — используйте `ReadonlySignal` / `DisposableSignal` / `StateSignal` / `LocalStateSignal`.
+
 
 ## [0.7.4] - 2026-06-17
 
