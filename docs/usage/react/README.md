@@ -96,6 +96,59 @@ function UserProfile({ userId }: { userId: string | null }) {
 - Поддержка `SKIP` токена для условного пропуска запроса
 - При смене аргументов показывает предыдущие данные во время загрузки новых
 
+### useSuspenseResource
+
+Suspense-вариант `useResource`. Вместо флагов загрузки/ошибки хук интегрируется с React Suspense и Error Boundary:
+
+- пока идёт **первичная** загрузка — бросает промис → показывается ближайший `<Suspense fallback>`;
+- если первичный запрос **упал** (и нет данных для отката) — бросает ошибку → её ловит ближайший `ErrorBoundary`;
+- иначе возвращает состояние, в котором `data` **гарантированно не `null`**.
+
+```tsx
+import { Suspense } from 'react';
+import { userResource } from '../api/userResource';
+
+function UserProfile({ userId }: { userId: string }) {
+    // data типизирована как TData (без | null) — проверки не нужны
+    const { data, isRefreshing } = userResource.useSuspenseResource({ id: userId });
+
+    return (
+        <div>
+            <h1>{data.name} {isRefreshing && '🔄'}</h1>
+            <p>{data.email}</p>
+        </div>
+    );
+}
+
+function Page({ userId }: { userId: string }) {
+    return (
+        <ErrorBoundary fallback={<p>Не удалось загрузить профиль</p>}>
+            <Suspense fallback={<Spinner />}>
+                <UserProfile userId={userId} />
+            </Suspense>
+        </ErrorBoundary>
+    );
+}
+```
+
+> Если ресурс подключён через `reactHooksPlugin`, хук доступен как метод: `userResource.useSuspenseResource(args)`. Standalone-форма `useSuspenseResource(resource, args)` тоже экспортируется.
+
+**Возвращаемое значение (`TSuspenseResourceState`):** то же, что у `useResource` (`TResourceAgentState`), но поле `data` имеет тип `TData` вместо `TData | null`.
+
+**Особенности и отличия от `useResource`:**
+
+| Сценарий                          | Поведение                                                                 |
+|-----------------------------------|---------------------------------------------------------------------------|
+| Первичная загрузка                | Бросает промис → `<Suspense fallback>`                                     |
+| Первичная ошибка (нет данных)     | Бросает ошибку → `ErrorBoundary`                                           |
+| Фоновое обновление (SWR)          | **Не** приостанавливается: показывает stale-данные, `isRefreshing = true`  |
+| Ошибка при обновлении (SWR)       | **Не** приостанавливается: stale-данные остаются, `isRefreshError = true`  |
+| Кэш уже прогрет                   | Рендерится синхронно, без fallback                                         |
+
+- Запрос стартует **во время рендера** (а не в эффекте) — приостановленный рендер не выполняет эффекты, иначе fallback завис бы навсегда.
+- `SKIP` намеренно **не поддерживается**: компонент, который может приостановиться, всегда должен иметь аргументы. Для условных запросов используйте `useResource`.
+- Хук наследует клиентское ограничение `useSignal` (без `getServerSnapshot`) — для потокового SSR используйте `useResource`.
+
 ### useCommand
 
 Создает агент команды и возвращает кортеж `[trigger, state]`.

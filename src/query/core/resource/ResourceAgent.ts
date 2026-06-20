@@ -43,6 +43,7 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
     private _previous$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> | null = null;
     private _isStarted = false;
     private _isMarked = false;
+    private _settledPromise: Promise<void> | null = null;
 
     constructor(resource: Resource<TArgs, TData>) {
         this._resource = resource;
@@ -117,7 +118,60 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
         this._tracking$.peek()?.current$.peek()?.refresh();
     };
 
+    /**
+     * Promise resolving once the agent leaves the initial-loading phase (see
+     * {@link IResourceAgent.whenSettled}).
+     *
+     * Consumed by `useSuspenseResource`: a suspended render aborts its effects,
+     * so this promise — created during render — is the only thing that can wake
+     * React once the query settles. It never rejects; the actual error is read
+     * from the derived state on the next render, keeping error handling inside
+     * the React tree (Error Boundary) and avoiding unhandled rejections.
+     *
+     * The instance is cached for the duration of one loading phase so repeated
+     * renders throw the same promise (a fresh promise every render would loop),
+     * and cleared on settle so a later argument change can suspend again.
+     */
+    whenSettled(): Promise<void> {
+        if (this._settledPromise) {
+            return this._settledPromise;
+        }
+
+        if (this._isSettled(this.state$.peek())) {
+            return Promise.resolve();
+        }
+
+        this._settledPromise = new Promise<void>((resolve) => {
+            let unsubscribe: (() => void) | null = null;
+            let done = false;
+
+            const subscription = this.state$.obs.subscribe((state) => {
+                if (done || !this._isSettled(state)) return;
+
+                done = true;
+                this._settledPromise = null;
+                resolve();
+                unsubscribe?.();
+            });
+
+            unsubscribe = () => subscription.unsubscribe();
+
+            // Settled synchronously during subscribe(): the callback ran before
+            // `unsubscribe` was assigned, so tear the subscription down here.
+            if (done) {
+                unsubscribe();
+            }
+        });
+
+        return this._settledPromise;
+    }
+
     // ==================== Private ====================
+
+    /** Whether a derived state represents anything other than initial loading. */
+    private _isSettled(state: TResourceAgentState<TArgs, TData>): boolean {
+        return state.status !== "idle" && state.status !== "pending";
+    }
 
     private _deriveState(): TResourceAgentState<TArgs, TData> {
         const tracking = this._tracking$();

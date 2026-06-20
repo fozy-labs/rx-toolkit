@@ -40,6 +40,13 @@ export interface IResourceAgent<TArgs, TData> {
     set(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
     retry(): void;
     refresh(): void;
+    /**
+     * Promise resolving once the agent leaves the initial-loading phase — data
+     * became available (success / refreshing / refresh-error / stale SWR) or the
+     * query failed with nothing to fall back on. Never rejects. Used by the
+     * Suspense hook to wake React after a suspended render.
+     */
+    whenSettled(): Promise<void>;
     get args(): TArgs | null;
 }
 

@@ -1,4 +1,5 @@
 import type {
+    ArgsOrVoid,
     ArgsOrVoidOrSkip,
     ICommand,
     IPlugin,
@@ -9,14 +10,17 @@ import type {
     TCommandOptions,
     TResourceAgentState,
     TResourceOptions,
+    TSuspenseResourceState,
 } from "@/query/types";
 
 import { useCommand } from "./useCommand";
 import { useResource } from "./useResource";
+import { useSuspenseResource } from "./useSuspenseResource";
 
 /** Resource augmentation shape produced by ReactHooksPlugin. */
 type ReactHooksResourceShape<TArgs, TData> = {
     useResource: (args: ArgsOrVoidOrSkip<TArgs>) => TResourceAgentState<TArgs, TData>;
+    useSuspenseResource: (args: ArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData>;
 };
 
 /** Command augmentation shape produced by ReactHooksPlugin. */
@@ -46,9 +50,10 @@ export class ReactHooksPlugin implements IPlugin {
     augmentResource<TArgs, TData>(
         resource: IResource<TArgs, TData>,
         _options: TResourceOptions<TArgs, TData>,
-    ): { useResource: (args: ArgsOrVoidOrSkip<TArgs>) => TResourceAgentState<TArgs, TData> } {
+    ): ReactHooksResourceShape<TArgs, TData> {
         return {
             useResource: (args: ArgsOrVoidOrSkip<TArgs>) => useResource(resource, args),
+            useSuspenseResource: (args: ArgsOrVoid<TArgs>) => useSuspenseResource(resource, args),
         };
     }
 

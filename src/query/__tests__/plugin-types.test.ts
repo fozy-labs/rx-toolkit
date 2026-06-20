@@ -2,7 +2,14 @@ import { assertType, describe, it } from "vitest";
 
 import { createApi } from "@/query/api/createApi";
 import { ReactHooksPlugin, reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
-import type { ArgsOrVoidOrSkip, IPlugin, TCommandAgentState, TResourceAgentState } from "@/query/types";
+import type {
+    ArgsOrVoid,
+    ArgsOrVoidOrSkip,
+    IPlugin,
+    TCommandAgentState,
+    TResourceAgentState,
+    TSuspenseResourceState,
+} from "@/query/types";
 import type { PluginHKT } from "@/query/types/plugin-hkt";
 
 // ==================== Helpers ====================
@@ -68,6 +75,39 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
 
         assertType<IsExact<Param, ArgsOrVoidOrSkip<void>>>(true as const);
+    });
+
+    // ---------- useSuspenseResource has correct signature ----------
+
+    it("useSuspenseResource has signature (args: ArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData>", () => {
+        type TArgs = { id: number };
+        type TData = { name: string };
+
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource({
+            queryFn: async (args: TArgs): Promise<TData> => ({ name: "Alice" }),
+        });
+
+        type HookFn = typeof resource.useSuspenseResource;
+        type Param = Parameters<HookFn>[0];
+        type Ret = ReturnType<HookFn>;
+
+        // SKIP is intentionally NOT accepted (ArgsOrVoid, not ArgsOrVoidOrSkip).
+        assertType<IsExact<Param, ArgsOrVoid<TArgs>>>(true as const);
+        assertType<IsExact<Ret, TSuspenseResourceState<TArgs, TData>>>(true as const);
+
+        // data is guaranteed non-null on the suspense state.
+        assertType<IsExact<Ret["data"], TData>>(true as const);
+    });
+
+    it("createApi without plugins → createResource does NOT return useSuspenseResource", () => {
+        const api = createApi();
+        const resource = api.createResource({
+            queryFn: async (args: { id: number }) => ({ name: "Alice" }),
+        });
+
+        // @ts-expect-error — useSuspenseResource should not exist without the plugin
+        resource.useSuspenseResource;
     });
 
     // ---------- Command with ReactHooksPlugin includes useCommand ----------

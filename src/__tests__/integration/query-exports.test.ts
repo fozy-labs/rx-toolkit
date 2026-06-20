@@ -60,6 +60,12 @@ describe("Query module exports (@/index)", () => {
             expect(typeof mod.useResource).toBe("function");
         });
 
+        it("exports useSuspenseResource", async () => {
+            const mod = await import("@/index");
+            expect(mod.useSuspenseResource).toBeDefined();
+            expect(typeof mod.useSuspenseResource).toBe("function");
+        });
+
         it("exports useCommand", async () => {
             const mod = await import("@/index");
             expect(mod.useCommand).toBeDefined();
