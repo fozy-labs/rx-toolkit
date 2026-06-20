@@ -1,6 +1,6 @@
 import { z, ZodType } from "zod/v4";
 
-import { type SignalOptionsOrKey, type StatefulSignalFn } from "@/signals/types";
+import { type SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
 import { State } from "./State";
@@ -159,24 +159,4 @@ export class LocalState<T = string | null | number | undefined> {
 
     static KEY_PREFIX = "__LSValue__";
     static DEFAULT_DRIVER = typeof localStorage === "undefined" ? null : localStorage;
-
-    /**
-     * @deprecated use `LocalSignal.state` instead
-     */
-    static create<T = string | null | number | undefined>(options: LocalStateOptions<T>): StatefulSignalFn<T> {
-        const localState = new LocalState<T>(options);
-
-        function signalFn() {
-            return localState.get();
-        }
-
-        signalFn.peek = () => localState.peek();
-        signalFn.get = () => localState.get();
-        signalFn.set = (value: T, actionName?: string) => localState.set(value, actionName);
-        signalFn.update = (updater: (value: T) => T, actionName?: string) => localState.update(updater, actionName);
-        signalFn.clear = () => localState.clear();
-        signalFn.obs = localState.obs;
-
-        return signalFn as unknown as StatefulSignalFn<T>;
-    }
 }

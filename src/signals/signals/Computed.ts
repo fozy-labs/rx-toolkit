@@ -112,13 +112,6 @@ export class Computed<T> {
         this._state$.set(Computed._EMPTY);
     }
 
-    /**
-     * @deprecated use dispose instead
-     **/
-    destroy() {
-        this.dispose();
-    }
-
     dispose() {
         this._stop();
         this._computeCache.clear();
@@ -145,8 +138,6 @@ export class Computed<T> {
         const dispose = () => lc.dispose();
         computedFn.dispose = dispose;
         computedFn[SYMBOL_DISPOSE] = dispose;
-        /** @deprecated use dispose instead */
-        computedFn.destroy = dispose;
 
         return computedFn;
     }

@@ -1,6 +1,6 @@
 import { z } from "zod/v4";
 
-import { LocalState } from "./LocalState";
+import { LocalSignal } from "./LocalSignal";
 
 const KEY_PREFIX = "__LSValue__";
 
@@ -28,7 +28,7 @@ describe("LocalState", () => {
 
     describe("creation", () => {
         it("creates with defaultValue when no stored data", () => {
-            const s = LocalState.create({ key: "test1", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "test1", defaultValue: 0 });
             const sub = activate(s);
             expect(s.peek()).toBe(0);
             sub.unsubscribe();
@@ -36,7 +36,7 @@ describe("LocalState", () => {
 
         it("loads stored value from localStorage on creation", () => {
             seedStorage("test2", 42);
-            const s = LocalState.create({ key: "test2", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "test2", defaultValue: 0 });
             const sub = activate(s);
             expect(s.peek()).toBe(42);
             sub.unsubscribe();
@@ -45,7 +45,7 @@ describe("LocalState", () => {
 
     describe("set / update / peek / clear", () => {
         it("set() updates the value", () => {
-            const s = LocalState.create({ key: "sp1", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "sp1", defaultValue: 0 });
             const sub = activate(s);
             s.set(99);
             expect(s.peek()).toBe(99);
@@ -53,7 +53,7 @@ describe("LocalState", () => {
         });
 
         it("update() updates the value", () => {
-            const s = LocalState.create({ key: "sp1u", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "sp1u", defaultValue: 0 });
             const sub = activate(s);
             s.update((value) => value + 1);
             expect(s.peek()).toBe(1);
@@ -61,7 +61,7 @@ describe("LocalState", () => {
         });
 
         it("set() persists to localStorage", () => {
-            const s = LocalState.create({ key: "sp2", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "sp2", defaultValue: 0 });
             s.set(42);
 
             const raw = localStorage.getItem(storageKey("sp2"));
@@ -71,7 +71,7 @@ describe("LocalState", () => {
         });
 
         it("update() persists to localStorage", () => {
-            const s = LocalState.create({ key: "sp2u", defaultValue: 10 });
+            const s = LocalSignal.state({ key: "sp2u", defaultValue: 10 });
             s.update((value) => value + 5);
 
             const raw = localStorage.getItem(storageKey("sp2u"));
@@ -81,7 +81,7 @@ describe("LocalState", () => {
         });
 
         it("clear() resets to defaultValue", () => {
-            const s = LocalState.create({ key: "sp3", defaultValue: "default" });
+            const s = LocalSignal.state({ key: "sp3", defaultValue: "default" });
             const sub = activate(s);
             s.set("changed");
             expect(s.peek()).toBe("changed");
@@ -92,7 +92,7 @@ describe("LocalState", () => {
         });
 
         it("clear() removes entry from localStorage", () => {
-            const s = LocalState.create({ key: "sp4", defaultValue: 0 });
+            const s = LocalSignal.state({ key: "sp4", defaultValue: 0 });
             s.set(42);
             expect(localStorage.getItem(storageKey("sp4"))).not.toBeNull();
 
@@ -103,7 +103,7 @@ describe("LocalState", () => {
 
     describe("observable", () => {
         it("obs exists and can be subscribed", () => {
-            const s = LocalState.create({ key: "obs1", defaultValue: 1 });
+            const s = LocalSignal.state({ key: "obs1", defaultValue: 1 });
             expect(s.obs).toBeDefined();
 
             const values: number[] = [];
@@ -121,7 +121,7 @@ describe("LocalState", () => {
     describe("zod schema validation", () => {
         it("valid data accepted from storage", () => {
             seedStorage("zod1", 42);
-            const s = LocalState.create({
+            const s = LocalSignal.state({
                 key: "zod1",
                 zodSchema: z.number(),
                 defaultValue: 0,
@@ -133,7 +133,7 @@ describe("LocalState", () => {
 
         it("invalid data in storage → uses defaultValue", () => {
             seedStorage("zod2", "not-a-number");
-            const s = LocalState.create({
+            const s = LocalSignal.state({
                 key: "zod2",
                 zodSchema: z.number(),
                 defaultValue: 0,
@@ -148,14 +148,14 @@ describe("LocalState", () => {
         it("invalid JSON in storage throws", () => {
             localStorage.setItem(storageKey("bad"), "not-json!!!");
             expect(() => {
-                LocalState.create({ key: "bad", defaultValue: 0 });
+                LocalSignal.state({ key: "bad", defaultValue: 0 });
             }).toThrow();
         });
     });
 
     describe("checkEffect option", () => {
         it("valid value passes through", () => {
-            const s = LocalState.create({
+            const s = LocalSignal.state({
                 key: "ce1",
                 defaultValue: 0,
                 checkEffect: (v: number) => v >= 0,
@@ -168,7 +168,7 @@ describe("LocalState", () => {
         });
 
         it("invalid value reverts to defaultValue", () => {
-            const s = LocalState.create({
+            const s = LocalSignal.state({
                 key: "ce2",
                 defaultValue: 0,
                 checkEffect: (v: number) => v >= 0,

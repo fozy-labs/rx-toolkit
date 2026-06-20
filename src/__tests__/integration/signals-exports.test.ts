@@ -6,6 +6,7 @@ import {
     DependencyTracker,
     Devtools,
     Effect,
+    LocalSignal,
     LocalState,
     // types
     normalizeSignalOptions,
@@ -95,7 +96,12 @@ describe("Signals module exports", () => {
 
         it("exports LocalState", () => {
             expect(LocalState).toBeDefined();
-            expect(typeof LocalState.create).toBe("function");
+            expect(typeof LocalState).toBe("function"); // class
+        });
+
+        it("exports LocalSignal", () => {
+            expect(LocalSignal).toBeDefined();
+            expect(typeof LocalSignal.state).toBe("function");
         });
     });
 
