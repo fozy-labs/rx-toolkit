@@ -344,6 +344,43 @@ describe("Command.createAgent", () => {
     });
 });
 
+// ==================== pack ====================
+
+describe("Command.pack", () => {
+    it("returns an inert { kind, command, args, key } descriptor", () => {
+        const queryFn = vi.fn(async (s: string) => `result-${s}`);
+        const command = createCommand<string, string>({ queryFn });
+
+        const packed = command.pack("hello", "k1");
+
+        expect(packed).toEqual({ kind: "command", command, args: "hello", key: "k1" });
+        // pack must not execute the mutation
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(command.getEntry("k1")).toBeNull();
+    });
+
+    it("leaves key undefined when omitted", () => {
+        const command = createCommand<string, string>({
+            queryFn: async (s) => `result-${s}`,
+        });
+
+        const packed = command.pack("hello");
+
+        expect(packed.key).toBeUndefined();
+    });
+
+    it("descriptor can be replayed via command.trigger", async () => {
+        const queryFn = vi.fn(async (s: string) => `result-${s}`);
+        const command = createCommand<string, string>({ queryFn });
+
+        const packed = command.pack("world", "k2");
+        const result = await packed.command.trigger(packed.args, packed.key);
+
+        expect(result).toBe("result-world");
+        expect(queryFn).toHaveBeenCalledWith("world", expect.any(String));
+    });
+});
+
 // ==================== reset ====================
 
 describe("Command.reset", () => {

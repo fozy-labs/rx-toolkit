@@ -2,7 +2,7 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args } from "./common";
-import type { IResource } from "./resource";
+import type { IResource, TPackedResource } from "./resource";
 import type { TCommandAgentState } from "./state";
 
 // ==================== Link Types ====================
@@ -26,7 +26,29 @@ export interface ICommand<TArgs, TData> {
     getEntry(key: string): IQueryCacheEntry<TArgs, TData> | null;
     getEntry$(key: string): IQueryCacheEntry<TArgs, TData> | null;
     createAgent(key?: string): ICommandAgent<TArgs, TData>;
+    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData>;
 }
+
+// ==================== Packed Descriptor ====================
+
+/**
+ * Inert descriptor binding a command to a set of arguments (and an optional
+ * cache key). Produced by {@link ICommand.pack} — lets a consumer hand "what to
+ * run, with which args" back to the library without executing anything.
+ * Discriminated by `kind`.
+ */
+export interface TPackedCommand<TArgs, TData> {
+    kind: "command";
+    command: ICommand<TArgs, TData>;
+    args: Args<TArgs>;
+    key?: string;
+}
+
+/**
+ * Discriminated union of every packed descriptor. Narrow on `kind` to recover
+ * the concrete resource/command shape.
+ */
+export type TPacked<TArgs, TData> = TPackedResource<TArgs, TData> | TPackedCommand<TArgs, TData>;
 
 // ==================== Command Agent Interface ====================
 

@@ -7,6 +7,7 @@ import type {
     IResourceLiteState,
     Keyed,
     TCacheEntryAddedContext,
+    TPackedResource,
     TQueryStartedContext,
 } from "@/query/types";
 import { Signal, type ReadonlySignal } from "@/signals";
@@ -192,6 +193,18 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     /** Iterate over all cache entries. */
     getEntries(): IterableIterator<QueryCacheEntry<TArgs, TData>> {
         return this._cache.values();
+    }
+
+    /**
+     * Bundle this resource with arguments into an inert {@link TPackedResource}
+     * descriptor. Nothing is executed — the consumer hands the descriptor back to
+     * the library, which can later read `resource`/`args` (e.g. `resource.trigger(args)`).
+     *
+     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @returns A `{ kind: "resource", resource, args }` descriptor.
+     */
+    pack(args: Args<TArgs>): TPackedResource<TArgs, TData> {
+        return { kind: "resource", resource: this, args };
     }
 
     /**

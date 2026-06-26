@@ -1,6 +1,12 @@
 # CHANGELOG
 
 
+## [Unreleased]
+
+### Added
+- Метод `pack` у ресурсов и команд — связывает ресурс/команду с аргументами в инертный дескриптор. См. [Resource API](./query/api/resource.md#pack) и [Command API](./query/api/command.md#pack).
+
+
 ## [0.9.0] - 2026-06-26
 
 ### Added

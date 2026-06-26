@@ -17,6 +17,21 @@ export interface IResource<TArgs, TData> {
     serialize(args: Args<TArgs>): string;
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
     getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData>;
+    pack(args: Args<TArgs>): TPackedResource<TArgs, TData>;
+}
+
+// ==================== Packed Descriptor ====================
+
+/**
+ * Inert descriptor binding a resource to a set of arguments. Produced by
+ * {@link IResource.pack} — lets a consumer hand "what to read, with which args"
+ * back to the library without executing anything. Discriminated by `kind`;
+ * see {@link TPacked} for the command counterpart.
+ */
+export interface TPackedResource<TArgs, TData> {
+    kind: "resource";
+    resource: IResource<TArgs, TData>;
+    args: Args<TArgs>;
 }
 
 export interface IResourceLiteState<TArgs, TData> {

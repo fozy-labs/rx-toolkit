@@ -46,6 +46,7 @@ const addTodoCommand = api.createCommand({
 | `createAgent` | `key?: string`      | `Agent`                 | Создаёт реактивный [агент][agent] — наблюдатель за командой. Необязательный ключ привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
+| `pack`        | `args: Args<TArgs>, key?: string` | `TPackedCommand<TArgs, TData>` | Связывает команду с аргументами (и необязательным ключом) в инертный дескриптор `{ kind: "command", command, args, key }`. Ничего не запускает. См. [pack][pack]. |
 
 
 ## Расширения
@@ -53,6 +54,31 @@ const addTodoCommand = api.createCommand({
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
 | `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+
+
+## Pack
+
+`pack` связывает команду с аргументами (и необязательным ключом кэш-записи) в инертный дескриптор — он ничего не запускает. Потребитель отдаёт дескриптор обратно библиотеке, не выполняя мутацию сам:
+
+```typescript
+const packed = addTodoCommand.pack({ text: "buy milk" }, "draft-1");
+// → { kind: "command", command: addTodoCommand, args: { text: "buy milk" }, key: "draft-1" }
+
+// Позже дескриптор разворачивается:
+await packed.command.trigger(packed.args, packed.key);
+```
+
+Все дескрипторы (`TPackedResource` и `TPackedCommand`) объединены в дискриминированный союз `TPacked<TArgs, TData>` с полем-дискриминатором `kind`, поэтому один обработчик может принимать и ресурсы, и команды:
+
+```typescript
+function run(packed: TPacked<unknown, unknown>) {
+    if (packed.kind === "resource") {
+        packed.resource.trigger(packed.args);
+    } else {
+        void packed.command.trigger(packed.args, packed.key);
+    }
+}
+```
 
 
 ## Ретраи
@@ -71,6 +97,7 @@ const addTodoCommand = api.createCommand({
 
 
 [cache]: ../concepts/cache.md
+[pack]: #pack
 [usage]: ../usage/command.md
 [query-fn]: ../usage/query-fn.md
 [usage-links]: ../usage/links.md

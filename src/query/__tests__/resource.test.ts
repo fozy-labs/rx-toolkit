@@ -459,6 +459,46 @@ describe("Resource.toKeyed", () => {
     });
 });
 
+// ==================== pack ====================
+
+describe("Resource.pack", () => {
+    it("returns an inert { kind, resource, args } descriptor", () => {
+        const queryFn = vi.fn(async (n: number) => `data-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        const packed = resource.pack(42);
+
+        expect(packed).toEqual({ kind: "resource", resource, args: 42 });
+        // pack must not execute the query
+        expect(queryFn).not.toHaveBeenCalled();
+        expect([...resource.getEntries()]).toEqual([]);
+    });
+
+    it("preserves Keyed args as-is", () => {
+        const resource = createResource<number, string>({
+            queryFn: async (n) => `data-${n}`,
+        });
+
+        const keyed = resource.toKeyed(7);
+        const packed = resource.pack(keyed);
+
+        expect(packed.args).toBe(keyed);
+    });
+
+    it("descriptor can be replayed via resource.trigger", async () => {
+        const queryFn = vi.fn(async (n: number) => `data-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        const packed = resource.pack(99);
+        packed.resource.trigger(packed.args);
+        await flushMicrotasks();
+
+        expect(queryFn).toHaveBeenCalledWith(99, expect.anything());
+        const entry = resource.getEntry(99);
+        expect(entry!.machine$.peek().state.data).toBe("data-99");
+    });
+});
+
 // ==================== getEntries ====================
 
 describe("Resource.getEntries", () => {

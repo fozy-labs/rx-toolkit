@@ -5,6 +5,7 @@ import type {
     ICommandConfig,
     Keyed,
     TCacheEntryAddedContext,
+    TPackedCommand,
     TQueryStartedContext,
 } from "@/query/types";
 import { Signal } from "@/signals";
@@ -268,6 +269,20 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
      */
     createAgent(key?: string): ICommandAgent<TArgs, TData> {
         return new CommandAgent<TArgs, TData>(this, key);
+    }
+
+    /**
+     * Bundle this command with arguments (and an optional cache key) into an inert
+     * {@link TPackedCommand} descriptor. Nothing is executed — the consumer hands
+     * the descriptor back to the library, which can later run it
+     * (e.g. `command.trigger(args, key)`).
+     *
+     * @param args - Mutation arguments (or a {@link Keyed} wrapper).
+     * @param key - Optional cache-entry key, forwarded to {@link trigger}.
+     * @returns A `{ kind: "command", command, args, key }` descriptor.
+     */
+    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData> {
+        return { kind: "command", command: this, args, key };
     }
 
     /** Clear all cache entries. Called by createApi.resetAll(). */

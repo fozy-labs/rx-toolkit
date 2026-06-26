@@ -48,6 +48,7 @@ const usersResource = api.createResource({
 | `createAgent`  | —                                             | `Agent<TArgs, TData>`     | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
 | `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
 | `toKeyed`      | `args: Args<TArgs>`                           | `Keyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
+| `pack`         | `args: Args<TArgs>`                           | `TPackedResource<TArgs, TData>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [pack][pack]. |
 | `_getOrCreate` | `args: Args<TArgs>, doForce = false`          | `CacheEntry`              | Внутренний метод. Получает существующую или создаёт новую запись кэша для аргументов.                                                |
 
 ### Расширения
@@ -55,6 +56,21 @@ const usersResource = api.createResource({
 | Метод          | Параметры                                      | Возвращаемое значение   | Описание                                                                       |
 |----------------|------------------------------------------------|-------------------------|--------------------------------------------------------------------------------|
 | `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceState<TData>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
+
+
+## Pack
+
+`pack` связывает ресурс с аргументами в инертный дескриптор — он ничего не запускает и не трогает кэш. Это удобно, когда потребитель хочет вернуть библиотеке описание «что прочитать и с какими аргументами», не выполняя запрос сам:
+
+```typescript
+const packed = getUserById.pack({ userId: 1 });
+// → { kind: "resource", resource: getUserById, args: { userId: 1 } }
+
+// Позже библиотека/потребитель разворачивает дескриптор:
+packed.resource.trigger(packed.args);
+```
+
+Дескриптор дискриминируется полем `kind`, что позволяет в одном месте обрабатывать и ресурсы, и команды (см. [`TPacked`][command-pack] в API команды).
 
 
 ## См. также
@@ -69,6 +85,8 @@ const usersResource = api.createResource({
 
 [usage]: ../usage/resource.md
 [usage-lifecycle]: ../usage/lifecycle.md
+[pack]: #pack
+[command-pack]: ./command.md#pack
 [command-api]: ./command.md
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
