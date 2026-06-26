@@ -93,6 +93,31 @@ function AddTodoForm() {
 | `isLoading` | `boolean` | `true` при выполнении мутации. |
 | `isSuccess` | `boolean` | `true` когда мутация завершилась успешно. |
 | `isError` | `boolean` | `true` при ошибке мутации. |
+| `retry` | `() => void` | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
+
+
+## Ретраи и request id
+
+`queryFn` принимает вторым аргументом **request id** — стабильный ключ идемпотентности. Он генерируется один раз на кэш-запись и переиспользуется при ретраях, поэтому повтор упавшей мутации можно безопасно дедуплицировать на бэкенде. Подробно — в [руководстве по queryFn][query-fn].
+
+```tsx
+function PayButton() {
+  const [pay, { isError, error, retry, isLoading }] = payCommand.useCommand();
+
+  if (isError) {
+    return (
+      <div>
+        <p>Ошибка: {String(error)}</p>
+        <button onClick={retry}>Повторить</button>
+      </div>
+    );
+  }
+
+  return <button disabled={isLoading} onClick={() => pay({ amount: 100 })}>Оплатить</button>;
+}
+```
+
+`retry()` перезапускает текущую (упавшую) кэш-запись — новая запись не создаётся, request id сохраняется. Повторный вызов `trigger` без явного ключа, наоборот, создаёт новую запись с новым request id.
 
 
 ## Императивный API
@@ -201,3 +226,4 @@ agent.setKey('my-mutation-3');
 [api-cmd-agent]: ../api/command-agent.md
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
+[query-fn]: ./query-fn.md

@@ -37,4 +37,6 @@ export interface TCommandAgentState<TArgs, TData> {
     isLoading: boolean;
     isSuccess: boolean;
     isError: boolean;
+    /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
+    retry: () => void;
 }

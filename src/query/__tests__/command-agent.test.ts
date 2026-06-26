@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
+import { Command } from "@/query/core/command/Command";
 import type { ICommandForAgent } from "@/query/core/command/CommandAgent";
 import { CommandAgent } from "@/query/core/command/CommandAgent";
 import type { IQueryCacheEntry, TCommandAgentState, TMachineState } from "@/query/types";
@@ -341,5 +343,130 @@ describe("CommandAgent key switching", () => {
 
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("init-data");
+    });
+});
+
+// ==================== 9. retry ====================
+
+describe("CommandAgent retry", () => {
+    it("calls retry() on the tracked entry", () => {
+        const mock = createMockCommand<string, string>();
+        const entryMock = mock.addEntry("k1", errorState("a", new Error("x")));
+
+        const agent = new CommandAgent(mock.command);
+        agent.setKey("k1");
+
+        agent.retry();
+
+        expect(entryMock.entry.retry).toHaveBeenCalledTimes(1);
+    });
+
+    it("is a no-op when no entry is tracked", () => {
+        const mock = createMockCommand<string, string>();
+        const agent = new CommandAgent(mock.command);
+
+        expect(() => agent.retry()).not.toThrow();
+    });
+
+    it("exposes a callable retry in the derived state", () => {
+        const mock = createMockCommand<string, string>();
+        const entryMock = mock.addEntry("k1", errorState("a", new Error("x")));
+
+        const agent = new CommandAgent(mock.command);
+        const s = observe(agent);
+        agent.setKey("k1");
+
+        expect(s.get().isError).toBe(true);
+        expect(typeof s.get().retry).toBe("function");
+
+        s.get().retry();
+        expect(entryMock.entry.retry).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ==================== 10. Real Command integration — entry teardown with retentionTime: 0 ====================
+
+// Regression for the default `useCommand` path: with retentionTime: 0 the cache entry
+// is torn down the instant the mutation settles, while the agent's `state$` is still
+// observing it. A synchronous reset (resetOnRefCountZero: true) used to clear the
+// entry's replayed value mid-recompute, making `entry.state$()` throw "No value emitted"
+// and breaking the React subscription. A deferred, cancellable reset (timer(0)) survives
+// the agent's momentary unsubscribe/resubscribe during dependency switching.
+describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
+    function makeCommand(queryFn: (args: number, requestId: string) => Promise<number>) {
+        // retentionTime: 0 mirrors DEFAULT_COMMAND_RETENTION_TIME used by api.createCommand.
+        return new Command<number, number>({ retentionTime: 0, links: [], queryFn });
+    }
+
+    it("trigger without key: idle → pending → success without throwing", async () => {
+        const command = makeCommand(async (args) => {
+            await Promise.resolve();
+            return args;
+        });
+        const agent = command.createAgent();
+
+        const seen: string[] = [];
+        const eff = Signal.effect(() => {
+            seen.push(agent.state$().status);
+        });
+        _effects.push(eff);
+
+        // No key — mirrors pay(100): the agent mints a random key internally.
+        await agent.trigger(100);
+        await flushMicrotasks();
+
+        expect(seen).toContain("pending");
+        expect(seen).toContain("success");
+
+        const final = agent.state$();
+        expect(final.isSuccess).toBe(true);
+        expect(final.data).toBe(100);
+    });
+
+    it("trigger without key: idle → pending → error without throwing", async () => {
+        const err = new Error("boom");
+        const command = makeCommand(async () => {
+            await Promise.resolve();
+            throw err;
+        });
+        const agent = command.createAgent();
+
+        const seen: string[] = [];
+        const eff = Signal.effect(() => {
+            seen.push(agent.state$().status);
+        });
+        _effects.push(eff);
+
+        await expect(agent.trigger(100)).rejects.toThrow("boom");
+        await flushMicrotasks();
+
+        expect(seen).toContain("pending");
+        expect(seen).toContain("error");
+
+        const final = agent.state$();
+        expect(final.isError).toBe(true);
+        expect(final.error).toBe(err);
+    });
+
+    it("survives a second trigger after the first settles", async () => {
+        const command = makeCommand(async (args) => {
+            await Promise.resolve();
+            return args;
+        });
+        const agent = command.createAgent();
+
+        const eff = Signal.effect(() => {
+            void agent.state$();
+        });
+        _effects.push(eff);
+
+        await agent.trigger(1);
+        await flushMicrotasks();
+        expect(agent.state$().data).toBe(1);
+
+        await agent.trigger(2);
+        await flushMicrotasks();
+        expect(agent.state$().isSuccess).toBe(true);
+        expect(agent.state$().data).toBe(2);
     });
 });

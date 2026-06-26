@@ -34,15 +34,28 @@ export interface ICommandAgent<TArgs, TData> {
     state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
     trigger(args: Args<TArgs>, key?: string): Promise<TData>;
     setKey(key: string): void;
+    /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
+    retry(): void;
 }
 
 // ==================== Command Options ====================
 
 export interface TCommandOptions<TArgs, TData> {
-    queryFn: (args: TArgs) => Promise<TData>;
+    /**
+     * Executes the mutation. The second argument is the request id — a stable
+     * idempotency token that is minted once per cache entry and reused across
+     * retries, so a failed-then-retried mutation carries the same token to the
+     * backend. Forward it as e.g. an `Idempotency-Key` header.
+     */
+    queryFn: (args: TArgs, requestId: string) => Promise<TData>;
     key?: string;
     links?: TLinksInput<TArgs, TData>;
     retentionTime?: number | false;
+    /**
+     * Derives the request id passed to {@link queryFn}. Called once per cache
+     * entry (its result is reused across retries). Defaults to `crypto.randomUUID()`.
+     */
+    generateRequestId?: (args: TArgs) => string | Promise<string>;
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
 }
@@ -56,8 +69,10 @@ export interface TCommandOptions<TArgs, TData> {
  * @template TData - The data type returned by the mutation function.
  */
 export interface ICommandConfig<TArgs, TData> {
-    /** Function that executes the mutation. */
-    queryFn: (args: TArgs) => Promise<TData>;
+    /** Function that executes the mutation. Receives the per-entry request id as the second argument. */
+    queryFn: (args: TArgs, requestId: string) => Promise<TData>;
+    /** Derives the request id; called once per cache entry. Defaults to `crypto.randomUUID()`. */
+    generateRequestId?: (args: TArgs) => string | Promise<string>;
     /** Optional prefix for cache keys and devtools display. */
     key?: string;
     /** Link descriptors that bind this command to related resources. */

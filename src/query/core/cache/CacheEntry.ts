@@ -57,8 +57,7 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
 
     private _getResetOnRefCountZero(retentionTime: number | false): boolean | (() => Observable<number>) {
         if (retentionTime === false) return false;
-        if (retentionTime <= 0) return true;
-        const lifetime = retentionTime;
+        const lifetime = Math.max(0, retentionTime);
         return () => timer(lifetime);
     }
 }

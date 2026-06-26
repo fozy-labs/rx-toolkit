@@ -132,6 +132,7 @@ export class Api implements IApi {
 
         const config: ICommandConfig<TArgs, TData> = {
             queryFn: opts.queryFn,
+            generateRequestId: opts.generateRequestId,
             key: effectiveKey,
             links: normalizeLinks(opts.links),
             retentionTime: effectiveRetentionTime,

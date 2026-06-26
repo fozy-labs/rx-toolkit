@@ -41,6 +41,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
     readonly _key;
     private readonly _linkManager;
     private readonly _retentionTime;
+    private readonly _generateRequestId: (args: TArgs) => string | Promise<string>;
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
 
@@ -51,6 +52,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         this._key = config.key;
         this._linkManager = new LinkManager(config.links);
         this._retentionTime = config.retentionTime;
+        this._generateRequestId = config.generateRequestId ?? (() => crypto.randomUUID());
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;
     }
@@ -94,30 +96,78 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
         let entry!: QueryCacheEntry<TArgs, TData>;
         let initialQueryPromise: Promise<TData> | null = null;
-        let linksSettled = false;
+        let firstAttemptSettled = false;
 
-        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
-            const promise = this._queryFn(keyedArgs.value);
+        // Request id is minted once per cache entry and reused across retries, so a
+        // failed-then-retried mutation carries the same idempotency token to the
+        // backend. A fresh `trigger` creates a new entry and therefore a new id.
+        let requestId: string | undefined;
+        let requestIdPromise: Promise<string> | undefined;
 
-            // Chain link handlers only on the initial trigger, not on QCE refresh
-            if (!linksSettled) {
-                promise.then(
-                    (result) => {
-                        linksSettled = true;
+        const runQueryFn = (): Promise<TData> => {
+            // Reuse an already-minted id across retries (same idempotency token).
+            if (requestId !== undefined) {
+                return this._queryFn(args, requestId);
+            }
+
+            // An async mint is already in flight: chain onto it rather than re-minting.
+            if (requestIdPromise) {
+                return requestIdPromise.then((id) => this._queryFn(args, id));
+            }
+
+            const minted = this._generateRequestId(args);
+
+            // Sync generator (incl. the default uuid): keep the call fully synchronous,
+            // so command timing is unchanged when no async id generator is configured.
+            if (!(minted instanceof Promise)) {
+                requestId = minted;
+                return this._queryFn(args, minted);
+            }
+
+            // Async generator: mint once and cache the resolved id. Don't cache a
+            // rejection — a failed mint must not poison a later retry.
+            const pending = minted.then((id) => {
+                requestId = id;
+                return id;
+            });
+            pending.catch(() => {
+                if (requestIdPromise === pending) requestIdPromise = undefined;
+            });
+            requestIdPromise = pending;
+
+            return pending.then((id) => this._queryFn(args, id));
+        };
+
+        const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
+            const promise = runQueryFn();
+
+            promise.then(
+                (result) => {
+                    if (!firstAttemptSettled) {
+                        firstAttemptSettled = true;
                         linkManager.settle(args, patchHandles, { status: "fulfilled", value: result });
                         resolveResult(result);
-                    },
-                    (error) => {
-                        linksSettled = true;
+                    } else {
+                        // Retry succeeded: optimistic patches were already rolled back on
+                        // the first failure, so only apply update patches + invalidation.
+                        linkManager.settle(args, [], { status: "fulfilled", value: result });
+                    }
+                },
+                (error) => {
+                    if (!firstAttemptSettled) {
+                        firstAttemptSettled = true;
                         linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
                         rejectResult(error);
-                    },
-                );
-            }
+                    }
+                    // Retry failed: nothing to settle — optimistic handles were already
+                    // aborted and the original trigger promise already rejected. The
+                    // machine stays in `error`, ready for another retry.
+                },
+            );
 
             // Lifecycle: onQueryStarted
             if (entry) {
-                this._fireOnQueryStarted(entry, keyedArgs.value, promise);
+                this._fireOnQueryStarted(entry, args, promise);
             } else {
                 initialQueryPromise = promise;
             }

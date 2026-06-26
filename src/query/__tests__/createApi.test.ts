@@ -357,7 +357,7 @@ describe("createApi.createCommand", () => {
 
         const result = await command.trigger(5);
         expect(result).toBe(10);
-        expect(queryFn).toHaveBeenCalledWith(5);
+        expect(queryFn).toHaveBeenCalledWith(5, expect.any(String));
     });
 
     it("normalizes undefined links to empty array (no crash)", () => {

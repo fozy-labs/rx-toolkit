@@ -41,6 +41,7 @@ function UsersList({ page }: { page: number }) {
 | Цель | Рекомендуемый порядок |
 |------|-----------------------|
 | **Быстрый старт** | [usage/resource.md][resource] → [usage/command.md][command] |
+| **Написание queryFn** | [usage/query-fn.md][query-fn] — fetcher, отличия ресурса и команды, request id |
 | **Понять внутреннее устройство** | [concepts/machine.md][machine] → [concepts/cache.md][cache] → [concepts/agent.md][agent] |
 | **Оптимистичные обновления** | [concepts/patching.md][patching] → [usage/links.md][links] |
 | **SSR / гидрация** | [usage/snapshot.md][snapshot] |
@@ -52,6 +53,7 @@ function UsersList({ page }: { page: number }) {
 [signals]: ../signals/README.md
 [resource]: usage/resource.md
 [command]: usage/command.md
+[query-fn]: usage/query-fn.md
 [machine]: concepts/machine.md
 [cache]: concepts/cache.md
 [agent]: concepts/agent.md

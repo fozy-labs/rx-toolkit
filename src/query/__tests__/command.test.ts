@@ -51,7 +51,7 @@ describe("Command.trigger", () => {
         const command = createCommand<string, string>({ queryFn });
 
         const result = await command.trigger("hello", "k1");
-        expect(queryFn).toHaveBeenCalledWith("hello");
+        expect(queryFn).toHaveBeenCalledWith("hello", expect.any(String));
         expect(result).toBe("result-hello");
     });
 
@@ -1092,5 +1092,211 @@ describe("Command — trigger with pre-Keyed args", () => {
         expect(entry).not.toBeNull();
         expect(entry!.machine$.peek().state.status).toBe("success");
         expect(entry!.machine$.peek().state.data).toBe("result-x");
+    });
+});
+
+// ==================== Request id ====================
+
+describe("Command request id", () => {
+    it("passes an auto-generated string request id as the second arg to queryFn", async () => {
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
+        const command = createCommand<string, string>({ queryFn });
+
+        await command.trigger("a", "k1");
+
+        const requestId = queryFn.mock.calls[0][1];
+        expect(typeof requestId).toBe("string");
+        expect(requestId.length).toBeGreaterThan(0);
+    });
+
+    it("mints a distinct request id for each fresh trigger", async () => {
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
+        const command = createCommand<string, string>({ queryFn });
+
+        await command.trigger("a", "k1");
+        await command.trigger("a", "k2");
+
+        expect(queryFn.mock.calls[0][1]).not.toBe(queryFn.mock.calls[1][1]);
+    });
+
+    it("reuses the same request id across retries of the same entry", async () => {
+        let attempt = 0;
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => {
+            attempt++;
+            if (attempt === 1) throw new Error("boom");
+            return "ok";
+        });
+        const command = createCommand<string, string>({ queryFn });
+
+        await command.trigger("a", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        const entry = command.getEntry("k1")!;
+        expect(entry.machine$.peek().state.status).toBe("error");
+
+        entry.retry();
+        await flushMicrotasks();
+
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(queryFn.mock.calls[1][1]).toBe(queryFn.mock.calls[0][1]);
+    });
+
+    it("uses a sync generateRequestId option", async () => {
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
+        const command = createCommand<string, string>({
+            queryFn,
+            generateRequestId: (args) => `id-for-${args}`,
+        });
+
+        await command.trigger("hello", "k1");
+
+        expect(queryFn).toHaveBeenCalledWith("hello", "id-for-hello");
+    });
+
+    it("uses an async generateRequestId option", async () => {
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
+        const command = createCommand<string, string>({
+            queryFn,
+            generateRequestId: async (args) => `async-id-for-${args}`,
+        });
+
+        await command.trigger("hello", "k1");
+
+        expect(queryFn).toHaveBeenCalledWith("hello", "async-id-for-hello");
+    });
+
+    it("mints an async request id once and reuses it across retries", async () => {
+        let mintCount = 0;
+        let attempt = 0;
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => {
+            attempt++;
+            if (attempt === 1) throw new Error("boom");
+            return "ok";
+        });
+        const command = createCommand<string, string>({
+            queryFn,
+            generateRequestId: async () => {
+                mintCount++;
+                return `async-id-${mintCount}`;
+            },
+        });
+
+        await command.trigger("a", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        command.getEntry("k1")!.retry();
+        await flushMicrotasks();
+
+        expect(mintCount).toBe(1);
+        expect(queryFn.mock.calls[0][1]).toBe("async-id-1");
+        expect(queryFn.mock.calls[1][1]).toBe("async-id-1");
+    });
+});
+
+// ==================== Retry ====================
+
+describe("Command retry", () => {
+    it("re-executes queryFn after an error and can succeed", async () => {
+        let attempt = 0;
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                attempt++;
+                if (attempt === 1) throw new Error("boom");
+                return "recovered";
+            },
+        });
+
+        await command.trigger("a", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        const entry = command.getEntry("k1")!;
+        expect(entry.machine$.peek().state.status).toBe("error");
+
+        entry.retry();
+        await flushMicrotasks();
+
+        const state = entry.machine$.peek().state;
+        expect(state.status).toBe("success");
+        expect(state.data).toBe("recovered");
+    });
+
+    it("invalidates linked resources when a retry succeeds", async () => {
+        const resource = createLinkedResource<number, string>({
+            queryFn: async (n) => `resource-data-${n}`,
+        });
+
+        let attempt = 0;
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                attempt++;
+                if (attempt === 1) throw new Error("boom");
+                return "ok";
+            },
+            links: [
+                {
+                    resource,
+                    forwardArgs: (cmdArgs: string) => parseInt(cmdArgs, 10),
+                    invalidate: true,
+                },
+            ],
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        await command.trigger("1", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        const refreshSpy = vi.spyOn(resource, "refresh");
+
+        command.getEntry("k1")!.retry();
+        await flushMicrotasks();
+
+        expect(refreshSpy).toHaveBeenCalledWith(1);
+    });
+});
+
+// ==================== Agent integration ====================
+
+describe("Command agent integration", () => {
+    it("reflects trigger state without an explicit key (no stuck idle)", async () => {
+        const command = createCommand<string, string>({ queryFn: async () => "ok" });
+        const agent = command.createAgent();
+
+        const statuses: string[] = [];
+        const eff = Signal.effect(() => statuses.push(agent.state$().status));
+
+        agent.trigger("a");
+        await flushMicrotasks();
+
+        expect(agent.state$.peek().status).toBe("success");
+        expect(statuses).toContain("pending");
+        eff.unsubscribe();
+    });
+
+    it("agent.retry() re-runs the tracked mutation after an error", async () => {
+        let attempt = 0;
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                attempt++;
+                if (attempt === 1) throw new Error("boom");
+                return "recovered";
+            },
+        });
+        const agent = command.createAgent();
+
+        const eff = Signal.effect(() => agent.state$());
+
+        await agent.trigger("a").catch(() => {});
+        await flushMicrotasks();
+        expect(agent.state$.peek().status).toBe("error");
+
+        agent.retry();
+        await flushMicrotasks();
+
+        expect(agent.state$.peek().status).toBe("success");
+        expect(agent.state$.peek().data).toBe("recovered");
+        eff.unsubscribe();
     });
 });

@@ -17,8 +17,9 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 | Метод | Сигнатура | Описание |
 |-------|-----------|----------|
 | `state$` | `() => TCommandAgentState<TArgs, TData>` | Вычисляемый сигнал. Возвращает текущее состояние агента. |
-| `trigger` | `(args: TArgs, key?: string) => Promise<TData>` | Запускает мутацию с указанными аргументами. Необязательный `key` переключает агент на другую кэш-запись перед выполнением. Возвращает промис с результатом. |
-| `setKey` | `(key: string) => void` | Переключает наблюдение на другую кэш-запись по ключу. |
+| `trigger` | `(args: TArgs, key?: string) => Promise<TData>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из аргумента, затем из привязанного ключа агента, иначе генерируется. Возвращает промис с результатом. |
+| `setKey` | `(key: string) => void` | Привязывает агент к кэш-записи по ключу (используется и для наблюдения, и последующими `trigger`). |
+| `retry` | `() => void` | Перезапускает отслеживаемую мутацию. No-op вне состояния `error`. Повтор переиспользует тот же [request id][query-fn]. |
 
 
 ## Состояние (TCommandAgentState)
@@ -32,6 +33,7 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 | `isLoading` | `boolean`                                     | `true`, пока мутация выполняется (`pending`). |
 | `isSuccess` | `boolean`                                     | `true`, если мутация завершилась успешно. |
 | `isError` | `boolean`                                     | `true`, если мутация завершилась ошибкой. |
+| `retry` | `() => void`                                   | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
 | `entry` | `QueryCacheEntry<TArgs, TData> \| null`      | Текущая запись кэша. `null` в `idle`. |
 
 
@@ -57,4 +59,5 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 [resource-agent]: ./resource-agent.md
 [api-cmd]: ./command.md
 [usage-cmd]: ../usage/command.md
+[query-fn]: ../usage/query-fn.md
 [cache]: ../concepts/cache.md

@@ -2,6 +2,8 @@ import type { Args, ICommandAgent, IQueryCacheEntry, TCommandAgentState, TMachin
 import { Signal } from "@/signals";
 import type { ReadonlySignal } from "@/signals/types";
 
+import { isKeyed } from "../../lib/toKeyed";
+
 // Minimal contract that CommandAgent needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
 export interface ICommandForAgent<TArgs, TData> {
@@ -20,6 +22,9 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
     private readonly _command: ICommandForAgent<TArgs, TData>;
 
     private readonly _tracking$: ReturnType<typeof Signal.state<Tracking<TArgs, TData> | null>>;
+
+    /** Cache key the agent is bound to (via constructor/setKey), reused by trigger. */
+    private _boundKey: string | undefined;
 
     readonly state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
 
@@ -46,18 +51,23 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
     }
 
     async trigger(args: Args<TArgs>, key?: string): Promise<TData> {
-        const result = this._command.trigger(args, key);
+        const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
 
-        if (key != null) {
-            this._observeKey(key);
-        }
+        const result = this._command.trigger(args, entryKey);
+
+        this._observeKey(entryKey);
 
         return result;
     }
 
     setKey(key: string): void {
+        this._boundKey = key;
         this._observeKey(key);
     }
+
+    retry = (): void => {
+        this._tracking$.peek()?.current$.peek()?.retry();
+    };
 
     // ==================== Private ====================
 
@@ -88,6 +98,7 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
             isLoading: status === "pending",
             isSuccess: status === "success",
             isError: status === "error",
+            retry: this.retry,
         };
     }
 
@@ -100,6 +111,7 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
             isLoading: false,
             isSuccess: false,
             isError: false,
+            retry: this.retry,
         };
     }
 }

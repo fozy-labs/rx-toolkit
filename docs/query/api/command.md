@@ -28,7 +28,8 @@ const addTodoCommand = api.createCommand({
 
 | Опция               | Тип                                          | По умолчанию     | Описание                                                                     |
 |----------------------|----------------------------------------------|------------------|------------------------------------------------------------------------------|
-| `queryFn`            | `(args: TArgs) => Promise<TData>`            | **обязательный** | Функция выполнения мутации.                                                  |
+| `queryFn`            | `(args: TArgs, requestId: string) => Promise<TData>` | **обязательный** | Функция выполнения мутации. Второй аргумент — [request id][query-fn]: ключ идемпотентности, стабильный между ретраями. |
+| `generateRequestId` | `(args: TArgs) => string \| Promise<string>` | `crypto.randomUUID` | Генерирует request id. Вызывается один раз на кэш-запись (результат переиспользуется при ретраях). См. [queryFn][query-fn]. |
 | `key`                | `string`                                     | —                | Префикс для ключей кэша и devtools.                                          |
 | `links`              | `(link) => void`                             | —                | Колбэк для описания связей с ресурсами. См. [links][usage-links].                        |
 | `retentionTime`      | `number \| false`                            | `0`              | Время (мс) удержания кэш-записи после потери подписчиков. `false` — не удалять. Переопределяет `commandRetentionTime` из [API][api-readme]. |
@@ -51,7 +52,12 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации.|
+| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+
+
+## Ретраи
+
+Упавшую мутацию можно перезапустить, не создавая новую кэш-запись: `retry()` доступен в состоянии [агента команды][agent-api] и в `state`, который возвращает `useCommand`. Повтор переиспользует тот же [request id][query-fn], поэтому бэкенд может дедуплицировать запрос. Подробнее о `queryFn` и request id — в [руководстве][query-fn].
 
 
 ## См. также
@@ -66,6 +72,7 @@ const addTodoCommand = api.createCommand({
 
 [cache]: ../concepts/cache.md
 [usage]: ../usage/command.md
+[query-fn]: ../usage/query-fn.md
 [usage-links]: ../usage/links.md
 [usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md

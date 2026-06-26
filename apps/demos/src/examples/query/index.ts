@@ -8,6 +8,7 @@ import snapshotHydrationRaw from "./snapshot-hydration.tsx?raw";
 import lifecycleHooksRaw from "./lifecycle-hooks.tsx?raw";
 import basicCommandRaw from "./basic-command.tsx?raw";
 import optimisticCommandRaw from "./optimistic-command.tsx?raw";
+import retryCommandRaw from "./retry-command.tsx?raw";
 
 export const examples = {
     simpleResource: simpleResourceRaw,
@@ -20,4 +21,5 @@ export const examples = {
     lifecycleHooks: lifecycleHooksRaw,
     basicCommand: basicCommandRaw,
     optimisticCommand: optimisticCommandRaw,
+    retryCommand: retryCommandRaw,
 };
