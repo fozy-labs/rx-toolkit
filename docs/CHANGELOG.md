@@ -1,7 +1,7 @@
 # CHANGELOG
 
 
-## [Unreleased]
+## [0.9.0] - 2026-06-26
 
 ### Added
 - Идемпотентный **request id** для команд: `queryFn` получает вторым аргументом `requestId: string` — стабильный между ретраями ключ (например, для заголовка `Idempotency-Key`). По умолчанию генерируется `crypto.randomUUID()`; переопределяется опцией команды `generateRequestId?: (args) => string | Promise<string>`. См. [гайд по queryFn](./query/usage/query-fn.md).
@@ -13,6 +13,7 @@
 
 ### Fixed
 - `CommandAgent.trigger(args)` без явного ключа теперь начинает наблюдать за созданной кэш-записью — `useCommand` без ключа больше не «залипает» в `idle`. Ключ, переданный в `useCommand(command, key)` / `createAgent(key)`, теперь используется при `trigger`.
+- Кэш-запись с `retentionTime: 0` (дефолт команд) больше не сбрасывается синхронно при обнулении числа подписчиков: агент команды успевал прочитать `state$` уже снятой записи и падал с `No value emitted`, из-за чего `useCommand` с дефолтным `retentionTime` не доходил до `success`/`error`. Сброс отложен через `timer(0)` и переживает кратковременную переподписку агента.
 
 
 ## [0.8.0] - 2026-06-20
@@ -221,7 +222,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.8.0...HEAD
+[0.9.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.4...v0.8.0
 [0.7.4]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.1...v0.7.2
