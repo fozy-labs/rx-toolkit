@@ -4,12 +4,15 @@
 ## [Unreleased]
 
 ### Added
-- Императивные методы ресурса `ensure`, `fetch` и `prefetch` — для интеграции с загрузчиками роутеров (например, TanStack Router) и прогрева кэша:
-  - `ensure(args, { signal? })` → `Promise<TData>` — отдаёт кэш мгновенно, если данные есть; иначе запускает запрос и ждёт. Реджектит на ошибке.
-  - `fetch(args, { signal? })` → `Promise<TData>` — всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке.
-  - `prefetch(args)` → `Promise<void>` — fire-and-forget прогрев: переиспользует кэш, никогда не реджектит и намеренно не abort-aware.
-  - `signal` отвязывает вызывающего от запроса (промис реджектит причиной отмены); разделяемый in-flight запрос **не** прерывается, пока на нём есть другие потребители, и сворачивается retention-сборщиком только когда не осталось никого. См. [Resource API](./query/api/resource.md#ensure--fetch--prefetch).
-- Примитивы ожидания у кэш-записи (`IQueryCacheEntry`): `whenLoaded(signal?)` (резолв на первых доступных данных, в т.ч. устаревших) и `whenFetched(signal?)` (резолв на результате свежего запроса).
+- ⚠️ **Экспериментально.** Императивные методы ресурса для загрузчиков роутеров (TanStack Router и др.) и прогрева кэша — см. [Resource API](./query/api/resource.md#ensure--fetch--prefetch):
+  - `ensure(args, { signal? })` — отдаёт кэш мгновенно либо ждёт первый запрос;
+  - `fetch(args, { signal? })` — всегда перезапрашивает, дедуплицируя in-flight;
+  - `prefetch(args)` — fire-and-forget прогрев, никогда не реджектит;
+  - `signal` отвязывает вызывающего; общий in-flight запрос не прерывается, пока на нём есть другие потребители.
+- Примитивы ожидания у кэш-записи (`IQueryCacheEntry`): `whenLoaded(signal?)` и `whenFetched(signal?)`.
+
+### Fixed
+- `Resource.getEntry$(args, { doInitiate: true })` теперь действительно создаёт и запускает кэш-запись при чтении (раньше флаг был «мёртвым» no-op); `doInitiate: false` остаётся чистым наблюдателем и не мутирует кэш.
 
 
 ## [0.9.1] - 2026-06-27
@@ -239,6 +242,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...HEAD
 [0.9.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.4...v0.8.0
