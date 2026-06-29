@@ -44,7 +44,7 @@ const usersResource = api.createResource({
 | `refresh`      | `args: Args<TArgs>`                           | `void`                    | Помечает запись как устаревшую и запускает фоновый перезапрос (SWR).                                                                 |
 | `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `QueryCacheEntry \| null` | Синхронно возвращает кэш-запись.                                                                                                     |
 | `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения.                    |
-| `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `QueryCacheEntry \| null`      | Реактивный аналог `getEntry` — для использования в реактивном контексте.                                                             |
+| `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `QueryCacheEntry \| null`      | Реактивный аналог `getEntry` — для использования в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
 | `createAgent`  | —                                             | `Agent<TArgs, TData>`     | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
 | `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
 | `toKeyed`      | `args: Args<TArgs>`                           | `Keyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
@@ -88,6 +88,8 @@ const usersResource = api.createResource({
 
 `useResource(args)` и агент (`createAgent`) при подписке сами вызывают `trigger(args)`, инициируя холодный запрос при монтировании. Агент дополнительно отдаёт `retry()` / `refresh()`, делегирующие в одноимённые методы записи.
 
+`getEntry$(args, true)` инициирует запрос **лениво при чтении сигнала**: первое чтение создаёт и запускает отсутствующую запись (и пересоздаёт её после удаления), поэтому само чтение имеет побочный эффект — стартует `queryFn` и вызывает хуки. `getEntry$(args)` / `getEntry$(args, false)` остаётся чистым наблюдателем (см. ниже).
+
 ### Примитивы на записи
 
 Если на руках есть `QueryCacheEntry` (из `getEntry` / `getEntries`), `queryFn` перезапускают:
@@ -99,7 +101,7 @@ const usersResource = api.createResource({
 
 - `getState(args)` — read-only снимок состояния (внутри `getEntry(args, false)`).
 - `getEntry(args)` / `getEntry(args, false)` — lookup без создания.
-- `getEntry$(args, doInitiate?)` — реактивный **read-only**: не создаёт запись даже при `doInitiate` (в отличие от синхронного `getEntry`), только читает кэш.
+- `getEntry$(args)` / `getEntry$(args, false)` — реактивный **read-only**: чтение не меняет кэш и отдаёт `null`, пока записи нет. (`getEntry$(args, true)` — наоборот, инициирует лениво при чтении; см. «Реактивный путь».)
 - `serialize`, `toKeyed`, `getEntries`, `pack`, `reset` — утилиты, упаковка и очистка.
 - Гидрация снапшотом (`config.snapshot`) — создаёт запись, но `queryFn` **не** запускает: данные уже есть. Запрос пойдёт лишь при последующем `refresh` / `fetch` / `trigger(force)`.
 

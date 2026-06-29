@@ -421,6 +421,76 @@ describe("Resource.getEntry$ reactivity", () => {
 
         expect(entry$()).toBeNull();
     });
+
+    it("getEntry$ with doInitiate=true creates and starts the entry on read", async () => {
+        const queryFn = vi.fn(async () => "initiated");
+        const resource = createResource<number, string>({ queryFn });
+
+        const entry$ = resource.getEntry$(42, true);
+
+        // Reading the signal creates the missing entry and starts its query —
+        // creation is lazy: it happens on read, not at the getEntry$ call.
+        expect(entry$()).not.toBeNull();
+        expect(queryFn).toHaveBeenCalledWith(42, expect.any(AbortSignal));
+
+        await flushMicrotasks();
+        expect(entry$()!.machine$.peek().state.data).toBe("initiated");
+    });
+
+    it("getEntry$ with doInitiate=true is idempotent (reuses the existing entry)", () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        const first = resource.getEntry$(1, true)();
+        const second = resource.getEntry$(1, true)();
+
+        expect(first).not.toBeNull();
+        expect(first).toBe(second);
+        expect(first).toBe(resource.getEntry(1));
+        // Only one entry created despite two doInitiate calls.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("getEntry$ with doInitiate=true does not spin a re-creation loop when observed", async () => {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        const entry$ = resource.getEntry$(1, true);
+        const results: (object | null)[] = [];
+        const eff = Signal.effect(() => {
+            results.push(entry$());
+        });
+
+        await flushMicrotasks();
+
+        // Bounded reactivity: initiation is a one-shot side effect, so the query
+        // runs exactly once and the effect settles instead of looping forever.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(results.length).toBeLessThanOrEqual(3);
+        expect(results[results.length - 1]).not.toBeNull();
+
+        eff.unsubscribe();
+    });
+
+    it("getEntry$ without doInitiate is read-only — reading it creates no entry and starts no query", async () => {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        // A different key holds a live entry, so the resource status is "running".
+        resource.trigger(2);
+        await flushMicrotasks();
+        queryFn.mockClear();
+
+        // Reading getEntry$(1) WITHOUT doInitiate must stay a pure observer: no
+        // entry for key 1 is created and no query is started, even though the
+        // resource is "running" because key 2 exists. This mirrors the sync
+        // getEntry(1), which returns null without side effects.
+        const e1$ = resource.getEntry$(1);
+
+        expect(e1$()).toBeNull();
+        expect(resource.getEntry(1)).toBeNull();
+        expect(queryFn).not.toHaveBeenCalled();
+    });
 });
 
 // ==================== serialize / toKeyed ====================
