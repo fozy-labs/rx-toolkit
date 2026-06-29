@@ -1,3 +1,5 @@
+import { firstValueFrom } from "rxjs";
+
 import type {
     Args,
     ArgsOrVoid,
@@ -9,13 +11,14 @@ import type {
     TCacheEntryAddedContext,
     TPackedResource,
     TQueryStartedContext,
+    TResourceFetchOptions,
 } from "@/query/types";
 import { Signal, type ReadonlySignal } from "@/signals";
 
+import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { CacheMap } from "../cache/CacheMap";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
-import { CacheEntryRemovedError } from "../errors";
 import { Machine } from "../machine/Machine";
 
 import { ResourceAgent } from "./ResourceAgent";
@@ -205,6 +208,90 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      */
     pack(args: Args<TArgs>): TPackedResource<TArgs, TData> {
         return { kind: "resource", resource: this, args };
+    }
+
+    /**
+     * Ensure data is available for the given arguments and resolve with it.
+     *
+     * If an entry already holds data (including stale data being refreshed) it
+     * resolves immediately without a network round-trip. A cold entry is created
+     * and its first load awaited; a failed entry is retried. Rejects if the
+     * awaited query fails, the entry is removed, or `options.signal` aborts.
+     *
+     * Designed for router loaders (`ensureQueryData`-style): the consumer awaits
+     * data, then a component mounts and subscribes within the retention window.
+     *
+     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param options - See {@link TResourceFetchOptions}.
+     */
+    ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
+        if (options?.signal?.aborted) {
+            return Promise.reject(abortReason(options.signal));
+        }
+
+        const keyed = this.toKeyed(args);
+        const existing = this._cache.get(keyed.key);
+
+        if (!existing) {
+            return this._getOrCreate(keyed).whenLoaded(options?.signal);
+        }
+
+        // A failed entry has no data to hand back — kick off a retry before awaiting.
+        if (existing.machine$.peek().state.status === "error") {
+            existing.retry();
+        }
+
+        return existing.whenLoaded(options?.signal);
+    }
+
+    /**
+     * Fetch fresh data for the given arguments and resolve with it.
+     *
+     * Unlike {@link ensure}, this always reflects the result of a fresh query: a
+     * cached entry is refreshed (or retried) and the new result awaited; an
+     * in-flight query is awaited rather than duplicated. Rejects if the query
+     * fails, the entry is removed, or `options.signal` aborts.
+     *
+     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param options - See {@link TResourceFetchOptions}.
+     */
+    fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
+        if (options?.signal?.aborted) {
+            return Promise.reject(abortReason(options.signal));
+        }
+
+        const keyed = this.toKeyed(args);
+        const existing = this._cache.get(keyed.key);
+
+        if (!existing) {
+            return this._getOrCreate(keyed).whenFetched(options?.signal);
+        }
+
+        const status = existing.machine$.peek().state.status;
+        if (status === "success" || status === "refresh-error") {
+            existing.refresh();
+        } else if (status === "error") {
+            existing.retry();
+        }
+        // pending / refreshing → a query is already in flight; await its result.
+
+        return existing.whenFetched(options?.signal);
+    }
+
+    /**
+     * Warm the cache for the given arguments without surfacing the result.
+     *
+     * A fire-and-forget {@link ensure}: reuses cached data when present, never
+     * rejects, and — unlike {@link ensure} — is intentionally not abort-aware so
+     * speculative warm-ups survive navigation.
+     *
+     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     */
+    prefetch(args: Args<TArgs>): Promise<void> {
+        return this.ensure(args).then(
+            () => undefined,
+            () => undefined,
+        );
     }
 
     /**
@@ -453,33 +540,10 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         if (!this._onCacheEntryAdded) return;
 
         // $cacheDataLoaded: resolves with data on first success, rejects if entry removed first
+        const $cacheDataLoaded = entry.whenFirstLoaded();
+
         // $cacheEntryRemoved: resolves when entry is removed from cache
-        let resolveRemoved!: () => void;
-
-        const $cacheEntryRemoved = new Promise<void>((resolve) => {
-            resolveRemoved = resolve;
-        });
-
-        const $cacheDataLoaded = new Promise<TData>((resolve, reject) => {
-            // Watch the entry's state for the first success
-            const sub = entry.state$.obs.subscribe((machine: Machine<TArgs, TData>) => {
-                if (machine.state.status === "success" || machine.state.status === "refreshing") {
-                    resolve(machine.state.data);
-                    sub.unsubscribe();
-                }
-            });
-
-            // If the entry is cleaned up before success, reject
-            entry.completed$.subscribe(() => {
-                sub.unsubscribe();
-                reject(new CacheEntryRemovedError("data loaded"));
-            });
-        });
-
-        // When entry is cleaned up, resolve $cacheEntryRemoved
-        entry.completed$.subscribe(() => {
-            resolveRemoved();
-        });
+        const $cacheEntryRemoved = firstValueFrom(entry.completed$).catch(() => undefined);
 
         const ctx: TCacheEntryAddedContext<TArgs, TData> = {
             entry,

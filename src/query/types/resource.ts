@@ -18,6 +18,26 @@ export interface IResource<TArgs, TData> {
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
     getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData>;
     pack(args: Args<TArgs>): TPackedResource<TArgs, TData>;
+    ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    prefetch(args: Args<TArgs>): Promise<void>;
+}
+
+// ==================== Fetch Options ====================
+
+/**
+ * Options for the imperative {@link IResource.ensure} / {@link IResource.fetch}
+ * methods.
+ */
+export interface TResourceFetchOptions {
+    /**
+     * Detaches the caller from the awaited query when aborted: the returned
+     * promise rejects with the signal's reason. The underlying query is left
+     * running for any other consumers and is torn down by retention GC only once
+     * no consumer remains — aborting one caller never cancels a shared in-flight
+     * request. {@link IResource.prefetch} is intentionally not abort-aware.
+     */
+    signal?: AbortSignal;
 }
 
 // ==================== Packed Descriptor ====================

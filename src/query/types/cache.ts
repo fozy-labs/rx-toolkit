@@ -49,6 +49,8 @@ export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArg
     refresh(): void;
     retry(): void;
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null;
+    whenLoaded(signal?: AbortSignal): Promise<TData>;
+    whenFetched(signal?: AbortSignal): Promise<TData>;
 }
 
 // ==================== Lifecycle Contexts ====================

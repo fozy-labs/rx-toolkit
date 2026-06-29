@@ -14,8 +14,6 @@ import { KEYED_BRAND } from "../../constants";
 import { isKeyed } from "../../lib/toKeyed";
 import { CacheMap } from "../cache/CacheMap";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
-import { CacheEntryRemovedError } from "../errors";
-import type { Machine } from "../machine/Machine";
 
 import { CommandAgent } from "./CommandAgent";
 import { LinkManager } from "./LinkManager";
@@ -80,14 +78,6 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         // 1. Apply optimistic patches (synchronous, before queryFn)
         const patchHandles = linkManager.applyOptimisticPatches(args);
 
-        // 2. Set up result promise (resolved/rejected by link handlers after queryFn settles)
-        let resolveResult!: (data: TData) => void;
-        let rejectResult!: (error: unknown) => void;
-        const resultPromise = new Promise<TData>((resolve, reject) => {
-            resolveResult = resolve;
-            rejectResult = reject;
-        });
-
         // Clean up existing entry for the same key, if any
         const existing = this._cache.get(entryKey);
         if (existing) {
@@ -142,12 +132,15 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
             const promise = runQueryFn();
 
+            // Link orchestration runs per execution; the result itself is surfaced by
+            // the entry's native promise (`entry.currentResult()`), settled where the
+            // machine transitions. This `.then` is registered before the one in
+            // `_execute`, so `settle` runs before `trigger()`'s promise resolves.
             promise.then(
                 (result) => {
                     if (!firstAttemptSettled) {
                         firstAttemptSettled = true;
                         linkManager.settle(args, patchHandles, { status: "fulfilled", value: result });
-                        resolveResult(result);
                     } else {
                         // Retry succeeded: optimistic patches were already rolled back on
                         // the first failure, so only apply update patches + invalidation.
@@ -158,7 +151,6 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
                     if (!firstAttemptSettled) {
                         firstAttemptSettled = true;
                         linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
-                        rejectResult(error);
                     }
                     // Retry failed: nothing to settle — optimistic handles were already
                     // aborted and the original trigger promise already rejected. The
@@ -183,6 +175,10 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
             keyedArgs: keyed,
             resourceKey: this._key,
         });
+
+        // Mutation result = the entry's first run. Captured now (before any retry
+        // replaces the current execution) so it reflects only the first attempt.
+        const firstResult = entry.currentResult();
 
         // Register in cache
         this._cache.set(entryKey, entry);
@@ -209,7 +205,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
             this._fireOnQueryStarted(entry, keyed.value, initialQueryPromise);
         }
 
-        return resultPromise;
+        return firstResult;
     }
 
     /**
@@ -325,19 +321,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
             resolveRemoved = resolve;
         });
 
-        const $cacheDataLoaded = new Promise<TData>((resolve, reject) => {
-            const sub = entry.state$.obs.subscribe((machine: Machine<TArgs, TData>) => {
-                if (machine.state.status === "success" || machine.state.status === "refreshing") {
-                    resolve(machine.state.data);
-                    sub.unsubscribe();
-                }
-            });
-
-            entry.completed$.subscribe(() => {
-                sub.unsubscribe();
-                reject(new CacheEntryRemovedError("data loaded"));
-            });
-        });
+        const $cacheDataLoaded = entry.whenFirstLoaded();
 
         entry.completed$.subscribe(() => {
             resolveRemoved();

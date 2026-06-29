@@ -1,3 +1,5 @@
+import { first, firstValueFrom } from "rxjs";
+
 import type {
     Args,
     ArgsOrVoidOrSkip,
@@ -141,29 +143,20 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
             return Promise.resolve();
         }
 
-        this._settledPromise = new Promise<void>((resolve) => {
-            let unsubscribe: (() => void) | null = null;
-            let done = false;
+        // Never rejects: a settle resolves it; teardown (agent disposed before
+        // settling — the source completes → EmptyError) merely clears the cache so a
+        // later loading phase can suspend again. The instance is cached so repeated
+        // renders throw the same promise.
+        const settle = (): void => {
+            this._settledPromise = null;
+        };
+        const promise = firstValueFrom(this.state$.obs.pipe(first((state) => this._isSettled(state)))).then(
+            settle,
+            settle,
+        );
 
-            const subscription = this.state$.obs.subscribe((state) => {
-                if (done || !this._isSettled(state)) return;
-
-                done = true;
-                this._settledPromise = null;
-                resolve();
-                unsubscribe?.();
-            });
-
-            unsubscribe = () => subscription.unsubscribe();
-
-            // Settled synchronously during subscribe(): the callback ran before
-            // `unsubscribe` was assigned, so tear the subscription down here.
-            if (done) {
-                unsubscribe();
-            }
-        });
-
-        return this._settledPromise;
+        this._settledPromise = promise;
+        return promise;
     }
 
     // ==================== Private ====================

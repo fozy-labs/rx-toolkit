@@ -1990,3 +1990,391 @@ describe("CacheEntry — set after complete() is ignored", () => {
         expect(entry.peek().state.data).toBe(dataBefore);
     });
 });
+
+// ==================== ensure ====================
+
+describe("Resource.ensure", () => {
+    it("creates a cold entry and resolves with its first loaded data", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        const data = await resource.ensure(1);
+
+        expect(data).toBe("data");
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns cached data immediately without re-fetching on a cache hit", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const data = await resource.ensure(1);
+        expect(data).toBe("data");
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("awaits an in-flight query rather than starting a new one", async () => {
+        let resolveQuery!: (v: string) => void;
+        const queryFn = vi.fn(
+            () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
+        );
+        const resource = createResource<number, string>({ queryFn });
+
+        resource.trigger(1);
+        const p = resource.ensure(1);
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        resolveQuery("data");
+        expect(await p).toBe("data");
+    });
+
+    it("resolves immediately with stale data while a refresh is in flight", async () => {
+        let resolveRefresh!: (v: string) => void;
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "v1";
+                return new Promise<string>((r) => {
+                    resolveRefresh = r;
+                });
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        resource.refresh(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("refreshing");
+
+        // ensure hands back the stale value without waiting for the refresh
+        expect(await resource.ensure(1)).toBe("v1");
+
+        resolveRefresh("v2");
+        await flushMicrotasks();
+    });
+
+    it("rejects when the cold query fails", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw new Error("boom");
+            },
+        });
+
+        await expect(resource.ensure(1)).rejects.toThrow("boom");
+    });
+
+    it("retries a previously failed entry and resolves on success", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) throw new Error("fail");
+                return "recovered";
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+
+        const data = await resource.ensure(1);
+        expect(data).toBe("recovered");
+        expect(callCount).toBe(2);
+    });
+
+    it("handles void args", async () => {
+        const resource = createResource<void, string>({
+            queryFn: async () => "void-data",
+        });
+
+        expect(await resource.ensure(undefined as void)).toBe("void-data");
+    });
+});
+
+// ==================== fetch ====================
+
+describe("Resource.fetch", () => {
+    it("creates a cold entry and resolves with fresh data", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+        });
+
+        expect(await resource.fetch(1)).toBe("data");
+    });
+
+    it("on a cached entry resolves with fresh data, not the stale cached value", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => `v${++callCount}`,
+        });
+
+        expect(await resource.ensure(1)).toBe("v1");
+        expect(await resource.fetch(1)).toBe("v2");
+        expect(callCount).toBe(2);
+    });
+
+    it("dedups against an in-flight query instead of starting another", async () => {
+        let resolveQuery!: (v: string) => void;
+        const queryFn = vi.fn(
+            () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
+        );
+        const resource = createResource<number, string>({ queryFn });
+
+        const p1 = resource.fetch(1);
+        const p2 = resource.fetch(1);
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        resolveQuery("data");
+        expect(await p1).toBe("data");
+        expect(await p2).toBe("data");
+    });
+
+    it("rejects when a refresh fails, leaving stale data in the cache", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "v1";
+                throw new Error("refresh failed");
+            },
+        });
+
+        expect(await resource.ensure(1)).toBe("v1");
+        await expect(resource.fetch(1)).rejects.toThrow("refresh failed");
+
+        const entry = resource.getEntry(1)!;
+        expect(entry.machine$.peek().state.status).toBe("refresh-error");
+        expect(entry.machine$.peek().state.data).toBe("v1");
+    });
+
+    it("retries a previously failed entry", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) throw new Error("fail");
+                return "recovered";
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+
+        expect(await resource.fetch(1)).toBe("recovered");
+    });
+
+    it("rejects when the cold query fails", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw new Error("boom");
+            },
+        });
+
+        await expect(resource.fetch(1)).rejects.toThrow("boom");
+    });
+});
+
+// ==================== prefetch ====================
+
+describe("Resource.prefetch", () => {
+    it("warms the cache and resolves with void", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        const result = await resource.prefetch(1);
+
+        expect(result).toBeUndefined();
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
+
+    it("never rejects when the query fails", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw new Error("boom");
+            },
+        });
+
+        await expect(resource.prefetch(1)).resolves.toBeUndefined();
+    });
+
+    it("reuses cached data without re-fetching", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        await resource.prefetch(1);
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ==================== Abort semantics ====================
+
+describe("ensure/fetch abort semantics", () => {
+    it("rejects immediately without starting a query when the signal is already aborted", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        const ac = new AbortController();
+        ac.abort();
+
+        await expect(resource.ensure(1, { signal: ac.signal })).rejects.toHaveProperty("name", "AbortError");
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(resource.getEntry(1)).toBeNull();
+    });
+
+    it("rejects with the signal's reason when aborted mid-flight", async () => {
+        const resource = createResource<number, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        const ac = new AbortController();
+        const reason = new Error("navigation cancelled");
+        const p = resource.ensure(1, { signal: ac.signal });
+        p.catch(() => {});
+
+        ac.abort(reason);
+        await expect(p).rejects.toBe(reason);
+    });
+
+    it("aborting one caller does not cancel a query another consumer is awaiting", async () => {
+        let resolveQuery!: (v: string) => void;
+        let capturedSignal: AbortSignal | undefined;
+        const resource = createResource<number, string>({
+            queryFn: (_args, signal) => {
+                capturedSignal = signal;
+                return new Promise<string>((r) => {
+                    resolveQuery = r;
+                });
+            },
+            retentionTime: false,
+        });
+
+        const ac = new AbortController();
+        const p1 = resource.ensure(1, { signal: ac.signal });
+        const p2 = resource.ensure(1);
+        p1.catch(() => {});
+
+        ac.abort();
+        await expect(p1).rejects.toHaveProperty("name", "AbortError");
+
+        // The shared in-flight query is left running for the second consumer.
+        expect(capturedSignal!.aborted).toBe(false);
+
+        resolveQuery("data");
+        expect(await p2).toBe("data");
+    });
+
+    it("tears down the lone query via retention GC once the aborted caller leaves", async () => {
+        vi.useFakeTimers();
+        try {
+            let capturedSignal: AbortSignal | undefined;
+            const resource = createResource<number, string>({
+                queryFn: (_args, signal) => {
+                    capturedSignal = signal;
+                    return new Promise<string>(() => {});
+                },
+                retentionTime: 5000,
+            });
+
+            const ac = new AbortController();
+            const p = resource.ensure(1, { signal: ac.signal });
+            p.catch(() => {});
+
+            expect(capturedSignal).toBeDefined();
+            expect(capturedSignal!.aborted).toBe(false);
+
+            ac.abort();
+            await expect(p).rejects.toHaveProperty("name", "AbortError");
+
+            // No other consumer remains → retention countdown begins.
+            expect(resource.getEntry(1)).not.toBeNull();
+            expect(capturedSignal!.aborted).toBe(false);
+
+            vi.advanceTimersByTime(5001);
+            await flushMicrotasks();
+
+            // Entry GC'd and the underlying request torn down.
+            expect(resource.getEntry(1)).toBeNull();
+            expect(capturedSignal!.aborted).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+// ==================== whenLoaded / whenFetched (entry primitives) ====================
+
+describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
+    it("whenLoaded resolves synchronously for an already-successful entry", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        expect(await resource.getEntry(1)!.whenLoaded()).toBe("data");
+    });
+
+    it("whenLoaded rejects with CacheEntryRemovedError when the entry is removed before settling", async () => {
+        const resource = createResource<number, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        resource.trigger(1);
+        const entry = resource.getEntry(1)!;
+        const p = entry.whenLoaded();
+        p.catch(() => {});
+
+        entry.complete();
+        await expect(p).rejects.toBeInstanceOf(CacheEntryRemovedError);
+    });
+
+    it("whenFetched keeps awaiting through stale data until the refresh settles", async () => {
+        let resolveRefresh!: (v: string) => void;
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "v1";
+                return new Promise<string>((r) => {
+                    resolveRefresh = r;
+                });
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1)!;
+        entry.refresh();
+        expect(entry.machine$.peek().state.status).toBe("refreshing");
+
+        const p = entry.whenFetched();
+        let settled = false;
+        void p.then(() => {
+            settled = true;
+        });
+
+        // Still refreshing with stale data — whenFetched must not have resolved yet.
+        await flushMicrotasks();
+        expect(settled).toBe(false);
+
+        resolveRefresh("v2");
+        expect(await p).toBe("v2");
+    });
+});
