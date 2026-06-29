@@ -130,7 +130,15 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * cache map changes (entry added or removed).
      *
      * @param args - Query arguments (or `void` when `TArgs` is `void`).
-     * @param doInitiate - When `true`, creates and starts the entry if absent.
+     * @param doInitiate - When `false` (default) the signal is a pure observer:
+     *   reading it never mutates the cache and yields `null` while the entry is
+     *   absent. When `true`, reading the signal creates and starts the entry if it
+     *   is missing, so the signal always yields a non-null entry — re-creating it
+     *   on read even after it was removed. Creation is lazy: it happens on first
+     *   read (the underlying computed is lazy), not at call time, and that read
+     *   therefore has a side effect — it starts the query and fires the
+     *   `onCacheEntryAdded` / `onQueryStarted` hooks. Avoid `doInitiate: true`
+     *   where a read must stay pure (e.g. inside React render).
      * @returns The cache entry, or `null` if not found and `doInitiate` is `false`.
      */
     getEntry$(args: ArgsOrVoid<TArgs>, doInitiate: true): ReadonlySignal<QueryCacheEntry<TArgs, TData>>;
@@ -140,10 +148,10 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         args: ArgsOrVoid<TArgs> | Keyed<TArgs>,
         doInitiate = false,
     ): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> {
+        const keyed = this.toKeyed(args as Args<TArgs>);
+
         return Signal.compute(
             () => {
-                const keyed = this.toKeyed(args as Args<TArgs>);
-
                 const status = this._status$();
 
                 if (status === "idle" && !doInitiate) {
@@ -154,6 +162,10 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
 
                 if (lastEntry?.keyedArgs.key === keyed.key) {
                     return lastEntry;
+                }
+
+                if (doInitiate) {
+                    return this._getOrCreate(keyed);
                 }
 
                 return this._cache.get(keyed.key) ?? null;
