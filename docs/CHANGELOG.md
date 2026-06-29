@@ -1,7 +1,7 @@
 # CHANGELOG
 
 
-## [Unreleased]
+## [0.9.2] - 2026-06-29
 
 ### Added
 - ⚠️ **Экспериментально.** Императивные методы ресурса для загрузчиков роутеров (TanStack Router и др.) и прогрева кэша — см. [Resource API](./query/api/resource.md#ensure--fetch--prefetch):
@@ -242,7 +242,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...HEAD
+[0.9.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.7.4...v0.8.0
