@@ -233,6 +233,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * Designed for router loaders (`ensureQueryData`-style): the consumer awaits
      * data, then a component mounts and subscribes within the retention window.
      *
+     * @experimental Part of the new imperative fetch API; the surface may change
+     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
@@ -264,6 +266,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * in-flight query is awaited rather than duplicated. Rejects if the query
      * fails, the entry is removed, or `options.signal` aborts.
      *
+     * @experimental Part of the new imperative fetch API; the surface may change
+     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
@@ -297,6 +301,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * rejects, and — unlike {@link ensure} — is intentionally not abort-aware so
      * speculative warm-ups survive navigation.
      *
+     * @experimental Part of the new imperative fetch API; the surface may change
+     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      */
     prefetch(args: Args<TArgs>): Promise<void> {

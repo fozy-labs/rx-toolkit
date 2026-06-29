@@ -18,8 +18,11 @@ export interface IResource<TArgs, TData> {
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
     getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData>;
     pack(args: Args<TArgs>): TPackedResource<TArgs, TData>;
+    /** @experimental Imperative fetch API; the surface may change before stabilization. */
     ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    /** @experimental Imperative fetch API; the surface may change before stabilization. */
     fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    /** @experimental Imperative fetch API; the surface may change before stabilization. */
     prefetch(args: Args<TArgs>): Promise<void>;
 }
 
@@ -28,6 +31,8 @@ export interface IResource<TArgs, TData> {
 /**
  * Options for the imperative {@link IResource.ensure} / {@link IResource.fetch}
  * methods.
+ *
+ * @experimental Part of the new imperative fetch API; may change before stabilization.
  */
 export interface TResourceFetchOptions {
     /**

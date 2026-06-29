@@ -49,9 +49,9 @@ const usersResource = api.createResource({
 | `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
 | `toKeyed`      | `args: Args<TArgs>`                           | `Keyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
 | `pack`         | `args: Args<TArgs>`                           | `TPackedResource<TArgs, TData>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [pack][pack]. |
-| `ensure`       | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Отдаёт кэшированные данные мгновенно, если они есть; иначе запускает запрос и ждёт. Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
-| `fetch`        | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
-| `prefetch`     | `args: Args<TArgs>`                           | `Promise<void>`          | Fire-and-forget прогрев кэша: переиспользует кэш, никогда не реджектит, не abort-aware. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `ensure`       | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | ⚠️ Экспериментально. Отдаёт кэшированные данные мгновенно, если они есть; иначе запускает запрос и ждёт. Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `fetch`        | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | ⚠️ Экспериментально. Всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `prefetch`     | `args: Args<TArgs>`                           | `Promise<void>`          | ⚠️ Экспериментально. Fire-and-forget прогрев кэша: переиспользует кэш, никогда не реджектит, не abort-aware. См. [ensure / fetch / prefetch][fetch-methods]. |
 | `_getOrCreate` | `args: Args<TArgs>, doForce = false`          | `CacheEntry`              | Внутренний метод. Получает существующую или создаёт новую запись кэша для аргументов.                                                |
 
 ### Расширения
@@ -122,6 +122,8 @@ packed.resource.trigger(packed.args);
 
 
 ## ensure / fetch / prefetch
+
+> **⚠️ Experimental.** `ensure` / `fetch` / `prefetch` (и низкоуровневые `whenLoaded` / `whenFetched` на записи) — новый императивный API, помеченный `@experimental`. Поверхность может измениться (переименование / перекомпоновка) до стабилизации.
 
 Императивные промис-методы для кода вне реактивного контекста — прежде всего загрузчиков роутеров (TanStack Router и т.п.) и прогрева кэша. Все три при необходимости создают кэш-запись и переиспространяют существующую.
 

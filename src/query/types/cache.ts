@@ -49,7 +49,9 @@ export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArg
     refresh(): void;
     retry(): void;
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null;
+    /** @experimental Low-level primitive backing the imperative fetch API; may change before stabilization. */
     whenLoaded(signal?: AbortSignal): Promise<TData>;
+    /** @experimental Low-level primitive backing the imperative fetch API; may change before stabilization. */
     whenFetched(signal?: AbortSignal): Promise<TData>;
 }
 

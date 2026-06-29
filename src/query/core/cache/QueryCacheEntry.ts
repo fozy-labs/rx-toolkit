@@ -125,6 +125,8 @@ export class QueryCacheEntry<TArgs, TData>
      * Stale data (refreshing / refresh-error) resolves immediately — the caller
      * gets whatever is available without waiting for a background refresh.
      *
+     * @experimental Low-level primitive backing the imperative fetch API; may
+     *   change before stabilization.
      * @param signal - Detaches the caller when aborted: the promise rejects with
      *   the signal's reason. The query itself is untouched and is only torn down
      *   by retention GC once no consumer remains.
@@ -149,6 +151,8 @@ export class QueryCacheEntry<TArgs, TData>
      * than resolved. Used by {@link Resource.fetch} (which always (re)starts a run
      * before awaiting).
      *
+     * @experimental Low-level primitive backing the imperative fetch API; may
+     *   change before stabilization.
      * @param signal - See {@link whenLoaded}.
      */
     whenFetched(signal?: AbortSignal): Promise<TData> {
