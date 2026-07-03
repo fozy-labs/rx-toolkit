@@ -72,9 +72,9 @@ export class Syncer {
             const resource = this.resourcesByKey.get(msg.keys[1]);
             if (!resource) return;
 
-            const entryKey = msg.keys[2];
-
-            const entry = resource.getEntry(entryKey);
+            // msg.keys[2] is an already-serialized cache key, not raw args —
+            // it must not go through serializeArgs again.
+            const entry = resource.getEntryByKey(msg.keys[2]);
 
             if (!entry) return;
 

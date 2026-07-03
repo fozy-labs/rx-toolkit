@@ -128,6 +128,20 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     }
 
     /**
+     * Synchronously return the cache entry for an already-serialized key.
+     *
+     * Unlike {@link getEntry}, the key is used for a direct cache lookup without
+     * serialization. Needed where only the serialized key is available — e.g.
+     * cross-tab sync, where raw args never leave the requesting tab.
+     *
+     * @param key - Serialized cache key (as produced by {@link serialize}).
+     * @returns The cache entry, or `null` if not found.
+     */
+    getEntryByKey(key: string): QueryCacheEntry<TArgs, TData> | null {
+        return this._cache.get(key) ?? null;
+    }
+
+    /**
      * Reactive variant of {@link getEntry} — establishes a signal dependency
      * so that `Signal.compute` / `Signal.effect` callers re-evaluate when the
      * cache map changes (entry added or removed).
