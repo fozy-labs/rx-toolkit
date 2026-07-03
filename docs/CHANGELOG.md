@@ -4,7 +4,11 @@
 ## [Unreleased]
 
 ### Fixed
+- `ensure()` / `fetch()` / `prefetch()` на ресурсе с включённой кросс-табовой синхронизацией (`sync: true` / `defaultSync`) мгновенно реджектились `CacheEntryRemovedError` на холодной записи (а `prefetch` резолвился, не прогрев кэш): путь `beforeQuery` создавал запись с отложенным запуском `queryFn`, а примитивы ожидания трактовали отсутствие текущего исполнения как удалённую запись. Та же дыра закрыта в `currentResult()`.
 - `Command.trigger()` с `retentionTime: 0` (дефолт) и без наблюдателей больше не реджектится `CacheEntryRemovedError` до ответа сервера. `machine$.peek()` внутри `_execute()` делал transient subscribe+unsubscribe, обнуляя refcount и запуская таймер GC; добавленный keepalive в `trigger()` удерживает refcount до завершения мутации.
+
+### Changed
+- Примитивы ожидания кэш-записи (`whenLoaded`, `whenFetched`, `whenFirstLoaded`, `currentResult`) переведены на единый механизм, производный от переходов машины состояний (`machine$`), вместо внутреннего промиса исполнения — ожидать теперь можно любую живую запись в любой момент, независимо от того, запущен ли `queryFn`. Уточнение семантики: при consistency violation после rebase `whenFetched` дожидается консистентного результата автоматического refresh, а не резолвится сырыми данными свежего ответа.
 
 
 ## [0.10.0] - 2026-07-03
