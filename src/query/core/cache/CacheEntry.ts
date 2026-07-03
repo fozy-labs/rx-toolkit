@@ -35,6 +35,15 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         this.state$ = signalize(this.obs);
     }
 
+    /**
+     * Raw state stream without keepalive semantics: replays the current state on
+     * subscribe and completes on {@link complete}. Unlike {@link obs}, subscribing
+     * does not hold the share's refcount, so retention GC is unaffected.
+     */
+    protected get rawObs(): Observable<TState> {
+        return this._state$.obs;
+    }
+
     /** Non-reactive read */
     peek(): TState {
         return this._state$.peek();

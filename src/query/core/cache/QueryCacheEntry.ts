@@ -1,14 +1,19 @@
-import { PromiseResolver } from "@/common/utils";
-import type { IPatchHandle, IQueryCacheEntry, IQueryCacheEntryOptions, Keyed } from "@/query/types";
+import type { Observable, Subscription } from "rxjs";
+
+import type { IPatchHandle, IQueryCacheEntry, IQueryCacheEntryOptions, Keyed, TMachineState } from "@/query/types";
 import type { ReadonlySignal } from "@/signals/types";
 
-import { withAbort } from "../../lib/withAbort";
+import { abortReason } from "../../lib/abortReason";
 import { CacheEntryRemovedError } from "../errors";
 import { Machine } from "../machine/Machine";
+import { hasData } from "../machine/machine-helpers";
 
 import { CacheEntry } from "./CacheEntry";
 
 // ==================== QueryCacheEntry ====================
+
+/** Outcome of matching a machine state in {@link QueryCacheEntry._awaitState}. */
+type TSettled<TData> = { kind: "data"; data: TData } | { kind: "error"; error: unknown };
 
 export class QueryCacheEntry<TArgs, TData>
     extends CacheEntry<Machine<TArgs, TData>>
@@ -20,11 +25,8 @@ export class QueryCacheEntry<TArgs, TData>
     private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData>;
     private _abortController: AbortController | null = null;
 
-    /** Result of the current query run; resolved/rejected where the machine transitions. */
-    private _execution: PromiseResolver<TData> | null = null;
     /** First data ever seen (survives error+retry); rejected only if the entry is removed first. */
-    private readonly _loaded = new PromiseResolver<TData>();
-    private _loadedSettled = false;
+    private readonly _firstLoaded: Promise<TData>;
 
     constructor(options: IQueryCacheEntryOptions<TArgs, TData>) {
         const machine = options.initialMachine ?? Machine.pending<TArgs, TData>(options.keyedArgs.value);
@@ -43,14 +45,12 @@ export class QueryCacheEntry<TArgs, TData>
         this._queryFn = options.queryFn;
         this.machine$ = this.state$;
 
-        // Suppress "nobody awaited" unhandled rejections (the promise may never be read).
-        void this._loaded.promise.catch(() => {});
-
-        // Hydrated entries already carry data — settle the first-data promise immediately.
-        const initial = machine.state;
-        if (initial.status === "success" || initial.status === "refreshing" || initial.status === "refresh-error") {
-            this._settleLoaded(initial.data);
-        }
+        // The raw stream replays the current state, so hydrated entries settle
+        // immediately. Suppress "nobody awaited" rejections (may never be read).
+        this._firstLoaded = this._awaitState((state) => (hasData(state) ? { kind: "data", data: state.data } : null), {
+            keepalive: false,
+        });
+        void this._firstLoaded.catch(() => {});
 
         // Auto-execute queryFn when no initial state is provided
         if (!options.initialMachine) {
@@ -132,31 +132,28 @@ export class QueryCacheEntry<TArgs, TData>
      *   by retention GC once no consumer remains.
      */
     whenLoaded(signal?: AbortSignal): Promise<TData> {
-        const state = this.machine$.peek().state;
-        switch (state.status) {
-            case "success":
-            case "refreshing":
-            case "refresh-error":
-                return Promise.resolve(state.data);
-            case "error":
-                return Promise.reject(state.error);
-            default:
-                return this._awaitExecution(signal);
-        }
+        return this._awaitState(
+            (state) => {
+                if (hasData(state)) return { kind: "data", data: state.data };
+                if (state.status === "error") return { kind: "error", error: state.error };
+                return null;
+            },
+            { keepalive: true, signal },
+        );
     }
 
     /**
-     * Resolve when the in-flight query settles with fresh data, rejecting if it
-     * fails. Unlike {@link whenLoaded}, transient stale data is awaited rather
-     * than resolved. Used by {@link Resource.fetch} (which always (re)starts a run
-     * before awaiting).
+     * Resolve when the machine settles with fresh data (`success`), rejecting on
+     * `error` / `refresh-error`. Unlike {@link whenLoaded}, transient stale data
+     * (pending / refreshing) is awaited rather than resolved. Used by
+     * {@link Resource.fetch} (which always (re)starts a run before awaiting).
      *
      * @experimental Low-level primitive backing the imperative fetch API; may
      *   change before stabilization.
      * @param signal - See {@link whenLoaded}.
      */
     whenFetched(signal?: AbortSignal): Promise<TData> {
-        return this._awaitExecution(signal);
+        return this._awaitState((state) => this._settleQueryOutcome(state), { keepalive: true, signal });
     }
 
     /**
@@ -165,49 +162,96 @@ export class QueryCacheEntry<TArgs, TData>
      * Backs the `$cacheDataLoaded` lifecycle context.
      */
     whenFirstLoaded(): Promise<TData> {
-        return this._loaded.promise;
+        return this._firstLoaded;
     }
 
     /**
-     * The current run's result promise — resolves/rejects with this execution's
-     * outcome. Unlike {@link whenFetched} it takes no keepalive subscription, so
-     * the caller owns the entry's lifecycle. Backs `Command.trigger`.
+     * Resolve/reject with the outcome of the machine's next settled state — the
+     * same transitions as {@link whenFetched}, but without a keepalive
+     * subscription, so the caller owns the entry's lifecycle. Backs `Command.trigger`.
      */
     currentResult(): Promise<TData> {
-        return this._execution?.promise ?? Promise.reject(new CacheEntryRemovedError("data loaded"));
+        const result = this._awaitState((state) => this._settleQueryOutcome(state), { keepalive: false });
+        // Suppress "nobody awaited" unhandled rejections (the promise may never be read).
+        void result.catch(() => {});
+        return result;
     }
 
     /** Abort any in-flight request before completing the entry. */
     override complete(): void {
         this._abortController?.abort();
-        this._execution?.reject(new CacheEntryRemovedError("data loaded"));
-        if (!this._loadedSettled) {
-            this._loadedSettled = true;
-            this._loaded.reject(new CacheEntryRemovedError("data loaded"));
-        }
+        // Completing the state stream rejects all pending waiters with CacheEntryRemovedError.
         super.complete();
     }
 
     // ==================== Private ====================
 
     /**
-     * Await the current execution's native result promise, holding the entry alive
-     * for the duration (so retention GC only resumes once the caller settles).
+     * Universal state-driven waiter: observe machine transitions (starting from
+     * the current state, which is replayed on subscribe) and settle on the first
+     * state that `settle` maps to an outcome.
+     *
+     * Rejects with {@link CacheEntryRemovedError} if the entry completes before a
+     * matching state, and with the signal's reason if `signal` aborts first.
+     *
+     * @param settle - Maps a machine state to a resolution/rejection outcome, or
+     *   `null` to keep waiting.
+     * @param opts.keepalive - When `true`, observes the shared stream and thereby
+     *   holds the share's refcount, so retention GC only resumes once the waiter
+     *   settles or detaches. When `false`, observes the raw state stream without
+     *   affecting the entry's lifecycle.
      */
-    private _awaitExecution(signal?: AbortSignal): Promise<TData> {
-        const execution = this._execution;
-        if (!execution) return Promise.reject(new CacheEntryRemovedError("data loaded"));
+    private _awaitState(
+        settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
+        opts: { keepalive: boolean; signal?: AbortSignal },
+    ): Promise<TData> {
+        const { keepalive, signal } = opts;
 
-        // Bare keepalive subscription: value comes from the native promise, this only
-        // holds the share's refcount so the entry isn't GC'd mid-await.
-        const keepalive = this.obs.subscribe();
-        return withAbort(execution.promise, signal).finally(() => keepalive.unsubscribe());
+        if (signal?.aborted) {
+            return Promise.reject(abortReason(signal));
+        }
+
+        const source: Observable<Machine<TArgs, TData>> = keepalive ? this.obs : this.rawObs;
+
+        // Manual subscription (instead of firstValueFrom) so the promise settles in
+        // the same microtask as the machine transition — no extra `.then` hops.
+        return new Promise<TData>((resolve, reject) => {
+            let isSettled = false;
+            let subscription: Subscription | null = null;
+
+            const finish = (fn: () => void): void => {
+                if (isSettled) return;
+                isSettled = true;
+                signal?.removeEventListener("abort", onAbort);
+                subscription?.unsubscribe();
+                fn();
+            };
+
+            const onAbort = (): void => finish(() => reject(abortReason(signal!)));
+            signal?.addEventListener("abort", onAbort, { once: true });
+
+            subscription = source.subscribe({
+                next: (machine) => {
+                    const outcome = settle(machine.state);
+                    if (!outcome) return;
+                    finish(() => (outcome.kind === "data" ? resolve(outcome.data) : reject(outcome.error)));
+                },
+                error: (error: unknown) => finish(() => reject(error)),
+                // Stream disposed without a matching state — the entry was removed.
+                complete: () => finish(() => reject(new CacheEntryRemovedError("data loaded"))),
+            });
+
+            // The replayed current state can settle synchronously, before
+            // `subscription` was assigned — release it now.
+            if (isSettled) subscription.unsubscribe();
+        });
     }
 
-    private _settleLoaded(data: TData): void {
-        if (this._loadedSettled) return;
-        this._loadedSettled = true;
-        this._loaded.resolve(data);
+    /** Settle matcher for a query run's outcome: fresh data or a failed run. */
+    private _settleQueryOutcome(state: TMachineState<TArgs, TData>): TSettled<TData> | null {
+        if (state.status === "success") return { kind: "data", data: state.data };
+        if (state.status === "error" || state.status === "refresh-error") return { kind: "error", error: state.error };
+        return null;
     }
 
     /** @internal Called by Resource when beforeQuery intercept needs to trigger the query. */
@@ -233,19 +277,6 @@ export class QueryCacheEntry<TArgs, TData>
                 console.warn(`[QueryCacheEntry] executed in unexpected state: ${(machine as any).status}`);
         }
 
-        // Per-execution result promise. A superseded in-flight run hands its awaiters
-        // to this one; `catch` suppresses "nobody awaited" unhandled rejections.
-        const execution = new PromiseResolver<TData>();
-        const previous = this._execution;
-        this._execution = execution;
-        void execution.promise.catch(() => {});
-        if (previous) {
-            void execution.promise.then(
-                (data) => previous.resolve(data),
-                (error: unknown) => previous.reject(error),
-            );
-        }
-
         this._queryFn(this.keyedArgs, controller.signal)
             .then((data) => {
                 if (controller.signal.aborted) return;
@@ -255,16 +286,10 @@ export class QueryCacheEntry<TArgs, TData>
                 switch (machine.status) {
                     case "pending":
                         this.set(machine.success(data));
-                        this._settleLoaded(data);
-                        execution.resolve(data);
                         break;
                     case "refreshing": {
                         const rebased = machine.rebase(data);
                         this.set(rebased);
-
-                        const fresh = rebased.state.status === "success" ? rebased.state.data : data;
-                        this._settleLoaded(fresh);
-                        execution.resolve(fresh);
 
                         if (rebased.patchState?.isConsistencyViolation) {
                             this.refresh();
@@ -283,11 +308,9 @@ export class QueryCacheEntry<TArgs, TData>
                 switch (machine.status) {
                     case "pending":
                         this.set(machine.fail(error));
-                        execution.reject(error);
                         break;
                     case "refreshing":
                         this.set(machine.fail(error));
-                        execution.reject(error);
                         break;
                     default:
                         console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
