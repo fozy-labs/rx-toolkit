@@ -11,6 +11,7 @@ import type {
     TResourceAgentState,
     TResourceOptions,
     TSuspenseResourceState,
+    TTriggerPromise,
 } from "@/query/types";
 
 import { useCommand } from "./useCommand";
@@ -25,7 +26,9 @@ type ReactHooksResourceShape<TArgs, TData> = {
 
 /** Command augmentation shape produced by ReactHooksPlugin. */
 type ReactHooksCommandShape<TArgs, TData> = {
-    useCommand: (key?: string) => [trigger: (args: TArgs) => Promise<TData>, state: TCommandAgentState<TArgs, TData>];
+    useCommand: (
+        key?: string,
+    ) => [trigger: (args: TArgs) => TTriggerPromise<TData>, state: TCommandAgentState<TArgs, TData>];
 };
 
 /**
@@ -60,11 +63,7 @@ export class ReactHooksPlugin implements IPlugin {
     augmentCommand<TArgs, TData>(
         command: ICommand<TArgs, TData>,
         _options: TCommandOptions<TArgs, TData>,
-    ): {
-        useCommand: (
-            key?: string,
-        ) => [trigger: (args: TArgs) => Promise<TData>, state: TCommandAgentState<TArgs, TData>];
-    } {
+    ): ReactHooksCommandShape<TArgs, TData> {
         return {
             useCommand: (key?: string) => useCommand(command, key),
         };

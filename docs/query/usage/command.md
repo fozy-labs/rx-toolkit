@@ -78,8 +78,35 @@ function AddTodoForm() {
 Поведение хука:
 
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
-2. `trigger(args)` запускает `queryFn` и возвращает `Promise<TData>`.
+2. `trigger(args)` запускает `queryFn` и возвращает `TTriggerPromise<TData>` — [конверт результата](#результат-trigger); промис не реджектится.
 3. Состояние (`isLoading`, `isSuccess`, `isError`) обновляется реактивно.
+
+
+## Результат trigger
+
+`trigger` из `useCommand` (и `agent.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
+
+```tsx
+const result = await trigger({ text });
+
+if (result.status === 'error') {
+  console.error(result.error);
+} else {
+  console.log(result.data);
+}
+```
+
+Когда удобнее «бросающая» семантика, у промиса есть `unwrap()` — сырой результат: данные при успехе, исключение при ошибке:
+
+```tsx
+try {
+  const data = await trigger({ text }).unwrap();
+} catch (err) {
+  // ошибка мутации
+}
+```
+
+Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.isError`.
 
 ## Состояния команды
 
@@ -133,6 +160,15 @@ const data = await addTodoCommand.trigger({ text: 'Новая задача' }, '
 ```
 
 Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `key` идентифицирует кэш-запись.
+
+В отличие от `trigger` на уровне агента и хука, `Command.trigger` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
+
+```typescript
+import { wrapTrigger } from '@fozy-labs/rx-toolkit';
+
+const result = await wrapTrigger(addTodoCommand.trigger({ text: 'Задача' }));
+if (result.status === 'error') { /* ... */ }
+```
 
 ### getEntry
 

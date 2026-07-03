@@ -63,9 +63,9 @@ export function Base() {
     const realCharges = attempts.filter(a => a.charged).length;
 
     const handlePay = () => {
-        pay({ amount: 100 }).catch(() => {
-            // Ошибка отражается реактивно через state.isError.
-        });
+        // Промис trigger не реджектится — ошибка приходит конвертом
+        // и отражается реактивно через state.isError.
+        void pay({ amount: 100 });
     };
 
     const handleBreak = () => {

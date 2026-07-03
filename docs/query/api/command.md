@@ -42,7 +42,7 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `trigger`     | `args: Args<TArgs>` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кэш-запись.  |
+| `trigger`     | `args: Args<TArgs>` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][agent-api-trigger] на уровне агента/хука). |
 | `createAgent` | `key?: string`      | `Agent`                 | Создаёт реактивный [агент][agent] — наблюдатель за командой. Необязательный ключ привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
@@ -53,7 +53,7 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [конверт результата][agent-api-trigger] `TTriggerPromise<TData>` (не реджектится; `.unwrap()` — сырой промис). В `state` доступен `retry()` для повторного запуска упавшей мутации.|
 
 
 ## Pack
@@ -106,5 +106,6 @@ function run(packed: TPacked<unknown, unknown>) {
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
 [agent-api]: ./command-agent.md
+[agent-api-trigger]: ./command-agent.md#результат-trigger
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md

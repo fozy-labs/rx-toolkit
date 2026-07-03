@@ -162,7 +162,9 @@ describe("CommandAgent trigger error", () => {
         const promise = agent.trigger("hello", "k1");
         expect(s.get().status).toBe("pending");
 
-        await expect(promise).rejects.toThrow("fail");
+        const result = await promise;
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
 
         // Simulate machine transitioning to error
         entryMock.setMachineState(errorState("hello", err));
@@ -170,6 +172,76 @@ describe("CommandAgent trigger error", () => {
         expect(s.get().error).toBe(err);
         expect(s.get().isError).toBe(true);
         expect(s.get().isLoading).toBe(false);
+    });
+});
+
+// ==================== 3b. Trigger result envelope ====================
+
+describe("CommandAgent trigger envelope", () => {
+    it("resolves with a success envelope", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        mock.setTriggerImpl(async () => "result");
+
+        const agent = new CommandAgent(mock.command);
+
+        const result = await agent.trigger("hello", "k1");
+        expect(result).toEqual({ status: "success", data: "result" });
+        expect(result.error).toBeUndefined();
+    });
+
+    it("resolves with an error envelope instead of rejecting", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        const err = new Error("fail");
+        mock.setTriggerImpl(async () => {
+            throw err;
+        });
+
+        const agent = new CommandAgent(mock.command);
+
+        // No try/catch — the envelope promise never rejects.
+        const result = await agent.trigger("hello", "k1");
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
+        expect(result.data).toBeUndefined();
+    });
+
+    it("unwrap() resolves with the raw data", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        mock.setTriggerImpl(async () => "result");
+
+        const agent = new CommandAgent(mock.command);
+
+        await expect(agent.trigger("hello", "k1").unwrap()).resolves.toBe("result");
+    });
+
+    it("unwrap() rejects with the raw error", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        const err = new Error("fail");
+        mock.setTriggerImpl(async () => {
+            throw err;
+        });
+
+        const agent = new CommandAgent(mock.command);
+
+        await expect(agent.trigger("hello", "k1").unwrap()).rejects.toBe(err);
+    });
+
+    it("wraps a synchronous trigger throw into an error envelope", async () => {
+        const mock = createMockCommand<string, string>();
+        const err = new Error("sync boom");
+        mock.setTriggerImpl(() => {
+            throw err;
+        });
+
+        const agent = new CommandAgent(mock.command);
+
+        const result = await agent.trigger("hello", "k1");
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
     });
 });
 
@@ -437,7 +509,9 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
         });
         _effects.push(eff);
 
-        await expect(agent.trigger(100)).rejects.toThrow("boom");
+        const result = await agent.trigger(100);
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
         await flushMicrotasks();
 
         expect(seen).toContain("pending");

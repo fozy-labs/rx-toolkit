@@ -1,8 +1,16 @@
-import type { Args, ICommandAgent, IQueryCacheEntry, TCommandAgentState, TMachineState } from "@/query/types";
+import type {
+    Args,
+    ICommandAgent,
+    IQueryCacheEntry,
+    TCommandAgentState,
+    TMachineState,
+    TTriggerPromise,
+} from "@/query/types";
 import { Signal } from "@/signals";
 import type { ReadonlySignal } from "@/signals/types";
 
 import { isKeyed } from "../../lib/toKeyed";
+import { wrapTrigger } from "../../lib/wrapTrigger";
 
 // Minimal contract that CommandAgent needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
@@ -50,14 +58,20 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
         }
     }
 
-    async trigger(args: Args<TArgs>, key?: string): Promise<TData> {
+    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData> {
         const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
 
-        const result = this._command.trigger(args, entryKey);
+        // A synchronous throw (e.g. from an optimistic patch) must surface as an
+        // error envelope, matching the previous `async` behavior of this method.
+        let result: Promise<TData>;
+        try {
+            result = this._command.trigger(args, entryKey);
+            this._observeKey(entryKey);
+        } catch (error) {
+            result = Promise.reject(error);
+        }
 
-        this._observeKey(entryKey);
-
-        return result;
+        return wrapTrigger(result);
     }
 
     setKey(key: string): void {

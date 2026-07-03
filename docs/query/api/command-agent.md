@@ -17,9 +17,35 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 | Метод | Сигнатура | Описание |
 |-------|-----------|----------|
 | `state$` | `() => TCommandAgentState<TArgs, TData>` | Вычисляемый сигнал. Возвращает текущее состояние агента. |
-| `trigger` | `(args: TArgs, key?: string) => Promise<TData>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из аргумента, затем из привязанного ключа агента, иначе генерируется. Возвращает промис с результатом. |
+| `trigger` | `(args: TArgs, key?: string) => TTriggerPromise<TData>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из аргумента, затем из привязанного ключа агента, иначе генерируется. Возвращает [конверт результата](#результат-trigger). |
 | `setKey` | `(key: string) => void` | Привязывает агент к кэш-записи по ключу (используется и для наблюдения, и последующими `trigger`). |
 | `retry` | `() => void` | Перезапускает отслеживаемую мутацию. No-op вне состояния `error`. Повтор переиспользует тот же [request id][query-fn]. |
+
+
+## Результат trigger
+
+`trigger` возвращает `TTriggerPromise<TData>` — промис, который **никогда не реджектится**. Итог мутации приходит конвертом `TTriggerResult<TData>`, дискриминированным по полю `status`:
+
+```typescript
+type TTriggerResult<TData> =
+  | { status: "success"; data: TData; error?: undefined }
+  | { status: "error"; data?: undefined; error: unknown };
+```
+
+```typescript
+const result = await agent.trigger({ text: 'Задача' });
+if (result.status === 'error') {
+  console.error(result.error);
+} else {
+  console.log(result.data);
+}
+```
+
+Когда нужна «бросающая» семантика (сырые данные при успехе, исключение при ошибке — как у `Command.trigger`), используйте `unwrap()`:
+
+```typescript
+const data = await agent.trigger({ text: 'Задача' }).unwrap();
+```
 
 
 ## Состояние (TCommandAgentState)

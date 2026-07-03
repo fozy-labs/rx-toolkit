@@ -1,6 +1,19 @@
 # CHANGELOG
 
 
+## [0.10.0] - 2026-07-03
+
+[Гайд по миграции с 0.9.x](./migrations/0.10.0.md)
+
+### Changed
+- 💥 **Breaking.** `trigger` на уровне агента и хука (`CommandAgent.trigger`, `useCommand`) теперь возвращает `TTriggerPromise<TData>` — промис, который **не реджектится**, а резолвится конвертом `TTriggerResult<TData>`: `{ status: "success", data }` либо `{ status: "error", error }`. Для «бросающей» семантики (как раньше) у промиса есть метод `.unwrap(): Promise<TData>`. Обработка ошибок через `try/catch` вокруг `await trigger(...)` больше не срабатывает — используйте проверку `result.status` либо `.unwrap()`. См. [CommandAgent API](./query/api/command-agent.md#результат-trigger).
+- `Command.trigger` (уровень ядра) не изменился — по-прежнему возвращает сырой `Promise<TData>`, реджектящийся ошибкой.
+
+### Added
+- Типы `TTriggerResult<TData>` и `TTriggerPromise<TData>`.
+- Хелпер `wrapTrigger(promise)` — оборачивает сырой промис мутации (например, результат `Command.trigger`) в конверт с `.unwrap()`.
+
+
 ## [0.9.2] - 2026-06-29
 
 ### Added

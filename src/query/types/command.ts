@@ -50,11 +50,38 @@ export interface TPackedCommand<TArgs, TData> {
  */
 export type TPacked<TArgs, TData> = TPackedResource<TArgs, TData> | TPackedCommand<TArgs, TData>;
 
+// ==================== Trigger Result Envelope ====================
+
+/**
+ * Settled outcome of a mutation, discriminated by `status`.
+ *
+ * The optional `undefined` counterparts let consumers narrow both ways:
+ * `result.status === "error"` and `if (result.error)` work equally well.
+ */
+export type TTriggerResult<TData> =
+    | { status: "success"; data: TData; error?: undefined }
+    | { status: "error"; data?: undefined; error: unknown };
+
+/**
+ * Promise returned by agent/hook-level `trigger`.
+ *
+ * Never rejects — the outcome is delivered as a {@link TTriggerResult}
+ * envelope, so a bare `await trigger(...)` needs no try/catch. Call
+ * {@link unwrap} when throwing semantics are wanted instead.
+ */
+export interface TTriggerPromise<TData> extends Promise<TTriggerResult<TData>> {
+    /**
+     * The raw result: resolves with the mutation data, rejects with the
+     * original error — the same contract as `Command.trigger`.
+     */
+    unwrap(): Promise<TData>;
+}
+
 // ==================== Command Agent Interface ====================
 
 export interface ICommandAgent<TArgs, TData> {
     state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
-    trigger(args: Args<TArgs>, key?: string): Promise<TData>;
+    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData>;
     setKey(key: string): void;
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry(): void;

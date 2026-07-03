@@ -164,14 +164,14 @@ function EditUserForm({ user }: { user: User }) {
         event.preventDefault();
         const formData = new FormData(event.target as HTMLFormElement);
         
-        try {
-            const result = await updateUser({ 
-                id: user.id, 
-                data: Object.fromEntries(formData) 
-            });
-            console.log('Обновлено:', result);
-        } catch (error) {
-            console.error('Ошибка:', error);
+        const result = await updateUser({
+            id: user.id,
+            data: Object.fromEntries(formData)
+        });
+        if (result.status === 'success') {
+            console.log('Обновлено:', result.data);
+        } else {
+            console.error('Ошибка:', result.error);
         }
     };
 
