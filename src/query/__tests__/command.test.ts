@@ -1294,6 +1294,57 @@ describe("Command retry", () => {
     });
 });
 
+// ==================== retentionTime: 0 without observers ====================
+
+describe("trigger() without observers — retentionTime: 0 regression", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("resolves correctly when GC timer fires before queryFn settles", async () => {
+        vi.useFakeTimers();
+
+        let resolveQuery!: (val: string) => void;
+        const command = new Command<string, string>({
+            queryFn: () => new Promise<string>((r) => { resolveQuery = r; }),
+            retentionTime: 0,
+            links: [],
+        });
+
+        const promise = command.trigger("x", "k1");
+
+        // Fire the retentionTime timer(0). Without the keepalive fix, this GCs
+        // the entry and rejects `promise` with CacheEntryRemovedError.
+        await vi.runAllTimersAsync();
+
+        resolveQuery("result");
+        await vi.runAllTimersAsync();
+
+        await expect(promise).resolves.toBe("result");
+    });
+
+    it("rejects with queryFn error (not CacheEntryRemovedError) when GC timer fires first", async () => {
+        vi.useFakeTimers();
+
+        const serverError = new Error("network error");
+        let rejectQuery!: (err: unknown) => void;
+        const command = new Command<string, string>({
+            queryFn: () => new Promise<string>((_, r) => { rejectQuery = r; }),
+            retentionTime: 0,
+            links: [],
+        });
+
+        const promise = command.trigger("x", "k1");
+
+        await vi.runAllTimersAsync();
+
+        rejectQuery(serverError);
+        await vi.runAllTimersAsync();
+
+        await expect(promise).rejects.toBe(serverError);
+    });
+});
+
 // ==================== Agent integration ====================
 
 describe("Command agent integration", () => {

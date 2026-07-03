@@ -1,6 +1,12 @@
 # CHANGELOG
 
 
+## [Unreleased]
+
+### Fixed
+- `Command.trigger()` с `retentionTime: 0` (дефолт) и без наблюдателей больше не реджектится `CacheEntryRemovedError` до ответа сервера. `machine$.peek()` внутри `_execute()` делал transient subscribe+unsubscribe, обнуляя refcount и запуская таймер GC; добавленный keepalive в `trigger()` удерживает refcount до завершения мутации.
+
+
 ## [0.10.0] - 2026-07-03
 
 [Гайд по миграции с 0.9.x](./migrations/0.10.0.md)
@@ -255,6 +261,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.0...develop
 [0.10.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.0...v0.9.1

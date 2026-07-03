@@ -180,6 +180,12 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         // replaces the current execution) so it reflects only the first attempt.
         const firstResult = entry.currentResult();
 
+        // machine$.peek() in _execute() leaves refcount at 0, which starts
+        // timer(retentionTime). Hold refcount ≥ 1 until the trigger settles so
+        // the GC timer cannot fire and complete() the entry mid-flight.
+        const keepalive = entry.obs.subscribe();
+        void firstResult.finally(() => keepalive.unsubscribe());
+
         // Register in cache
         this._cache.set(entryKey, entry);
         this._status$.set("running");
