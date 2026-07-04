@@ -395,4 +395,91 @@ describe("Effect", () => {
             expect(fn).not.toHaveBeenCalled();
         });
     });
+
+    describe("subscription reuse across runs", () => {
+        it("runs once per batch when subscriptions come from different runs", () => {
+            const a = Signal.state(0);
+            const b = Signal.state(0);
+            const toggle = Signal.state(true);
+            const runs = vi.fn();
+
+            const eff = Signal.effect(() => {
+                runs();
+                toggle();
+                a();
+                if (!toggle()) b();
+            });
+
+            // Run 2: subscriptions to toggle and a are reused from run 1,
+            // subscription to b is created fresh in run 2
+            toggle.set(false);
+            runs.mockClear();
+
+            Batcher.run(() => {
+                a.set(1);
+                b.set(1);
+            });
+
+            expect(runs).toHaveBeenCalledTimes(1);
+
+            eff.unsubscribe();
+        });
+
+        it("runs after its computed dependency and sees a consistent snapshot", () => {
+            const s = Signal.state(1);
+            const c = Signal.compute(() => s() * 10);
+            const toggle = Signal.state(true);
+            const seen: Array<[number, number]> = [];
+
+            const eff = Signal.effect(() => {
+                if (toggle()) {
+                    s();
+                } else {
+                    seen.push([s(), c()]);
+                }
+            });
+
+            // Run 2: subscription to s is reused from run 1 (rang of that run),
+            // subscription to c is created fresh with the current rang
+            toggle.set(false);
+            expect(seen).toEqual([[1, 10]]);
+
+            s.set(2);
+
+            // A single consistent snapshot — no [2, 10] glitch before it
+            expect(seen).toEqual([
+                [1, 10],
+                [2, 20],
+            ]);
+
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("write to own dependency during run is suppressed for reused subscriptions too", () => {
+            const count = Signal.state(0);
+            const runs = vi.fn();
+
+            const eff = Signal.effect(() => {
+                runs();
+                if (count() === 1) {
+                    count.set(2);
+                }
+            });
+
+            expect(runs).toHaveBeenCalledTimes(1);
+
+            // Run 2 reuses the subscription to count from run 1 and writes to count:
+            // the emission must be suppressed exactly like for a fresh subscription
+            count.set(1);
+            expect(runs).toHaveBeenCalledTimes(2);
+            expect(count.peek()).toBe(2);
+
+            // The subscription still reacts to external changes
+            count.set(5);
+            expect(runs).toHaveBeenCalledTimes(3);
+
+            eff.unsubscribe();
+        });
+    });
 });
