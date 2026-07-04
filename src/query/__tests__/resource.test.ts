@@ -66,7 +66,93 @@ describe("Resource constructor", () => {
         expect(machine.state.data).toBe("cached");
     });
 
-    it("hydration with isStale produces entry in refreshing state", () => {
+    it("hydration with isStale produces entry in refreshing state with the query in flight", () => {
+        const queryFn = vi.fn(async () => "fresh");
+        const snapshot: TResourceSnapshot = {
+            entries: {
+                [stableStringify(99)]: {
+                    status: "success",
+                    args: 99,
+                    data: "stale-data",
+                    updatedAt: 1000,
+                    isStale: true,
+                },
+            },
+        };
+
+        const resource = createResource<number, string>({
+            queryFn,
+            snapshot,
+        });
+
+        const entry = resource.getEntry(99);
+        expect(entry).not.toBeNull();
+        const machine = entry!.machine$.peek();
+        expect(machine.state.status).toBe("refreshing");
+        expect(machine.state.data).toBe("stale-data");
+        // "refreshing" must mean an actual query is in flight — otherwise the
+        // entry is stuck: refresh()/retry() are invalid from this state.
+        expect(queryFn).toHaveBeenCalledWith(99, expect.any(AbortSignal));
+    });
+
+    it("hydration with isStale runs the SWR refresh and settles to success", async () => {
+        const queryFn = vi.fn(async () => "fresh");
+        const snapshot: TResourceSnapshot = {
+            entries: {
+                [stableStringify(99)]: {
+                    status: "success",
+                    args: 99,
+                    data: "stale-data",
+                    updatedAt: 1000,
+                    isStale: true,
+                },
+            },
+        };
+
+        const resource = createResource<number, string>({
+            queryFn,
+            snapshot,
+        });
+
+        await flushMicrotasks();
+
+        const machine = resource.getEntry(99)!.machine$.peek();
+        expect(machine.state.status).toBe("success");
+        expect(machine.state.data).toBe("fresh");
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("hydration with isStale settles to refresh-error when the refresh fails, keeping stale data", async () => {
+        const error = new Error("refresh failed");
+        const queryFn = vi.fn(async () => {
+            throw error;
+        });
+        const snapshot: TResourceSnapshot = {
+            entries: {
+                [stableStringify(99)]: {
+                    status: "success",
+                    args: 99,
+                    data: "stale-data",
+                    updatedAt: 1000,
+                    isStale: true,
+                },
+            },
+        };
+
+        const resource = createResource<number, string>({
+            queryFn,
+            snapshot,
+        });
+
+        await flushMicrotasks();
+
+        const machine = resource.getEntry(99)!.machine$.peek();
+        expect(machine.state.status).toBe("refresh-error");
+        expect(machine.state.data).toBe("stale-data");
+        expect(machine.state.error).toBe(error);
+    });
+
+    it("fetch() on a stale-hydrated entry resolves with the refreshed data", { timeout: 1000 }, async () => {
         const snapshot: TResourceSnapshot = {
             entries: {
                 [stableStringify(99)]: {
@@ -84,11 +170,9 @@ describe("Resource constructor", () => {
             snapshot,
         });
 
-        const entry = resource.getEntry(99);
-        expect(entry).not.toBeNull();
-        const machine = entry!.machine$.peek();
-        expect(machine.state.status).toBe("refreshing");
-        expect(machine.state.data).toBe("stale-data");
+        // fetch() sees "refreshing" and awaits the in-flight query's outcome —
+        // it must not hang forever on a hydrated entry.
+        await expect(resource.fetch(99)).resolves.toBe("fresh");
     });
 
     it("hydration skips entries where serialized key doesn't match snapshot key", () => {
