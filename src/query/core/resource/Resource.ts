@@ -533,9 +533,16 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
 
         this._fireOnCacheEntryAdded(entry, keyed);
 
-        // Ask other tabs for data, fall back to queryFn
-        this._beforeQuery!(this._key!, keyed.key)
-            .then((result) => {
+        // Ask other tabs for data, fall back to queryFn. The rejection handler is
+        // passed as the second `then` argument so it only covers beforeQuery
+        // itself — a throw in the success path must not turn into a fallback run.
+        this._beforeQuery!(this._key!, keyed.key).then(
+            (result) => {
+                // The entry may have been completed (reset / retention GC) while
+                // the cross-tab request was in flight — its state is disposed and
+                // must not be revived or re-executed.
+                if (entry.isCompleted) return;
+
                 if (result) {
                     const machine = entry.machine$.peek();
                     if (machine.status === "pending") {
@@ -544,10 +551,12 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
                 } else {
                     entry._execute();
                 }
-            })
-            .catch(() => {
+            },
+            () => {
+                if (entry.isCompleted) return;
                 entry._execute();
-            });
+            },
+        );
 
         return entry;
     }
@@ -596,6 +605,10 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         if (!this._onQueryStarted) return;
 
         const $queryFulfilled = queryPromise.then((data) => ({ data }));
+        // Derived promise: rejects with the query error even though the base
+        // promise is consumed by _execute. Suppress "nobody awaited" rejections
+        // (the hook may not consume it); awaiting hooks still see the rejection.
+        void $queryFulfilled.catch(() => {});
 
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,

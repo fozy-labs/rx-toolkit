@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
+import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { Command } from "@/query/core/command/Command";
 import { CacheEntryRemovedError } from "@/query/core/errors";
 import { Resource } from "@/query/core/resource/Resource";
@@ -168,6 +169,25 @@ describe("Command.trigger", () => {
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
         expect(entry!.machine$.peek().state.status).toBe("error");
+    });
+
+    it("failed trigger does not produce an unhandled rejection (no lifecycle hooks)", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const command = createCommand<string, string>({
+                queryFn: async () => {
+                    throw new Error("fail");
+                },
+            });
+
+            await command.trigger("x", "k1").catch(() => {});
+            await flushUnhandledRejections();
+
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
     });
 });
 
@@ -860,6 +880,28 @@ describe("onQueryStarted lifecycle", () => {
         expect(rejectedError).toBeInstanceOf(Error);
     });
 
+    it("failed mutation does not produce an unhandled rejection when onQueryStarted ignores $queryFulfilled", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const command = createCommand<string, string>({
+                queryFn: async () => {
+                    throw new Error("fail");
+                },
+                onQueryStarted: () => {
+                    /* does not consume ctx.$queryFulfilled */
+                },
+            });
+
+            await command.trigger("x", "k1").catch(() => {});
+            await flushUnhandledRejections();
+
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
     it("errors thrown inside onQueryStarted are suppressed", async () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
@@ -1306,7 +1348,10 @@ describe("trigger() without observers — retentionTime: 0 regression", () => {
 
         let resolveQuery!: (val: string) => void;
         const command = new Command<string, string>({
-            queryFn: () => new Promise<string>((r) => { resolveQuery = r; }),
+            queryFn: () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
             retentionTime: 0,
             links: [],
         });
@@ -1329,7 +1374,10 @@ describe("trigger() without observers — retentionTime: 0 regression", () => {
         const serverError = new Error("network error");
         let rejectQuery!: (err: unknown) => void;
         const command = new Command<string, string>({
-            queryFn: () => new Promise<string>((_, r) => { rejectQuery = r; }),
+            queryFn: () =>
+                new Promise<string>((_, r) => {
+                    rejectQuery = r;
+                }),
             retentionTime: 0,
             links: [],
         });

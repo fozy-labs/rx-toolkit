@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
+import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { CacheEntryRemovedError } from "@/query/core/errors";
 import { Machine } from "@/query/core/machine/Machine";
 import { Resource } from "@/query/core/resource/Resource";
@@ -1219,6 +1220,103 @@ describe("beforeQuery (cross-tab sync)", () => {
         const entry = resource.getEntry(1)!;
         expect(entry.machine$.peek().state.data).toBe("hydrated");
     });
+
+    it("entry removed while beforeQuery is in flight — null result does not re-execute", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const queryFn = vi.fn(async () => "from-query");
+            let resolveBeforeQuery!: (result: { data: string } | null) => void;
+            const beforeQuery = vi.fn(
+                () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        resolveBeforeQuery = resolve;
+                    }),
+            );
+
+            const resource = createResource<number, string>({
+                queryFn,
+                key: "res",
+                beforeQuery,
+            });
+
+            resource.trigger(1);
+            resource.reset(); // completes the entry while beforeQuery is still pending
+
+            resolveBeforeQuery(null);
+            await flushUnhandledRejections();
+
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
+    it("entry removed while beforeQuery is in flight — late data is discarded", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const queryFn = vi.fn(async () => "from-query");
+            let resolveBeforeQuery!: (result: { data: string } | null) => void;
+            const beforeQuery = vi.fn(
+                () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        resolveBeforeQuery = resolve;
+                    }),
+            );
+
+            const resource = createResource<number, string>({
+                queryFn,
+                key: "res",
+                beforeQuery,
+            });
+
+            resource.trigger(1);
+            resource.reset();
+
+            resolveBeforeQuery({ data: "from-tab" });
+            await flushUnhandledRejections();
+
+            expect(resource.getEntry(1)).toBeNull();
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
+    it("entry removed while beforeQuery is in flight — rejection does not re-execute", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const queryFn = vi.fn(async () => "from-query");
+            let rejectBeforeQuery!: (error: unknown) => void;
+            const beforeQuery = vi.fn(
+                () =>
+                    new Promise<{ data: string } | null>((_resolve, reject) => {
+                        rejectBeforeQuery = reject;
+                    }),
+            );
+
+            const resource = createResource<number, string>({
+                queryFn,
+                key: "res",
+                beforeQuery,
+            });
+
+            resource.trigger(1);
+            resource.reset();
+
+            rejectBeforeQuery(new Error("channel closed"));
+            await flushUnhandledRejections();
+
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
 });
 
 // ==================== Concurrent triggers ====================
@@ -1627,6 +1725,29 @@ describe("Lifecycle hooks error paths", () => {
             expect(unhandled).toEqual([]);
         } finally {
             proc.off("unhandledRejection", handler);
+        }
+    });
+
+    it("failed query does not produce an unhandled rejection when onQueryStarted ignores $queryFulfilled", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const resource = createResource<number, string>({
+                queryFn: async () => {
+                    throw new Error("query failed");
+                },
+                onQueryStarted: () => {
+                    /* does not consume ctx.$queryFulfilled */
+                },
+            });
+
+            resource.trigger(1);
+            await flushUnhandledRejections();
+
+            expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
         }
     });
 
