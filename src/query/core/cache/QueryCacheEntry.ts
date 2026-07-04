@@ -52,8 +52,12 @@ export class QueryCacheEntry<TArgs, TData>
         });
         void this._firstLoaded.catch(() => {});
 
-        // Auto-execute queryFn when no initial state is provided
-        if (!options.initialMachine) {
+        // Auto-execute queryFn when no initial state is provided. An explicit
+        // pending initialMachine suppresses auto-execute (beforeQuery intercept),
+        // but a hydrated "refreshing" machine (stale snapshot) requires a real
+        // run: the state means "query in flight" and, with refresh()/retry()
+        // invalid from it, has no other way out.
+        if (!options.initialMachine || options.initialMachine.status === "refreshing") {
             this._execute();
         }
     }
