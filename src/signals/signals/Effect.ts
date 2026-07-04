@@ -10,31 +10,34 @@ export class Effect implements SubscriptionLike {
     private _teardown?: () => void;
     closed = false;
     private _rang = 0;
+    private _isRunning = false;
+    private readonly _effectFn: EffectFn;
+
+    // Стабильная функция для планирования выполнения эффекта. Подписки
+    // переиспользуются между запусками, поэтому всё, что их колбэки замыкают,
+    // обязано жить на уровне инстанса, а не конкретного запуска: иначе ломается
+    // дедупликация в Batcher (по identity функции) и устаревает ранг.
+    // Проверка closed нужна, потому что перезапуск мог быть запланирован
+    // в Batcher до того, как эффект был отписан или умер из-за ошибки.
+    private readonly _scheduledFn = () => {
+        if (this.closed) return;
+        this._runInTrackedContext();
+    };
 
     constructor(effectFn: EffectFn) {
-        this._runInTrackedContext(effectFn);
+        this._effectFn = effectFn;
+        this._runInTrackedContext();
     }
 
     /**
      * Выполняет функцию в tracked-контексте, подписываясь на Tracker.
      */
-    private _runInTrackedContext(effectFn: EffectFn) {
+    private _runInTrackedContext() {
         this._callTeardown();
 
         this._rang = 0;
         const legacySubscriptions = this._subscriptions;
         this._subscriptions = new Map();
-
-        // eslint-disable-next-line prefer-const -- assigned after closure capture
-        let scheduler: ReturnType<typeof Batcher.scheduler> | undefined;
-
-        // Стабильная функция для планирования выполнения эффекта.
-        // Проверка closed нужна, потому что перезапуск мог быть запланирован
-        // в Batcher до того, как эффект был отписан или умер из-за ошибки.
-        const scheduledFn = () => {
-            if (this.closed) return;
-            this._runInTrackedContext(effectFn);
-        };
 
         // Функция для проверки и создания подписки на зависимость
         const checkSubscription = (obs: Observable<unknown>) => {
@@ -45,24 +48,26 @@ export class Effect implements SubscriptionLike {
             const legacySub = legacySubscriptions.get(obs);
 
             if (legacySub) {
-                legacySubscriptions!.delete(obs);
+                legacySubscriptions.delete(obs);
                 this._subscriptions.set(obs, legacySub);
                 return;
             }
 
             const sub = obs.subscribe(() => {
-                if (isTrackedContext) {
+                if (this._isRunning) {
                     return;
                 }
 
-                scheduler!.schedule(scheduledFn);
+                // Ранг читается в момент эмиссии: подписка переживает запуск,
+                // в котором была создана, поэтому замыкать ранг нельзя
+                Batcher.scheduler(this._rang).schedule(this._scheduledFn);
             });
 
             this._subscriptions.set(obs, sub);
             return sub;
         };
 
-        let isTrackedContext = true;
+        this._isRunning = true;
         const stopTracking = DependencyTracker.start((dependency) => {
             checkSubscription(dependency.obs);
 
@@ -76,7 +81,7 @@ export class Effect implements SubscriptionLike {
         let optionalTeardown: void | Teardown;
 
         try {
-            optionalTeardown = effectFn();
+            optionalTeardown = this._effectFn();
         } catch (error) {
             // Эффект, чей effectFn бросил, считается мёртвым: отписываем всё,
             // что успели собрать в этом запуске, и остатки предыдущего.
@@ -89,7 +94,7 @@ export class Effect implements SubscriptionLike {
             // Восстановление глобального tracker обязано выполняться и при ошибке,
             // иначе все последующие чтения сигналов утекут в этот эффект.
             stopTracking();
-            isTrackedContext = false;
+            this._isRunning = false;
         }
 
         // Сохраняем teardown функцию, если она была возвращена
@@ -97,8 +102,7 @@ export class Effect implements SubscriptionLike {
             this._teardown = optionalTeardown;
         }
 
-        scheduler = Batcher.scheduler(this._rang);
-        legacySubscriptions?.forEach((sub) => {
+        legacySubscriptions.forEach((sub) => {
             sub.unsubscribe();
         });
     }
