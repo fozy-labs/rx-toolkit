@@ -28,8 +28,11 @@ export class Effect implements SubscriptionLike {
         // eslint-disable-next-line prefer-const -- assigned after closure capture
         let scheduler: ReturnType<typeof Batcher.scheduler> | undefined;
 
-        // Стабильная функция для планирования выполнения эффекта
+        // Стабильная функция для планирования выполнения эффекта.
+        // Проверка closed нужна, потому что перезапуск мог быть запланирован
+        // в Batcher до того, как эффект был отписан или умер из-за ошибки.
         const scheduledFn = () => {
+            if (this.closed) return;
             this._runInTrackedContext(effectFn);
         };
 
@@ -70,10 +73,24 @@ export class Effect implements SubscriptionLike {
             }
         });
 
-        const optionalTeardown = effectFn();
+        let optionalTeardown: void | Teardown;
 
-        stopTracking();
-        isTrackedContext = false;
+        try {
+            optionalTeardown = effectFn();
+        } catch (error) {
+            // Эффект, чей effectFn бросил, считается мёртвым: отписываем всё,
+            // что успели собрать в этом запуске, и остатки предыдущего.
+            this._subscriptions.forEach((sub) => sub.unsubscribe());
+            this._subscriptions.clear();
+            legacySubscriptions.forEach((sub) => sub.unsubscribe());
+            this.closed = true;
+            throw error;
+        } finally {
+            // Восстановление глобального tracker обязано выполняться и при ошибке,
+            // иначе все последующие чтения сигналов утекут в этот эффект.
+            stopTracking();
+            isTrackedContext = false;
+        }
 
         // Сохраняем teardown функцию, если она была возвращена
         if (typeof optionalTeardown === "function") {
