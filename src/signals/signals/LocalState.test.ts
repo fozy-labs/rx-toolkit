@@ -145,11 +145,54 @@ describe("LocalState", () => {
     });
 
     describe("invalid storage data", () => {
-        it("invalid JSON in storage throws", () => {
+        it("invalid JSON in storage → uses defaultValue instead of throwing", () => {
             localStorage.setItem(storageKey("bad"), "not-json!!!");
-            expect(() => {
-                LocalSignal.state({ key: "bad", defaultValue: 0 });
-            }).toThrow();
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad", defaultValue: 7 });
+            const sub = activate(s);
+            expect(s.peek()).toBe(7);
+            expect(warnSpy).toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("set() over invalid JSON does not throw and rewrites storage", () => {
+            localStorage.setItem(storageKey("bad-set"), "{broken");
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad-set", defaultValue: 0 });
+            expect(() => s.set(42)).not.toThrow();
+
+            const data = JSON.parse(localStorage.getItem(storageKey("bad-set"))!);
+            expect(data.common).toBe(42);
+
+            warnSpy.mockRestore();
+        });
+
+        it("update() over invalid JSON does not throw", () => {
+            localStorage.setItem(storageKey("bad-update"), "][");
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad-update", defaultValue: 10 });
+            const sub = activate(s);
+            expect(() => s.update((v) => v + 1)).not.toThrow();
+            expect(s.peek()).toBe(11);
+
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("clear() over invalid JSON does not throw and removes the key", () => {
+            localStorage.setItem(storageKey("bad-clear"), "][");
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad-clear", defaultValue: 0 });
+            expect(() => s.clear()).not.toThrow();
+            expect(localStorage.getItem(storageKey("bad-clear"))).toBeNull();
+
+            warnSpy.mockRestore();
         });
     });
 

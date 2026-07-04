@@ -85,14 +85,30 @@ export class LocalState<T = string | null | number | undefined> {
         this._state$.set(this._options.defaultValue);
     }
 
+    /**
+     * Разбирает сырое значение из storage. Битый JSON (обрезка при quota,
+     * ручная правка, запись от старой версии) — ожидаемый кейс, а не исключение.
+     */
+    private _parseStorageItem(options: LocalStateOptions<any>, item: string) {
+        let json: unknown;
+
+        try {
+            json = JSON.parse(item);
+        } catch (error) {
+            return { success: false, error } as const;
+        }
+
+        const schema = z.record(z.string(), options.zodSchema || z.any());
+        return schema.safeParse(json);
+    }
+
     private _getStorageValue(options: LocalStateOptions<any>) {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey);
 
         if (!item) return NONE;
 
-        const schema = z.record(z.string(), options.zodSchema || z.any());
-        const parsed = schema.safeParse(JSON.parse(item));
+        const parsed = this._parseStorageItem(options, item);
 
         if (!parsed.success) {
             console.warn(`Invalid value for key "${options.key}" in localStorage`, parsed.error);
@@ -112,13 +128,8 @@ export class LocalState<T = string | null | number | undefined> {
         const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
         const item = this._driver.getItem(storageKey) || "{}";
 
-        const schema = z.record(z.string(), options.zodSchema || z.any());
-        const parsed = schema.safeParse(JSON.parse(item));
-        let data = parsed.data ?? {};
-
-        if (!parsed.success) {
-            data = {};
-        }
+        const parsed = this._parseStorageItem(options, item);
+        const data = parsed.success ? parsed.data : {};
 
         const subKey = options.userId ? `user:${options.userId}` : "common";
         data[subKey] = value;
@@ -132,14 +143,14 @@ export class LocalState<T = string | null | number | undefined> {
 
         if (!item) return;
 
-        const schema = z.record(z.string(), options.zodSchema || z.any());
-        const parsed = schema.safeParse(JSON.parse(item));
-        const data = parsed.data ?? {};
+        const parsed = this._parseStorageItem(options, item);
 
         if (!parsed.success) {
             this._driver.removeItem(storageKey);
             return;
         }
+
+        const data = parsed.data;
 
         const subKey = options.userId ? `user:${options.userId}` : "common";
 
