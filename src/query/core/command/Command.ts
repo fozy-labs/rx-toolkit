@@ -183,8 +183,12 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         // machine$.peek() in _execute() leaves refcount at 0, which starts
         // timer(retentionTime). Hold refcount ≥ 1 until the trigger settles so
         // the GC timer cannot fire and complete() the entry mid-flight.
+        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
+        // re-rejects with firstResult's error and nobody consumes it, so every
+        // failed trigger would surface a global unhandled rejection.
         const keepalive = entry.obs.subscribe();
-        void firstResult.finally(() => keepalive.unsubscribe());
+        const releaseKeepalive = () => keepalive.unsubscribe();
+        void firstResult.then(releaseKeepalive, releaseKeepalive);
 
         // Register in cache
         this._cache.set(entryKey, entry);
@@ -352,6 +356,10 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         if (!this._onQueryStarted) return;
 
         const $queryFulfilled = queryPromise.then((data) => ({ data }));
+        // Derived promise: rejects with the query error even though the base
+        // promise is consumed by _execute. Suppress "nobody awaited" rejections
+        // (the hook may not consume it); awaiting hooks still see the rejection.
+        void $queryFulfilled.catch(() => {});
 
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,

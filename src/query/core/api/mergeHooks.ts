@@ -7,19 +7,21 @@ export function mergeHooks<TFn extends ((...args: any[]) => any) | undefined>(
     if (!apiHook) return localHook;
     if (!localHook) return apiHook;
 
-    // Both hooks may be async. The callers use sync try/catch and suppress
-    // lifecycle errors, so the merged function must never produce an unhandled
-    // rejection — catch each hook independently.
-    return (async (...args: any[]) => {
-        try {
-            await (apiHook as (...a: any[]) => any)(...args);
-        } catch {
-            /* lifecycle error suppressed */
-        }
-        try {
-            await (localHook as (...a: any[]) => any)(...args);
-        } catch {
-            /* lifecycle error suppressed */
-        }
+    // Hooks may be async and long-lived (the documented lifecycle patterns await
+    // $cacheEntryRemoved / $queryFulfilled), so they must start concurrently:
+    // awaiting one before calling the other would defer the second past the very
+    // lifecycle events it exists to observe. The callers use sync try/catch and
+    // suppress lifecycle errors, so each hook is caught independently and the
+    // merged promise never rejects.
+    return ((...args: any[]) => {
+        const run = (hook: (...a: any[]) => any): Promise<unknown> => {
+            try {
+                return Promise.resolve(hook(...args)).catch(() => undefined);
+            } catch {
+                return Promise.resolve();
+            }
+        };
+
+        return Promise.all([run(apiHook), run(localHook)]).then(() => undefined);
     }) as unknown as TFn;
 }

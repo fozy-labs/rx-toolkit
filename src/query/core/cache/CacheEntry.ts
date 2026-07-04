@@ -44,6 +44,11 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         return this._state$.obs;
     }
 
+    /** Whether {@link complete} has been called — the state is disposed and reads throw. */
+    get isCompleted(): boolean {
+        return this._isCompleted;
+    }
+
     /** Non-reactive read */
     peek(): TState {
         return this._state$.peek();

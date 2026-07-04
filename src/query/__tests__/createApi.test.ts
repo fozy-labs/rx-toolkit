@@ -737,6 +737,20 @@ describe("mergeHooks", () => {
         expect(apiHook).toHaveBeenCalled();
         expect(localHook).toHaveBeenCalled();
     });
+
+    it("local hook is not blocked by a long-lived API hook", async () => {
+        // Documented lifecycle pattern: a hook may await $cacheEntryRemoved and
+        // stay pending for the entry's whole lifetime. The local hook must not
+        // wait for the API hook to settle.
+        const apiHook = vi.fn(() => new Promise<void>(() => {}));
+        const localHook = vi.fn();
+        const merged = mergeHooks(apiHook, localHook)!;
+
+        void merged("a");
+        await flushMicrotasks();
+
+        expect(localHook).toHaveBeenCalledWith("a");
+    });
 });
 
 // ==================== Lifecycle Hook Integration ====================
@@ -771,6 +785,57 @@ describe("createApi — lifecycle hooks integration", () => {
 
         expect(apiHook).toHaveBeenCalled();
         expect(localHook).toHaveBeenCalled();
+    });
+
+    it("resource onCacheEntryAdded is not blocked by API-level hook awaiting $cacheEntryRemoved", async () => {
+        let localLoaded: unknown;
+
+        const api = createApi({
+            onCacheEntryAdded: async (_args, { $cacheEntryRemoved }) => {
+                await $cacheEntryRemoved;
+            },
+        });
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onCacheEntryAdded: async (_args, { $cacheDataLoaded }) => {
+                localLoaded = await $cacheDataLoaded;
+            },
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(localLoaded).toBe("data");
+    });
+
+    it("resource onQueryStarted is not blocked by API-level hook awaiting $queryFulfilled", async () => {
+        let resolveQuery!: (value: string) => void;
+        const localHook = vi.fn();
+
+        const api = createApi({
+            onQueryStarted: async (_args, { $queryFulfilled }) => {
+                await $queryFulfilled;
+            },
+        });
+
+        const resource = api.createResource({
+            queryFn: () =>
+                new Promise<string>((resolve) => {
+                    resolveQuery = resolve;
+                }),
+            onQueryStarted: localHook,
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        // The local hook must run while the query is still in flight — that is
+        // the optimistic-update window.
+        expect(localHook).toHaveBeenCalled();
+
+        resolveQuery("data");
+        await flushMicrotasks();
     });
 });
 
