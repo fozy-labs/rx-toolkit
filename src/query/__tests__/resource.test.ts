@@ -578,6 +578,187 @@ describe("Resource.getEntry$ reactivity", () => {
     });
 });
 
+// ==================== getEntry$ — non-last entry removal (N1 regression) ====================
+//
+// getEntry$ currently tracks only _status$ and _lastEntry$, while the fallback
+// `_cache.get(key)` is non-reactive. Removing a NON-last entry (one that is not
+// the most recently created, so it is not _lastEntry$) while the cache still
+// holds other entries changes neither signal: _status$ stays "running" and
+// _lastEntry$ keeps pointing at the other entry. The observer therefore keeps a
+// completed entry. Every test below creates key 2 AFTER key 1 so that key 1 is
+// the non-last entry. The removal repros are RED on the current code and GREEN
+// once the cache itself becomes reactive.
+describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => {
+    it("effect over a NON-last entry re-evaluates to null when that entry is completed", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        resource.trigger(2); // key 2 becomes _lastEntry$, so key 1 is the non-last entry
+        await flushMicrotasks();
+
+        const entry1$ = resource.getEntry$(1);
+        const results: (null | object)[] = [];
+        const eff = Signal.effect(() => {
+            results.push(entry1$());
+        });
+
+        expect(results[results.length - 1]).not.toBeNull();
+
+        // Cache still holds key 2 → _status$ stays "running" and _lastEntry$ still
+        // points at entry 2. The observer must nevertheless drop to null.
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        expect(results[results.length - 1]).toBeNull();
+
+        eff.unsubscribe();
+    });
+
+    it("cold read of a NON-last entry returns null after that entry is completed", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const entry1$ = resource.getEntry$(1);
+
+        // Prime the cold ComputeCache with the live entry and the signals it tracked.
+        expect(entry1$()).toBe(resource.getEntry(1));
+
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        // Neither tracked signal changed, so the memoised (now completed) entry is
+        // wrongly returned until the cache is made reactive.
+        expect(entry1$()).toBeNull();
+    });
+
+    it("cold read of a NON-last entry returns null after retention GC removes it", async () => {
+        vi.useFakeTimers();
+        try {
+            const resource = createResource<number, string>({
+                queryFn: async (n: number) => `d-${n}`,
+                retentionTime: 5000,
+            });
+
+            resource.trigger(1);
+            resource.trigger(2);
+            await flushMicrotasks();
+
+            const entry1 = resource.getEntry(1)!;
+            const entry2 = resource.getEntry(2)!;
+
+            // Hold a live subscription on entry 2 so its retention timer never
+            // fires — only entry 1 (the non-last entry) is GC'd below.
+            const keepAlive2 = entry2.obs.subscribe();
+
+            const entry1$ = resource.getEntry$(1);
+            expect(entry1$()).toBe(entry1); // prime cold cache with the live entry
+
+            // Subscribe + unsubscribe to arm entry 1's retention countdown.
+            const sub1 = entry1.obs.subscribe();
+            sub1.unsubscribe();
+
+            vi.advanceTimersByTime(5001);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).toBeNull(); // sanity: really GC'd
+            expect(resource.getEntry(2)).not.toBeNull(); // key 2 kept alive
+            expect(entry1$()).toBeNull();
+
+            keepAlive2.unsubscribe();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("doInitiate re-creates a NON-last entry on read after it was removed", async () => {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const entry1$ = resource.getEntry$(1, true);
+        const results: (object | null)[] = [];
+        const eff = Signal.effect(() => {
+            results.push(entry1$());
+        });
+
+        const firstEntry = results[results.length - 1];
+        expect(firstEntry).not.toBeNull();
+
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        // doInitiate must revive the removed non-last entry on the next read —
+        // today the observer never re-runs, so it keeps the completed entry.
+        const revived = results[results.length - 1];
+        expect(revived).not.toBeNull();
+        expect(revived).not.toBe(firstEntry);
+        expect(resource.getEntry(1)).toBe(revived);
+
+        eff.unsubscribe();
+    });
+
+    // ---- contract guards: define the post-fix behaviour, must stay GREEN ----
+
+    it("an unrelated entry mutation does not spuriously notify a getEntry$ observer", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const entry1$ = resource.getEntry$(1);
+        const results: (null | object)[] = [];
+        const eff = Signal.effect(() => {
+            results.push(entry1$());
+        });
+
+        const countAfterInit = results.length;
+        expect(results[results.length - 1]).not.toBeNull();
+
+        // Creating an unrelated entry (key 2) must not emit a new value for key 1:
+        // the observed entry object is unchanged, so distinctUntilChanged drops it.
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        expect(results.length).toBe(countAfterInit);
+
+        eff.unsubscribe();
+    });
+
+    it("reset() with multiple entries drives every getEntry$ observer to null", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const e1$ = resource.getEntry$(1);
+        const e2$ = resource.getEntry$(2);
+        const r1: (null | object)[] = [];
+        const r2: (null | object)[] = [];
+        const eff = Signal.effect(() => {
+            r1.push(e1$());
+            r2.push(e2$());
+        });
+
+        expect(r1[r1.length - 1]).not.toBeNull();
+        expect(r2[r2.length - 1]).not.toBeNull();
+
+        resource.reset();
+        await flushMicrotasks();
+
+        expect(r1[r1.length - 1]).toBeNull();
+        expect(r2[r2.length - 1]).toBeNull();
+
+        eff.unsubscribe();
+    });
+});
+
 // ==================== serialize / toKeyed ====================
 
 describe("Resource.serialize", () => {

@@ -33,8 +33,6 @@ import { LinkManager } from "./LinkManager";
  */
 export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
     private readonly _cache = new CacheMap<QueryCacheEntry<TArgs, TData>>();
-    private readonly _lastEntry$ = Signal.state<QueryCacheEntry<TArgs, TData> | null>(null, { isDisabled: true });
-    private readonly _status$ = Signal.state<"idle" | "running">("idle", { isDisabled: true });
 
     private readonly _queryFn;
     readonly _key;
@@ -192,18 +190,12 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
 
         // Register in cache
         this._cache.set(entryKey, entry);
-        this._status$.set("running");
-        this._lastEntry$.set(entry);
 
         // Cleanup: remove entry from cache when it completes
         entry.completed$.subscribe(() => {
             // Guard: only remove if THIS entry is still the current one for the key
             if (this._cache.get(entryKey) === entry) {
                 this._cache.delete(entryKey);
-                if (this._cache.size === 0) this._status$.set("idle");
-                if (this._lastEntry$() === entry) {
-                    this._lastEntry$.set(null);
-                }
             }
         });
 
@@ -238,31 +230,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
      * @returns The matching {@link QueryCacheEntry}, or `null` if none exists.
      */
     getEntry$(key: string): QueryCacheEntry<TArgs, TData> | null {
-        let entry: QueryCacheEntry<TArgs, TData> | null = null;
-
-        const signal$ = Signal.compute(
-            () => {
-                const status = this._status$();
-
-                if (status === "idle") {
-                    return null;
-                }
-
-                // Fast path: already found in a previous evaluation
-                if (entry) {
-                    return entry;
-                }
-
-                const lastEntry = this._lastEntry$();
-                if (lastEntry?.keyedArgs.key === key) {
-                    entry = lastEntry;
-                    return entry;
-                }
-
-                return this._cache.get(key) ?? null;
-            },
-            { isDisabled: true },
-        );
+        const signal$ = Signal.compute(() => this._cache.get$(key) ?? null, { isDisabled: true });
 
         return signal$();
     }
@@ -295,8 +263,6 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
     reset(): void {
         const entries = [...this._cache.values()];
         this._cache.clear();
-        this._status$.set("idle");
-        this._lastEntry$.set(null);
         for (const entry of entries) {
             entry.complete();
         }

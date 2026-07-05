@@ -560,3 +560,77 @@ describe("ResourceAgent state$ flags", () => {
         expect(s.get().data).toBe("d-2");
     });
 });
+
+// ==================== 12. Non-last entry removal (N1 regression) ====================
+//
+// The agent holds its tracked entry through `current$` (a getEntry$ signal). When
+// the tracked entry is NOT the last one created and is removed while the agent is
+// unmounted (state$ read only via peek — no live subscription), current$ keeps
+// yielding the completed entry. Callers that then read `entry.machine$.peek()`
+// (retry / refresh / _promoteToPrevious in _deriveState / set) hit a disposed
+// state and throw "No value emitted". These are RED on the current code and GREEN
+// once the cache is reactive (current$.peek() becomes null → the optional chains
+// short-circuit into no-ops).
+describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
+    it("set() to new args does not throw when the tracked NON-last entry was removed (unmounted)", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        // Two live entries; key 2 created last, so key 1 is the non-last entry.
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const agent = resource.createAgent();
+        agent.set(1); // track key 1 — unmounted (state$ never observed) and unstarted
+
+        // Prime the agent's internal current$ memo with the live entry 1.
+        expect(agent.state$.peek().data).toBe("d-1");
+
+        // Remove the non-last entry. current$ does not observe the removal, so
+        // _promoteToPrevious later reads machine$.peek() on the disposed entry.
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        expect(() => agent.set(3)).not.toThrow();
+    });
+
+    it("retry()/refresh() are no-throw no-ops when the tracked NON-last entry was removed (unmounted)", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const agent = resource.createAgent();
+        agent.set(1);
+        expect(agent.state$.peek().data).toBe("d-1"); // prime current$ with the live entry
+
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        // retry/refresh read current$.peek()?.machine$.peek(); on a stale completed
+        // entry that peek throws. After the fix current$.peek() is null → no-op.
+        expect(() => agent.retry()).not.toThrow();
+        expect(() => agent.refresh()).not.toThrow();
+    });
+
+    it("reading state$ does not throw after the tracked NON-last entry is removed (unmounted)", async () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const agent = resource.createAgent();
+        agent.set(1);
+        expect(agent.state$.peek().data).toBe("d-1"); // prime current$
+
+        resource.getEntry(1)!.complete();
+        await flushMicrotasks();
+
+        // _deriveState → tracking.current$() returns the stale completed entry →
+        // entry.machine$() throws. After the fix current$ yields null and the agent
+        // degrades to an idle-like state instead of throwing.
+        expect(() => agent.state$.peek()).not.toThrow();
+    });
+});
