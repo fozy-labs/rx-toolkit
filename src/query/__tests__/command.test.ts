@@ -339,6 +339,63 @@ describe("Command.getEntry$", () => {
     });
 });
 
+// ==================== getEntry$ — non-last entry removal (N1 regression) ====================
+//
+// Command.getEntry$ mirrors Resource.getEntry$: the compute tracks only _status$
+// and _lastEntry$, plus a closure fast-path that memoises the first entry it
+// finds. Removing a NON-last entry (key 1, created before key 2) while another
+// entry remains changes neither tracked signal, so an effect observing key 1
+// never re-runs and keeps the completed entry. Beyond the reactive cache, the
+// closure fast-path must go too — otherwise a re-run still returns the memoised
+// stale entry. RED on the current code, GREEN after the fix.
+describe("Command.getEntry$ — non-last entry removal (N1 regression)", () => {
+    it("effect over a NON-last entry re-evaluates to null when that entry is completed", async () => {
+        const command = createCommand<string, string>({ queryFn: async () => "data" });
+
+        command.trigger("a", "k1");
+        command.trigger("b", "k2"); // k2 is _lastEntry$, so k1 is the non-last entry
+        await flushMicrotasks();
+
+        const results: (null | object)[] = [];
+        const eff = Signal.effect(() => {
+            results.push(command.getEntry$("k1"));
+        });
+
+        expect(results[results.length - 1]).not.toBeNull();
+
+        command.getEntry("k1")!.complete();
+        await flushMicrotasks();
+
+        expect(results[results.length - 1]).toBeNull();
+
+        eff.unsubscribe();
+    });
+
+    it("compute over a NON-last entry re-evaluates to null when that entry is completed", async () => {
+        const command = createCommand<string, string>({ queryFn: async () => "data" });
+
+        command.trigger("a", "k1");
+        command.trigger("b", "k2");
+        await flushMicrotasks();
+
+        const hasEntry$ = Signal.compute(() => command.getEntry$("k1") !== null);
+        const values: boolean[] = [];
+        const eff = Signal.effect(() => {
+            values.push(hasEntry$());
+        });
+
+        expect(values[values.length - 1]).toBe(true);
+
+        command.getEntry("k1")!.complete();
+        await flushMicrotasks();
+
+        expect(values[values.length - 1]).toBe(false);
+
+        eff.unsubscribe();
+        hasEntry$.dispose();
+    });
+});
+
 // ==================== createAgent ====================
 
 describe("Command.createAgent", () => {

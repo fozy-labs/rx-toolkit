@@ -37,18 +37,6 @@ import { ResourceAgent } from "./ResourceAgent";
 export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     private readonly _cache = new CacheMap<QueryCacheEntry<TArgs, TData>>();
 
-    /**
-     * Хранит последний добавленный кэш-энтер, для возможности реактивной подписки (с помощью getEntry$)
-     */
-    private readonly _lastEntry$ = Signal.state<QueryCacheEntry<TArgs, TData> | null>(null, { isDisabled: true });
-
-    /**
-     * Определяет общий статус ресурса
-     * - "idle": ресурса не активен, записей нет, getEntry$ возвращает null
-     * - "running": ресурс активен, есть хотя бы одна запись, getEntry$ может возвращать записи
-     */
-    private readonly _status$ = Signal.state<"idle" | "running">("idle", { isDisabled: true });
-
     private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
     readonly _key: string | undefined;
     private readonly _retentionTime: number | false;
@@ -169,23 +157,17 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
 
         return Signal.compute(
             () => {
-                const status = this._status$();
+                const entry = this._cache.get$(keyed.key);
 
-                if (status === "idle" && !doInitiate) {
-                    return null;
-                }
-
-                const lastEntry = this._lastEntry$();
-
-                if (lastEntry?.keyedArgs.key === keyed.key) {
-                    return lastEntry;
+                if (entry) {
+                    return entry;
                 }
 
                 if (doInitiate) {
                     return this._getOrCreate(keyed);
                 }
 
-                return this._cache.get(keyed.key) ?? null;
+                return null;
             },
             { isDisabled: true },
         );
@@ -403,8 +385,6 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
             entry.complete();
         }
         this._cache.clear();
-        this._status$.set("idle");
-        this._lastEntry$.set(null);
     }
 
     // ==================== Private ====================
@@ -477,16 +457,10 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
 
         // Register in cache
         this._cache.set(keyed.key, entry);
-        this._status$.set("running");
-        this._lastEntry$.set(entry);
 
         // Cleanup: remove entry from cache when it completes (retention expired)
         entry.completed$.subscribe(() => {
             this._cache.delete(keyed.key);
-            if (this._cache.size === 0) this._status$.set("idle");
-            if (this._lastEntry$() === entry) {
-                this._lastEntry$.set(null);
-            }
         });
 
         // Fire onCacheEntryAdded lifecycle hook
@@ -520,15 +494,9 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
 
         // Register in cache immediately (UI sees pending state)
         this._cache.set(keyed.key, entry);
-        this._status$.set("running");
-        this._lastEntry$.set(entry);
 
         entry.completed$.subscribe(() => {
             this._cache.delete(keyed.key);
-            if (this._cache.size === 0) this._status$.set("idle");
-            if (this._lastEntry$() === entry) {
-                this._lastEntry$.set(null);
-            }
         });
 
         this._fireOnCacheEntryAdded(entry, keyed);
