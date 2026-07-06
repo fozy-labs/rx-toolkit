@@ -1,4 +1,4 @@
-import { Observable, ReplaySubject, share } from "rxjs";
+import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
 
 import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
 
@@ -38,33 +38,18 @@ export class Computed<T> {
 
         this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
 
-        this.obs = new Observable<T>((subscriber) => {
-            // Ленивый bootstrap: сначала создаём ведущий Effect (он вычисляет
-            // начальное значение и пишет его в _state$), и только ПОТОМ подписываемся
-            // на _state$.obs. На момент записи начального значения подписчиков у
-            // _state$ ещё нет, поэтому запись не реэнтрится — значение доставляется
-            // ровно один раз через replay BehaviorSubject ниже. Это устраняет
-            // двойную эмиссию на bootstrap, ради подавления которой раньше
-            // требовался distinctUntilChanged(). В установившемся режиме State.set
-            // уже дедуплицирует по Object.is, так что distinctUntilChanged() был
-            // избыточен на каждой эмиссии.
-            this._start();
+        this.obs = this._state$.obs.pipe(
+            map((value) => {
+                if (value === Computed._EMPTY) {
+                    return this._start();
+                }
 
-            const inner = this._state$.obs.subscribe({
-                next: (value) => {
-                    if (value !== Computed._EMPTY) {
-                        subscriber.next(value as T);
-                    }
-                },
-                error: (error) => subscriber.error(error),
-                complete: () => subscriber.complete(),
-            });
-
-            return () => {
-                inner.unsubscribe();
+                return value as T;
+            }),
+            distinctUntilChanged(),
+            finalize(() => {
                 this._stop();
-            };
-        }).pipe(
+            }),
             share({
                 connector: () => new ReplaySubject(1),
                 resetOnRefCountZero: true,
