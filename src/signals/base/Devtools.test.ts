@@ -324,6 +324,25 @@ describe("Devtools", () => {
                 // onDispose should still work — calling the returned fn from createState
                 expect(() => hook!.onDispose!()).not.toThrow();
             });
+
+            it("onDispose without prior push — no spurious $COMPLETED entry", () => {
+                const mockStateFn = vi.fn();
+                const mockCreateState = vi.fn(() => mockStateFn);
+                SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+                const hook = Devtools.createSignalHooks<number | null>(null, {
+                    key: "test",
+                    beforeDevtoolsPush: (value: number | null, push: (v: number | null) => void) => {
+                        if (value !== null) push(value);
+                    },
+                });
+
+                // Entry was never materialized (init filtered, no onChange).
+                // Disposing must NOT lazily create an entry seeded with "$COMPLETED".
+                hook!.onDispose!();
+                expect(mockCreateState).not.toHaveBeenCalled();
+                expect(mockStateFn).not.toHaveBeenCalled();
+            });
         });
     });
 });
