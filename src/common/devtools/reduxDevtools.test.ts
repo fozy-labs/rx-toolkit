@@ -49,6 +49,13 @@ describe("reduxDevtools", () => {
             expect(extension.connect).toHaveBeenCalled();
             expect(connection.init).toHaveBeenCalledWith({});
         });
+
+        it("throws the friendly 'not installed' error (not a window ReferenceError) in SSR without window", () => {
+            vi.stubGlobal("window", undefined);
+            // Bare `window` access would blow up with a low-level TypeError/
+            // ReferenceError; the guard must funnel this into the clean error.
+            expect(() => reduxDevtools()).toThrow("Redux Devtools extension is not installed");
+        });
     });
 
     describe("state() and updater", () => {

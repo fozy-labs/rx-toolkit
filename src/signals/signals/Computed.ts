@@ -46,7 +46,10 @@ export class Computed<T> {
 
                 return value as T;
             }),
-            distinctUntilChanged(),
+            // Object.is (not the default ===): collapses the structural duplicate
+            // initial emit for NaN, and lets a real +0 -> -0 change through —
+            // consistent with State.set / ComputeCache dedupe across the engine.
+            distinctUntilChanged((a, b) => Object.is(a, b)),
             finalize(() => {
                 this._stop();
             }),
