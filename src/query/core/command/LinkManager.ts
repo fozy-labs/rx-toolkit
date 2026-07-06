@@ -48,14 +48,18 @@ export class LinkManager<TArgs, TData> {
         for (const link of this._links) {
             if (!link.update) continue;
 
-            const forwardedArgs = link.forwardArgs(args);
-            const entry = link.resource.getEntry(forwardedArgs);
+            // Isolated per link: a throwing forwardArgs()/update() on one link
+            // must not skip the remaining links (see {@link settle}).
+            this._runIsolated(() => {
+                const forwardedArgs = link.forwardArgs(args);
+                const entry = link.resource.getEntry(forwardedArgs);
 
-            const handle = entry?.createPatch((draft) => {
-                link.update!(draft, args, result);
+                const handle = entry?.createPatch((draft) => {
+                    link.update!(draft, args, result);
+                });
+
+                handle?.commit();
             });
-
-            if (handle) handle.commit();
         }
     }
 
@@ -63,24 +67,50 @@ export class LinkManager<TArgs, TData> {
         for (const link of this._links) {
             if (!link.invalidate) continue;
 
-            const forwardedArgs = link.forwardArgs(args);
-            const resource = link.resource;
-
-            resource.refresh(forwardedArgs);
+            // Isolated per link: one throwing forwardArgs()/refresh() must not
+            // skip invalidation of the remaining links.
+            this._runIsolated(() => {
+                const forwardedArgs = link.forwardArgs(args);
+                link.resource.refresh(forwardedArgs);
+            });
         }
     }
 
     /**
      * Handle the settled result of a mutation: commit or rollback optimistic
      * patches, apply update patches, and invalidate linked resources.
+     *
+     * Contract: **this never throws.** It runs inside an unconsumed `.then`
+     * handler in {@link Command.trigger}, so any escaping error would become an
+     * unhandled rejection — and the mutation itself has already succeeded, so
+     * there is nowhere to surface it. On a fulfilled result every phase is
+     * therefore isolated and the optimistic handles are always committed exactly
+     * once, even when a user-supplied `update`/`forwardArgs`/`invalidate` throws:
+     * - a dangling optimistic patch would otherwise be left pending forever;
+     * - invalidation is the reconciliation that repairs a bad patch, so it must
+     *   still run after a failed `update`.
      */
     settle(args: TArgs, patchHandles: IPatchHandle[], result: PromiseSettledResult<TData>): void {
         if (result.status === "fulfilled") {
             this.applyUpdatePatches(args, result.value);
-            for (const h of patchHandles) h.commit();
+            for (const h of patchHandles) this._runIsolated(() => h.commit());
             this.invalidateResources(args);
         } else {
-            for (const h of patchHandles) h.abort();
+            for (const h of patchHandles) this._runIsolated(() => h.abort());
+        }
+    }
+
+    /**
+     * Run a settle sub-step, containing any throw so it can neither abort the
+     * surrounding loop nor escape {@link settle}. The failure is reported (not
+     * silently swallowed) because it almost always signals a bug in a
+     * user-supplied link callback.
+     */
+    private _runIsolated(fn: () => void): void {
+        try {
+            fn();
+        } catch (error) {
+            console.error("[LinkManager] A link callback threw while settling a mutation; continuing.", error);
         }
     }
 }

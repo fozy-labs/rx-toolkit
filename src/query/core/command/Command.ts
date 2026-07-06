@@ -138,7 +138,20 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         };
 
         const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
-            const promise = runQueryFn();
+            // A non-async queryFn (or a sync generateRequestId) can throw *before*
+            // returning a promise. Convert that synchronous throw into a rejected
+            // promise here — this is the one point where both invariants converge:
+            // the rejection flows into the settle handler below (rolling back the
+            // already-applied optimistic patches) and back through `_execute`
+            // (transitioning the entry to `error`), so trigger() keeps its
+            // always-returns-a-Promise contract instead of throwing out of the
+            // QueryCacheEntry constructor and stranding the patches.
+            let promise: Promise<TData>;
+            try {
+                promise = runQueryFn();
+            } catch (error) {
+                promise = Promise.reject(error);
+            }
 
             // Link orchestration runs per execution; the result itself is surfaced by
             // the entry's native promise (`entry.currentResult()`), settled where the

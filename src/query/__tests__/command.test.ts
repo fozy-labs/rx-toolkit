@@ -796,6 +796,132 @@ describe("Link scenarios", () => {
 
             expect(updateSpy).not.toHaveBeenCalled();
         });
+
+        // A user-supplied update()/forwardArgs() runs while settling a *successful*
+        // mutation. If it throws it must not (a) leave the optimistic patches
+        // dangling, (b) skip invalidation, (c) corrupt sibling links, or (d) escape
+        // as an unhandled rejection — the mutation itself succeeded.
+        describe("resilience when a link callback throws during settle", () => {
+            it("commits optimistic patches, still invalidates, and emits no unhandled rejection when update() throws", async () => {
+                const tracker = await trackUnhandledRejections();
+                const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+                try {
+                    // Resource patched optimistically; its update() throws.
+                    const patched = createLinkedResource<number, { value: string }>({
+                        queryFn: async (n) => ({ value: `original-${n}` }),
+                    });
+                    // Independent resource that must still be invalidated despite the throw.
+                    const invalidated = createLinkedResource<number, string>({
+                        queryFn: async (n) => `inv-${n}`,
+                    });
+
+                    patched.trigger(1);
+                    invalidated.trigger(1);
+                    await flushMicrotasks();
+
+                    const patchedEntry = patched.getEntry(1)!;
+                    const refreshSpy = vi.spyOn(invalidated, "refresh");
+
+                    const throwingLink: TLinkConfig<string, string, number, { value: string }> = {
+                        resource: patched,
+                        forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                        optimisticUpdate: (draft) => {
+                            draft.value = `${draft.value}-optimistic`;
+                        },
+                        update: () => {
+                            throw new Error("update boom");
+                        },
+                    };
+                    const invalidateLink: TLinkConfig<string, string, number, string> = {
+                        resource: invalidated,
+                        forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                        invalidate: true,
+                    };
+
+                    const command = createCommand<string, string>({
+                        queryFn: async () => "cmd-result",
+                        links: [throwingLink, invalidateLink],
+                    });
+
+                    // The mutation itself succeeds, so trigger resolves.
+                    await expect(command.trigger("1", "k1")).resolves.toBe("cmd-result");
+                    await flushMicrotasks();
+                    await flushUnhandledRejections();
+
+                    // 1. Optimistic patch committed — not left dangling as a pending patch.
+                    const state = patchedEntry.machine$.peek().state;
+                    if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+                    expect(state.data).toEqual({ value: "original-1-optimistic" });
+                    expect(state.patchState).toBeNull();
+
+                    // 2. The independent resource is still invalidated.
+                    expect(refreshSpy).toHaveBeenCalledWith(1);
+
+                    // 3. The thrown error never escapes settle as an unhandled rejection…
+                    expect(tracker.unhandled).toEqual([]);
+                    // …but it is surfaced, not silently swallowed.
+                    expect(errorSpy).toHaveBeenCalled();
+                } finally {
+                    errorSpy.mockRestore();
+                    tracker.stop();
+                }
+            });
+
+            it("a throwing update() on one link does not prevent a sibling link's update", async () => {
+                const tracker = await trackUnhandledRejections();
+                const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+                try {
+                    const throwing = createLinkedResource<number, { value: string }>({
+                        queryFn: async (n) => ({ value: `A-${n}` }),
+                    });
+                    const applied = createLinkedResource<number, { value: string }>({
+                        queryFn: async (n) => ({ value: `B-${n}` }),
+                    });
+
+                    throwing.trigger(1);
+                    applied.trigger(1);
+                    await flushMicrotasks();
+
+                    const appliedEntry = applied.getEntry(1)!;
+
+                    const throwingLink: TLinkConfig<string, string, number, { value: string }> = {
+                        resource: throwing,
+                        forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                        update: () => {
+                            throw new Error("update boom");
+                        },
+                    };
+                    const appliedLink: TLinkConfig<string, string, number, { value: string }> = {
+                        resource: applied,
+                        forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                        update: (draft, _cmdArgs, result) => {
+                            draft.value = `${draft.value}-${result}`;
+                        },
+                    };
+
+                    const command = createCommand<string, string>({
+                        queryFn: async () => "done",
+                        links: [throwingLink, appliedLink],
+                    });
+
+                    await expect(command.trigger("1", "k1")).resolves.toBe("done");
+                    await flushMicrotasks();
+                    await flushUnhandledRejections();
+
+                    // The sibling link's update ran and committed despite the earlier throw.
+                    const state = appliedEntry.machine$.peek().state;
+                    if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+                    expect(state.data).toEqual({ value: "B-1-done" });
+                    expect(state.patchState).toBeNull();
+
+                    expect(tracker.unhandled).toEqual([]);
+                    expect(errorSpy).toHaveBeenCalled();
+                } finally {
+                    errorSpy.mockRestore();
+                    tracker.stop();
+                }
+            });
+        });
     });
 
     describe("forwardArgs", () => {
@@ -1388,6 +1514,118 @@ describe("Command request id", () => {
         expect(mintCount).toBe(1);
         expect(queryFn.mock.calls[0][1]).toBe("async-id-1");
         expect(queryFn.mock.calls[1][1]).toBe("async-id-1");
+    });
+});
+
+// ==================== Synchronous throw from queryFn / generateRequestId ====================
+//
+// A non-async queryFn (or a sync generateRequestId) can throw *synchronously*,
+// before any promise exists. That throw used to propagate straight out of the
+// QueryCacheEntry constructor and thus out of trigger() — violating the
+// "trigger always returns a Promise" contract — and, worse, leaving any
+// already-applied optimistic patches dangling (their rollback is attached to a
+// queryFn promise that was never created). Both must be contained: trigger
+// rejects, and optimistic patches roll back.
+describe("Command — synchronous throw from queryFn / generateRequestId", () => {
+    it("trigger() rejects (does not synchronously throw) when a non-async queryFn throws", async () => {
+        const error = new Error("sync boom");
+        const command = createCommand<string, string>({
+            queryFn: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = command.trigger("x", "k1");
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
+
+    it("entry settles in error state after a synchronous queryFn throw", async () => {
+        const command = createCommand<string, string>({
+            queryFn: () => {
+                throw new Error("sync boom");
+            },
+        });
+
+        await command.trigger("x", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        expect(command.getEntry("k1")!.machine$.peek().state.status).toBe("error");
+    });
+
+    it("trigger() rejects (does not synchronously throw) when a sync generateRequestId throws", async () => {
+        const error = new Error("id boom");
+        const queryFn = vi.fn(async () => "ok");
+        const command = createCommand<string, string>({
+            queryFn,
+            generateRequestId: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = command.trigger("x", "k1");
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+        // The id could not be minted, so the mutation must not have run.
+        expect(queryFn).not.toHaveBeenCalled();
+    });
+
+    it("rolls back an already-applied optimistic patch when queryFn throws synchronously", async () => {
+        const resource = createLinkedResource<number, { value: string }>({
+            queryFn: async (n) => ({ value: `original-${n}` }),
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        const entry = resource.getEntry(1)!;
+
+        const link: TLinkConfig<string, string, number, { value: string }> = {
+            resource,
+            forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+            optimisticUpdate: (draft) => {
+                draft.value = `${draft.value}-optimistic`;
+            },
+        };
+
+        const command = createCommand<string, string>({
+            queryFn: () => {
+                throw new Error("sync boom");
+            },
+            links: [link],
+        });
+
+        await expect(command.trigger("1", "k1")).rejects.toThrow("sync boom");
+        await flushMicrotasks();
+
+        // The optimistic patch must be rolled back: data restored, no dangling patch.
+        const state = entry.machine$.peek().state;
+        if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+        expect(state.data).toEqual({ value: "original-1" });
+        expect(state.patchState).toBeNull();
+    });
+
+    it("does not produce an unhandled rejection when a non-async queryFn throws synchronously", async () => {
+        const tracker = await trackUnhandledRejections();
+        try {
+            const command = createCommand<string, string>({
+                queryFn: () => {
+                    throw new Error("sync boom");
+                },
+            });
+
+            await command.trigger("x", "k1").catch(() => {});
+            await flushUnhandledRejections();
+
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
     });
 });
 
