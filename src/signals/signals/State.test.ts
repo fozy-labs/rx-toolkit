@@ -144,6 +144,40 @@ describe("State", () => {
         });
     });
 
+    describe("dispose lifecycle", () => {
+        it("calls hook.onDispose exactly once on explicit dispose", () => {
+            const onDispose = vi.fn();
+            const s = new State(0, { hooks: [{ onDispose }] });
+
+            s.dispose();
+
+            expect(onDispose).toHaveBeenCalledTimes(1);
+        });
+
+        it("registers with an unregister token and unregisters on dispose (prevents GC re-firing onDispose)", () => {
+            const registry = (State as unknown as { _finalizationRegistry: FinalizationRegistry<unknown> })
+                ._finalizationRegistry;
+            const registerSpy = vi.spyOn(registry, "register");
+            const unregisterSpy = vi.spyOn(registry, "unregister");
+
+            try {
+                const s = new State(0, { hooks: [{ onDispose: vi.fn() }] });
+
+                expect(registerSpy).toHaveBeenCalledTimes(1);
+                const token = registerSpy.mock.calls[0][2];
+                expect(token).toBeDefined();
+
+                s.dispose();
+
+                expect(unregisterSpy).toHaveBeenCalledTimes(1);
+                expect(unregisterSpy).toHaveBeenCalledWith(token);
+            } finally {
+                registerSpy.mockRestore();
+                unregisterSpy.mockRestore();
+            }
+        });
+    });
+
     describe("edge cases", () => {
         it("handles null as a signal value", () => {
             const s = Signal.state<string | null>(null);
