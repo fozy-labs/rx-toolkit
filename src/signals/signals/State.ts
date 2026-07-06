@@ -34,7 +34,7 @@ export class State<T> {
         this._hooks = hooks.length > 0 ? hooks : null;
 
         if (this._hooks) {
-            State._finalizationRegistry.register(this, this._hooks);
+            State._finalizationRegistry.register(this, this._hooks, this);
         }
     }
 
@@ -74,6 +74,8 @@ export class State<T> {
         this.bs$.complete();
 
         if (this._hooks) {
+            State._finalizationRegistry.unregister(this);
+
             for (const hook of this._hooks) {
                 hook.onDispose?.();
             }
