@@ -673,6 +673,62 @@ describe("Link scenarios", () => {
             // After rollback, data should be unchanged
             expect(entry.machine$.peek().state.data).toBe("original-1");
         });
+
+        it("rolls back already-applied patches when a later link's optimisticUpdate throws", async () => {
+            // Resource A: optimistic patch applies successfully.
+            const resourceA = createLinkedResource<number, { value: string }>({
+                queryFn: async (n) => ({ value: `original-${n}` }),
+            });
+            // Resource B: optimisticUpdate throws while patching.
+            const resourceB = createLinkedResource<number, { value: string }>({
+                queryFn: async (n) => ({ value: `original-${n}` }),
+            });
+
+            resourceA.trigger(1);
+            resourceB.trigger(1);
+            await flushMicrotasks();
+
+            const entryA = resourceA.getEntry(1)!;
+            const entryB = resourceB.getEntry(1)!;
+
+            const linkA: TLinkConfig<string, string, number, { value: string }> = {
+                resource: resourceA,
+                forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                optimisticUpdate: (draft) => {
+                    draft.value = `${draft.value}-optimistic`;
+                },
+            };
+
+            const linkB: TLinkConfig<string, string, number, { value: string }> = {
+                resource: resourceB,
+                forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+                optimisticUpdate: () => {
+                    throw new Error("optimistic boom");
+                },
+            };
+
+            const queryFn = vi.fn(async () => "cmd-result");
+            const command = createCommand<string, string>({
+                queryFn,
+                links: [linkA, linkB],
+            });
+
+            // The throwing optimisticUpdate must surface as a rejected trigger.
+            await expect(command.trigger("1", "k1")).rejects.toThrow("optimistic boom");
+            await flushMicrotasks();
+
+            // Resource A's already-applied optimistic patch must be rolled back:
+            // data restored and no dangling pending patch left behind.
+            expect(entryA.machine$.peek().state.data).toEqual({ value: "original-1" });
+            expect(entryA.machine$.peek().state.patchState).toBeNull();
+
+            // Resource B is untouched (its patch never applied).
+            expect(entryB.machine$.peek().state.data).toEqual({ value: "original-1" });
+            expect(entryB.machine$.peek().state.patchState).toBeNull();
+
+            // The mutation itself must not have run.
+            expect(queryFn).not.toHaveBeenCalled();
+        });
     });
 
     describe("Update patches", () => {

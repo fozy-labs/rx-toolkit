@@ -19,17 +19,26 @@ export class LinkManager<TArgs, TData> {
     applyOptimisticPatches(args: TArgs): IPatchHandle[] {
         const handles: IPatchHandle[] = [];
 
-        for (const link of this._links) {
-            if (!link.optimisticUpdate) continue;
+        try {
+            for (const link of this._links) {
+                if (!link.optimisticUpdate) continue;
 
-            const forwardedArgs = link.forwardArgs(args);
-            const entry = link.resource.getEntry(forwardedArgs);
+                const forwardedArgs = link.forwardArgs(args);
+                const entry = link.resource.getEntry(forwardedArgs);
 
-            const handle = entry?.createPatch((draft) => {
-                link.optimisticUpdate!(draft, args);
-            });
+                const handle = entry?.createPatch((draft) => {
+                    link.optimisticUpdate!(draft, args);
+                });
 
-            if (handle) handles.push(handle);
+                if (handle) handles.push(handle);
+            }
+        } catch (error) {
+            // A link's optimisticUpdate (or arg forwarding) threw partway through.
+            // Roll back every patch applied so far so no dangling optimistic state
+            // is left on already-processed resources, then re-throw so the caller
+            // can surface the failure.
+            for (const h of handles) h.abort();
+            throw error;
         }
 
         return handles;

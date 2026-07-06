@@ -3,6 +3,7 @@ import type {
     ICommand,
     ICommandAgent,
     ICommandConfig,
+    IPatchHandle,
     Keyed,
     TCacheEntryAddedContext,
     TPackedCommand,
@@ -73,8 +74,17 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
 
         const linkManager = this._linkManager;
 
-        // 1. Apply optimistic patches (synchronous, before queryFn)
-        const patchHandles = linkManager.applyOptimisticPatches(args);
+        // 1. Apply optimistic patches (synchronous, before queryFn).
+        // A throwing optimisticUpdate is rolled back inside applyOptimisticPatches;
+        // surface it as a rejected promise so the trigger's contract (always returns
+        // a Promise) holds and callers can `.catch` it. Nothing else has run yet, so
+        // there is no other state to unwind here.
+        let patchHandles: IPatchHandle[];
+        try {
+            patchHandles = linkManager.applyOptimisticPatches(args);
+        } catch (error) {
+            return Promise.reject(error);
+        }
 
         // Clean up existing entry for the same key, if any
         const existing = this._cache.get(entryKey);
