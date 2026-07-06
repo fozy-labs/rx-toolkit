@@ -174,7 +174,17 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
 
         if (!entry) {
             if (this._isStarted) {
-                queueMicrotask(() => this._resource.trigger(tracking.keyed));
+                // A trigger has side effects (creates a cache entry + starts a fetch),
+                // so it cannot run synchronously inside this computed. Defer it — but on
+                // the microtask re-check that `tracking` is still the live one: args may
+                // have advanced, or the agent may have been stopped/cleared, within the
+                // same tick. Triggering the captured key then would spawn a phantom cache
+                // entry + fetch for args nobody tracks anymore.
+                queueMicrotask(() => {
+                    if (this._isStarted && this._tracking$.peek()?.keyed.key === tracking.keyed.key) {
+                        this._resource.trigger(tracking.keyed);
+                    }
+                });
 
                 return this._createPendingState(tracking.keyed.value);
             }

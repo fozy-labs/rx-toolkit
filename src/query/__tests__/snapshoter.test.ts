@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/constants";
+import { stableStringify } from "@/query/lib/stableStringify";
+import type { TApiSnapshot } from "@/query/types";
 
 describe("Snapshoter.getSnapshot", () => {
     it("returns empty resources map when API has no entries", () => {
@@ -296,5 +298,86 @@ describe("Snapshoter.getSnapshot with optimistic patches", () => {
         const value = Object.values(snapshot.resources["sensor"].entries)[0];
         expect(value.status).toBe("refresh-error");
         expect(value.data).toEqual({ reading: 1 });
+    });
+});
+
+describe("Snapshoter hydration — refresh-error entries", () => {
+    it("round-trips a refresh-error entry: persisted last-known-good data hydrates as refreshing", async () => {
+        let call = 0;
+        const source = createApi();
+        const resource = source.createResource({
+            key: "sensor",
+            queryFn: async () => {
+                call++;
+                if (call === 1) return { reading: 1 };
+                throw new Error("refresh failed");
+            },
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        entry.refresh();
+        await flushMicrotasks();
+
+        // The entry holds last-known-good data but its latest refresh failed.
+        expect(entry.peek().state.status).toBe("refresh-error");
+
+        const snapshot = source.getSnapshot();
+        expect(Object.values(snapshot.resources["sensor"].entries)[0].status).toBe("refresh-error");
+
+        // Hydrate a fresh API from that snapshot.
+        const hydrated = createApi({ initialSnapshot: snapshot });
+        const hydratedResource = hydrated.createResource({
+            key: "sensor",
+            queryFn: async () => ({ reading: 999 }),
+        });
+
+        const entries = [...hydratedResource.getEntries()];
+        expect(entries).toHaveLength(1);
+
+        // The refresh-error's last-known-good data is revived...
+        const state = entries[0].machine$.peek().state;
+        expect(state.data).toEqual({ reading: 1 });
+        // ...as a stale entry (refreshing), so it shows data immediately and refetches.
+        expect(state.status).toBe("refreshing");
+    });
+
+    it("forces a refresh-error entry stale regardless of snapshotValidTime", () => {
+        const freshTimestamp = Date.now() - 1_000; // 1s ago — well within any valid window
+        const initialSnapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: freshTimestamp,
+            resources: {
+                items: {
+                    entries: {
+                        [stableStringify(undefined)]: {
+                            status: "refresh-error",
+                            args: undefined,
+                            data: "last-known-good",
+                            updatedAt: freshTimestamp,
+                        },
+                    },
+                },
+            },
+        };
+
+        const api = createApi({
+            initialSnapshot,
+            snapshotValidTime: 3_600_000, // 1h — a plain success entry this fresh would hydrate as "success"
+        });
+
+        const resource = api.createResource({
+            key: "items",
+            queryFn: async () => "fresh-data",
+        });
+
+        const entries = [...resource.getEntries()];
+        expect(entries).toHaveLength(1);
+        // Despite the fresh timestamp, the failed-refresh entry must refetch.
+        expect(entries[0].machine$.peek().state.status).toBe("refreshing");
+        expect(entries[0].machine$.peek().state.data).toBe("last-known-good");
     });
 });
