@@ -196,6 +196,77 @@ describe("LocalState", () => {
         });
     });
 
+    describe("clear() with falsy values (resurrection)", () => {
+        // clear() must remove the entry regardless of its truthiness. A guard
+        // that early-returns on `!value` leaves falsy values (0 / "" / false /
+        // null) in storage, so they resurrect on the next reload.
+        it.each([
+            ["number zero", 0],
+            ["empty string", ""],
+            ["boolean false", false],
+        ])("clear() removes a falsy value (%s) from localStorage", (_label, falsy) => {
+            const key = `falsy-remove-${String(falsy)}`;
+            const s = LocalSignal.state<unknown>({ key, defaultValue: "def" });
+            s.set(falsy);
+            expect(localStorage.getItem(storageKey(key))).not.toBeNull();
+
+            s.clear();
+            expect(localStorage.getItem(storageKey(key))).toBeNull();
+        });
+
+        it("a falsy value does not resurrect on reload after clear()", () => {
+            const first = LocalSignal.state<unknown>({ key: "falsy-reload", defaultValue: "def" });
+            first.set(0);
+            first.clear();
+
+            const reloaded = LocalSignal.state<unknown>({ key: "falsy-reload", defaultValue: "def" });
+            const sub = activate(reloaded);
+            expect(reloaded.peek()).toBe("def");
+            sub.unsubscribe();
+        });
+
+        it("clear() of a falsy value keeps a sibling user's value intact", () => {
+            seedStorage("falsy-sibling", 42, "u2");
+            const s = LocalSignal.state<unknown>({ key: "falsy-sibling", userId: "u1", defaultValue: "def" });
+            s.set(0);
+
+            s.clear();
+
+            const data = JSON.parse(localStorage.getItem(storageKey("falsy-sibling"))!);
+            expect(data).toEqual({ "user:u2": 42 });
+            expect("user:u1" in data).toBe(false);
+        });
+    });
+
+    describe("DEFAULT_DRIVER import safety", () => {
+        // `typeof localStorage` does NOT protect against a throwing getter: in a
+        // sandboxed iframe (no allow-same-origin) / disabled storage the getter
+        // throws SecurityError. Since DEFAULT_DRIVER is a static field, an
+        // uncaught throw there aborts import of the whole module.
+        it("resolves DEFAULT_DRIVER to null instead of throwing when localStorage access throws", async () => {
+            const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+            Object.defineProperty(globalThis, "localStorage", {
+                configurable: true,
+                get() {
+                    throw new DOMException("access denied", "SecurityError");
+                },
+            });
+
+            try {
+                vi.resetModules();
+                const mod = await import("./LocalState");
+                expect(mod.LocalState.DEFAULT_DRIVER).toBeNull();
+            } finally {
+                if (original) {
+                    Object.defineProperty(globalThis, "localStorage", original);
+                } else {
+                    delete (globalThis as { localStorage?: unknown }).localStorage;
+                }
+                vi.resetModules();
+            }
+        });
+    });
+
     describe("checkEffect option", () => {
         it("valid value passes through", () => {
             const s = LocalSignal.state({

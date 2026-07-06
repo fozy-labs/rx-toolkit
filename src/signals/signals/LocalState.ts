@@ -23,6 +23,21 @@ export type LocalStateOptions<T> = {
 
 const NONE = Symbol("NONE");
 
+/**
+ * `typeof localStorage` guards only against an *undeclared* identifier. In a
+ * browser `localStorage` is a defined accessor on `window`, so `typeof` still
+ * invokes the getter — which throws `SecurityError` in a sandboxed iframe
+ * (no `allow-same-origin`) or when storage is disabled. Wrapping it keeps the
+ * static field (and therefore module import) from crashing in those contexts.
+ */
+function resolveDefaultDriver(): StorageLike | null {
+    try {
+        return typeof localStorage === "undefined" ? null : localStorage;
+    } catch {
+        return null;
+    }
+}
+
 export class LocalState<T = string | null | number | undefined> {
     private _state$;
     private _computed;
@@ -154,7 +169,9 @@ export class LocalState<T = string | null | number | undefined> {
 
         const subKey = options.userId ? `user:${options.userId}` : "common";
 
-        if (!data[subKey]) return;
+        // Membership check, not truthiness — otherwise falsy values (0 / "" /
+        // false / null) are never removed and resurrect on the next reload.
+        if (!(subKey in data)) return;
 
         delete data[subKey];
 
@@ -169,5 +186,5 @@ export class LocalState<T = string | null | number | undefined> {
     // === static ===
 
     static KEY_PREFIX = "__LSValue__";
-    static DEFAULT_DRIVER = typeof localStorage === "undefined" ? null : localStorage;
+    static DEFAULT_DRIVER = resolveDefaultDriver();
 }
