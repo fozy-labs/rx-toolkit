@@ -48,12 +48,10 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
     const batcherScheduler = Batcher.scheduler(Infinity);
 
     let isPending = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let pendingFlush: (() => void) | null = null;
 
     const executePending = () => {
         isPending = false;
-        timeoutId = null;
         if (pendingFlush) {
             const fn = pendingFlush;
             pendingFlush = null;
@@ -75,7 +73,7 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
                 queueMicrotask(executePending);
                 break;
             case "task":
-                timeoutId = setTimeout(executePending, taskDelay);
+                setTimeout(executePending, taskDelay);
                 break;
         }
     };
@@ -89,34 +87,6 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
             pendingFlush = flushFn;
 
             scheduleExecution();
-        },
-
-        /**
-         * Отменяет запланированный flush (полезно при cleanup)
-         */
-        cancel(): void {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-            isPending = false;
-            pendingFlush = null;
-        },
-
-        /**
-         * Принудительно выполняет pending flush синхронно
-         */
-        flush(): void {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-            if (pendingFlush) {
-                isPending = false;
-                const fn = pendingFlush;
-                pendingFlush = null;
-                fn();
-            }
         },
     };
 }

@@ -1,7 +1,6 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
 
 import { Devtools } from "./Devtools";
-import { Indexer } from "./Indexer";
 
 describe("Devtools", () => {
     describe("createState()", () => {
@@ -100,7 +99,7 @@ describe("Devtools", () => {
     });
 
     describe("key generation", () => {
-        it("generates unique keys via Indexer", () => {
+        it("generates unique keys for distinct inputs", () => {
             const keys: string[] = [];
             const mockCreateState = vi.fn((key: string) => {
                 keys.push(key);
@@ -201,7 +200,7 @@ describe("Devtools", () => {
             expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED", undefined);
         });
 
-        it("generates unique keys via Indexer", () => {
+        it("generates unique keys for distinct inputs", () => {
             const keys: string[] = [];
             const mockCreateState = vi.fn((key: string) => {
                 keys.push(key);
