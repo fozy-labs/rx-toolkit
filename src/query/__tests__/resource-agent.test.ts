@@ -634,3 +634,70 @@ describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
         expect(() => agent.state$.peek()).not.toThrow();
     });
 });
+
+// ==================== 13. Stale re-trigger on rapid args change (microtask) ====================
+//
+// _deriveState schedules a deferred re-trigger — queueMicrotask(trigger(tracking.keyed)) —
+// when the agent is started and its tracked entry is absent (evicted-while-tracked). The
+// captured `tracking` is the key at schedule time. If args advance within the SAME tick before
+// the microtask fires, the stale key must NOT be triggered: it would spawn a phantom cache entry
+// and a fetch for args nobody tracks anymore. Guarded by a live-tracking (key) re-check.
+describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", () => {
+    it("does not trigger the evicted-then-superseded key when args advance within one tick", async () => {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        // Two live entries so key 1 is the NON-last entry → its removal is reactive
+        // (getEntry$ yields null), which is what drives the "entry null + started" branch.
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const agent = resource.createAgent();
+        agent.set(1);
+        agent.start(); // _isStarted = true, tracks key 1
+        expect(agent.state$.peek().status).toBe("success"); // prime current$ with live entry 1
+
+        resource.getEntry(1)!.complete(); // evict the tracked entry
+        await flushMicrotasks();
+
+        const triggerSpy = vi.spyOn(resource, "trigger");
+
+        // Derive hits "entry null + started" → queues microtask(trigger(key 1)).
+        expect(agent.state$.peek().status).toBe("pending");
+
+        // Args advance to 3 within the SAME tick, before the queued microtask fires.
+        agent.set(3);
+
+        await flushMicrotasks();
+
+        // The queued microtask must NOT re-trigger the stale key 1.
+        const staleCalls = triggerSpy.mock.calls.filter(([keyed]) => (keyed as { value: number }).value === 1);
+        expect(staleCalls).toHaveLength(0);
+    });
+
+    it("re-triggers the same key after eviction when args are unchanged", async () => {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = createResource<number, string>({ queryFn });
+
+        resource.trigger(1);
+        resource.trigger(2);
+        await flushMicrotasks();
+
+        const agent = resource.createAgent();
+        agent.set(1);
+        agent.start();
+        expect(agent.state$.peek().status).toBe("success");
+
+        resource.getEntry(1)!.complete(); // evict the tracked entry
+        await flushMicrotasks();
+
+        const triggerSpy = vi.spyOn(resource, "trigger");
+        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(trigger(key 1))
+        // args unchanged
+        await flushMicrotasks();
+
+        const recreated = triggerSpy.mock.calls.some(([keyed]) => (keyed as { value: number }).value === 1);
+        expect(recreated).toBe(true);
+    });
+});

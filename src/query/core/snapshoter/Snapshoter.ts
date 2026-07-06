@@ -39,15 +39,21 @@ export class Snapshoter {
             resourceSnapshotValidTime !== undefined ? resourceSnapshotValidTime : this._snapshotValidTime;
 
         for (const [entryKey, snapEntry] of Object.entries(resSnapshot.entries)) {
-            if (snapEntry.status !== "success") continue;
+            if (snapEntry.status !== "success" && snapEntry.status !== "refresh-error") continue;
 
-            let isStale = false;
-            if (effectiveSnapshotValidTime !== false && typeof snapEntry.updatedAt === "number") {
+            // A refresh-error entry's data is last-known-good (a successful
+            // fetch that a later refresh failed to update). The error itself is
+            // transient and not worth reviving, so hydrate it as a stale success:
+            // the data shows immediately and a refetch is forced on subscription.
+            let isStale = snapEntry.status === "refresh-error";
+            if (!isStale && effectiveSnapshotValidTime !== false && typeof snapEntry.updatedAt === "number") {
                 isStale = snapEntry.updatedAt + effectiveSnapshotValidTime < now;
             }
 
             entries[entryKey] = {
-                status: snapEntry.status,
+                // Normalize to "success" — downstream hydration only revives
+                // with-data machines and ignores the status field otherwise.
+                status: "success",
                 args: snapEntry.args,
                 data: snapEntry.data,
                 updatedAt: snapEntry.updatedAt,
