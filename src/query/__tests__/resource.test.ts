@@ -2834,3 +2834,171 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
         expect(await p).toBe("v2");
     });
 });
+
+// ==================== getState ====================
+
+describe("Resource.getState", () => {
+    it("idle: no entry → idle status, all flags false", () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+        });
+
+        const state = resource.getState(1);
+
+        expect(state).toMatchObject({
+            status: "idle",
+            data: null,
+            error: null,
+            args: null,
+            isLoading: false,
+            isInitialLoading: false,
+            isRefreshing: false,
+            isRefreshError: false,
+            isSuccess: false,
+            isError: false,
+        });
+    });
+
+    it("pending: initial query in flight → isLoading + isInitialLoading", () => {
+        const resource = createResource<number, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        resource.trigger(1);
+
+        const state = resource.getState(1);
+
+        expect(state).toMatchObject({
+            status: "pending",
+            data: null,
+            error: null,
+            args: 1,
+            isLoading: true,
+            isInitialLoading: true,
+            isRefreshing: false,
+            isRefreshError: false,
+            isSuccess: false,
+            isError: false,
+        });
+    });
+
+    it("success: data available → isSuccess only", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "good-data",
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const state = resource.getState(1);
+
+        expect(state).toMatchObject({
+            status: "success",
+            data: "good-data",
+            error: null,
+            args: 1,
+            isLoading: false,
+            isInitialLoading: false,
+            isRefreshing: false,
+            isRefreshError: false,
+            isSuccess: true,
+            isError: false,
+        });
+    });
+
+    it("error: initial query failed → isError, no data", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw new Error("boom");
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const state = resource.getState(1);
+
+        expect(state).toMatchObject({
+            status: "error",
+            data: null,
+            args: 1,
+            isLoading: false,
+            isInitialLoading: false,
+            isRefreshing: false,
+            isRefreshError: false,
+            isSuccess: false,
+            isError: true,
+        });
+        expect(state.error).toBeInstanceOf(Error);
+    });
+
+    it("refreshing: background SWR in flight → isLoading + isRefreshing, stale data kept", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "good-data";
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        resource.refresh(1);
+        await flushMicrotasks();
+
+        const state = resource.getState(1);
+
+        expect(state).toMatchObject({
+            status: "refreshing",
+            data: "good-data",
+            error: null,
+            args: 1,
+            isLoading: true,
+            isInitialLoading: false,
+            isRefreshing: true,
+            isRefreshError: false,
+            isSuccess: false,
+            isError: false,
+        });
+    });
+
+    it("refresh-error: background SWR failed → isRefreshError + isError, NOT isLoading; stale data kept", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "good-data";
+                throw new Error("refresh failed");
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        resource.refresh(1);
+        await flushMicrotasks();
+
+        // Guard: we are actually in refresh-error at the machine level.
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("refresh-error");
+
+        const state = resource.getState(1);
+
+        // Matches the documented flag contract (resource-agent.md) and
+        // ResourceAgent._deriveNotIdleState: stale data is present and the last
+        // refresh errored, so the entry is NOT loading and IS in an error state.
+        expect(state).toMatchObject({
+            status: "refresh-error",
+            data: "good-data",
+            args: 1,
+            isLoading: false,
+            isInitialLoading: false,
+            isRefreshing: false,
+            isRefreshError: true,
+            isSuccess: false,
+            isError: true,
+        });
+        expect(state.error).toBeInstanceOf(Error);
+    });
+});
