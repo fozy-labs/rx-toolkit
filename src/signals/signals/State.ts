@@ -7,7 +7,7 @@ import {
     type StateSignal,
 } from "@/signals/types";
 
-import { Batcher, DependencyTracker, Devtools } from "../base";
+import { Batcher, DependencyRecord, DependencyTracker, Devtools } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 export class State<T> {
@@ -15,10 +15,20 @@ export class State<T> {
     private _rang = 0;
     protected readonly bs$;
     readonly obs;
+    // Один стабильный record на инстанс: поля (getRang/obs/peek) для данного
+    // сигнала всегда резолвятся одинаково, а потребители track() их только
+    // читают и не удерживают сам объект. Поэтому переиспользуем его на каждом
+    // get() вместо аллокации нового объекта и замыканий на каждом чтении.
+    private readonly _depRecord: DependencyRecord;
 
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         this.bs$ = new BehaviorSubject<T>(initialValue);
         this.obs = this.bs$.asObservable();
+        this._depRecord = {
+            getRang: () => this._rang,
+            obs: this.obs,
+            peek: () => this.peek(),
+        };
 
         const opts = normalizeSignalOptions(options);
 
@@ -62,11 +72,9 @@ export class State<T> {
     }
 
     get() {
-        DependencyTracker.track({
-            getRang: () => this._rang,
-            obs: this.obs,
-            peek: () => this.peek(),
-        });
+        if (DependencyTracker.isTracking) {
+            DependencyTracker.track(this._depRecord);
+        }
         return this.bs$.getValue();
     }
 

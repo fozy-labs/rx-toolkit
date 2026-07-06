@@ -1,8 +1,8 @@
-import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
+import { Observable, ReplaySubject, share } from "rxjs";
 
 import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
 
-import { ComputeCache, DependencyTracker } from "../base";
+import { ComputeCache, DependencyRecord, DependencyTracker } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 import { Effect } from "./Effect";
@@ -16,6 +16,9 @@ export class Computed<T> {
      * Кеш для хранения вычисленного значения (без подписки) и его зависимостей
      */
     private _computeCache = new ComputeCache<T>();
+    // Стабильный record на инстанс (см. State): переиспользуется на каждом get()
+    // вместо аллокации нового объекта с замыканиями.
+    private readonly _depRecord: DependencyRecord;
 
     constructor(
         private _computeFn: () => T,
@@ -35,28 +38,41 @@ export class Computed<T> {
 
         this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
 
-        this.obs = this._state$.obs.pipe(
-            map((value) => {
-                if (value === Computed._EMPTY) {
-                    return this._start();
-                }
+        this.obs = new Observable<T>((subscriber) => {
+            // Ленивый bootstrap: сначала создаём ведущий Effect (он вычисляет
+            // начальное значение и пишет его в _state$), и только ПОТОМ подписываемся
+            // на _state$.obs. На момент записи начального значения подписчиков у
+            // _state$ ещё нет, поэтому запись не реэнтрится — значение доставляется
+            // ровно один раз через replay BehaviorSubject ниже. Это устраняет
+            // двойную эмиссию на bootstrap, ради подавления которой раньше
+            // требовался distinctUntilChanged(). В установившемся режиме State.set
+            // уже дедуплицирует по Object.is, так что distinctUntilChanged() был
+            // избыточен на каждой эмиссии.
+            this._start();
 
-                return value as T;
-            }),
-            distinctUntilChanged(),
-            finalize(() => {
+            const inner = this._state$.obs.subscribe({
+                next: (value) => {
+                    if (value !== Computed._EMPTY) {
+                        subscriber.next(value as T);
+                    }
+                },
+                error: (error) => subscriber.error(error),
+                complete: () => subscriber.complete(),
+            });
+
+            return () => {
+                inner.unsubscribe();
                 this._stop();
-            }),
+            };
+        }).pipe(
             share({
                 connector: () => new ReplaySubject(1),
                 resetOnRefCountZero: true,
                 resetOnComplete: true,
             }),
         );
-    }
 
-    get() {
-        DependencyTracker.track({
+        this._depRecord = {
             getRang: () => {
                 if (!this._effect) {
                     throw new Error("Effect in not started. Possibly maximum call stack size exceeded.");
@@ -65,7 +81,13 @@ export class Computed<T> {
             },
             obs: this.obs,
             peek: () => this.peek(),
-        });
+        };
+    }
+
+    get() {
+        if (DependencyTracker.isTracking) {
+            DependencyTracker.track(this._depRecord);
+        }
 
         return this.peek();
     }
