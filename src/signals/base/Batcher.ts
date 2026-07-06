@@ -13,21 +13,29 @@ const Scheduled = {
         this.lowestRang = -1;
         this.map.clear();
     },
-    handleInfinity() {
-        const fns = this.map.get(Infinity);
-        this.map.delete(Infinity);
-        fns?.forEach((fn) => fn());
-        this.done();
-    },
     run() {
-        if (this.map.size === 1 && this.map.has(Infinity)) return this.handleInfinity();
-        if (this.map.size === 0) return this.done();
-        const iterationRang = this.lowestRang;
-        this.lowestRang += 1;
-        const fns = this.map.get(iterationRang);
-        this.map.delete(iterationRang);
-        fns?.forEach((fn) => fn());
-        this.run();
+        // Итеративный флаш: ранги обрабатываются по возрастанию. Цикл вместо
+        // рекурсии — глубина «лестницы» рангов равна глубине графа зависимостей
+        // (rang = глубина + 1), и на глубоком графе рекурсия переполняла стек.
+        while (true) {
+            if (this.map.size === 0) return this.done();
+            // Infinity — терминальный ранг: выполняется, только когда finite
+            // задач не осталось. Задача могла во время флаша (например,
+            // devtools-флаш, дёрнувший State.set) запланировать новую работу —
+            // поэтому после выполнения возвращаемся в начало цикла для
+            // перепроверки очереди, а не завершаемся.
+            if (this.map.size === 1 && this.map.has(Infinity)) {
+                const fns = this.map.get(Infinity)!;
+                this.map.delete(Infinity);
+                fns.forEach((fn) => fn());
+                continue;
+            }
+            const iterationRang = this.lowestRang;
+            this.lowestRang += 1;
+            const fns = this.map.get(iterationRang);
+            this.map.delete(iterationRang);
+            fns?.forEach((fn) => fn());
+        }
     },
 };
 

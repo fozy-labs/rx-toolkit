@@ -134,6 +134,65 @@ describe("Batcher", () => {
             expect(higherRang).not.toHaveBeenCalled();
             expect(nextBatch).toHaveBeenCalledOnce();
         });
+
+        it("runs finite-rang tasks scheduled by an Infinity task mid-flush", () => {
+            // The Infinity terminal path must re-check the queue, mirroring the
+            // normal loop: work scheduled while flushing Infinity tasks (e.g. a
+            // devtools flush that mutates a signal) must not be dropped.
+            const order: string[] = [];
+            const sInf = Batcher.scheduler(Infinity);
+            const s0 = Batcher.scheduler(0);
+
+            Batcher.run(() => {
+                sInf.schedule(() => {
+                    order.push("inf");
+                    s0.schedule(() => order.push("rescheduled-finite"));
+                });
+            });
+
+            expect(order).toEqual(["inf", "rescheduled-finite"]);
+        });
+
+        it("runs an Infinity task rescheduled during the Infinity flush", () => {
+            const order: string[] = [];
+            const sInf = Batcher.scheduler(Infinity);
+            let rescheduled = false;
+
+            Batcher.run(() => {
+                sInf.schedule(() => {
+                    order.push("inf");
+                    if (!rescheduled) {
+                        rescheduled = true;
+                        sInf.schedule(() => order.push("inf-2"));
+                    }
+                });
+            });
+
+            expect(order).toEqual(["inf", "inf-2"]);
+        });
+
+        it("does not leak mid-flush Infinity-scheduled tasks into the next batch", () => {
+            const order: string[] = [];
+            const sInf = Batcher.scheduler(Infinity);
+            const s0 = Batcher.scheduler(0);
+
+            Batcher.run(() => {
+                sInf.schedule(() => {
+                    order.push("inf");
+                    s0.schedule(() => order.push("rescheduled-finite"));
+                });
+            });
+
+            // Second unrelated batch: the flushed queue must be fully reset.
+            const nextBatch = vi.fn();
+            const s = Batcher.scheduler(0);
+            Batcher.run(() => {
+                s.schedule(nextBatch);
+            });
+
+            expect(order).toEqual(["inf", "rescheduled-finite"]);
+            expect(nextBatch).toHaveBeenCalledOnce();
+        });
     });
 
     describe("scheduler(rang)", () => {
