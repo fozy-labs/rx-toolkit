@@ -1,5 +1,5 @@
 export function shallowEqual(a: unknown, b: unknown): boolean {
-    if (a === b) {
+    if (Object.is(a, b)) {
         return true;
     }
 
@@ -17,7 +17,7 @@ export function shallowEqual(a: unknown, b: unknown): boolean {
     for (let i = 0; i < keysA.length; i++) {
         const key = keysA[i];
         // @ts-expect-error — indexing with dynamic key on generic object
-        if (!Object.prototype.hasOwnProperty.call(b, key) || a[key] !== b[key]) {
+        if (!Object.prototype.hasOwnProperty.call(b, key) || !Object.is(a[key], b[key])) {
             return false;
         }
     }
