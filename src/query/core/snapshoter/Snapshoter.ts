@@ -75,10 +75,15 @@ export class Snapshoter {
                 const { state } = entry.peek();
                 if (state.status !== "success" && state.status !== "refresh-error") continue;
 
+                // A non-null patchState means unconfirmed optimistic patches are
+                // still pending; `state.data` reflects them, so persist the
+                // confirmed base (`originalData`) instead — mirrors Syncer.
+                const data = state.patchState ? state.patchState.originalData : state.data;
+
                 entries[entry.keyedArgs.key] = {
                     status: state.status,
                     args: state.args,
-                    data: state.data,
+                    data,
                     updatedAt: state.updatedAt,
                 };
                 hasEntries = true;
