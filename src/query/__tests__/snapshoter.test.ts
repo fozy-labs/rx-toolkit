@@ -167,3 +167,134 @@ describe("Snapshoter.getSnapshot", () => {
         await flushMicrotasks();
     });
 });
+
+describe("Snapshoter.getSnapshot with optimistic patches", () => {
+    it("snapshots confirmed base data, not unconfirmed optimistic data, while a patch is pending", async () => {
+        const api = createApi();
+        const resource = api.createResource({
+            key: "profile",
+            queryFn: async () => ({ name: "Alice", age: 30 }),
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        const handle = entry.createPatch((draft) => {
+            draft.name = "Bob";
+        });
+        expect(handle).not.toBeNull();
+
+        // Live state reflects the optimistic patch...
+        expect((entry.peek().state.data as { name: string }).name).toBe("Bob");
+
+        // ...but the snapshot must persist the confirmed base data, since the
+        // patch is unconfirmed and could still roll back.
+        const snapshot = api.getSnapshot();
+        const value = Object.values(snapshot.resources["profile"].entries)[0];
+        expect(value.status).toBe("success");
+        expect(value.data).toEqual({ name: "Alice", age: 30 });
+    });
+
+    it("snapshots patched data once the patch is committed", async () => {
+        const api = createApi();
+        const resource = api.createResource({
+            key: "profile",
+            queryFn: async () => ({ name: "Alice", age: 30 }),
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        const handle = entry.createPatch((draft) => {
+            draft.name = "Bob";
+        });
+        handle!.commit();
+
+        const snapshot = api.getSnapshot();
+        const value = Object.values(snapshot.resources["profile"].entries)[0];
+        expect(value.data).toEqual({ name: "Bob", age: 30 });
+    });
+
+    it("snapshots base data after the patch is aborted", async () => {
+        const api = createApi();
+        const resource = api.createResource({
+            key: "profile",
+            queryFn: async () => ({ name: "Alice", age: 30 }),
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        const handle = entry.createPatch((draft) => {
+            draft.name = "Bob";
+        });
+        handle!.abort();
+
+        const snapshot = api.getSnapshot();
+        const value = Object.values(snapshot.resources["profile"].entries)[0];
+        expect(value.data).toEqual({ name: "Alice", age: 30 });
+    });
+
+    it("folds a committed patch but excludes a following pending patch", async () => {
+        const api = createApi();
+        const resource = api.createResource({
+            key: "profile",
+            queryFn: async () => ({ name: "Alice", age: 30 }),
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        const handleA = entry.createPatch((draft) => {
+            draft.name = "Bob";
+        });
+        const handleB = entry.createPatch((draft) => {
+            draft.age = 99;
+        });
+
+        // Commit A, leave B pending.
+        handleA!.commit();
+        void handleB;
+
+        const snapshot = api.getSnapshot();
+        const value = Object.values(snapshot.resources["profile"].entries)[0];
+        // A's committed change is folded into the base; B's pending change is not.
+        expect(value.data).toEqual({ name: "Bob", age: 30 });
+    });
+
+    it("snapshots confirmed base data for a refresh-error entry with a pending patch", async () => {
+        let call = 0;
+        const api = createApi();
+        const resource = api.createResource({
+            key: "sensor",
+            queryFn: async () => {
+                call++;
+                if (call === 1) return { reading: 1 };
+                throw new Error("refresh failed");
+            },
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(undefined as void)!;
+        entry.refresh();
+        await flushMicrotasks();
+
+        expect(entry.peek().state.status).toBe("refresh-error");
+
+        const handle = entry.createPatch((draft) => {
+            draft.reading = 999;
+        });
+        expect(handle).not.toBeNull();
+
+        const snapshot = api.getSnapshot();
+        const value = Object.values(snapshot.resources["sensor"].entries)[0];
+        expect(value.status).toBe("refresh-error");
+        expect(value.data).toEqual({ reading: 1 });
+    });
+});
