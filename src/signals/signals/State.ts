@@ -43,7 +43,7 @@ export class State<T> {
     }
 
     set(value: T, actionName?: string) {
-        if (value === this.bs$.value) {
+        if (Object.is(value, this.bs$.value)) {
             return;
         }
 

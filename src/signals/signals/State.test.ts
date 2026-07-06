@@ -46,7 +46,7 @@ describe("State", () => {
             expect(s()).toBe(2);
         });
 
-        it("set(sameValue) with === equality is skipped (no emission)", () => {
+        it("set(sameValue) with Object.is equality is skipped (no emission)", () => {
             const s = Signal.state(1);
             const values: number[] = [];
             const sub = s.obs.subscribe((v: number) => values.push(v));
@@ -59,7 +59,7 @@ describe("State", () => {
             sub.unsubscribe();
         });
 
-        it("update(sameValue) with === equality is skipped (no emission)", () => {
+        it("update(sameValue) with Object.is equality is skipped (no emission)", () => {
             const s = Signal.state(1);
             const values: number[] = [];
             const sub = s.obs.subscribe((v: number) => values.push(v));
@@ -81,6 +81,33 @@ describe("State", () => {
 
             s.set({ a: 1 }); // new reference
             expect(values).toHaveLength(2); // emits because !== reference
+
+            sub.unsubscribe();
+        });
+
+        it("set(NaN) when current is NaN is skipped (Object.is equality, not ===)", () => {
+            const s = Signal.state(NaN);
+            const values: number[] = [];
+            const sub = s.obs.subscribe((v: number) => values.push(v));
+
+            expect(values).toHaveLength(1); // initial NaN
+
+            s.set(NaN); // NaN === NaN is false, but Object.is(NaN, NaN) is true
+            expect(values).toHaveLength(1); // no spurious emission
+
+            sub.unsubscribe();
+        });
+
+        it("set(-0) when current is +0 emits (Object.is distinguishes signed zero)", () => {
+            const s = Signal.state(0); // +0
+            const values: number[] = [];
+            const sub = s.obs.subscribe((v: number) => values.push(v));
+
+            expect(values).toEqual([0]);
+
+            s.set(-0); // +0 === -0 is true, but Object.is(+0, -0) is false
+            expect(values).toHaveLength(2); // real change is not swallowed
+            expect(Object.is(values[1], -0)).toBe(true);
 
             sub.unsubscribe();
         });
