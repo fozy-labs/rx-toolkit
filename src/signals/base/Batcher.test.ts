@@ -85,6 +85,55 @@ describe("Batcher", () => {
             });
             expect(order).toEqual(["after-error-fn", "after-error-scheduled"]);
         });
+
+        it("drops tasks scheduled before fn throws (does not leak into next batch)", () => {
+            const leaked = vi.fn();
+            const s = Batcher.scheduler(0);
+
+            // Case A: fn queues a task, then throws before Scheduled.run() flushes.
+            expect(() =>
+                Batcher.run(() => {
+                    s.schedule(leaked);
+                    throw new Error("boom");
+                }),
+            ).toThrow("boom");
+
+            // Next unrelated batch must not flush the stale task.
+            const nextBatch = vi.fn();
+            const s2 = Batcher.scheduler(0);
+            Batcher.run(() => {
+                s2.schedule(nextBatch);
+            });
+
+            expect(leaked).not.toHaveBeenCalled();
+            expect(nextBatch).toHaveBeenCalledOnce();
+        });
+
+        it("drops higher-rang tasks when a scheduled task throws during flush", () => {
+            const higherRang = vi.fn();
+            const s0 = Batcher.scheduler(0);
+            const s1 = Batcher.scheduler(1);
+
+            // Case B: a rang-0 task throws mid-flush; a rang-1 task is still queued.
+            expect(() =>
+                Batcher.run(() => {
+                    s1.schedule(higherRang);
+                    s0.schedule(() => {
+                        throw new Error("flush-boom");
+                    });
+                }),
+            ).toThrow("flush-boom");
+
+            // The un-run higher-rang task must not leak into the next unrelated batch.
+            const nextBatch = vi.fn();
+            const s = Batcher.scheduler(0);
+            Batcher.run(() => {
+                s.schedule(nextBatch);
+            });
+
+            expect(higherRang).not.toHaveBeenCalled();
+            expect(nextBatch).toHaveBeenCalledOnce();
+        });
     });
 
     describe("scheduler(rang)", () => {
