@@ -43,7 +43,7 @@ const usersResource = api.createResource({
 | `trigger`        | `args: Args<TArgs>, doForce = false`          | `void`                    | Запускает запрос с заданными аргументами. При `doForce = false` (по умолчанию) перезапрос для существующей записи кэша не делает. |
 | `refresh`      | `args: Args<TArgs>`                           | `void`                    | Помечает запись как устаревшую и запускает фоновый перезапрос (SWR).                                                                 |
 | `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `QueryCacheEntry \| null` | Синхронно возвращает кэш-запись.                                                                                                     |
-| `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения.                    |
+| `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
 | `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `QueryCacheEntry \| null`      | Реактивный аналог `getEntry` — для использования в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
 | `createAgent`  | —                                             | `Agent<TArgs, TData>`     | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
 | `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
@@ -104,6 +104,15 @@ const usersResource = api.createResource({
 - `getEntry$(args)` / `getEntry$(args, false)` — реактивный **read-only**: чтение не меняет кэш и отдаёт `null`, пока записи нет. (`getEntry$(args, true)` — наоборот, инициирует лениво при чтении; см. «Реактивный путь».)
 - `serialize`, `toKeyed`, `getEntries`, `pack`, `reset` — утилиты, упаковка и очистка.
 - Гидрация снапшотом (`config.snapshot`) — создаёт запись, но `queryFn` **не** запускает: данные уже есть. Запрос пойдёт лишь при последующем `refresh` / `fetch` / `trigger(force)`.
+
+
+## getState
+
+`getState(args)` — синхронный read-only снимок `IResourceLiteState` без подписки на изменения (внутри `getEntry(args, false)`, кэш **не создаёт**). Отдаёт `status`, `data`, `error`, `args` и набор булевых флагов.
+
+Флаги совпадают с состоянием агента — семантику по каждому статусу см. в [таблице статусов агента][agent-status]. Единственное отличие: статус `idle` `getState` возвращает, когда записи в кэше ещё/уже нет (агент — при `SKIP`).
+
+В частности, в `refresh-error` (успешная запись, чей фоновый refresh упал) флаги: `isRefreshError` и `isError` — `true`, `isLoading` — `false`; устаревшие данные остаются в `data`.
 
 
 ## Pack
@@ -174,6 +183,7 @@ export const Route = createFileRoute('/users/$id')({
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
 [agent-api]: ./resource-agent.md
+[agent-status]: ./resource-agent.md#статусы
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md
 [keyed]: ../concepts/keyed.md

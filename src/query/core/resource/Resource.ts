@@ -352,12 +352,12 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
                 data: machine.state.data,
                 error: machine.status === "refresh-error" ? machine.state.error : null,
                 args: entry.keyedArgs.value,
-                isLoading: machine.status === "refreshing" || machine.status === "refresh-error",
+                isLoading: machine.status === "refreshing",
                 isInitialLoading: false,
                 isRefreshing: machine.status === "refreshing",
                 isRefreshError: machine.status === "refresh-error",
                 isSuccess: machine.status === "success",
-                isError: false,
+                isError: machine.status === "refresh-error",
             };
         }
 
