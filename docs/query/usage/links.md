@@ -42,6 +42,7 @@ link({
 trigger(args)
   │
   ├── optimisticUpdate  ← немедленно, до ответа сервера
+  │      └─ THROW ── rollback всех патчей + reject; queryFn не вызывается
   │
   ├── queryFn(args)     ← сетевой запрос
   │

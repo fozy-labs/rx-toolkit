@@ -4,6 +4,7 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { Command } from "@/query/core/command/Command";
 import { CacheEntryRemovedError } from "@/query/core/errors";
+import { hasData } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
 import { toKeyed } from "@/query/lib/toKeyed";
@@ -719,12 +720,16 @@ describe("Link scenarios", () => {
 
             // Resource A's already-applied optimistic patch must be rolled back:
             // data restored and no dangling pending patch left behind.
-            expect(entryA.machine$.peek().state.data).toEqual({ value: "original-1" });
-            expect(entryA.machine$.peek().state.patchState).toBeNull();
+            const stateA = entryA.machine$.peek().state;
+            expect(stateA.data).toEqual({ value: "original-1" });
+            if (!hasData(stateA)) throw new Error(`Resource A: expected data state, got "${stateA.status}"`);
+            expect(stateA.patchState).toBeNull();
 
             // Resource B is untouched (its patch never applied).
-            expect(entryB.machine$.peek().state.data).toEqual({ value: "original-1" });
-            expect(entryB.machine$.peek().state.patchState).toBeNull();
+            const stateB = entryB.machine$.peek().state;
+            expect(stateB.data).toEqual({ value: "original-1" });
+            if (!hasData(stateB)) throw new Error(`Resource B: expected data state, got "${stateB.status}"`);
+            expect(stateB.patchState).toBeNull();
 
             // The mutation itself must not have run.
             expect(queryFn).not.toHaveBeenCalled();
