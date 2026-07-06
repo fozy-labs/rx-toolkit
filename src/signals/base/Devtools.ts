@@ -1,6 +1,8 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
 import type { SignalLifecycleHook, SignalOptions } from "@/signals/types";
 
+const COMPLETED = "$COMPLETED";
+
 export const Devtools = {
     createState<T>(initialValue: T, optionsDry: SignalOptions<T> | string = {}) {
         const options = typeof optionsDry === "string" ? { key: optionsDry } : optionsDry;
@@ -17,6 +19,10 @@ export const Devtools = {
 
         const push = (value: T, actionName?: string) => {
             if (!stateDevtools) {
+                // Never materialize an entry just to mark it completed: a signal
+                // that was disposed before its first real value must not appear
+                // in devtools as a ghost "$COMPLETED" record.
+                if ((value as unknown) === COMPLETED) return;
                 stateDevtools = createStateDevtools!(key, value);
                 return;
             }
@@ -52,7 +58,7 @@ export const Devtools = {
                 stateDevtools(newValue, actionName);
             },
             onDispose() {
-                stateDevtools("$COMPLETED" as any);
+                stateDevtools(COMPLETED as any);
             },
         };
     },

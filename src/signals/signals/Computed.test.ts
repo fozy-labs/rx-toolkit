@@ -1,3 +1,5 @@
+import { SharedOptions } from "@/common/options/SharedOptions";
+
 import { Computed } from "./Computed";
 import { Signal } from "./Signal";
 
@@ -146,6 +148,30 @@ describe("Computed", () => {
             expect(values).toEqual([13, 16, 19]);
 
             eff.unsubscribe();
+        });
+    });
+
+    describe("dispose", () => {
+        afterEach(() => {
+            SharedOptions.DEVTOOLS = null;
+        });
+
+        it("dispose() releases the internal state — devtools notified of completion immediately", () => {
+            const mockStateFn = vi.fn();
+            const mockCreateState = vi.fn(() => mockStateFn);
+            SharedOptions.DEVTOOLS = { state: mockCreateState };
+
+            const c = Computed.create(() => 42, { key: "computed-dispose" });
+
+            // Materialize the internal devtools entry by observing a real value.
+            const sub = c.obs.subscribe(() => {});
+            sub.unsubscribe();
+            expect(mockCreateState).toHaveBeenCalledTimes(1);
+
+            // Before the fix, dispose() never disposed the internal `_state$`, so its
+            // onDispose hook never fired and devtools learned of completion only at GC.
+            c.dispose();
+            expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED", undefined);
         });
     });
 

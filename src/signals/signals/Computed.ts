@@ -115,6 +115,7 @@ export class Computed<T> {
     dispose() {
         this._stop();
         this._computeCache.clear();
+        this._state$.dispose();
     }
 
     [SYMBOL_DISPOSE]() {
