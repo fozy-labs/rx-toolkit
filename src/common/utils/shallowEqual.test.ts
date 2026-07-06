@@ -95,6 +95,24 @@ describe("shallowEqual", () => {
         });
     });
 
+    describe("Object.is semantics (NaN, ±0)", () => {
+        it("top-level NaN equals NaN", () => {
+            expect(shallowEqual(NaN, NaN)).toBe(true);
+        });
+
+        it("NaN values at the same key are equal", () => {
+            expect(shallowEqual({ a: NaN }, { a: NaN })).toBe(true);
+        });
+
+        it("top-level +0 and -0 are not equal", () => {
+            expect(shallowEqual(0, -0)).toBe(false);
+        });
+
+        it("+0 and -0 at the same key are not equal", () => {
+            expect(shallowEqual({ a: 0 }, { a: -0 })).toBe(false);
+        });
+    });
+
     describe("shallow vs deep", () => {
         it("nested objects with same structure are not equal", () => {
             expect(shallowEqual({ a: { b: 1 } }, { a: { b: 1 } })).toBe(false);
