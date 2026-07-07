@@ -9,11 +9,10 @@ import type {
     TPackedCommand,
     TQueryStartedContext,
 } from "@/query/types";
-import { Signal } from "@/signals";
+import { Signal, unstable_KeyedSignal } from "@/signals";
 
 import { KEYED_BRAND } from "../../constants";
 import { isKeyed } from "../../lib/toKeyed";
-import { CacheMap } from "../cache/CacheMap";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 
 import { CommandAgent } from "./CommandAgent";
@@ -33,7 +32,7 @@ import { LinkManager } from "./LinkManager";
  * @see {@link https://github.com/AcademyCity/rx-toolkit/blob/main/docs/query/api/command.md | Command API docs}
  */
 export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
-    private readonly _cache = new CacheMap<QueryCacheEntry<TArgs, TData>>();
+    private readonly _cache = unstable_KeyedSignal.state<QueryCacheEntry<TArgs, TData>>();
 
     private readonly _queryFn;
     readonly _key;

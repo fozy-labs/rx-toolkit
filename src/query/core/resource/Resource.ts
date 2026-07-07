@@ -13,11 +13,10 @@ import type {
     TQueryStartedContext,
     TResourceFetchOptions,
 } from "@/query/types";
-import { Signal, type ReadonlySignal } from "@/signals";
+import { Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
 
 import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
-import { CacheMap } from "../cache/CacheMap";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 import { Machine } from "../machine/Machine";
 
@@ -35,7 +34,7 @@ import { ResourceAgent } from "./ResourceAgent";
  * @template TData - Query return data type.
  */
 export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
-    private readonly _cache = new CacheMap<QueryCacheEntry<TArgs, TData>>();
+    private readonly _cache = unstable_KeyedSignal.state<QueryCacheEntry<TArgs, TData>>();
 
     private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
     readonly _key: string | undefined;

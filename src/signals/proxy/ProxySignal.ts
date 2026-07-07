@@ -1,10 +1,11 @@
-import { BehaviorSubject } from "rxjs";
+import { BehaviorSubject, Observable } from "rxjs";
 
 import type { SignalOptionsOrKey } from "@/signals/types";
 
-import { Batcher, type DependencyRecord, DependencyTracker } from "../base";
+import { Batcher, DependencyTracker, type DependencyRecord } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 import { State } from "../signals/State";
+
 import { isDraftable, produce } from "./produce";
 import type { PathNode, ProxyStateSignal } from "./types";
 
@@ -32,18 +33,30 @@ function getAtPath(root: unknown, segments: string[]): unknown {
 class PathState {
     private readonly bs$: BehaviorSubject<unknown>;
     readonly depRecord: DependencyRecord;
+    private _refCount = 0;
 
-    constructor(initialValue: unknown, peekLive: () => unknown) {
+    constructor(initialValue: unknown, peekLive: () => unknown, onIdle: () => void) {
         this.bs$ = new BehaviorSubject(initialValue);
+        // Precise per-node refcount: each reactive observer subscribes through
+        // this wrapper, so the core learns when a node's last observer leaves
+        // and can reap it — even in a subtree no commit will ever walk again.
+        const obs = new Observable((subscriber) => {
+            this._refCount++;
+            const sub = this.bs$.subscribe(subscriber);
+            return () => {
+                sub.unsubscribe();
+                if (--this._refCount === 0) onIdle();
+            };
+        });
         this.depRecord = {
             getRang: () => 0,
-            obs: this.bs$.asObservable(),
+            obs,
             peek: peekLive,
         };
     }
 
     get observed() {
-        return this.bs$.observed;
+        return this._refCount > 0;
     }
 
     get() {
@@ -66,6 +79,8 @@ class PathState {
 
 interface TrieNode {
     segments: string[];
+    /** Back-reference for bubbling a reap up through emptied branches. */
+    parent: TrieNode | null;
     children: Map<string, TrieNode>;
     /** Materialized on first read of this path. */
     state: PathState | null;
@@ -75,7 +90,7 @@ interface TrieNode {
 
 class ProxySignalCore<T extends object> {
     private readonly _root: State<T>;
-    private readonly _trie: TrieNode = { segments: [], children: new Map(), state: null, proxy: null };
+    private readonly _trie: TrieNode = { segments: [], parent: null, children: new Map(), state: null, proxy: null };
 
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         this._root = new State(initialValue, options);
@@ -150,6 +165,7 @@ class ProxySignalCore<T extends object> {
             if (!child) {
                 child = {
                     segments: node.segments.concat(segment),
+                    parent: node,
                     children: new Map(),
                     state: null,
                     proxy: null,
@@ -164,11 +180,36 @@ class ProxySignalCore<T extends object> {
     private _ensureState(node: TrieNode): PathState {
         if (!node.state) {
             const segments = node.segments;
-            node.state = new PathState(getAtPath(this._root.peek(), segments), () =>
+            node.state = new PathState(
                 getAtPath(this._root.peek(), segments),
+                () => getAtPath(this._root.peek(), segments),
+                () => this._scheduleReap(node),
             );
         }
         return node.state;
+    }
+
+    /**
+     * Deferred reap: runs after the synchronous commit that dropped the node's
+     * last observer. Deferring is essential — a Computed recompute unsubscribes
+     * old deps then subscribes new ones in the same commit; by the time the
+     * microtask runs a re-subscribe has revived the node (observed again), so a
+     * flickering selector never thrashes the trie. A still-cold node is pruned
+     * and the reap bubbles up, dropping ancestor branches that became fully
+     * unobserved. Correctness holds because PathState.peek reads live from the
+     * root, so a dormant Computed's ComputeCache stays truthful after a prune.
+     */
+    private _scheduleReap(node: TrieNode) {
+        queueMicrotask(() => this._reap(node));
+    }
+
+    private _reap(node: TrieNode) {
+        let cur: TrieNode | null = node;
+        while (cur && cur.parent && !ProxySignalCore._hasObservers(cur)) {
+            cur.parent.children.delete(cur.segments[cur.segments.length - 1]);
+            ProxySignalCore._disposeSubtree(cur);
+            cur = cur.parent;
+        }
     }
 
     /**
