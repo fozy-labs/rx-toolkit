@@ -261,6 +261,40 @@ describe("unstable_ProxySignal lifecycle", () => {
             s$.dispose();
         });
 
+        it("a stale scheduled reap does not detach a node recreated for the same path", async () => {
+            const s$ = ProxySignal.state<{ a: { b: number; c: number } }>({ a: { b: 1, c: 0 } });
+
+            // A sibling observer keeps `a` alive so a hot write walks INTO it.
+            const keepA = Signal.effect(() => (s$.root as any).a.c());
+
+            // Observe a.b then drop it → schedules a deferred reap holding the old node.
+            const eff1 = Signal.effect(() => (s$.root as any).a.b());
+            eff1.unsubscribe();
+
+            // A commit descends into `a` and prunes the cold `b` node synchronously,
+            // before the scheduled reap microtask runs.
+            s$.mutate((d) => {
+                d.a.b = 2;
+            });
+
+            // Re-observe the same path → a fresh, live node is created under `a`.
+            const seen: (number | undefined)[] = [];
+            const eff2 = Signal.effect(() => seen.push((s$.root as any).a.b()));
+            expect(seen).toEqual([2]);
+
+            // The stale reap fires now; it must NOT unlink the freshly created node.
+            await flushMicrotasks();
+
+            s$.mutate((d) => {
+                d.a.b = 3;
+            });
+            expect(seen).toEqual([2, 3]); // new node stayed attached and reactive
+
+            eff2.unsubscribe();
+            keepA.unsubscribe();
+            s$.dispose();
+        });
+
         it("reaping does not disturb a still-observed sibling path", async () => {
             const s$ = ProxySignal.state<Record<string, { v: number }>>({ a: { v: 1 }, b: { v: 2 } });
             const seenA: (number | undefined)[] = [];

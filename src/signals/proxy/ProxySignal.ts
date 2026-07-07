@@ -206,7 +206,13 @@ class ProxySignalCore<T extends object> {
     private _reap(node: TrieNode) {
         let cur: TrieNode | null = node;
         while (cur && cur.parent && !ProxySignalCore._hasObservers(cur)) {
-            cur.parent.children.delete(cur.segments[cur.segments.length - 1]);
+            const seg = cur.segments[cur.segments.length - 1];
+            // A commit's _walk may have already pruned this node within the tick,
+            // and a later read recreated the segment with a fresh, observed node.
+            // Deleting by key would then orphan the live node — detach only when
+            // the parent still points at *this* exact node.
+            if (cur.parent.children.get(seg) !== cur) break;
+            cur.parent.children.delete(seg);
             ProxySignalCore._disposeSubtree(cur);
             cur = cur.parent;
         }
