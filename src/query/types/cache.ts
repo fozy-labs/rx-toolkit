@@ -21,18 +21,6 @@ export interface ICacheEntry<TState> {
     complete(): void;
 }
 
-export interface ICacheMap<TValue> {
-    readonly size: number;
-    get(key: string): TValue | undefined;
-    /** Reactive variant of {@link get}: tracks the map version so reactive readers re-run on add/remove. */
-    get$(key: string): TValue | undefined;
-    set(key: string, value: TValue): void;
-    delete(key: string): boolean;
-    has(key: string): boolean;
-    clear(): void;
-    values(): IterableIterator<TValue>;
-}
-
 // ==================== QueryCacheEntry Options & Interface ====================
 
 export interface IQueryCacheEntryOptions<TArgs, TData> {

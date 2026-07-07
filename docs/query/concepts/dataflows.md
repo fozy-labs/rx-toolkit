@@ -18,7 +18,7 @@ sequenceDiagram
     participant Hook as useResource
     participant Agent as Agent
     participant Res as Resource
-    participant Cache as CacheMap
+    participant Cache as Карта кэша
     participant Entry as QueryCacheEntry
     participant Query as queryFn
     participant BQ as beforeQuery
@@ -110,7 +110,7 @@ sequenceDiagram
     participant Hook as useResource
     participant Agent as Agent
     participant Res as Resource
-    participant Cache as CacheMap
+    participant Cache as Карта кэша
 
     UI->>Hook: useResource(args)
     Hook->>Agent: set(args)
@@ -239,7 +239,7 @@ sequenceDiagram
 sequenceDiagram
     participant Agent as Потребитель B (например Agent)
     participant Res as Resource
-    participant Cache as CacheMap
+    participant Cache as Карта кэша
 
     Note over Res: Потребитель A уже прошёл «Cache miss»<br/>(см. одноимённый раздел выше)
 
@@ -260,7 +260,7 @@ sequenceDiagram
     participant Hook as useCommand
     participant Agent as Agent
     participant Cmd as Command
-    participant Cache as CacheMap
+    participant Cache as Карта кэша
     participant Entry as QueryCacheEntry
     participant Query as queryFn
 
@@ -309,7 +309,7 @@ sequenceDiagram
     participant Cmd as Command
     participant Lnk as Link
     participant Res as Resource
-    participant Cache as CacheMap
+    participant Cache as Карта кэша
     participant Entry as QueryCacheEntry
     participant Query as queryFn
     
@@ -404,7 +404,7 @@ sequenceDiagram
     participant BQ as beforeQuery
     participant Sync as SyncDriver
     participant Sync2 as SyncDriver (отвечающий)
-    participant Cache2 as CacheMap
+    participant Cache2 as Карта кэша
     participant Query as queryFn
 
     Note over UI, Sync: Tab B — запрашивающая вкладка
