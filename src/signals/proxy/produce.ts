@@ -1,5 +1,5 @@
 /**
- * Minimal copy-on-write producer ("immer-lite") powering {@link ProxySignal}'s
+ * Minimal copy-on-write producer ("immer-lite") powering {@link unstable_ProxySignal}'s
  * `update(draft => ...)`.
  *
  * The recipe mutates a draft proxy; on return we materialise a new immutable
@@ -15,7 +15,7 @@
  * The recipe's return value is ignored on purpose. `draft[key] = value` is an
  * assignment *expression* that evaluates to `value`, so honouring returns would
  * misread the common `update(s => s.k = v)` form as a whole-tree replacement.
- * Use `ProxySignal.set(next)` for wholesale replacement instead.
+ * Use `unstable_ProxySignal.set(next)` for wholesale replacement instead.
  */
 import { isPlainContainer, shallowClone } from "./helpers";
 
@@ -69,7 +69,7 @@ class Producer {
     private _assertLive(): void {
         if (this._finalized) {
             throw new Error(
-                "[ProxySignal] the draft escaped its update() recipe and was used after the update returned. " +
+                "[unstable_ProxySignal] the draft escaped its update() recipe and was used after the update returned. " +
                     "Do not retain or mutate the draft asynchronously.",
             );
         }

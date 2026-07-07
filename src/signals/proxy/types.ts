@@ -52,7 +52,7 @@ type DeepFields<T> =
             : unknown;
 
 /**
- * Public handle returned by `ProxySignal.state`. Reads flow through `root`
+ * Public handle returned by `unstable_ProxySignal.state`. Reads flow through `root`
  * (the reactive tree); writes flow through `set` / `mutate`.
  */
 export interface DeepSignalController<T> extends Disposable {

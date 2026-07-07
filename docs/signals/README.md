@@ -237,16 +237,16 @@ function logout() {
 - `devtoolsOptions` — настройки для devtools
 - `driver` — драйвер для хранения (по умолчанию localStorage, можно заменить на кастомный драйвер)
 
-### ProxySignal (экспериментально)
+### unstable_ProxySignal (экспериментально)
 
 > ⚠️ **Экспериментальный API.**
 
 Глубокий реактивный стор: держит одно дерево состояния (обычные объекты + массивы) и отдаёт его как ленивое дерево пер-путевых сигналов. Подписка идёт **точечно, на конкретный путь**, а не на весь стор целиком — то, чего не хватает при использовании одного общего сигнала-версии.
 
 ```typescript
-import { ProxySignal, Signal } from '@fozy-labs/rx-toolkit';
+import { unstable_ProxySignal, Signal } from '@fozy-labs/rx-toolkit';
 
-const ps = ProxySignal.state({
+const ps = unstable_ProxySignal.state({
     user: { name: 'Ann', age: 20 },
     tags: ['a', 'b'],
 });
