@@ -10,6 +10,10 @@ import {
     LocalState,
     // types
     normalizeSignalOptions,
+    // proxy
+    produce,
+    PROXY_RAW,
+    ProxySignal,
     Signal,
     // operators
     signalize,
@@ -61,6 +65,22 @@ describe("Signals module exports", () => {
         it("exports signalize", () => {
             expect(signalize).toBeDefined();
             expect(typeof signalize).toBe("function");
+        });
+    });
+
+    describe("proxy", () => {
+        it("exports ProxySignal", () => {
+            expect(ProxySignal).toBeDefined();
+            expect(typeof ProxySignal.state).toBe("function");
+        });
+
+        it("exports produce", () => {
+            expect(produce).toBeDefined();
+            expect(typeof produce).toBe("function");
+        });
+
+        it("exports PROXY_RAW", () => {
+            expect(typeof PROXY_RAW).toBe("symbol");
         });
     });
 
