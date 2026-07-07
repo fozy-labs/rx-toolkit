@@ -302,7 +302,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.0...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...develop
+[0.10.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.0...v0.9.1
