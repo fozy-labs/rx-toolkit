@@ -1,3 +1,3 @@
-export { unstable_ProxySignal, PROXY_RAW } from "./ProxySignal";
-export { produce } from "./produce";
-export type { DeepSignal, DeepSignalController, SignalNode } from "./types";
+export { isDraftable, produce } from "./produce";
+export * from "./ProxySignal";
+export type { PathNode, ProxyStateSignal } from "./types";

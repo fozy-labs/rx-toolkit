@@ -18,9 +18,7 @@ export class DependencyTracker {
     private static _currentHandler: ((arg: DependencyRecord) => void) | null = null;
 
     /**
-     * Активна ли сейчас подписка на зависимости. Позволяет читающему сигналу
-     * пропустить вызов track() и не трогать общий кеш-record, когда трекинг
-     * никем не запущен.
+     * Активна ли сейчас подписка на зависимости.
      */
     static get isTracking(): boolean {
         return this._currentHandler !== null;
