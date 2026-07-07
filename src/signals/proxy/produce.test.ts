@@ -64,7 +64,12 @@ describe("produce", () => {
         });
 
         it("map.delete removes an entry copy-on-write", () => {
-            const base = { m: new Map<string, number>([["a", 1], ["b", 2]]) };
+            const base = {
+                m: new Map<string, number>([
+                    ["a", 1],
+                    ["b", 2],
+                ]),
+            };
             const next = produce(base, (draft) => {
                 draft.m.delete("a");
             });
@@ -74,7 +79,12 @@ describe("produce", () => {
         });
 
         it("map.clear empties the map copy-on-write", () => {
-            const base = { m: new Map<string, number>([["a", 1], ["b", 2]]) };
+            const base = {
+                m: new Map<string, number>([
+                    ["a", 1],
+                    ["b", 2],
+                ]),
+            };
             const next = produce(base, (draft) => {
                 draft.m.clear();
             });
@@ -209,7 +219,10 @@ describe("produce", () => {
     describe("class instances are atomic", () => {
         it("a class instance can be replaced by assignment", () => {
             class Point {
-                constructor(public x: number, public y: number) {}
+                constructor(
+                    public x: number,
+                    public y: number,
+                ) {}
             }
             const base = { p: new Point(1, 2) };
             const replacement = new Point(3, 4);
@@ -223,7 +236,10 @@ describe("produce", () => {
 
         it("an untouched class instance keeps reference identity", () => {
             class Point {
-                constructor(public x: number, public y: number) {}
+                constructor(
+                    public x: number,
+                    public y: number,
+                ) {}
             }
             const base = { p: new Point(1, 2), other: { x: 1 } };
             const originalPoint = base.p;

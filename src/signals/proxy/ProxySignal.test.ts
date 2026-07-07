@@ -382,7 +382,7 @@ describe("unstable_ProxySignal", () => {
 
         it("path subscriber is notified when its key is deleted (value becomes undefined)", () => {
             const s$ = ProxySignal.state(makeShape());
-            const seen: (unknown)[] = [];
+            const seen: unknown[] = [];
             const c = Signal.compute(() => {
                 return s$.root.maybe();
             });

@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+
+## [0.10.1] - 2026-07-07
+
 ### Added
 - **`unstable_KeyedSignal` (experimental)** — реактивная keyed-коллекция с точечной подпиской по ключу. См. [RxSignals](./signals/README.md#unstable_keyedsignal-экспериментально).
 - **`unstable_ProxySignal` (experimental)** — глубокий реактивный стор с подпиской по пути. См. [RxSignals](./signals/README.md#unstable_proxysignal-экспериментально).

@@ -100,10 +100,9 @@ export class KeyedStore<V> {
     }
 
     get$(key: string): V | undefined {
-        // Materialize a node only under tracking. An untracked call gains no
-        // reactivity, and a node it created for an absent key would never be
-        // reaped (reaping is driven by the last observer leaving) nor deleted
-        // (the key is not in `_present`) — a leak until dispose().
+        // Materialize a node only under tracking: an untracked call gains no
+        // reactivity, so allocating a node (and the creation-reap churn that
+        // follows for an absent key) would be pure waste.
         if (!DependencyTracker.isTracking) return this._present.get(key);
         return this._ensureNode(key).read();
     }
@@ -195,16 +194,26 @@ export class KeyedStore<V> {
                 () => this._reap(key),
             );
             this._nodes.set(key, node);
+            // A tracked read does not guarantee a subscription: a tracker may
+            // only record `peek` (e.g. a dormant Computed's ComputeCache) and
+            // never subscribe, so the last-observer-leaving reap would never
+            // fire for this node. Schedule a reap at creation too — if nobody
+            // subscribes by the end of the tick and the key is absent, the
+            // node is dropped instead of leaking until dispose().
+            this._reap(key);
         }
         return node;
     }
 
     /**
-     * Deferred reap: runs after the synchronous commit that dropped the node's
-     * last observer. A re-subscribe within the same tick (e.g. a Computed
-     * swapping its dependencies) revives the node before this fires; and a node
-     * whose key is still present is kept. Only a gone-and-unobserved node is
-     * dropped. The defer also prevents a flickering selector from thrashing.
+     * Deferred reap: scheduled when a node's last observer leaves AND when a
+     * node is created (a tracker may record the dependency without ever
+     * subscribing — see {@link _ensureNode}). A (re-)subscribe within the same
+     * tick (e.g. a Computed swapping its dependencies, or an Effect that
+     * subscribes synchronously during its tracked run) lands before this
+     * fires; and a node whose key is still present is kept. Only a
+     * gone-and-unobserved node is dropped. The defer also prevents a
+     * flickering selector from thrashing.
      */
     private _reap(key: string): void {
         queueMicrotask(() => {

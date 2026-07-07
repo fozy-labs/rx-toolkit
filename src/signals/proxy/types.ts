@@ -19,12 +19,12 @@ interface PathCallOptional<T> {
 type PathChildren<T, TOptional extends boolean> = T extends Map<any, any> | Set<any>
     ? unknown // Map/Set are atomic leaves for path traversal
     : T extends readonly (infer E)[]
-    ? { readonly [index: number]: PathNode<E, true> }
-    : T extends object
-      ? {
-            readonly [K in keyof T]-?: PathNode<T[K], TOptional extends true ? true : IsNullish<T[K]>>;
-        }
-      : unknown;
+      ? { readonly [index: number]: PathNode<E, true> }
+      : T extends object
+        ? {
+              readonly [K in keyof T]-?: PathNode<T[K], TOptional extends true ? true : IsNullish<T[K]>>;
+          }
+        : unknown;
 
 export type PathNode<T, TOptional extends boolean = false> = (TOptional extends true
     ? PathCallOptional<T>

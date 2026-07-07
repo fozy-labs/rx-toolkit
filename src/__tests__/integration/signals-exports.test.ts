@@ -13,13 +13,13 @@ import {
     // proxy
     produce,
     Signal,
-    unstable_ProxySignal,
     // operators
     signalize,
     SourceSignal,
     // signals
     State,
     SyncObservable,
+    unstable_ProxySignal,
     // react
     useSignal,
 } from "@/signals";
