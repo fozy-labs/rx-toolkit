@@ -214,4 +214,69 @@ describe("unstable_ProxySignal lifecycle", () => {
             s$.dispose();
         });
     });
+
+    describe("retention (cold-path reaping)", () => {
+        const flushMicrotasks = () => new Promise<void>((r) => setTimeout(r, 0));
+
+        it("prunes a cold node after its last observer leaves, yet re-reads stay live", async () => {
+            const s$ = ProxySignal.state<{ hot: { n: number }; store: { items: Record<string, { v: number }> } }>({
+                hot: { n: 0 },
+                store: { items: { keep: { v: 0 } } },
+            });
+            // A sibling observer keeps `store` alive so a hot write never walks items.
+            const keep = Signal.effect(() => (s$.root as any).store.items.keep.v());
+
+            // Read a dynamic item reactively, then drop it → node goes cold.
+            const eff = Signal.effect(() => (s$.root as any).store.items.cold.v());
+            eff.unsubscribe();
+            await flushMicrotasks();
+
+            // The cold node is gone, but a fresh read still returns the live value.
+            expect((s$.root as any).store.items.cold.v()).toBeUndefined();
+            s$.mutate((d) => {
+                d.store.items.cold = { v: 9 };
+            });
+            expect((s$.root as any).store.items.cold.v()).toBe(9);
+
+            keep.unsubscribe();
+            s$.dispose();
+        });
+
+        it("dropping one of two observers does not reap a still-observed path", async () => {
+            const s$ = ProxySignal.state({ a: { b: 1 } });
+            const seen: number[] = [];
+            const c = Signal.compute(() => s$.root.a.b());
+            const survivor = Signal.effect(() => seen.push(c())); // stays subscribed
+            const transient = Signal.effect(() => c());
+            transient.unsubscribe(); // refcount drops but stays > 0
+            await flushMicrotasks();
+
+            s$.mutate((d) => {
+                d.a.b = 2;
+            });
+            expect(seen).toEqual([1, 2]); // path survived; survivor still updated
+
+            survivor.unsubscribe();
+            c.dispose();
+            s$.dispose();
+        });
+
+        it("reaping does not disturb a still-observed sibling path", async () => {
+            const s$ = ProxySignal.state<Record<string, { v: number }>>({ a: { v: 1 }, b: { v: 2 } });
+            const seenA: (number | undefined)[] = [];
+            const effA = Signal.effect(() => seenA.push((s$.root as any).a.v()));
+
+            const effB = Signal.effect(() => (s$.root as any).b.v());
+            effB.unsubscribe(); // b goes cold and is reaped
+            await flushMicrotasks();
+
+            s$.mutate((d) => {
+                d.a = { v: 10 };
+            });
+            expect(seenA.at(-1)).toBe(10); // a still fully reactive
+
+            effA.unsubscribe();
+            s$.dispose();
+        });
+    });
 });
