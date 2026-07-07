@@ -82,6 +82,24 @@ describe("unstable_KeyedSignal", () => {
         });
     });
 
+    describe("obs — snapshot stream", () => {
+        it("replays the current snapshot on subscribe, then emits on every change", () => {
+            const k = unstable_KeyedSignal.state<number>({ a: 1 });
+            const seen: Readonly<Record<string, number>>[] = [];
+            const sub = k.obs.subscribe((s) => seen.push(s));
+
+            expect(seen).toHaveLength(1); // immediate replay on subscribe
+            expect(seen[0]).toEqual({ a: 1 });
+
+            k.set("b", 2);
+            expect(seen).toHaveLength(2);
+            expect(seen[1]).toEqual({ a: 1, b: 2 });
+
+            sub.unsubscribe();
+            k.dispose();
+        });
+    });
+
     describe("per-key reactivity", () => {
         it("get$ re-runs only when its own key changes", () => {
             const k = unstable_KeyedSignal.state<number>();
@@ -181,10 +199,22 @@ describe("unstable_KeyedSignal", () => {
         it("deleting an unobserved key drops its node immediately", () => {
             const core = new KeyedStore<number>();
             core.set("a", 1);
-            core.get$("a"); // materialize node (no retained subscription)
+            const eff = Signal.effect(() => core.get$("a")); // materialize node
+            eff.unsubscribe(); // reap is deferred and the key is present → node retained
             expect(hasNode(core, "a")).toBe(true);
 
             core.delete("a");
+            expect(hasNode(core, "a")).toBe(false);
+            core.dispose();
+        });
+
+        it("an untracked get$ allocates no node — a miss on an absent key cannot leak", () => {
+            const core = new KeyedStore<number>();
+            expect(core.get$("ghost")).toBeUndefined();
+            expect(hasNode(core, "ghost")).toBe(false);
+
+            core.set("a", 1);
+            expect(core.get$("a")).toBe(1);
             expect(hasNode(core, "a")).toBe(false);
             core.dispose();
         });

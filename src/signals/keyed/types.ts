@@ -18,7 +18,13 @@ export interface KeyedSignal<V> {
     readonly size: number;
     /** Return entry by key, or `undefined`. Non-reactive. */
     get(key: string): V | undefined;
-    /** Reactive per-key read: wakes only when THIS key is added/removed/replaced. */
+    /**
+     * Reactive per-key read: wakes only when THIS key's value changes by
+     * `Object.is` (add / remove / replace). An absent key reads as `undefined`,
+     * so storing `undefined` is indistinguishable from absence — adding or
+     * removing an `undefined`-valued entry does NOT wake a `get$` observer
+     * (the whole-snapshot `()`, `values$` and `obs` still fire).
+     */
     get$(key: string): V | undefined;
     /** Store an entry. O(1). */
     set(key: string, value: V): void;
@@ -32,7 +38,7 @@ export interface KeyedSignal<V> {
     values(): IterableIterator<V>;
     /** Reactive structural read: wakes only on add/remove, not value replacement. */
     values$(): V[];
-    /** Snapshot stream: emits the current snapshot on every change. */
+    /** Snapshot stream: replays the current snapshot on subscribe, then emits on every change. */
     readonly obs: Observable<Readonly<Record<string, V>>>;
     dispose(): void;
     [SYMBOL_DISPOSE](): void;
