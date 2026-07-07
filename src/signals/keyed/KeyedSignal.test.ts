@@ -229,6 +229,54 @@ describe("unstable_KeyedSignal", () => {
             core.dispose();
         });
 
+        it("a dormant computed's peek does not leak a node for an absent key", async () => {
+            // ComputeCache tracks dependencies without ever subscribing, so the
+            // node it materializes never gets an observer — reaping must not
+            // depend on a last-observer-leaving event that will never come.
+            const core = new KeyedStore<number>();
+            const c = Signal.compute(() => core.get$("ghost"));
+            expect(c.peek()).toBeUndefined();
+
+            await flushMicrotasks();
+            expect(hasNode(core, "ghost")).toBe(false);
+
+            // The reaped node must not have broken dormant correctness.
+            core.set("ghost", 5);
+            expect(c.peek()).toBe(5);
+
+            c.dispose();
+            core.dispose();
+        });
+
+        it("a dormant computed's peek on a present key retains the node until the key is deleted", async () => {
+            const core = new KeyedStore<number>();
+            core.set("a", 1);
+            const c = Signal.compute(() => core.get$("a"));
+            expect(c.peek()).toBe(1);
+
+            await flushMicrotasks();
+            expect(hasNode(core, "a")).toBe(true); // key present → retained
+
+            core.delete("a");
+            expect(hasNode(core, "a")).toBe(false); // unobserved → dropped with the key
+
+            c.dispose();
+            core.dispose();
+        });
+
+        it("creation-time reap keeps an absent-key node subscribed in the same tick", async () => {
+            const core = new KeyedStore<number>();
+            const eff = Signal.effect(() => core.get$("ghost"));
+
+            await flushMicrotasks();
+            expect(hasNode(core, "ghost")).toBe(true); // observed → kept despite absent key
+
+            eff.unsubscribe();
+            await flushMicrotasks();
+            expect(hasNode(core, "ghost")).toBe(false);
+            core.dispose();
+        });
+
         it("a re-subscribe within the same tick cancels the reap", async () => {
             const core = new KeyedStore<number>();
             const c = Signal.compute(() => core.get$("x"));
