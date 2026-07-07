@@ -2,7 +2,7 @@
  * Runtime container detection and structural helpers shared by the draft
  * producer and the reactive proxy tree.
  *
- * ProxySignal only reaches *into* "plain containers" — arrays and plain objects.
+ * unstable_ProxySignal only reaches *into* "plain containers" — arrays and plain objects.
  * Everything else (class instances, `Map`/`Set`, `Date`, `RegExp`, functions,
  * primitives) is treated as an opaque leaf value: stored and replaced by
  * reference, never proxied deeply. This keeps the reactive graph predictable and
@@ -16,7 +16,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
     return proto === Object.prototype || proto === null;
 }
 
-/** An array or plain object — the only values ProxySignal traverses deeply. */
+/** An array or plain object — the only values unstable_ProxySignal traverses deeply. */
 export function isPlainContainer(value: unknown): value is Record<string, unknown> | unknown[] {
     return Array.isArray(value) || isPlainObject(value);
 }

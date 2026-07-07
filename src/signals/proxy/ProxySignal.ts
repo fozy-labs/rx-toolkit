@@ -37,7 +37,7 @@ const RESERVED_KEYS = new Set<string>([
     "propertyIsEnumerable",
 ]);
 
-const READ_ONLY_MESSAGE = "[ProxySignal] the reactive tree is read-only; use mutate() or set().";
+const READ_ONLY_MESSAGE = "[unstable_ProxySignal] the reactive tree is read-only; use mutate() or set().";
 
 function throwReadOnly(): never {
     throw new Error(READ_ONLY_MESSAGE);
@@ -298,7 +298,7 @@ class ProxyTree<T> {
 
     private _assertLive(): void {
         if (this._disposed) {
-            throw new Error("[ProxySignal] the signal has been disposed.");
+            throw new Error("[unstable_ProxySignal] the signal has been disposed.");
         }
     }
 
@@ -316,12 +316,12 @@ class ProxyTree<T> {
 }
 
 /**
- * Deep reactive store built on the signals graph. A single `ProxySignal` holds
- * an immutable object/array tree and exposes it as a lazily-materialised tree of
- * per-path signals:
+ * Deep reactive store built on the signals graph. A single `unstable_ProxySignal`
+ * holds an immutable object/array tree and exposes it as a lazily-materialised
+ * tree of per-path signals:
  *
  * ```ts
- * const ps = ProxySignal.state<Record<string, Entry>>({});
+ * const ps = unstable_ProxySignal.state<Record<string, Entry>>({});
  *
  * Signal.effect(() => {
  *     const entry = ps.root[key]();    // subscribes to exactly this path
@@ -339,7 +339,7 @@ class ProxyTree<T> {
  * - Writes are `Object.is`-deduped; a no-op `mutate` notifies nobody.
  * - Only arrays and plain objects are traversed; other values are opaque leaves.
  */
-export class ProxySignal {
+export class unstable_ProxySignal {
     static state<T>(initial: T): DeepSignalController<T> {
         const tree = new ProxyTree<T>(initial);
 

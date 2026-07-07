@@ -13,8 +13,8 @@ import {
     // proxy
     produce,
     PROXY_RAW,
-    ProxySignal,
     Signal,
+    unstable_ProxySignal,
     // operators
     signalize,
     SourceSignal,
@@ -69,9 +69,9 @@ describe("Signals module exports", () => {
     });
 
     describe("proxy", () => {
-        it("exports ProxySignal", () => {
-            expect(ProxySignal).toBeDefined();
-            expect(typeof ProxySignal.state).toBe("function");
+        it("exports unstable_ProxySignal", () => {
+            expect(unstable_ProxySignal).toBeDefined();
+            expect(typeof unstable_ProxySignal.state).toBe("function");
         });
 
         it("exports produce", () => {

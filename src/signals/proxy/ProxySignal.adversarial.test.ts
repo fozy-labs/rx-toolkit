@@ -1,12 +1,12 @@
 import { Signal } from "../signals";
 
 import { produce } from "./produce";
-import { debugNodeCount, PROXY_RAW, ProxySignal } from "./ProxySignal";
+import { debugNodeCount, PROXY_RAW, unstable_ProxySignal } from "./ProxySignal";
 
 /** Non-reactive raw read of a proxy node (never subscribes / materialises). */
 const raw = (node: unknown): unknown => (node as Record<symbol, unknown>)[PROXY_RAW];
 
-describe("ProxySignal (adversarial)", () => {
+describe("unstable_ProxySignal (adversarial)", () => {
     // ============================================================
     describe("produce: structural sharing & identity", () => {
         it("every node on a mutated 3-level path gets a fresh reference, siblings keep identity", () => {
@@ -125,7 +125,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("Object.is edges", () => {
         it("NaN → NaN is a no-op (value signal does not fire)", () => {
-            const ps = ProxySignal.state<{ a: number }>({ a: NaN });
+            const ps = unstable_ProxySignal.state<{ a: number }>({ a: NaN });
             const runs = vi.fn(() => ps.root.a());
             const eff = Signal.effect(runs);
             ps.mutate((d) => {
@@ -136,7 +136,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("+0 → -0 DOES fire (Object.is distinguishes signed zero)", () => {
-            const ps = ProxySignal.state<{ a: number }>({ a: 0 });
+            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 0 });
             const seen: number[] = [];
             const eff = Signal.effect(() => seen.push(ps.root.a()));
             ps.mutate((d) => {
@@ -148,7 +148,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("adding a key with undefined value: keys fire, value node stays asleep", () => {
-            const ps = ProxySignal.state<Record<string, number | undefined>>({ a: 1 });
+            const ps = unstable_ProxySignal.state<Record<string, number | undefined>>({ a: 1 });
             const valueRuns = vi.fn(() => ps.root.b());
             const keysRuns = vi.fn(() => Object.keys(ps.root).sort().join(","));
             const ev = Signal.effect(valueRuns);
@@ -167,7 +167,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("deleting a key: value node fires to undefined and structure fires", () => {
-            const ps = ProxySignal.state<Record<string, number>>({ a: 1, b: 2 });
+            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1, b: 2 });
             const aRuns = vi.fn(() => ps.root.a());
             const keysRuns = vi.fn(() => Object.keys(ps.root).length);
             const ea = Signal.effect(aRuns);
@@ -201,7 +201,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("arrays: hard mutations", () => {
         it("push does not wake an unchanged index but wakes length + keys", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
             const idx0 = vi.fn(() => ps.root.list[0]());
             const len = vi.fn(() => ps.root.list.length());
             const keys = vi.fn(() => Object.keys(ps.root.list).length);
@@ -224,7 +224,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("reverse of an odd array leaves the pivot index asleep", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             const mid = vi.fn(() => ps.root.list[1]());
             const first = vi.fn(() => ps.root.list[0]());
             const em = Signal.effect(mid);
@@ -243,7 +243,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("sort with comparator reorders and wakes only changed indices", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [3, 1, 2] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [3, 1, 2] });
             const i1 = vi.fn(() => ps.root.list[1]());
             const e1 = Signal.effect(i1);
 
@@ -257,7 +257,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("unshift shifts every element (all indices wake)", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             const i0 = vi.fn(() => ps.root.list[0]());
             const i2 = vi.fn(() => ps.root.list[2]());
             const e0 = Signal.effect(i0);
@@ -275,7 +275,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("pop wakes the removed tail index and length", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             const tail = vi.fn(() => ps.root.list[2]());
             const len = vi.fn(() => ps.root.list.length());
             const et = Signal.effect(tail);
@@ -294,7 +294,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("growing via arr[5]=x creates holes; keys skip holes; length grows", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
             const len = vi.fn(() => ps.root.list.length());
             const keys = vi.fn(() => Object.keys(ps.root.list).join(","));
             const el = Signal.effect(len);
@@ -315,7 +315,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("setting .length shorter truncates and wakes dropped indices but not length watchers of unchanged len", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3, 4] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3, 4] });
             const dropped = vi.fn(() => ps.root.list[3]());
             const len = vi.fn(() => ps.root.list.length());
             const ed = Signal.effect(dropped);
@@ -333,7 +333,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("direct index assignment does not wake the length watcher", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             const len = vi.fn(() => ps.root.list.length());
             const idx0 = vi.fn(() => ps.root.list[0]());
             const el = Signal.effect(len);
@@ -350,7 +350,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("delete arr[0] creates a hole: structure changes, length does not", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             const len = vi.fn(() => ps.root.list.length());
             const keys = vi.fn(() => Object.keys(ps.root.list).join(","));
             const i0 = vi.fn(() => ps.root.list[0]());
@@ -371,7 +371,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("fill overwrites every index", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
             ps.mutate((d) => {
                 d.list.fill(0);
             });
@@ -379,7 +379,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("copyWithin mutates through the draft", () => {
-            const ps = ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3, 4, 5] });
+            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3, 4, 5] });
             ps.mutate((d) => {
                 d.list.copyWithin(0, 3);
             });
@@ -387,7 +387,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("deep edit inside an array of objects shares the untouched element", () => {
-            const ps = ProxySignal.state<{ list: Array<{ v: number }> }>({ list: [{ v: 1 }, { v: 2 }] });
+            const ps = unstable_ProxySignal.state<{ list: Array<{ v: number }> }>({ list: [{ v: 1 }, { v: 2 }] });
             const before = ps.peek().list[1];
             const el1 = vi.fn(() => ps.root.list[1].v());
             const eff = Signal.effect(el1);
@@ -406,7 +406,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("glitch-freedom & consistency", () => {
         it("effect reading a parent AND child sees one consistent snapshot, runs once", () => {
-            const ps = ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
             const seen: Array<{ parent: { b: number }; child: number }> = [];
             const runs = vi.fn(() => {
                 const parent = ps.root.a();
@@ -429,7 +429,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("diamond through a computed re-runs the observer exactly once", () => {
-            const ps = ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
+            const ps = unstable_ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
             const sum = Signal.compute(() => ps.root.a() + ps.root.b());
             const runs = vi.fn(() => sum());
             const eff = Signal.effect(runs);
@@ -447,7 +447,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("effect reading a raw path AND a computed of that path stays consistent", () => {
-            const ps = ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
+            const ps = unstable_ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
             const sum = Signal.compute(() => ps.root.a() + ps.root.b());
             const seen: Array<[number, number]> = [];
             const runs = vi.fn(() => seen.push([ps.root.a(), sum()]));
@@ -464,7 +464,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("changing two disjoint deep paths read by one effect re-runs it once", () => {
-            const ps = ProxySignal.state<{ a: { b: number }; c: { d: number } }>({
+            const ps = unstable_ProxySignal.state<{ a: { b: number }; c: { d: number } }>({
                 a: { b: 1 },
                 c: { d: 2 },
             });
@@ -484,7 +484,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("set() whole-tree replacement (per-node dedupe)", () => {
         it("structurally-equal but new-ref tree wakes container node but not equal leaves", () => {
-            const ps = ProxySignal.state<{ a: number; b: { c: number } }>({ a: 1, b: { c: 2 } });
+            const ps = unstable_ProxySignal.state<{ a: number; b: { c: number } }>({ a: 1, b: { c: 2 } });
             const aRuns = vi.fn(() => ps.root.a());
             const bRuns = vi.fn(() => ps.root.b());
             const cRuns = vi.fn(() => ps.root.b.c());
@@ -504,7 +504,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("set() to a structurally different tree re-materialises correct values", () => {
-            const ps = ProxySignal.state<{ a?: { b?: number }; x?: number }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a?: { b?: number }; x?: number }>({ a: { b: 1 } });
             const seen: Array<number | undefined> = [];
             const eff = Signal.effect(() => seen.push(ps.root.a.b()));
 
@@ -519,7 +519,7 @@ describe("ProxySignal (adversarial)", () => {
 
         it("set() to Object.is-equal reference is a no-op", () => {
             const root = { a: 1 };
-            const ps = ProxySignal.state(root);
+            const ps = unstable_ProxySignal.state(root);
             const runs = vi.fn(() => ps.root.a());
             const eff = Signal.effect(runs);
             ps.set(root);
@@ -531,7 +531,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("prune / lifecycle under churn", () => {
         it("two effects on the same path keep the node until BOTH drop", () => {
-            const ps = ProxySignal.state<Record<string, number>>({ a: 1 });
+            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1 });
             const e1 = Signal.effect(() => ps.root.a());
             const e2 = Signal.effect(() => ps.root.a());
             expect(debugNodeCount(ps)).toBe(2);
@@ -544,7 +544,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("a node with both a value and a keys signal survives until both are cold", () => {
-            const ps = ProxySignal.state<{ sub: Record<string, number> }>({ sub: { a: 1 } });
+            const ps = unstable_ProxySignal.state<{ sub: Record<string, number> }>({ sub: { a: 1 } });
             const valueEff = Signal.effect(() => ps.root.sub());
             const keysEff = Signal.effect(() => Object.keys(ps.root.sub).length);
             expect(debugNodeCount(ps)).toBe(2); // root + sub
@@ -557,7 +557,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("dropping only the child dependency prunes just the child, keeps the parent", () => {
-            const ps = ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
             const toggle = Signal.state(true);
             const eff = Signal.effect(() => {
                 ps.root.a();
@@ -574,7 +574,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("dynamic-dependency effect prunes the dropped path and materialises the new one", () => {
-            const ps = ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
+            const ps = unstable_ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
             const which = Signal.state<"a" | "b">("a");
             const seen: number[] = [];
             const eff = Signal.effect(() => {
@@ -603,7 +603,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("re-materialisation after prune returns the CURRENT value, not a stale one", () => {
-            const ps = ProxySignal.state<{ a: number }>({ a: 1 });
+            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 1 });
             const e1 = Signal.effect(() => ps.root.a());
             e1.unsubscribe(); // node a pruned
             expect(debugNodeCount(ps)).toBe(1);
@@ -620,7 +620,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("intermediate chain prunes fully to root when the leaf observer drops", () => {
-            const ps = ProxySignal.state<{ a?: { b?: { c?: number } } }>({});
+            const ps = unstable_ProxySignal.state<{ a?: { b?: { c?: number } } }>({});
             const eff = Signal.effect(() => ps.root.a.b.c());
             expect(debugNodeCount(ps)).toBe(4);
             eff.unsubscribe();
@@ -628,7 +628,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("heavy key rotation leaves node count at 1", () => {
-            const ps = ProxySignal.state<Record<string, number>>({});
+            const ps = unstable_ProxySignal.state<Record<string, number>>({});
             for (let i = 0; i < 200; i++) {
                 const eff = Signal.effect(() => ps.root[`k${i % 7}`]());
                 eff.unsubscribe();
@@ -637,7 +637,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("non-tracked reads never create nodes", () => {
-            const ps = ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
             ps.root.a();
             ps.root.a.b();
             Object.keys(ps.root);
@@ -650,7 +650,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("deletion & resurrection with a persistent subscriber", () => {
         it("deep node fires to undefined on ancestor delete, then back on re-add (same effect)", () => {
-            const ps = ProxySignal.state<{ a?: { b?: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a?: { b?: number } }>({ a: { b: 1 } });
             const seen: Array<number | undefined> = [];
             const eff = Signal.effect(() => seen.push(ps.root.a.b()));
 
@@ -670,7 +670,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("replacing a container with a leaf, then back, drives the deep subscriber", () => {
-            const ps = ProxySignal.state<{ a: unknown }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: unknown }>({ a: { b: 1 } });
             const seen: Array<unknown> = [];
             const eff = Signal.effect(() => seen.push((ps.root.a as unknown as { b(): unknown }).b()));
 
@@ -686,7 +686,7 @@ describe("ProxySignal (adversarial)", () => {
     describe("opaque leaves", () => {
         it("navigating into a Set yields undefined and reference replacement wakes", () => {
             const s1 = new Set([1]);
-            const ps = ProxySignal.state<{ s: Set<number> }>({ s: s1 });
+            const ps = unstable_ProxySignal.state<{ s: Set<number> }>({ s: s1 });
             expect(ps.root.s()).toBe(s1);
             expect(raw((ps.root.s as unknown as Record<string, unknown>).size)).toBeUndefined();
 
@@ -706,7 +706,7 @@ describe("ProxySignal (adversarial)", () => {
                 value = 1;
             }
             const box = new Box();
-            const ps = ProxySignal.state<{ box: Box; n: number }>({ box, n: 0 });
+            const ps = unstable_ProxySignal.state<{ box: Box; n: number }>({ box, n: 0 });
             expect(ps.root.box()).toBe(box);
             expect(raw((ps.root.box as unknown as Record<string, unknown>).value)).toBeUndefined();
 
@@ -718,7 +718,7 @@ describe("ProxySignal (adversarial)", () => {
 
         it("mutating a Map in place is invisible (opaque, not diffed)", () => {
             const m = new Map<string, number>([["k", 1]]);
-            const ps = ProxySignal.state<{ m: Map<string, number> }>({ m });
+            const ps = unstable_ProxySignal.state<{ m: Map<string, number> }>({ m });
             const runs = vi.fn(() => ps.root.m());
             const eff = Signal.effect(runs);
 
@@ -734,27 +734,27 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("coercion / navigation robustness", () => {
         it("template / String / JSON coercion never throws", () => {
-            const ps = ProxySignal.state({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state({ a: { b: 1 } });
             expect(() => `${ps.root}`).not.toThrow();
             expect(() => String(ps.root.a)).not.toThrow();
             expect(() => JSON.stringify(ps.root)).not.toThrow();
         });
 
         it("is not thenable and await resolves to the proxy (no hang)", async () => {
-            const ps = ProxySignal.state({ a: 1 });
+            const ps = unstable_ProxySignal.state({ a: 1 });
             expect((ps.root as unknown as { then?: unknown }).then).toBeUndefined();
             const resolved = await (ps.root as unknown as Promise<unknown>);
             expect(resolved).toBe(ps.root);
         });
 
         it("hasOwnProperty-style probes do not crash and report structure", () => {
-            const ps = ProxySignal.state<{ a: number }>({ a: 1 });
+            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 1 });
             const probe = ps.root as unknown as { hasOwnProperty(k: string): boolean };
             expect(() => probe.hasOwnProperty("a")).not.toThrow();
         });
 
         it("Object.keys / for-in / in agree on a plain object", () => {
-            const ps = ProxySignal.state<Record<string, number>>({ x: 1, y: 2 });
+            const ps = unstable_ProxySignal.state<Record<string, number>>({ x: 1, y: 2 });
             expect(Object.keys(ps.root).sort()).toEqual(["x", "y"]);
             const seen: string[] = [];
             for (const k in ps.root) seen.push(k);
@@ -767,7 +767,7 @@ describe("ProxySignal (adversarial)", () => {
             const base: Record<string, number> = Object.create(null);
             base["0"] = 10;
             base[""] = 20;
-            const ps = ProxySignal.state(base);
+            const ps = unstable_ProxySignal.state(base);
             expect(ps.root["0"]()).toBe(10);
             expect(ps.root[""]()).toBe(20);
             expect(Object.keys(ps.root).sort()).toEqual(["", "0"]);
@@ -777,7 +777,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("draft misuse & safety", () => {
         it("rejects reading an escaped draft after the recipe returns", () => {
-            const ps = ProxySignal.state({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state({ a: { b: 1 } });
             let escaped: { b: number } | undefined;
             ps.mutate((d) => {
                 escaped = d.a;
@@ -786,7 +786,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("spreading a draft into a fresh object then assigning works with primitives", () => {
-            const ps = ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
+            const ps = unstable_ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
             ps.mutate((d) => {
                 const snapshot = { ...d };
                 d.a = snapshot.b; // 2
@@ -796,7 +796,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("reading a nested draft then reassigning its parent key uses the new value", () => {
-            const ps = ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
             ps.mutate((d) => {
                 void d.a; // materialise the nested draft
                 d.a = { b: 99 };
@@ -808,7 +808,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("dispose semantics", () => {
         it("all reads throw after dispose", () => {
-            const ps = ProxySignal.state({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state({ a: { b: 1 } });
             ps.dispose();
             expect(() => ps.peek()).toThrow(/disposed/);
             expect(() => ps.root.a()).toThrow(/disposed/);
@@ -816,7 +816,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("obs of a disposed tree completes existing subscribers", () => {
-            const ps = ProxySignal.state({ a: 1 });
+            const ps = unstable_ProxySignal.state({ a: 1 });
             let completed = false;
             const sub = ps.obs.subscribe({ complete: () => (completed = true) });
             ps.dispose();
@@ -828,7 +828,7 @@ describe("ProxySignal (adversarial)", () => {
     // ============================================================
     describe("re-entrancy", () => {
         it("an effect writing back into the store during its run settles consistently", () => {
-            const ps = ProxySignal.state<{ a: number; mirror: number }>({ a: 1, mirror: 0 });
+            const ps = unstable_ProxySignal.state<{ a: number; mirror: number }>({ a: 1, mirror: 0 });
             const eff = Signal.effect(() => {
                 const a = ps.root.a();
                 if (ps.peek().mirror !== a) {
@@ -864,7 +864,7 @@ describe("ProxySignal (adversarial)", () => {
         });
 
         it("conditional self-assign (d.a = cond ? new : d.a) does not poison the store", () => {
-            const ps = ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
+            const ps = unstable_ProxySignal.state<{ a: { b: number } }>({ a: { b: 1 } });
             ps.mutate((d) => {
                 const keep = true;
                 d.a = keep ? d.a : { b: 0 };

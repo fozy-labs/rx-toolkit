@@ -1,4 +1,4 @@
-import { ProxySignal, useSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_ProxySignal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody, CardHeader, Chip, Input } from "@heroui/react";
 
 type Profile = {
@@ -12,7 +12,7 @@ const initial: Profile = {
 };
 
 // Глубокий реактивный стор: читаем через дерево-прокси, пишем через mutate/set.
-const profile = ProxySignal.state<Profile>(initial);
+const profile = unstable_ProxySignal.state<Profile>(initial);
 
 const rename = (name: string) => profile.mutate((d) => { d.user.name = name; });
 const birthday = () => profile.mutate((d) => { d.user.age += 1; });
@@ -28,7 +28,7 @@ export function Base() {
     return (
         <Card className="max-w-md pt-2">
             <CardHeader className="flex-col items-start gap-1">
-                <span className="text-lg font-semibold">Профиль (ProxySignal)</span>
+                <span className="text-lg font-semibold">Профиль (unstable_ProxySignal)</span>
                 <span className="text-xs text-warning">экспериментально</span>
             </CardHeader>
             <CardBody className="space-y-4">
