@@ -100,6 +100,11 @@ export class KeyedStore<V> {
     }
 
     get$(key: string): V | undefined {
+        // Materialize a node only under tracking. An untracked call gains no
+        // reactivity, and a node it created for an absent key would never be
+        // reaped (reaping is driven by the last observer leaving) nor deleted
+        // (the key is not in `_present`) — a leak until dispose().
+        if (!DependencyTracker.isTracking) return this._present.get(key);
         return this._ensureNode(key).read();
     }
 
