@@ -62,7 +62,6 @@
 ## См. также
 
 - [CacheEntry — API][cache-entry-api]
-- [CacheMap — API][cache-map-api]
 - [Машина состояний][machine-concept]
 - [Патчинг][patching-concept]
 - [Ресурс — API][resource-api]
@@ -71,7 +70,6 @@
 ---
 
 [cache-entry-api]: ./_CacheEntry.md
-[cache-map-api]: ./_CacheMap.md
 [machine-concept]: ../concepts/machine.md
 [patching-concept]: ../concepts/patching.md
 [resource-api]: ./resource.md

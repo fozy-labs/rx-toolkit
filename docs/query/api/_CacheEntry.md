@@ -32,7 +32,6 @@
 
 ## См. также
 
-- [CacheMap — API](./_CacheMap.md) — контейнер, хранящий записи кэша по ключам
 - [QueryCacheEntry — API](./_QueryCacheEntry.md) — расширение CacheEntry для query-слоя
 - [Кэш (концепция)](../concepts/cache.md) — общая архитектура кэша
 - [Машина состояний](../concepts/machine.md) — жизненный цикл состояния записи
