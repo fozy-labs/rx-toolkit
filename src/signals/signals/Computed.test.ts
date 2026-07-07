@@ -175,6 +175,44 @@ describe("Computed", () => {
         });
     });
 
+    describe("Object.is dedupe (NaN / ±0)", () => {
+        it("Computed(() => NaN) emits NaN once, not twice", () => {
+            // The obs pipeline structurally emits the initial value twice (map's
+            // _start() return + the reentrant state.set); distinctUntilChanged is
+            // meant to collapse that. With === it can't (NaN === NaN is false),
+            // so NaN leaks through twice.
+            const c = Computed.create(() => NaN);
+
+            const values: number[] = [];
+            const sub = c.obs.subscribe((v: number | symbol) => values.push(v as number));
+
+            expect(values).toHaveLength(1);
+            expect(values[0]).toBeNaN();
+
+            sub.unsubscribe();
+        });
+
+        it("recompute +0 -> -0 is not swallowed (Object.is distinguishes signed zero)", () => {
+            const sign = Signal.state(1);
+            // 0 * 1 === +0, 0 * -1 === -0
+            const c = Computed.create(() => 0 * sign());
+
+            const values: number[] = [];
+            const sub = c.obs.subscribe((v: number | symbol) => values.push(v as number));
+
+            expect(values).toHaveLength(1);
+            expect(Object.is(values[0], +0)).toBe(true);
+
+            sign.set(-1);
+
+            // === treats +0 and -0 as equal and would swallow the change
+            expect(values).toHaveLength(2);
+            expect(Object.is(values[1], -0)).toBe(true);
+
+            sub.unsubscribe();
+        });
+    });
+
     describe("error handling", () => {
         it("error in computeFn propagates to obs subscriber", () => {
             const c = Computed.create(() => {

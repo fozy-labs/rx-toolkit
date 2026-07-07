@@ -92,8 +92,15 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
 }
 
 export function reduxDevtools(options: Options = {}): DevtoolsLike {
-    const devtools =
-        options.driver ?? ((window as any).__REDUX_DEVTOOLS_EXTENSION__ as ReduxDevtoolsExtension | undefined);
+    // `typeof window` guards SSR/Node: a bare `window` reference throws
+    // ReferenceError on an undeclared global (optional chaining won't help —
+    // the identifier reference throws before any operator applies). No window
+    // simply means "no extension", which the check below handles gracefully.
+    const globalDriver =
+        typeof window !== "undefined"
+            ? ((window as any).__REDUX_DEVTOOLS_EXTENSION__ as ReduxDevtoolsExtension | undefined)
+            : undefined;
+    const devtools = options.driver ?? globalDriver;
 
     if (!devtools) {
         throw new Error("Redux Devtools extension is not installed");
