@@ -1,70 +1,37 @@
-import { Observable } from "rxjs";
+import type { StateSignal } from "@/signals/types";
 
-/**
- * A callable node of the reactive tree. Invoking it reads the value at this path
- * and, inside a tracking context, subscribes to it.
- */
-export interface SignalNode<T> {
+type IsNullish<T> = Extract<T, null | undefined> extends never ? false : true;
+
+interface PathCallRequired<T> {
     (): T;
 }
 
-// Broad "any function" matcher — intentional here, this is a type-level guard.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-type AnyFunction = Function;
+interface PathCallOptional<T> {
+    (): T | undefined;
+    <I>(initialValue: I): Exclude<T, undefined> | I;
+}
 
 /**
- * Values treated as opaque leaves: navigation stops here, reactivity is by
- * whole-reference replacement only. Mirrors the runtime `isPlainContainer` rule.
+ * Optional-chaining semantics: a segment is "optional" if any ancestor on the
+ * path may be null/undefined/missing. Index access into arrays is always
+ * optional (out-of-bounds), regardless of the user's tsconfig.
  */
-type LeafValue =
-    | AnyFunction
-    | Map<unknown, unknown>
-    | Set<unknown>
-    | WeakMap<object, unknown>
-    | WeakSet<object>
-    | Date
-    | RegExp
-    | Promise<unknown>;
+type PathChildren<T, TOptional extends boolean> = T extends Map<any, any> | Set<any>
+    ? unknown // Map/Set are atomic leaves for path traversal
+    : T extends readonly (infer E)[]
+    ? { readonly [index: number]: PathNode<E, true> }
+    : T extends object
+      ? {
+            readonly [K in keyof T]-?: PathNode<T[K], TOptional extends true ? true : IsNullish<T[K]>>;
+        }
+      : unknown;
 
-type IsLeaf<T> = [NonNullable<T>] extends [LeafValue] ? true : false;
+export type PathNode<T, TOptional extends boolean = false> = (TOptional extends true
+    ? PathCallOptional<T>
+    : PathCallRequired<T>) &
+    PathChildren<NonNullable<T>, TOptional extends true ? true : IsNullish<T>>;
 
-/**
- * Recursive projection of a state shape `T` onto the reactive proxy tree. Every
- * node is callable (`node()` reads + subscribes to that exact path) and, for
- * container nodes, indexable to navigate deeper.
- *
- * Notes on the type-level model:
- * - Nullable containers (`{ a?: {...} }`) stay navigable: fields come from
- *   `NonNullable<T>`, while the call signature still returns the nullable `T`
- *   (the runtime read may be `undefined` when the path is absent).
- * - Arrays expose numeric index access and a reactive `length`.
- * - Leaves (functions, `Map`/`Set`, `Date`, primitives) are call-only.
- */
-export type DeepSignal<T> = SignalNode<T> & DeepFields<T>;
-
-type DeepFields<T> =
-    IsLeaf<T> extends true
-        ? unknown
-        : [NonNullable<T>] extends [readonly (infer U)[]]
-          ? { readonly [index: number]: DeepSignal<U> } & { readonly length: SignalNode<number> }
-          : [NonNullable<T>] extends [object]
-            ? { readonly [K in keyof NonNullable<T>]-?: DeepSignal<NonNullable<T>[K]> }
-            : unknown;
-
-/**
- * Public handle returned by `unstable_ProxySignal.state`. Reads flow through `root`
- * (the reactive tree); writes flow through `set` / `mutate`.
- */
-export interface DeepSignalController<T> extends Disposable {
-    /** Root of the reactive proxy tree. */
-    readonly root: DeepSignal<T>;
-    /** Whole-tree observable — emits the root value on any change. */
-    readonly obs: Observable<T>;
-    /** Non-reactive snapshot of the whole tree. */
-    peek(): T;
-    /** Replace the whole tree. Diffs against the previous tree by reference. */
-    set(next: T): void;
-    /** Mutate through a copy-on-write draft; only touched paths notify. */
-    mutate(recipe: (draft: T) => void): void;
-    dispose(): void;
+export interface ProxyStateSignal<T extends object> extends StateSignal<T> {
+    mutate(recipe: (draft: T) => void, actionName?: string): void;
+    readonly root: PathNode<T, false>;
 }

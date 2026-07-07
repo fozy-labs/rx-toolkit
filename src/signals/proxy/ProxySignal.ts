@@ -1,367 +1,242 @@
-import { Observable } from "rxjs";
+import { BehaviorSubject } from "rxjs";
 
-import { Batcher, DependencyTracker } from "@/signals/base";
-import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import type { SignalOptionsOrKey } from "@/signals/types";
 
-import { isPlainContainer, ownKeysOf, sameKeySet } from "./helpers";
-import { produce } from "./produce";
-import { TrackSignal } from "./TrackSignal";
-import type { DeepSignal, DeepSignalController } from "./types";
+import { Batcher, type DependencyRecord, DependencyTracker } from "../base";
+import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
+import { State } from "../signals/State";
+import { isDraftable, produce } from "./produce";
+import type { PathNode, ProxyStateSignal } from "./types";
 
-/**
- * Non-reactive escape hatch: `node[PROXY_RAW]` returns the current raw value at
- * that path without creating a dependency. Mainly for tests and tooling.
- */
-export const PROXY_RAW = Symbol("proxySignal.raw");
+function stepInto(container: unknown, segment: string): unknown {
+    if (container === null || typeof container !== "object") return undefined;
+    // Map/Set are atomic leaves for path traversal.
+    if (container instanceof Map || container instanceof Set) return undefined;
+    return (container as any)[segment];
+}
 
-/** @internal Attaches the backing tree to a controller for test introspection. */
-export const PROXY_TREE = Symbol("proxySignal.tree");
-
-/**
- * Property keys that must not be treated as data navigation. When the raw value
- * at a path does not own such a key, the trap yields the callable target's own
- * default (a native method or `undefined`) instead of a child proxy — so
- * stringifying, awaiting or JSON-serialising the proxy degrades gracefully
- * instead of throwing or hanging. Data keys with these exact names are therefore
- * not reactively navigable (read them via `peek()`); such names are pathological.
- */
-const RESERVED_KEYS = new Set<string>([
-    "then",
-    "toString",
-    "valueOf",
-    "toJSON",
-    "toLocaleString",
-    "constructor",
-    "hasOwnProperty",
-    "isPrototypeOf",
-    "propertyIsEnumerable",
-]);
-
-const READ_ONLY_MESSAGE = "[unstable_ProxySignal] the reactive tree is read-only; use mutate() or set().";
-
-function throwReadOnly(): never {
-    throw new Error(READ_ONLY_MESSAGE);
+function getAtPath(root: unknown, segments: string[]): unknown {
+    let current: unknown = root;
+    for (const segment of segments) {
+        current = stepInto(current, segment);
+    }
+    return current;
 }
 
 /**
- * One live node of the reactive tree, keyed by path. Nodes are created lazily —
- * on reactive read for a value signal, on iteration/`in` for a keys signal, or
- * as a structural parent of a deeper live node — and pruned once cold.
- *
- * Invariant: for every live node, `value` equals the current raw slice at its
- * path. It is seeded on creation from the parent's `value` and maintained by
- * {@link ProxyTree._propagate}.
+ * A per-path source signal. `peek` reads the CURRENT value from the root by
+ * path (not the local subject): dependency records captured by a dormant
+ * Computed's ComputeCache must stay truthful even after this node is pruned
+ * from the trie, otherwise the cache would validate against a stale value.
  */
-class ProxyNode {
-    children: Map<string, ProxyNode> | null = null;
-    /** Fires on any change to the value at this exact path (incl. deep changes). */
-    valueSignal: TrackSignal<unknown> | null = null;
-    /** Fires when the *set* of own keys at this path changes (add/remove). */
-    keysSignal: TrackSignal<number> | null = null;
-    private _keysVersion = 0;
+class PathState {
+    private readonly bs$: BehaviorSubject<unknown>;
+    readonly depRecord: DependencyRecord;
 
-    constructor(
-        readonly parent: ProxyNode | null,
-        readonly key: string | null,
-        public value: unknown,
-    ) {}
+    constructor(initialValue: unknown, peekLive: () => unknown) {
+        this.bs$ = new BehaviorSubject(initialValue);
+        this.depRecord = {
+            getRang: () => 0,
+            obs: this.bs$.asObservable(),
+            peek: peekLive,
+        };
+    }
 
-    bumpKeys(): void {
-        this._keysVersion += 1;
-        this.keysSignal!.set(this._keysVersion);
+    get observed() {
+        return this.bs$.observed;
+    }
+
+    get() {
+        if (DependencyTracker.isTracking) {
+            DependencyTracker.track(this.depRecord);
+        }
+        return this.bs$.getValue();
+    }
+
+    /** Called only inside a commit's Batcher.run. */
+    set(value: unknown) {
+        if (Object.is(value, this.bs$.getValue())) return;
+        this.bs$.next(value);
+    }
+
+    dispose() {
+        this.bs$.complete();
     }
 }
 
-class ProxyTree<T> {
-    private _raw: T;
-    private readonly _root: ProxyNode;
-    private _disposed = false;
-    /** Public reactive proxy tree root (distinct from `_root`, the node graph). */
-    readonly root: DeepSignal<T>;
+interface TrieNode {
+    segments: string[];
+    children: Map<string, TrieNode>;
+    /** Materialized on first read of this path. */
+    state: PathState | null;
+    /** Cached path proxy for this node. */
+    proxy: unknown | null;
+}
 
-    constructor(initial: T) {
-        this._raw = initial;
-        this._root = new ProxyNode(null, null, initial);
-        this.root = this._createProxy([]) as DeepSignal<T>;
+class ProxySignalCore<T extends object> {
+    private readonly _root: State<T>;
+    private readonly _trie: TrieNode = { segments: [], children: new Map(), state: null, proxy: null };
+
+    constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
+        this._root = new State(initialValue, options);
     }
 
-    // ===== public surface =====
-
-    peek(): T {
-        this._assertLive();
-        return this._raw;
+    get() {
+        return this._root.get();
     }
 
-    get obs(): Observable<T> {
-        this._assertLive();
-        const signal = this._ensureValueSignal(this._root);
-        return signal.obs as Observable<T>;
+    peek() {
+        return this._root.peek();
     }
 
-    set(next: T): void {
-        this._assertLive();
-        if (Object.is(this._raw, next)) return;
-        this._raw = next;
-        Batcher.run(() => this._propagate(this._root, next));
+    get obs() {
+        return this._root.obs;
     }
 
-    mutate(recipe: (draft: T) => void): void {
-        this._assertLive();
-        const next = produce(this._raw, recipe);
-        if (Object.is(this._raw, next)) return;
-        this._raw = next;
-        Batcher.run(() => this._propagate(this._root, next));
+    set(value: T, actionName?: string) {
+        this._commit(value, actionName);
     }
 
-    dispose(): void {
-        if (this._disposed) return;
-        this._disposed = true;
-        this._disposeNode(this._root);
+    update(updater: (value: T) => T, actionName?: string) {
+        this._commit(updater(this._root.peek()), actionName);
     }
 
-    // ===== proxy construction =====
+    mutate(recipe: (draft: T) => void, actionName?: string) {
+        const base = this._root.peek();
+        if (!isDraftable(base)) {
+            throw new TypeError("ProxySignal.mutate: state must be a plain object, an array, a Map or a Set");
+        }
+        const next = produce(base, recipe);
+        if (Object.is(next, base)) return;
+        this._commit(next, actionName);
+    }
 
-    private _createProxy(path: readonly string[]): unknown {
-        // Callable arrow target: invocable (apply), with no `prototype` own key
-        // to complicate the ownKeys invariant. Trap methods are arrows so `this`
-        // stays the tree without aliasing.
-        const target = () => undefined;
+    dispose() {
+        this._root.dispose();
+        ProxySignalCore._disposeSubtree(this._trie);
+    }
 
-        return new Proxy(target, {
-            apply: () => this._readValue(path),
-            get: (t, prop) => {
-                if (prop === PROXY_RAW) return this._peek(path);
-                if (typeof prop === "symbol") return undefined;
-                if (RESERVED_KEYS.has(prop)) {
-                    const raw = this._peek(path);
-                    if (!(isPlainContainer(raw) && Object.prototype.hasOwnProperty.call(raw, prop))) {
-                        return Reflect.get(t, prop);
-                    }
-                }
-                return this._createProxy([...path, prop]);
+    rootProxy(): unknown {
+        return this._pathProxy([]);
+    }
+
+    /**
+     * Proxies close over `segments` and re-resolve the trie node on every
+     * access: a proxy the consumer kept around stays functional even after
+     * its node was pruned — the node (and its signal) is recreated lazily.
+     */
+    private _pathProxy(segments: string[]): unknown {
+        const node = this._nodeFor(segments);
+        if (node.proxy) return node.proxy;
+
+        const pathRead = (initialValue?: unknown) => {
+            const value = this._ensureState(this._nodeFor(segments)).get();
+            return value === undefined ? initialValue : value;
+        };
+
+        node.proxy = new Proxy(pathRead, {
+            get: (target, prop) => {
+                if (typeof prop === "symbol") return Reflect.get(target, prop);
+                return this._pathProxy([...segments, prop]);
             },
-            has: (_t, prop) => {
-                if (typeof prop === "symbol") return false;
-                return this._hasKey(path, prop);
-            },
-            ownKeys: () => this._ownKeys(path),
-            getOwnPropertyDescriptor: (_t, prop) => {
-                if (typeof prop === "symbol") return undefined;
-                return this._descriptor(path, prop);
-            },
-            // Every mutating trap is blocked so the tree stays strictly
-            // read-only. This deliberately includes defineProperty /
-            // preventExtensions / setPrototypeOf: without them, Object.defineProperty
-            // and Object.freeze fall through to the internal callable target and
-            // permanently corrupt the (stable root) proxy via invariant violations.
-            // preventExtensions throwing also aborts Object.freeze at its first
-            // step, before the target is ever mutated.
-            set: throwReadOnly,
-            deleteProperty: throwReadOnly,
-            defineProperty: throwReadOnly,
-            setPrototypeOf: throwReadOnly,
-            preventExtensions: throwReadOnly,
         });
+        return node.proxy;
     }
 
-    // ===== reactive reads =====
-
-    private _readValue(path: readonly string[]): unknown {
-        this._assertLive();
-        if (!DependencyTracker.isTracking) return this._peek(path);
-        const node = this._ensureNode(path);
-        this._ensureValueSignal(node).track();
-        return node.value;
-    }
-
-    private _hasKey(path: readonly string[], key: string): boolean {
-        this._assertLive();
-        if (DependencyTracker.isTracking) this._ensureKeysSignal(this._ensureNode(path)).track();
-        const raw = this._peek(path);
-        return isPlainContainer(raw) && Object.prototype.hasOwnProperty.call(raw, key);
-    }
-
-    private _ownKeys(path: readonly string[]): string[] {
-        this._assertLive();
-        if (DependencyTracker.isTracking) this._ensureKeysSignal(this._ensureNode(path)).track();
-        return ownKeysOf(this._peek(path)) as string[];
-    }
-
-    private _descriptor(path: readonly string[], key: string): PropertyDescriptor | undefined {
-        this._assertLive();
-        if (DependencyTracker.isTracking) this._ensureKeysSignal(this._ensureNode(path)).track();
-        const raw = this._peek(path);
-        if (isPlainContainer(raw) && Object.prototype.hasOwnProperty.call(raw, key)) {
-            return {
-                enumerable: true,
-                configurable: true,
-                writable: false,
-                value: this._createProxy([...path, key]),
-            };
-        }
-        return undefined;
-    }
-
-    // ===== raw access =====
-
-    /** Own-property walk of the raw tree; `undefined` for absent/inherited paths. */
-    private _peek(path: readonly string[]): unknown {
-        let value: unknown = this._raw;
-        for (const key of path) {
-            if (!isPlainContainer(value)) return undefined;
-            if (!Object.prototype.hasOwnProperty.call(value, key)) return undefined;
-            value = (value as Record<string, unknown>)[key];
-        }
-        return value;
-    }
-
-    // ===== node lifecycle =====
-
-    private _ensureNode(path: readonly string[]): ProxyNode {
-        let node = this._root;
-        for (const key of path) {
-            let child = node.children?.get(key);
+    private _nodeFor(segments: string[]): TrieNode {
+        let node = this._trie;
+        for (const segment of segments) {
+            let child = node.children.get(segment);
             if (!child) {
-                const childValue = isPlainContainer(node.value)
-                    ? (node.value as Record<string, unknown>)[key]
-                    : undefined;
-                child = new ProxyNode(node, key, childValue);
-                (node.children ??= new Map()).set(key, child);
+                child = {
+                    segments: node.segments.concat(segment),
+                    children: new Map(),
+                    state: null,
+                    proxy: null,
+                };
+                node.children.set(segment, child);
             }
             node = child;
         }
         return node;
     }
 
-    private _ensureValueSignal(node: ProxyNode): TrackSignal<unknown> {
-        return (node.valueSignal ??= new TrackSignal<unknown>(node.value, () => this._maybePrune(node)));
-    }
-
-    private _ensureKeysSignal(node: ProxyNode): TrackSignal<number> {
-        return (node.keysSignal ??= new TrackSignal<number>(0, () => this._maybePrune(node)));
-    }
-
-    /** Detach a cold node (no observed signals, no children) and cascade upward. */
-    private _maybePrune(node: ProxyNode): void {
-        if (this._disposed) return;
-        if (node === this._root) return;
-        if (node.valueSignal?.observed || node.keysSignal?.observed) return;
-        if (node.children && node.children.size > 0) return;
-
-        node.valueSignal?.dispose();
-        node.keysSignal?.dispose();
-        node.valueSignal = null;
-        node.keysSignal = null;
-
-        const parent = node.parent!;
-        parent.children!.delete(node.key!);
-        if (parent.children!.size === 0) parent.children = null;
-
-        this._maybePrune(parent);
+    private _ensureState(node: TrieNode): PathState {
+        if (!node.state) {
+            const segments = node.segments;
+            node.state = new PathState(getAtPath(this._root.peek(), segments), () =>
+                getAtPath(this._root.peek(), segments),
+            );
+        }
+        return node.state;
     }
 
     /**
-     * Push a new tree value into the live node graph. Recurses only where the
-     * reference actually changed (structural sharing prunes untouched subtrees),
-     * firing each existing node's value signal, and its keys signal only when the
-     * own-key set changed. Runs inside a single {@link Batcher.run}.
+     * Top-down diff over the materialized trie. Object.is-equal subtrees are
+     * skipped entirely — with structural sharing from mutate() the cost is
+     * proportional to the changed region, not to the number of paths ever
+     * read. Inside changed regions, nodes nobody observes are pruned (their
+     * dependency records stay valid thanks to PathState's live peek).
      */
-    private _propagate(node: ProxyNode, newValue: unknown): void {
-        const oldValue = node.value;
+    private _commit(value: T, actionName?: string) {
+        const previous = this._root.peek();
+        Batcher.run(() => {
+            this._root.set(value, actionName);
+            this._walk(this._trie, previous, value);
+        });
+    }
+
+    private _walk(node: TrieNode, oldValue: unknown, newValue: unknown) {
         if (Object.is(oldValue, newValue)) return;
-
-        node.value = newValue;
-        node.valueSignal?.set(newValue);
-        if (node.keysSignal && !sameKeySet(oldValue, newValue)) {
-            node.bumpKeys();
-        }
-
-        if (!node.children) return;
-        const container = isPlainContainer(newValue) ? (newValue as Record<string, unknown>) : null;
-        // Snapshot: a fired signal can schedule an effect that (on flush) prunes
-        // siblings; iterate a copy so the live map can mutate safely.
-        for (const child of [...node.children.values()]) {
-            this._propagate(child, container ? container[child.key!] : undefined);
+        node.state?.set(newValue);
+        for (const [segment, child] of node.children) {
+            if (!ProxySignalCore._hasObservers(child)) {
+                node.children.delete(segment);
+                ProxySignalCore._disposeSubtree(child);
+                continue;
+            }
+            this._walk(child, stepInto(oldValue, segment), stepInto(newValue, segment));
         }
     }
 
-    private _disposeNode(node: ProxyNode): void {
-        node.valueSignal?.dispose();
-        node.keysSignal?.dispose();
-        node.valueSignal = null;
-        node.keysSignal = null;
-        if (node.children) {
-            for (const child of node.children.values()) this._disposeNode(child);
-            node.children = null;
+    private static _hasObservers(node: TrieNode): boolean {
+        if (node.state?.observed) return true;
+        for (const child of node.children.values()) {
+            if (ProxySignalCore._hasObservers(child)) return true;
         }
+        return false;
     }
 
-    private _assertLive(): void {
-        if (this._disposed) {
-            throw new Error("[unstable_ProxySignal] the signal has been disposed.");
+    private static _disposeSubtree(node: TrieNode) {
+        node.state?.dispose();
+        node.state = null;
+        node.proxy = null;
+        for (const child of node.children.values()) {
+            ProxySignalCore._disposeSubtree(child);
         }
-    }
-
-    // ===== test/tooling introspection =====
-
-    /** Number of live nodes in the tree (root included). Internal, for tests. */
-    debugNodeCount(): number {
-        const count = (node: ProxyNode): number => {
-            let total = 1;
-            if (node.children) for (const child of node.children.values()) total += count(child);
-            return total;
-        };
-        return count(this._root);
+        node.children.clear();
     }
 }
 
-/**
- * Deep reactive store built on the signals graph. A single `unstable_ProxySignal`
- * holds an immutable object/array tree and exposes it as a lazily-materialised
- * tree of per-path signals:
- *
- * ```ts
- * const ps = unstable_ProxySignal.state<Record<string, Entry>>({});
- *
- * Signal.effect(() => {
- *     const entry = ps.root[key]();    // subscribes to exactly this path
- * });
- *
- * ps.mutate((draft) => {
- *     draft[key] = value;              // wakes only observers of `key`
- * });
- * ```
- *
- * Semantics:
- * - `node()` fires on any change to its value, including deep changes — updates
- *   are copy-on-write, so a deep mutation replaces every ancestor reference.
- * - `key in node` / `Object.keys(node)` fire only when the own-key set changes.
- * - Writes are `Object.is`-deduped; a no-op `mutate` notifies nobody.
- * - Only arrays and plain objects are traversed; other values are opaque leaves.
- */
 export class unstable_ProxySignal {
-    static state<T>(initial: T): DeepSignalController<T> {
-        const tree = new ProxyTree<T>(initial);
+    static state<T extends object>(initialValue: T, options?: SignalOptionsOrKey<T>): ProxyStateSignal<T> {
+        const core = new ProxySignalCore(initialValue, options);
 
-        const dispose = () => tree.dispose();
+        function signalFn() {
+            return core.get();
+        }
 
-        return {
-            root: tree.root,
-            get obs() {
-                return tree.obs;
-            },
-            peek: () => tree.peek(),
-            set: (next: T) => tree.set(next),
-            mutate: (recipe: (draft: T) => void) => tree.mutate(recipe),
-            dispose,
-            [SYMBOL_DISPOSE]: dispose,
-            [PROXY_TREE]: tree,
-        } as DeepSignalController<T>;
+        signalFn.peek = () => core.peek();
+        signalFn.get = () => core.get();
+        signalFn.set = (value: T, actionName?: string) => core.set(value, actionName);
+        signalFn.update = (updater: (value: T) => T, actionName?: string) => core.update(updater, actionName);
+        signalFn.mutate = (recipe: (draft: T) => void, actionName?: string) => core.mutate(recipe, actionName);
+        signalFn.obs = core.obs;
+        signalFn.root = core.rootProxy() as PathNode<T>;
+        const dispose = () => core.dispose();
+        signalFn.dispose = dispose;
+        signalFn[SYMBOL_DISPOSE] = dispose;
+
+        return signalFn;
     }
-}
-
-/** @internal — count live nodes behind a controller (tests/tooling only). */
-export function debugNodeCount(controller: DeepSignalController<unknown>): number {
-    const tree = (controller as unknown as Record<symbol, ProxyTree<unknown>>)[PROXY_TREE];
-    return tree.debugNodeCount();
 }

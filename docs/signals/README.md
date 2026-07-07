@@ -244,9 +244,9 @@ function logout() {
 Глубокий реактивный стор: держит одно дерево состояния (обычные объекты + массивы) и отдаёт его как ленивое дерево пер-путевых сигналов. Подписка идёт **точечно, на конкретный путь**, а не на весь стор целиком — то, чего не хватает при использовании одного общего сигнала-версии.
 
 ```typescript
-import { unstable_ProxySignal, Signal } from '@fozy-labs/rx-toolkit';
+import { unstable_ProxySignal as ProxySignal, Signal } from '@fozy-labs/rx-toolkit';
 
-const ps = unstable_ProxySignal.state({
+const ps = ProxySignal.state({
     user: { name: 'Ann', age: 20 },
     tags: ['a', 'b'],
 });

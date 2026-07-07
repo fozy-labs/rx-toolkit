@@ -12,7 +12,6 @@ import {
     normalizeSignalOptions,
     // proxy
     produce,
-    PROXY_RAW,
     Signal,
     unstable_ProxySignal,
     // operators
@@ -77,10 +76,6 @@ describe("Signals module exports", () => {
         it("exports produce", () => {
             expect(produce).toBeDefined();
             expect(typeof produce).toBe("function");
-        });
-
-        it("exports PROXY_RAW", () => {
-            expect(typeof PROXY_RAW).toBe("symbol");
         });
     });
 

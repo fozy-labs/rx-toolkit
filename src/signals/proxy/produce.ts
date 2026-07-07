@@ -1,286 +1,280 @@
 /**
- * Minimal copy-on-write producer ("immer-lite") powering {@link unstable_ProxySignal}'s
- * `update(draft => ...)`.
+ * Minimal copy-on-write draft (immer-like), scoped to plain objects, arrays,
+ * Map and Set. The base is never mutated; untouched subtrees keep reference
+ * identity, and a recipe that changes nothing returns the base itself
+ * (Object.is-equal).
  *
- * The recipe mutates a draft proxy; on return we materialise a new immutable
- * tree that **shares structure** with the base: any subtree the recipe did not
- * touch keeps its original reference. That structural sharing is what lets the
- * reactive tree diff cheaply by identity and fire exactly the affected signals.
- *
- * Scope, deliberately: only arrays and plain objects are drafted. Any other
- * value (class instance, `Map`/`Set`, `Date`, primitive) is an opaque leaf —
- * assigning one replaces a reference wholesale; the producer never clones or
- * reaches inside it.
- *
- * The recipe's return value is ignored on purpose. `draft[key] = value` is an
- * assignment *expression* that evaluates to `value`, so honouring returns would
- * misread the common `update(s => s.k = v)` form as a whole-tree replacement.
- * Use `unstable_ProxySignal.set(next)` for wholesale replacement instead.
+ * Map values are draftable; Set elements and class instances are atomic leaf
+ * values — they are replaced wholesale, never drafted.
  */
-import { isPlainContainer, shallowClone } from "./helpers";
 
-/** Internal per-node bookkeeping for a live draft. */
+const DRAFT_STATE = Symbol("rx-toolkit.draft-state");
+
 interface DraftState {
-    /** Original (frozen-in-spirit) value this draft wraps. */
-    base: Record<string | symbol, unknown>;
-    /** Lazily-created shallow clone; non-null once this node is modified. */
-    copy: Record<string | symbol, unknown> | null;
-    /** True once this node or any descendant was written. */
+    base: any;
+    /** Shallow copy of base, created on first write to this node. */
+    copy: any | null;
     modified: boolean;
-    parent: DraftState | null;
-    parentKey: string | null;
-    /** The user-facing draft proxy for this node. */
-    proxy: unknown;
-    /** Cached child drafts, by own key, created lazily on read. */
-    children: Map<string, DraftState>;
+    /** Child drafts handed out from this node, keyed by property / map key. */
+    drafts: Map<unknown, any>;
+    draft: any;
 }
 
-const DRAFT_STATE = Symbol("proxySignal.draftState");
+export function isDraftable(value: unknown): value is object {
+    if (value === null || typeof value !== "object") return false;
+    if (Array.isArray(value) || value instanceof Map || value instanceof Set) return true;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+}
+
+function shallowCopy(base: any): any {
+    if (Array.isArray(base)) return base.slice();
+    if (base instanceof Map) return new Map(base);
+    if (base instanceof Set) return new Set(base);
+    return Object.assign(Object.create(Object.getPrototypeOf(base)), base);
+}
+
+function latest(state: DraftState): any {
+    return state.copy ?? state.base;
+}
+
+function isDraft(value: unknown): boolean {
+    return isDraftable(value) && (value as any)[DRAFT_STATE] !== undefined;
+}
+
+function createDraft(base: any, onWrite: (() => void) | null): DraftState {
+    const state: DraftState = { base, copy: null, modified: false, drafts: new Map(), draft: null };
+
+    const touch = () => {
+        if (!state.modified) {
+            state.modified = true;
+            state.copy = shallowCopy(state.base);
+        }
+        onWrite?.();
+    };
+
+    if (base instanceof Map) {
+        state.draft = createMapDraft(state, touch);
+    } else if (base instanceof Set) {
+        state.draft = createSetDraft(state, touch);
+    } else {
+        state.draft = createObjectDraft(state, touch);
+    }
+
+    return state;
+}
 
 /**
- * The draft bookkeeping behind a value, or `null` if it is not one of this
- * producer's draft proxies. Reading `DRAFT_STATE` is answered before the
- * "draft escaped" guard, so this is safe even after finalization.
+ * Returns the (possibly drafted) child at `key`. `read`/`readBase` abstract
+ * over property access vs Map.get.
  */
-function getDraftStateOf(value: unknown): DraftState | null {
-    if (value === null || typeof value !== "object") return null;
-    return ((value as Record<symbol, unknown>)[DRAFT_STATE] as DraftState | undefined) ?? null;
+function childValue(
+    state: DraftState,
+    touch: () => void,
+    key: unknown,
+    read: (container: any, key: any) => unknown,
+): unknown {
+    const value = read(latest(state), key);
+    const existing = state.drafts.get(key);
+    if (existing !== undefined && Object.is(value, existing[DRAFT_STATE].base)) {
+        return existing;
+    }
+    // Draft only values still shared with the base; objects assigned during
+    // the recipe are owned by the draft and mutate directly.
+    if (isDraftable(value) && !isDraft(value) && Object.is(value, read(state.base, key))) {
+        const child = createDraft(value, touch).draft;
+        state.drafts.set(key, child);
+        return child;
+    }
+    return value;
 }
 
-class Producer {
-    /** Flipped after the recipe returns; every trap rejects use past this point. */
-    private _finalized = false;
-
-    produce<T>(base: T, recipe: (draft: T) => void): T {
-        // A non-container root cannot be drafted (nothing to mutate through a
-        // proxy). Run the recipe for its side effects and return base untouched;
-        // callers replace primitives via `set()`.
-        if (!isPlainContainer(base)) {
-            recipe(base);
-            return base;
-        }
-
-        const root = this._createState(base as Record<string, unknown>, null, null);
-        recipe(root.proxy as T);
-        this._finalized = true;
-        return this._finalize(root) as T;
-    }
-
-    private _assertLive(): void {
-        if (this._finalized) {
-            throw new Error(
-                "[unstable_ProxySignal] the draft escaped its update() recipe and was used after the update returned. " +
-                    "Do not retain or mutate the draft asynchronously.",
-            );
-        }
-    }
-
-    private _createState(
-        base: Record<string, unknown>,
-        parent: DraftState | null,
-        parentKey: string | null,
-    ): DraftState {
-        const state: DraftState = {
-            base: base as Record<string | symbol, unknown>,
-            copy: null,
-            modified: false,
-            parent,
-            parentKey,
-            proxy: null,
-            children: new Map(),
-        };
-
-        state.proxy = new Proxy(base, this._createHandler(state));
-        return state;
-    }
-
-    private _source(state: DraftState): Record<string | symbol, unknown> {
-        return state.copy ?? state.base;
-    }
-
-    private _ensureCopy(state: DraftState): Record<string | symbol, unknown> {
-        if (state.copy === null) {
-            state.copy = shallowClone(state.base) as Record<string | symbol, unknown>;
-        }
-        return state.copy;
-    }
-
-    /**
-     * Mark this node and every ancestor modified, eagerly cloning ancestors so
-     * finalize can splice finalized children back in. This is the copy-on-write
-     * path: only nodes on a mutated path get cloned; siblings keep identity.
-     */
-    private _markModified(state: DraftState): void {
-        let node: DraftState | null = state;
-        while (node && !node.modified) {
-            node.modified = true;
-            if (node.parent) this._ensureCopy(node.parent);
-            node = node.parent;
-        }
-    }
-
-    private _createHandler(state: DraftState): ProxyHandler<Record<string, unknown>> {
-        // Arrow traps capture `this` (the producer) lexically — no `this` alias.
-        return {
-            get: (_target, prop, receiver) => {
-                if (prop === DRAFT_STATE) return state;
-                this._assertLive();
-
-                const source = this._source(state);
-
-                // Symbols (Symbol.iterator on arrays, etc.) and functions
-                // (Array.prototype.push, ...) must operate on the live source via
-                // the receiver so their internal writes route back through these
-                // traps. Never wrap those in a nested draft.
-                if (typeof prop === "symbol") {
-                    return Reflect.get(source, prop, receiver);
-                }
-
-                const value = source[prop];
-                if (typeof value === "function") return value;
-                // A draft assigned into this key from elsewhere in the recipe
-                // (e.g. `d.a = d.b`) is already live — hand it back as-is rather
-                // than wrapping a draft around a draft.
-                if (getDraftStateOf(value)) return value;
-                if (!isPlainContainer(value)) return value;
-
-                // Nested container → lazily draft it. Invalidate a cached child
-                // whose underlying value was replaced by a later write.
-                let child = state.children.get(prop);
-                if (!child || child.base !== value) {
-                    child = this._createState(value as Record<string, unknown>, state, prop);
-                    state.children.set(prop, child);
-                }
-                return child.proxy;
-            },
-
-            set: (_target, prop, value) => {
-                this._assertLive();
-                if (typeof prop === "symbol") {
-                    this._ensureCopy(state)[prop] = value;
-                    this._markModified(state);
-                    return true;
-                }
-
-                const source = this._source(state);
-                const hadKey = prop in source;
-                // No-op write on an untouched node: skip so we don't clone (and
-                // thus don't spuriously change this node's reference, which would
-                // wake value subscribers for a change that didn't happen).
-                if (state.copy === null && hadKey && Object.is(source[prop], value)) {
-                    return true;
-                }
-
-                this._ensureCopy(state)[prop] = value;
-                // A fresh value shadows any previously-drafted child at this key.
-                state.children.delete(prop);
-                this._markModified(state);
-                return true;
-            },
-
-            deleteProperty: (_target, prop) => {
-                this._assertLive();
-                const source = this._source(state);
-                if (!(prop in source)) return true;
-
-                const copy = this._ensureCopy(state);
-                delete copy[prop];
-                if (typeof prop === "string") state.children.delete(prop);
-                this._markModified(state);
-                return true;
-            },
-
-            has: (_target, prop) => {
-                this._assertLive();
-                return prop in this._source(state);
-            },
-
-            ownKeys: (_target) => {
-                this._assertLive();
-                return Reflect.ownKeys(this._source(state));
-            },
-
-            getOwnPropertyDescriptor: (_target, prop) => {
-                this._assertLive();
-                return Reflect.getOwnPropertyDescriptor(this._source(state), prop);
-            },
-
-            defineProperty: (_target, prop, descriptor) => {
-                this._assertLive();
-                Reflect.defineProperty(this._ensureCopy(state), prop, descriptor);
-                this._markModified(state);
-                return true;
-            },
-
-            getPrototypeOf: (_target) => {
-                return Reflect.getPrototypeOf(this._source(state));
-            },
-        };
-    }
-
-    /**
-     * Turn a draft tree into a plain value. Unmodified nodes return their base
-     * (identity preserved → structural sharing); modified nodes return their
-     * clone with every embedded draft recursively finalized in place, so the
-     * result never leaks a live draft proxy.
-     */
-    private _finalize(state: DraftState): unknown {
-        if (!state.modified) return state.base;
-
-        const copy = state.copy!;
-
-        // 1. Children drafted by *reading* through the draft: `copy[key]` still
-        //    holds the base value; the edits live in the child draft.
-        for (const [key, child] of state.children) {
-            const finalizedChild = this._finalize(child);
-            if (!Object.is(copy[key], finalizedChild)) {
-                copy[key] = finalizedChild;
+function createObjectDraft(state: DraftState, touch: () => void): any {
+    return new Proxy(state.base, {
+        get(target, prop) {
+            if (prop === DRAFT_STATE) return state;
+            if (typeof prop === "symbol") return Reflect.get(latest(state), prop);
+            return childValue(state, touch, prop, (container, key) => container[key]);
+        },
+        set(_target, prop, value) {
+            if (state.drafts.get(prop) === value) return true;
+            const source = latest(state);
+            if (Object.is(source[prop], value) && prop in source) return true;
+            touch();
+            state.drafts.delete(prop);
+            if (isDraft(value)) {
+                state.drafts.set(prop, value);
+                state.copy[prop] = (value as any)[DRAFT_STATE].base;
+            } else {
+                state.copy[prop] = value;
             }
-        }
-
-        // 2. Values *assigned* into this node may themselves be drafts, or plain
-        //    containers holding drafts (`d.a = d.b`, `d.list = d.list.map(...)`).
-        //    Untouched base subtrees are draft-free, so only walk what changed.
-        const seen = new Set<object>();
-        for (const key of Object.keys(copy)) {
-            if (state.children.has(key)) continue;
-            const value = copy[key];
-            if (Object.is(value, (state.base as Record<string, unknown>)[key])) continue;
-            const finalized = this._finalizeAssigned(value, seen);
-            if (!Object.is(value, finalized)) copy[key] = finalized;
-        }
-
-        return copy;
-    }
-
-    /**
-     * Strip any live draft out of a value assigned during the recipe: finalize a
-     * draft to its plain value, and recurse through plain containers (mutating
-     * them in place — they are freshly built by the recipe) to unwrap nested
-     * drafts. Leaves and cyclic references are returned untouched.
-     */
-    private _finalizeAssigned(value: unknown, seen: Set<object>): unknown {
-        const draft = getDraftStateOf(value);
-        if (draft) return this._finalize(draft);
-
-        if (!isPlainContainer(value)) return value;
-        if (seen.has(value as object)) return value;
-        seen.add(value as object);
-
-        const container = value as Record<string, unknown>;
-        for (const key of Object.keys(container)) {
-            const finalized = this._finalizeAssigned(container[key], seen);
-            if (!Object.is(container[key], finalized)) container[key] = finalized;
-        }
-        return value;
-    }
+            return true;
+        },
+        deleteProperty(_target, prop) {
+            if (!(prop in latest(state))) return true;
+            touch();
+            state.drafts.delete(prop);
+            delete state.copy[prop];
+            return true;
+        },
+        has(_target, prop) {
+            return prop in latest(state);
+        },
+        ownKeys(_target) {
+            return Reflect.ownKeys(latest(state));
+        },
+        getOwnPropertyDescriptor(target, prop) {
+            const desc = Reflect.getOwnPropertyDescriptor(latest(state), prop);
+            if (desc && desc.configurable === false && !Reflect.getOwnPropertyDescriptor(target, prop)) {
+                desc.configurable = true;
+            }
+            return desc;
+        },
+        getPrototypeOf() {
+            return Object.getPrototypeOf(state.base);
+        },
+    });
 }
 
 /**
- * Produce the next immutable tree from `base` by running `recipe` against a
- * copy-on-write draft. Returns `base` unchanged (same reference) when the recipe
- * mutates nothing, so callers can short-circuit on `Object.is`.
+ * Map methods run against `latest(state)`; Map internal slots make a plain
+ * Proxy unusable as a receiver, so every method is replaced with a closure.
  */
-export function produce<T>(base: T, recipe: (draft: T) => void): T {
-    return new Producer().produce(base, recipe);
+function createMapDraft(state: DraftState, touch: () => void): any {
+    const readEntry = (container: Map<unknown, unknown>, key: unknown) => container.get(key);
+
+    const methods: Record<string | symbol, unknown> = {
+        get: (key: unknown) => childValue(state, touch, key, readEntry),
+        has: (key: unknown) => latest(state).has(key),
+        set(key: unknown, value: unknown) {
+            const source: Map<unknown, unknown> = latest(state);
+            if (state.drafts.get(key) !== value && !(source.has(key) && Object.is(source.get(key), value))) {
+                touch();
+                state.drafts.delete(key);
+                if (isDraft(value)) {
+                    state.drafts.set(key, value);
+                    state.copy.set(key, (value as any)[DRAFT_STATE].base);
+                } else {
+                    state.copy.set(key, value);
+                }
+            }
+            return state.draft;
+        },
+        delete(key: unknown) {
+            if (!latest(state).has(key)) return false;
+            touch();
+            state.drafts.delete(key);
+            return state.copy.delete(key);
+        },
+        clear() {
+            if (latest(state).size === 0) return;
+            touch();
+            state.drafts.clear();
+            state.copy.clear();
+        },
+        keys: () => latest(state).keys(),
+        values: function* () {
+            for (const key of latest(state).keys()) {
+                yield childValue(state, touch, key, readEntry);
+            }
+        },
+        entries: function* () {
+            for (const key of latest(state).keys()) {
+                yield [key, childValue(state, touch, key, readEntry)];
+            }
+        },
+        forEach(callback: (value: unknown, key: unknown, map: unknown) => void, thisArg?: unknown) {
+            for (const key of latest(state).keys()) {
+                callback.call(thisArg, childValue(state, touch, key, readEntry), key, state.draft);
+            }
+        },
+    };
+    methods[Symbol.iterator] = methods.entries;
+
+    return new Proxy(state.base, {
+        get(target, prop) {
+            if (prop === DRAFT_STATE) return state;
+            if (prop === "size") return latest(state).size;
+            if (prop in methods) return methods[prop as keyof typeof methods];
+            return Reflect.get(target, prop);
+        },
+        getPrototypeOf() {
+            return Map.prototype;
+        },
+    });
+}
+
+function createSetDraft(state: DraftState, touch: () => void): any {
+    const methods: Record<string | symbol, unknown> = {
+        has: (value: unknown) => latest(state).has(value),
+        add(value: unknown) {
+            if (!latest(state).has(value)) {
+                touch();
+                state.copy.add(value);
+            }
+            return state.draft;
+        },
+        delete(value: unknown) {
+            if (!latest(state).has(value)) return false;
+            touch();
+            return state.copy.delete(value);
+        },
+        clear() {
+            if (latest(state).size === 0) return;
+            touch();
+            state.copy.clear();
+        },
+        keys: () => latest(state).keys(),
+        values: () => latest(state).values(),
+        entries: () => latest(state).entries(),
+        forEach(callback: (value: unknown, key: unknown, set: unknown) => void, thisArg?: unknown) {
+            for (const value of latest(state).values()) {
+                callback.call(thisArg, value, value, state.draft);
+            }
+        },
+    };
+    methods[Symbol.iterator] = methods.values;
+
+    return new Proxy(state.base, {
+        get(target, prop) {
+            if (prop === DRAFT_STATE) return state;
+            if (prop === "size") return latest(state).size;
+            if (prop in methods) return methods[prop as keyof typeof methods];
+            return Reflect.get(target, prop);
+        },
+        getPrototypeOf() {
+            return Set.prototype;
+        },
+    });
+}
+
+function readAt(container: any, key: unknown): unknown {
+    return container instanceof Map ? container.get(key) : container[key as any];
+}
+
+function finalizeState(state: DraftState): any {
+    let result = state.modified ? state.copy : state.base;
+    for (const [key, childDraft] of state.drafts) {
+        const childState: DraftState = childDraft[DRAFT_STATE];
+        // Skip child drafts detached by a later reassignment or delete.
+        if (!Object.is(readAt(result, key), childState.base)) continue;
+        const finalized = finalizeState(childState);
+        if (Object.is(finalized, readAt(result, key))) continue;
+        if (result === state.base) result = shallowCopy(state.base);
+        if (result instanceof Map) {
+            result.set(key, finalized);
+        } else {
+            result[key as any] = finalized;
+        }
+    }
+    return result;
+}
+
+export function produce<T extends object>(base: T, recipe: (draft: T) => void): T {
+    if (!isDraftable(base)) {
+        throw new TypeError("produce: base state must be a plain object, an array, a Map or a Set");
+    }
+    const state = createDraft(base, null);
+    recipe(state.draft as T);
+    return finalizeState(state);
 }

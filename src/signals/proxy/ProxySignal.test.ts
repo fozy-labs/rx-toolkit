@@ -1,498 +1,490 @@
 import { Signal } from "../signals";
 
-import { produce } from "./produce";
-import { debugNodeCount, PROXY_RAW, unstable_ProxySignal } from "./ProxySignal";
+import { unstable_ProxySignal as ProxySignal } from "./ProxySignal";
+
+type Shape = {
+    user: { name: string; age: number };
+    items: { id: number; name: string }[];
+    maybe?: { v: number } | null;
+};
+
+const makeShape = (): Shape => ({
+    user: { name: "Alice", age: 30 },
+    items: [
+        { id: 1, name: "one" },
+        { id: 2, name: "two" },
+    ],
+    maybe: { v: 5 },
+});
 
 describe("unstable_ProxySignal", () => {
-    describe("basic reads", () => {
-        it("peek() returns the whole raw tree", () => {
-            const initial = { a: 1, b: { c: 2 } };
-            const ps = unstable_ProxySignal.state(initial);
-            expect(ps.peek()).toBe(initial);
+    describe("root signal (classic behavior)", () => {
+        it("returns the initial state when called", () => {
+            const state = makeShape();
+            const s$ = ProxySignal.state(state);
+            expect(s$()).toBe(state);
         });
 
-        it("node() returns the value at its path", () => {
-            const ps = unstable_ProxySignal.state({ a: 1, b: { c: 2 } });
-            expect(ps.root.a()).toBe(1);
-            expect(ps.root.b()).toEqual({ c: 2 });
-            expect(ps.root.b.c()).toBe(2);
-            expect(ps.root()).toEqual({ a: 1, b: { c: 2 } });
-        });
-
-        it("reading an absent path yields undefined", () => {
-            const ps = unstable_ProxySignal.state<{ a?: { b?: number } }>({});
-            expect(ps.root.a()).toBeUndefined();
-            expect(ps.root.a.b()).toBeUndefined();
-        });
-
-        it("[PROXY_RAW] reads a node non-reactively", () => {
-            const ps = unstable_ProxySignal.state({ a: { b: 1 } });
+        it("peek() returns current state without creating a dependency", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.peek().n;
+            });
             const eff = Signal.effect(() => {
-                // Reading via PROXY_RAW must not establish a dependency.
-                void (ps.root.a as unknown as Record<symbol, unknown>)[PROXY_RAW];
+                c();
             });
-            expect(debugNodeCount(ps)).toBe(1);
+            expect(runs).toBe(1);
+            s$.set({ n: 2 });
+            expect(runs).toBe(1);
             eff.unsubscribe();
+            c.dispose();
         });
-    });
 
-    describe("value reactivity", () => {
-        it("re-runs an effect when the read path changes", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            const seen: number[] = [];
-            const eff = Signal.effect(() => seen.push(ps.root.a()));
-
-            expect(seen).toEqual([1]);
-            ps.mutate((d) => {
-                d.a = 2;
+        it("call is tracked inside Signal.compute and recomputes on set", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$().n;
             });
-            expect(seen).toEqual([1, 2]);
-
+            const eff = Signal.effect(() => {
+                c();
+            });
+            expect(runs).toBe(1);
+            s$.set({ n: 2 });
+            expect(runs).toBe(2);
+            expect(c.peek()).toBe(2);
             eff.unsubscribe();
+            c.dispose();
         });
 
-        it("does NOT re-run when a sibling path changes (point invalidation)", () => {
-            const ps = unstable_ProxySignal.state({ a: 1, b: 2 });
-            const runs = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(runs);
-
-            expect(runs).toHaveBeenCalledTimes(1);
-            ps.mutate((d) => {
-                d.b = 20;
-            });
-            expect(runs).toHaveBeenCalledTimes(1);
-
-            ps.mutate((d) => {
-                d.a = 10;
-            });
-            expect(runs).toHaveBeenCalledTimes(2);
-
-            eff.unsubscribe();
+        it("set() replaces the state and notifies root subscribers", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            const values: { n: number }[] = [];
+            const sub = s$.obs.subscribe((v) => values.push(v));
+            const next = { n: 2 };
+            s$.set(next);
+            expect(s$()).toBe(next);
+            expect(values.map((v) => v.n)).toEqual([1, 2]);
+            sub.unsubscribe();
         });
 
-        it("wakes an ancestor subscription on a deep change (copy-on-write)", () => {
-            const ps = unstable_ProxySignal.state({ a: { b: { c: 1 } } });
-            const seen: Array<{ b: { c: number } }> = [];
-            const eff = Signal.effect(() => seen.push(ps.root.a()));
-
-            expect(seen).toHaveLength(1);
-            ps.mutate((d) => {
-                d.a.b.c = 2;
-            });
-            expect(seen).toHaveLength(2);
-            expect(seen[1]).toEqual({ b: { c: 2 } });
-
-            eff.unsubscribe();
+        it("set() with Object.is-equal value does not notify", () => {
+            const state = { n: 1 };
+            const s$ = ProxySignal.state(state);
+            const values: { n: number }[] = [];
+            const sub = s$.obs.subscribe((v) => values.push(v));
+            s$.set(state);
+            expect(values.length).toBe(1);
+            sub.unsubscribe();
         });
 
-        it("does NOT wake an ancestor when an untouched sibling subtree is left alone", () => {
-            const ps = unstable_ProxySignal.state({ a: { x: 1 }, b: { y: 2 } });
-            const aRuns = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(aRuns);
-
-            ps.mutate((d) => {
-                d.b.y = 20;
-            });
-            expect(aRuns).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
+        it("update() replaces state with updater result", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            s$.update((v) => ({ n: v.n + 10 }));
+            expect(s$.peek().n).toBe(11);
         });
 
-        it("dedupes writes with Object.is (no-op update notifies nobody)", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            const runs = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(runs);
-
-            ps.mutate((d) => {
-                d.a = 1;
-            });
-            expect(runs).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
-        });
-    });
-
-    describe("structural reactivity", () => {
-        it("Object.keys() re-runs on add/remove, not on value change", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1 });
-            const keys: string[] = [];
-            const eff = Signal.effect(() => keys.push(Object.keys(ps.root).sort().join(",")));
-
-            expect(keys).toEqual(["a"]);
-
-            ps.mutate((d) => {
-                d.a = 99; // value change, same key set
-            });
-            expect(keys).toEqual(["a"]);
-
-            ps.mutate((d) => {
-                d.b = 2; // add key
-            });
-            expect(keys).toEqual(["a", "a,b"]);
-
-            ps.mutate((d) => {
-                delete d.a; // remove key
-            });
-            expect(keys).toEqual(["a", "a,b", "b"]);
-
-            eff.unsubscribe();
-        });
-
-        it("`in` re-runs only when that structure changes", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1 });
-            const present: boolean[] = [];
-            const eff = Signal.effect(() => present.push("b" in ps.root));
-
-            expect(present).toEqual([false]);
-
-            ps.mutate((d) => {
-                d.a = 5; // value change — structure unchanged
-            });
-            expect(present).toEqual([false]);
-
-            ps.mutate((d) => {
-                d.b = 2; // structure change
-            });
-            expect(present).toEqual([false, true]);
-
-            eff.unsubscribe();
-        });
-
-        it("value subscription is independent of the structural signal", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1 });
-            const valueRuns = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(valueRuns);
-
-            ps.mutate((d) => {
-                d.b = 2; // structural change only, `a` value untouched
-            });
-            expect(valueRuns).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
-        });
-    });
-
-    describe("arrays", () => {
-        it("reactive length and index reads", () => {
-            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
-            const lengths: number[] = [];
-            const eff = Signal.effect(() => lengths.push(ps.root.list.length()));
-
-            expect(lengths).toEqual([2]);
-            ps.mutate((d) => {
-                d.list.push(3);
-            });
-            expect(lengths).toEqual([2, 3]);
-            expect(ps.peek().list).toEqual([1, 2, 3]);
-
-            eff.unsubscribe();
-        });
-
-        it("does not wake an unchanged index on push", () => {
-            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2] });
-            const idxRuns = vi.fn(() => ps.root.list[0]());
-            const eff = Signal.effect(idxRuns);
-
-            ps.mutate((d) => {
-                d.list.push(3); // index 0 unchanged
-            });
-            expect(idxRuns).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
-        });
-
-        it("splice replaces elements structurally", () => {
-            const ps = unstable_ProxySignal.state<{ list: number[] }>({ list: [1, 2, 3] });
-            const el1: Array<number | undefined> = [];
-            const eff = Signal.effect(() => el1.push(ps.root.list[1]()));
-
-            ps.mutate((d) => {
-                d.list.splice(1, 1); // remove middle
-            });
-            expect(ps.peek().list).toEqual([1, 3]);
-            expect(el1).toEqual([2, 3]); // index 1 now holds 3
-
-            eff.unsubscribe();
-        });
-    });
-
-    describe("set() whole-tree replacement", () => {
-        it("replaces the tree and fires only nodes whose value changed", () => {
-            const ps = unstable_ProxySignal.state({ a: 1, b: 2 });
-            const aRuns = vi.fn(() => ps.root.a());
-            const bRuns = vi.fn(() => ps.root.b());
-            const ea = Signal.effect(aRuns);
-            const eb = Signal.effect(bRuns);
-
-            ps.set({ a: 1, b: 3 }); // a value equal → no wake; b changed → wake
-
-            expect(aRuns).toHaveBeenCalledTimes(1);
-            expect(bRuns).toHaveBeenCalledTimes(2);
-            expect(ps.peek()).toEqual({ a: 1, b: 3 });
-
-            ea.unsubscribe();
-            eb.unsubscribe();
-        });
-
-        it("ignores a set() to an Object.is-equal reference", () => {
-            const root = { a: 1 };
-            const ps = unstable_ProxySignal.state(root);
-            const runs = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(runs);
-
-            ps.set(root);
-            expect(runs).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
-        });
-    });
-
-    describe("opaque leaves (Map/Set/class instances)", () => {
-        it("treats a Map as an opaque leaf and reacts to reference replacement", () => {
-            const m1 = new Map([["k", 1]]);
-            const ps = unstable_ProxySignal.state<{ m: Map<string, number> }>({ m: m1 });
-
-            expect(ps.root.m()).toBe(m1);
-            // Navigation does not reach inside a Map.
-            const mapLeaf = ps.root.m as unknown as Record<string, Record<symbol, unknown>>;
-            expect(mapLeaf.k[PROXY_RAW]).toBeUndefined();
-
-            const runs = vi.fn(() => ps.root.m());
-            const eff = Signal.effect(runs);
-
-            const m2 = new Map<string, number>();
-            ps.mutate((d) => {
-                d.m = m2;
-            });
-            expect(ps.root.m()).toBe(m2);
-            expect(runs).toHaveBeenCalledTimes(2);
-
-            eff.unsubscribe();
-        });
-    });
-
-    describe("garbage collection", () => {
-        it("materialises a node lazily and prunes it when the last observer drops", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({});
-            expect(debugNodeCount(ps)).toBe(1);
-
-            const eff = Signal.effect(() => ps.root.k());
-            expect(debugNodeCount(ps)).toBe(2);
-
-            eff.unsubscribe();
-            expect(debugNodeCount(ps)).toBe(1);
-        });
-
-        it("prunes an intermediate chain up to the root", () => {
-            const ps = unstable_ProxySignal.state<{ a?: { b?: { c?: number } } }>({});
-            const eff = Signal.effect(() => ps.root.a.b.c());
-            expect(debugNodeCount(ps)).toBe(4); // root + a + b + c
-
-            eff.unsubscribe();
-            expect(debugNodeCount(ps)).toBe(1);
-        });
-
-        it("does not leak under key rotation", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({});
-            for (let i = 0; i < 50; i++) {
-                const eff = Signal.effect(() => ps.root[`k${i}`]());
-                eff.unsubscribe();
-            }
-            expect(debugNodeCount(ps)).toBe(1);
-        });
-
-        it("does not create nodes for non-tracked reads", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            ps.root.a();
-            Object.keys(ps.root);
-            expect(debugNodeCount(ps)).toBe(1);
-        });
-
-        it("keeps a node alive while any of its two signals is observed", () => {
-            const ps = unstable_ProxySignal.state<Record<string, number>>({ a: 1 });
-            const valueEff = Signal.effect(() => ps.root.a());
-            const keysEff = Signal.effect(() => Object.keys(ps.root));
-            expect(debugNodeCount(ps)).toBe(2);
-
-            valueEff.unsubscribe(); // keys signal still observed on root's child? (root keys)
-            // Root keys signal lives on the root node, which is never pruned;
-            // node `a` had only a value signal, now cold → pruned.
-            expect(debugNodeCount(ps)).toBe(1);
-
-            keysEff.unsubscribe();
-            expect(debugNodeCount(ps)).toBe(1);
-        });
-    });
-
-    describe("whole-tree obs", () => {
-        it("emits the current root and every subsequent change", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            const seen: number[] = [];
-            const sub = ps.obs.subscribe((v) => seen.push(v.a));
-
-            ps.mutate((d) => {
-                d.a = 2;
-            });
-            ps.mutate((d) => {
-                d.a = 3;
-            });
-            expect(seen).toEqual([1, 2, 3]);
-
+        it("obs emits current value on subscribe and on subsequent changes", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            const values: number[] = [];
+            const sub = s$.obs.subscribe((v) => values.push(v.n));
+            expect(values).toEqual([1]);
+            s$.set({ n: 2 });
+            s$.set({ n: 3 });
+            expect(values).toEqual([1, 2, 3]);
             sub.unsubscribe();
         });
     });
 
-    describe("computed integration", () => {
-        it("derives through a computed with a consistent snapshot", () => {
-            const ps = unstable_ProxySignal.state({ a: 2 });
-            const doubled = Signal.compute(() => ps.root.a() * 10);
-            expect(doubled()).toBe(20);
+    describe("root path reads", () => {
+        it("reads a top-level property", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.user()).toEqual({ name: "Alice", age: 30 });
+        });
 
-            const seen: number[] = [];
-            const eff = Signal.effect(() => seen.push(doubled()));
+        it("reads a nested property", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.user.name()).toBe("Alice");
+        });
 
-            ps.mutate((d) => {
-                d.a = 3;
-            });
-            expect(seen).toEqual([20, 30]);
+        it("reads an array element by index", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.items[0]()).toEqual({ id: 1, name: "one" });
+        });
 
-            eff.unsubscribe();
-            doubled.dispose();
+        it("reads through arrays of objects", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.items[1].name()).toBe("two");
+        });
+
+        it("reflects the latest state after set()", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.user.name()).toBe("Alice");
+            const next = makeShape();
+            next.user.name = "Bob";
+            s$.set(next);
+            expect(s$.root.user.name()).toBe("Bob");
+        });
+
+        it("the same path accessed twice returns the same value", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(s$.root.user()).toBe(s$.root.user());
         });
     });
 
-    describe("lifecycle & safety", () => {
-        it("throws when read after dispose", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            ps.dispose();
-            expect(() => ps.root.a()).toThrow(/disposed/);
-            expect(() => ps.peek()).toThrow(/disposed/);
+    describe("optional-chaining semantics", () => {
+        it("missing key returns undefined", () => {
+            const s$ = ProxySignal.state<Record<string, unknown>>({});
+            expect(s$.root.nope()).toBeUndefined();
         });
 
-        it("double dispose is a no-op", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            ps.dispose();
-            expect(() => ps.dispose()).not.toThrow();
+        it("path through null returns undefined ([null] -> root[0].value())", () => {
+            const s$ = ProxySignal.state<Array<{ value: number } | null>>([null]);
+            expect(s$.root[0].value()).toBeUndefined();
         });
 
-        it("rejects mutation of a draft that escaped its recipe", () => {
-            const ps = unstable_ProxySignal.state({ a: { b: 1 } });
-            let escaped: { b: number } | undefined;
-            ps.mutate((d) => {
-                escaped = d.a;
-            });
-            expect(() => {
-                escaped!.b = 5;
-            }).toThrow(/escaped/);
+        it("path through undefined returns undefined", () => {
+            const s$ = ProxySignal.state<{ a?: { b: number } }>({});
+            expect(s$.root.a.b()).toBeUndefined();
         });
 
-        it("leaves state intact and notifies nobody when a recipe throws", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            const runs = vi.fn(() => ps.root.a());
-            const eff = Signal.effect(runs);
-
-            expect(() =>
-                ps.mutate((d) => {
-                    d.a = 2;
-                    throw new Error("recipe-boom");
-                }),
-            ).toThrow("recipe-boom");
-
-            expect(ps.peek().a).toBe(1);
-            expect(runs).toHaveBeenCalledTimes(1);
-
-            eff.unsubscribe();
+        it("leaf null is returned as null, not undefined", () => {
+            const s$ = ProxySignal.state<{ a: number | null }>({ a: null });
+            expect(s$.root.a()).toBeNull();
         });
 
-        it("mutation traps on the reactive tree are read-only", () => {
-            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 1 });
-            expect(() => {
-                (ps.root as unknown as { a: number }).a = 2;
-            }).toThrow(/read-only/);
+        it("out-of-bounds array index returns undefined", () => {
+            const s$ = ProxySignal.state<{ items: number[] }>({ items: [1, 2] });
+            expect(s$.root.items[9]()).toBeUndefined();
         });
 
-        it("Object.defineProperty / setPrototypeOf / freeze throw read-only", () => {
-            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 1 });
-            expect(() => Object.defineProperty(ps.root, "x", { value: 1 })).toThrow(/read-only/);
-            expect(() => Object.setPrototypeOf(ps.root, null)).toThrow(/read-only/);
-            expect(() => Object.freeze(ps.root)).toThrow(/read-only/);
-        });
-
-        it("a rejected defineProperty/freeze does not corrupt the node (reads & iteration survive)", () => {
-            const ps = unstable_ProxySignal.state<{ a: number; b: number }>({ a: 1, b: 2 });
-            expect(() => Object.defineProperty(ps.root, "x", { value: 1, configurable: false })).toThrow(/read-only/);
-            expect(() => Object.freeze(ps.root)).toThrow(/read-only/);
-
-            // The root proxy is still fully functional — the aborted mutations
-            // never reached the internal target.
-            expect(ps.root.a()).toBe(1);
-            expect("b" in ps.root).toBe(true);
-            expect(Object.keys(ps.root).sort()).toEqual(["a", "b"]);
-        });
-
-        it("reactivity survives an attempted freeze of the tree", () => {
-            const ps = unstable_ProxySignal.state<{ a: number }>({ a: 1 });
-            const seen: number[] = [];
-            const eff = Signal.effect(() => seen.push(ps.root.a()));
-
-            expect(() => Object.freeze(ps.root)).toThrow(/read-only/);
-
-            ps.mutate((d) => {
-                d.a = 2;
-            });
-            expect(seen).toEqual([1, 2]);
-
-            eff.unsubscribe();
+        it("traversing through a primitive returns undefined and does not throw", () => {
+            const s$ = ProxySignal.state<{ a: number }>({ a: 5 });
+            expect(() => (s$.root.a as any).b.c()).not.toThrow();
+            expect((s$.root.a as any).b.c()).toBeUndefined();
         });
     });
 
-    describe("robustness of coercion / navigation", () => {
-        it("does not throw when stringified or JSON-serialised", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            expect(() => `${ps.root}`).not.toThrow();
-            expect(() => JSON.stringify(ps.root)).not.toThrow();
+    describe("initialValue fallback", () => {
+        it("returns initialValue when the resolved value is undefined", () => {
+            const s$ = ProxySignal.state<{ a?: { b: number } }>({});
+            expect(s$.root.a.b(42)).toBe(42);
         });
 
-        it("is not accidentally thenable", () => {
-            const ps = unstable_ProxySignal.state({ a: 1 });
-            expect((ps.root as unknown as { then?: unknown }).then).toBeUndefined();
+        it("returns the actual value when present, ignoring initialValue", () => {
+            const s$ = ProxySignal.state<{ a?: { b: number } }>({ a: { b: 7 } });
+            expect(s$.root.a.b(42)).toBe(7);
+        });
+
+        it("returns null (not initialValue) when the leaf value is null", () => {
+            const s$ = ProxySignal.state<{ a: number | null }>({ a: null });
+            expect(s$.root.a(42)).toBeNull();
+        });
+
+        it("returns falsy actual values (0, empty string, false) instead of initialValue", () => {
+            const s$ = ProxySignal.state<{ zero?: number; empty?: string; flag?: boolean }>({
+                zero: 0,
+                empty: "",
+                flag: false,
+            });
+            expect(s$.root.zero(42)).toBe(0);
+            expect(s$.root.empty("fallback")).toBe("");
+            expect(s$.root.flag(true)).toBe(false);
         });
     });
 
-    describe("produce (copy-on-write) unit", () => {
-        it("shares structure for untouched subtrees", () => {
-            const base = { a: { x: 1 }, b: { y: 2 } };
-            const next = produce(base, (d) => {
-                d.a.x = 5;
+    describe("mutate: draft operations", () => {
+        it("assigns a top-level property", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                draft.user = { name: "Bob", age: 40 };
             });
-
-            expect(next).not.toBe(base);
-            expect(next.a).not.toBe(base.a);
-            expect(next.b).toBe(base.b); // untouched → same reference
-            expect(next.a.x).toBe(5);
-            expect(base.a.x).toBe(1); // base unmodified
+            expect(s$.peek().user).toEqual({ name: "Bob", age: 40 });
         });
 
-        it("returns the same reference for a no-op recipe", () => {
-            const base = { a: 1 };
-            expect(produce(base, () => {})).toBe(base);
-            expect(
-                produce(base, (d) => {
-                    d.a = 1; // redundant write
-                }),
-            ).toBe(base);
+        it("assigns a nested property", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(s$.peek().user.name).toBe("Bob");
         });
 
-        it("supports nested arrays with structural sharing", () => {
-            const base = { list: [{ v: 1 }, { v: 2 }] };
-            const next = produce(base, (d) => {
-                d.list[0].v = 10;
+        it("pushes into an array", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                draft.items.push({ id: 3, name: "three" });
             });
+            expect(s$.peek().items).toHaveLength(3);
+            expect(s$.peek().items[2]).toEqual({ id: 3, name: "three" });
+        });
 
-            expect(next.list).not.toBe(base.list);
-            expect(next.list[0]).not.toBe(base.list[0]);
-            expect(next.list[1]).toBe(base.list[1]); // untouched element shared
-            expect(next.list[0].v).toBe(10);
+        it("assigns an array element by index", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                draft.items[0] = { id: 9, name: "nine" };
+            });
+            expect(s$.peek().items[0]).toEqual({ id: 9, name: "nine" });
+        });
+
+        it("splices an array", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                draft.items.splice(0, 1);
+            });
+            expect(s$.peek().items).toHaveLength(1);
+            expect(s$.peek().items[0].id).toBe(2);
+        });
+
+        it("deletes a property via delete operator", () => {
+            const s$ = ProxySignal.state(makeShape());
+            s$.mutate((draft) => {
+                delete draft.maybe;
+            });
+            expect(s$.peek().maybe).toBeUndefined();
+            expect("maybe" in s$.peek()).toBe(false);
+        });
+
+        it("reading from the draft returns already-mutated values", () => {
+            const s$ = ProxySignal.state(makeShape());
+            let seen: string | undefined;
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+                seen = draft.user.name;
+            });
+            expect(seen).toBe("Bob");
+        });
+
+        it("does not modify the pre-mutate state object", () => {
+            const state = makeShape();
+            const s$ = ProxySignal.state(state);
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(state.user.name).toBe("Alice");
+        });
+
+        it("produces a new root reference when something changed", () => {
+            const state = makeShape();
+            const s$ = ProxySignal.state(state);
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(s$.peek()).not.toBe(state);
+        });
+
+        it("preserves references of untouched subtrees (structural sharing)", () => {
+            const state = makeShape();
+            const originalItems = state.items;
+            const s$ = ProxySignal.state(state);
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(s$.peek().items).toBe(originalItems);
+        });
+    });
+
+    describe("granular reactivity", () => {
+        it("computed on root.a.b recomputes when mutate changes a.b", () => {
+            const s$ = ProxySignal.state({ a: { b: 1, c: 2 } });
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.root.a.b();
+            });
+            const eff = Signal.effect(() => {
+                c();
+            });
+            expect(runs).toBe(1);
+            s$.mutate((draft) => {
+                draft.a.b = 99;
+            });
+            expect(runs).toBe(2);
+            expect(c.peek()).toBe(99);
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("computed on root.a.b does not recompute when mutate changes an unrelated key", () => {
+            const s$ = ProxySignal.state({ a: { b: 1, c: 2 } });
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.root.a.b();
+            });
+            const eff = Signal.effect(() => {
+                c();
+            });
+            expect(runs).toBe(1);
+            s$.mutate((draft) => {
+                draft.a.c = 99;
+            });
+            expect(runs).toBe(1);
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("computed on items[0].name does not recompute when items[1] is mutated", () => {
+            const s$ = ProxySignal.state(makeShape());
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.root.items[0].name();
+            });
+            const eff = Signal.effect(() => {
+                c();
+            });
+            expect(runs).toBe(1);
+            s$.mutate((draft) => {
+                draft.items[1].name = "changed";
+            });
+            expect(runs).toBe(1);
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("root subscriber is notified on mutate", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const values: Shape[] = [];
+            const sub = s$.obs.subscribe((v) => values.push(v));
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(values).toHaveLength(2);
+            expect(values[1].user.name).toBe("Bob");
+            sub.unsubscribe();
+        });
+
+        it("mutate that changes nothing notifies no one", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const values: Shape[] = [];
+            const sub = s$.obs.subscribe((v) => values.push(v));
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.root.user.name();
+            });
+            const eff = Signal.effect(() => {
+                c();
+            });
+            s$.mutate(() => {
+                // no changes
+            });
+            expect(values).toHaveLength(1);
+            expect(runs).toBe(1);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+
+        it("path subscriber is notified when its key is deleted (value becomes undefined)", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const seen: (unknown)[] = [];
+            const c = Signal.compute(() => {
+                return s$.root.maybe();
+            });
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            expect(seen).toEqual([{ v: 5 }]);
+            s$.mutate((draft) => {
+                delete draft.maybe;
+            });
+            expect(seen).toHaveLength(2);
+            expect(seen[1]).toBeUndefined();
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("path subscriber is notified when an ancestor is replaced with null", () => {
+            const s$ = ProxySignal.state<{ a: { b: number } | null }>({ a: { b: 1 } });
+            const seen: (number | undefined)[] = [];
+            const c = Signal.compute(() => {
+                return s$.root.a.b();
+            });
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            expect(seen).toEqual([1]);
+            s$.mutate((draft) => {
+                draft.a = null;
+            });
+            expect(seen).toHaveLength(2);
+            expect(seen[1]).toBeUndefined();
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("several changes in one mutate recompute a multi-path computed once", () => {
+            const s$ = ProxySignal.state({ a: { x: 1 }, b: { y: 2 } });
+            let runs = 0;
+            const c = Signal.compute(() => {
+                runs++;
+                return s$.root.a.x() + s$.root.b.y();
+            });
+            const eff = Signal.effect(() => {
+                c();
+            });
+            expect(runs).toBe(1);
+            s$.mutate((draft) => {
+                draft.a.x = 10;
+                draft.b.y = 20;
+            });
+            expect(runs).toBe(2);
+            expect(c.peek()).toBe(30);
+            eff.unsubscribe();
+            c.dispose();
+        });
+
+        it("set() also notifies only path subscribers whose value actually changed", () => {
+            const s$ = ProxySignal.state(makeShape());
+            let userRuns = 0;
+            let itemsRuns = 0;
+            const cUser = Signal.compute(() => {
+                userRuns++;
+                return s$.root.user.name();
+            });
+            const cItems = Signal.compute(() => {
+                itemsRuns++;
+                return s$.root.items();
+            });
+            const eff = Signal.effect(() => {
+                cUser();
+                cItems();
+            });
+            expect(userRuns).toBe(1);
+            expect(itemsRuns).toBe(1);
+
+            const next = makeShape();
+            next.items = s$.peek().items;
+            next.user.name = "Bob";
+            s$.set(next);
+
+            expect(userRuns).toBe(2);
+            expect(itemsRuns).toBe(1);
+            eff.unsubscribe();
+            cUser.dispose();
+            cItems.dispose();
+        });
+    });
+
+    describe("dispose", () => {
+        it("completes the root obs", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            let completed = false;
+            const sub = s$.obs.subscribe({ complete: () => (completed = true) });
+            s$.dispose();
+            expect(completed).toBe(true);
+            sub.unsubscribe();
+        });
+
+        it("peek() after dispose does not throw", () => {
+            const s$ = ProxySignal.state({ n: 1 });
+            s$.dispose();
+            expect(() => s$.peek()).not.toThrow();
         });
     });
 });
