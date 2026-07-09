@@ -95,13 +95,26 @@ function UserProfile({ userId }: { userId: string | null }) {
 |---|---|---|
 | `status` | `string` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'refreshing'` · `'refresh-error'` |
 | `data` | `TData \| null` | Данные последнего успешного ответа. Сохраняются при `refreshing`. |
-| `error` | `unknown` | Ошибка последнего запроса. |
+| `error` | `TError \| null` | Ошибка последнего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
 | `isLoading` | `boolean` | `true` при любом незавершённом запросе. |
 | `isInitialLoading` | `boolean` | `true` только при первой загрузке (данных ещё нет). |
 | `isSuccess` | `boolean` | `true` когда данные получены. |
 | `isError` | `boolean` | `true` при ошибке. |
 | `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
 | `isRefreshError` | `boolean` | `true` при ошибке фонового обновления. |
+
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей. `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` (без `| null`), `isRefreshError` — что устаревшие `data` сохранены. Полная таблица вариантов — в [API агента ресурса][api-res-agent].
+
+```tsx
+const state = usersResource.useResource({ page });
+
+if (state.isError) {
+  return <ErrorMessage error={state.error} />; // error: TError, не TError | null
+}
+if (state.isSuccess) {
+  return <List items={state.data} />;          // data: TData, не TData | null
+}
+```
 
 ### Фоновое обновление (refresh)
 

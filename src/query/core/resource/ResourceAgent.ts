@@ -1,14 +1,6 @@
 import { first, firstValueFrom } from "rxjs";
 
-import type {
-    Args,
-    ArgsOrVoidOrSkip,
-    IResourceAgent,
-    Keyed,
-    TAgentStatus,
-    TMachineState,
-    TResourceAgentState,
-} from "@/query/types";
+import type { Args, ArgsOrVoidOrSkip, IResourceAgent, Keyed, TMachineState, TResourceAgentState } from "@/query/types";
 import { Batcher, Signal, type ReadonlySignal } from "@/signals";
 
 import { SKIP } from "../../constants";
@@ -33,12 +25,12 @@ interface Tracking<TArgs, TData> {
  * @template TArgs - Query argument type.
  * @template TData - Query return data type.
  */
-export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData> {
+export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceAgent<TArgs, TData, TError> {
     private readonly _resource;
 
     private readonly _tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
 
-    readonly state$ = Signal.compute<TResourceAgentState<TArgs, TData>>(() => this._deriveState(), {
+    readonly state$ = Signal.compute<TResourceAgentState<TArgs, TData, TError>>(() => this._deriveState(), {
         isDisabled: true,
     });
 
@@ -47,7 +39,7 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
     private _isMarked = false;
     private _settledPromise: Promise<void> | null = null;
 
-    constructor(resource: Resource<TArgs, TData>) {
+    constructor(resource: Resource<TArgs, TData, TError>) {
         this._resource = resource;
     }
 
@@ -162,11 +154,11 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
     // ==================== Private ====================
 
     /** Whether a derived state represents anything other than initial loading. */
-    private _isSettled(state: TResourceAgentState<TArgs, TData>): boolean {
+    private _isSettled(state: TResourceAgentState<TArgs, TData, TError>): boolean {
         return state.status !== "idle" && state.status !== "pending";
     }
 
-    private _deriveState(): TResourceAgentState<TArgs, TData> {
+    private _deriveState(): TResourceAgentState<TArgs, TData, TError> {
         const tracking = this._tracking$();
         if (!tracking) return this._idleState;
 
@@ -214,53 +206,125 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
         }
     }
 
-    private _deriveNotIdleState(machineState: TMachineState<TArgs, TData>): TResourceAgentState<TArgs, TData> {
-        let agentStatus: TAgentStatus = machineState.status;
-        let data: TData | null = machineState.data;
+    private _deriveNotIdleState(machineState: TMachineState<TArgs, TData>): TResourceAgentState<TArgs, TData, TError> {
+        // Each machine status maps to one state variant, constructed per branch so
+        // the compiler verifies every field against the discriminated union.
+        switch (machineState.status) {
+            case "pending": {
+                // SWR: pending + previous data → refreshing
+                const prevData = this._previousData();
 
-        const previousEntry = this._previous$?.();
+                if (prevData != null) {
+                    return {
+                        status: "refreshing",
+                        data: prevData,
+                        error: null,
+                        args: machineState.args,
+                        isLoading: true,
+                        isInitialLoading: false,
+                        isRefreshing: true,
+                        isRefreshError: false,
+                        isSuccess: false,
+                        isError: false,
+                        retry: this.retry,
+                        refresh: this.refresh,
+                    };
+                }
 
-        // SWR: pending + previous data → refreshing
-        if (machineState.status === "pending" && previousEntry) {
-            const prevMachine = previousEntry.machine$();
+                return this._createPendingState(machineState.args);
+            }
 
-            if (prevMachine.state.data != null) {
-                agentStatus = "refreshing";
-                data = prevMachine.state.data;
+            case "success": {
+                // Clear previous once success
+                this._previous$ = null;
+
+                return {
+                    status: "success",
+                    data: machineState.data,
+                    error: null,
+                    args: machineState.args,
+                    isLoading: false,
+                    isInitialLoading: false,
+                    isRefreshing: false,
+                    isRefreshError: false,
+                    isSuccess: true,
+                    isError: false,
+                    retry: this.retry,
+                    refresh: this.refresh,
+                };
+            }
+
+            case "error": {
+                return {
+                    status: "error",
+                    // SWR: error + previous data → keep stale data
+                    data: this._previousData(),
+                    // Sound per the mapError contract: the machine only ever holds errors
+                    // already normalized to TError at the queryFn boundary.
+                    error: machineState.error as TError,
+                    args: machineState.args,
+                    isLoading: false,
+                    isInitialLoading: false,
+                    isRefreshing: false,
+                    isRefreshError: false,
+                    isSuccess: false,
+                    isError: true,
+                    retry: this.retry,
+                    refresh: this.refresh,
+                };
+            }
+
+            case "refreshing": {
+                return {
+                    status: "refreshing",
+                    data: machineState.data,
+                    error: null,
+                    args: machineState.args,
+                    isLoading: true,
+                    isInitialLoading: false,
+                    isRefreshing: true,
+                    isRefreshError: false,
+                    isSuccess: false,
+                    isError: false,
+                    retry: this.retry,
+                    refresh: this.refresh,
+                };
+            }
+
+            case "refresh-error": {
+                return {
+                    status: "refresh-error",
+                    data: machineState.data,
+                    // Sound per the mapError contract (see the error branch above).
+                    error: machineState.error as TError,
+                    args: machineState.args,
+                    isLoading: false,
+                    isInitialLoading: false,
+                    isRefreshing: false,
+                    isRefreshError: true,
+                    isSuccess: false,
+                    isError: true,
+                    retry: this.retry,
+                    refresh: this.refresh,
+                };
             }
         }
-
-        // SWR: error + previous data → keep stale data
-        if (machineState.status === "error" && previousEntry) {
-            const prevMachine = previousEntry.machine$();
-
-            if (prevMachine.state.data != null) {
-                data = prevMachine.state.data;
-            }
-        }
-
-        // Clear previous once success
-        if (machineState.status === "success") {
-            this._previous$ = null;
-        }
-
-        return {
-            status: agentStatus,
-            data,
-            error: machineState.error,
-            args: machineState.args,
-            isLoading: agentStatus === "pending" || agentStatus === "refreshing",
-            isInitialLoading: agentStatus === "pending",
-            isRefreshing: agentStatus === "refreshing",
-            isRefreshError: agentStatus === "refresh-error",
-            isSuccess: agentStatus === "success",
-            isError: agentStatus === "error" || agentStatus === "refresh-error",
-            retry: this.retry,
-            refresh: this.refresh,
-        };
     }
 
-    private _createPendingState(args: TArgs): TResourceAgentState<TArgs, TData> {
+    /**
+     * Stale data from the previous entry (SWR fallback), or `null` when there is
+     * no previous entry or it holds no data. Reads the previous machine signal,
+     * subscribing the deriving computed to its changes.
+     */
+    private _previousData(): TData | null {
+        const previousEntry = this._previous$?.();
+        if (!previousEntry) return null;
+
+        const data = previousEntry.machine$().state.data;
+        return data != null ? data : null;
+    }
+
+    private _createPendingState(args: TArgs): TResourceAgentState<TArgs, TData, TError> {
         return {
             status: "pending",
             data: null,
@@ -277,7 +341,7 @@ export class ResourceAgent<TArgs, TData> implements IResourceAgent<TArgs, TData>
         };
     }
 
-    private _idleState: TResourceAgentState<TArgs, TData> = {
+    private _idleState: TResourceAgentState<TArgs, TData, TError> = {
         status: "idle",
         data: null,
         error: null,

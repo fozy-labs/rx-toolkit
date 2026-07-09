@@ -25,32 +25,50 @@ const agent = usersResource.createAgent();
 
 ## Состояние (TResourceAgentState)
 
+`TResourceAgentState` — **дискриминированное объединение** по `status`: каждый статус — отдельный вариант с литеральными булевыми флагами и точными типами `data` / `error`. Проверка `status`, `isSuccess`, `isError` и т. д. сужает тип:
+
+```typescript
+const state = agent.state$();
+
+if (state.isError) {
+  state.error; // TError — без `| null`
+}
+if (state.isSuccess) {
+  state.data;  // TData — без `| null`
+}
+```
+
+Поля (широкие типы на несуженном объединении):
+
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `status` | `TMachineStatus \| "idle"` | Текущий статус агента. См. таблицу статусов ниже. |
+| `status` | `TMachineStatus \| "idle"` | Текущий статус агента. См. таблицу вариантов ниже. |
 | `data` | `TData \| null` | Данные. При SWR-fallback содержит устаревшие данные предыдущей записи. |
-| `error` | `unknown` | Ошибка текущего запроса. `null` в `idle` / `success` / `pending`. |
-| `args` | `TArgs \| null` | Аргументы текущего наблюдения. `null` в `idle`. |
+| `error` | `TError \| null` | Ошибка текущего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
+| `args` | `TArgs \| null` | Аргументы текущего наблюдения. `null` только в `idle`. |
 | `isLoading` | `boolean` | `true` при любой загрузке (`pending` или `refreshing`). |
 | `isInitialLoading` | `boolean` | `true` только при первичной загрузке (`pending`). |
 | `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
 | `isRefreshError` | `boolean` | `true`, если фоновое обновление завершилось ошибкой. |
 | `isSuccess` | `boolean` | `true`, если данные получены успешно. |
 | `isError` | `boolean` | `true`, если запрос завершился ошибкой. |
-| `entry` | `IResourceCacheEntry<TArgs, TData> \| null` | Текущая запись кэша. `null` в `idle`. |
 | `retry` | `() => void` | Метод для повторного запроса, при ошибке. |
 | `refresh` | `() => void` | Метод для принудительного обновления данных. |
 
-## Статусы
+## Варианты состояния
 
-| Статус | `isLoading` | `isInitialLoading` | `isRefreshing` | `isRefreshError` | `isSuccess` | `isError` | Описание |
-|--------|:-----------:|:-------------------:|:--------------:|:-----------------:|:-----------:|:---------:|----------|
-| `idle` | — | — | — | — | — | — | Передан `SKIP`, наблюдение не активно. |
-| `pending` | ✓ | ✓ | — | — | — | — | Первичный запрос в процессе. |
-| `success` | — | — | — | — | ✓ | — | Данные получены. |
-| `error` | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
-| `refreshing` | ✓ | — | ✓ | — | — | — | Фоновое обновление; устаревшие данные доступны через `data`. |
-| `refresh-error` | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
+Типы вариантов экспортируются: `TResourceAgentIdleState`, `TResourceAgentPendingState`, `TResourceAgentSuccessState`, `TResourceAgentErrorState`, `TResourceAgentRefreshingState`, `TResourceAgentRefreshErrorState`.
+
+| Статус | `data` | `error` | `isLoading` | `isInitialLoading` | `isRefreshing` | `isRefreshError` | `isSuccess` | `isError` | Описание |
+|--------|:------:|:-------:|:-----------:|:-------------------:|:--------------:|:-----------------:|:-----------:|:---------:|----------|
+| `idle` | `null` | `null` | — | — | — | — | — | — | Передан `SKIP`, наблюдение не активно. |
+| `pending` | `null` | `null` | ✓ | ✓ | — | — | — | — | Первичный запрос в процессе. |
+| `success` | `TData` | `null` | — | — | — | — | ✓ | — | Данные получены. |
+| `error` | `TData \| null`¹ | `TError` | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
+| `refreshing` | `TData` | `null` | ✓ | — | ✓ | — | — | — | Фоновое обновление; устаревшие данные доступны через `data`. |
+| `refresh-error` | `TData` | `TError` | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
+
+¹ Обычно `null`; содержит устаревшие данные предыдущей записи при смене аргументов под SWR.
 
 
 ## См. также

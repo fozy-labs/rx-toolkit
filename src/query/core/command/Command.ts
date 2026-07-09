@@ -6,6 +6,7 @@ import type {
     IPatchHandle,
     Keyed,
     TCacheEntryAddedContext,
+    TMapError,
     TPackedCommand,
     TQueryStartedContext,
 } from "@/query/types";
@@ -31,7 +32,7 @@ import { LinkManager } from "./LinkManager";
  *
  * @see {@link https://github.com/AcademyCity/rx-toolkit/blob/main/docs/query/api/command.md | Command API docs}
  */
-export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
+export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, TData, TError> {
     private readonly _cache = unstable_KeyedSignal.state<QueryCacheEntry<TArgs, TData>>();
 
     private readonly _queryFn;
@@ -39,6 +40,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
     private readonly _linkManager;
     private readonly _retentionTime;
     private readonly _generateRequestId: (args: TArgs) => string | Promise<string>;
+    private readonly _mapError: TMapError;
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
 
@@ -50,6 +52,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         this._linkManager = new LinkManager(config.links);
         this._retentionTime = config.retentionTime;
         this._generateRequestId = config.generateRequestId ?? (() => crypto.randomUUID());
+        this._mapError = config.mapError ?? ((error) => error);
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;
     }
@@ -73,17 +76,13 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
 
         const linkManager = this._linkManager;
 
-        // 1. Apply optimistic patches (synchronous, before queryFn).
-        // A throwing optimisticUpdate is rolled back inside applyOptimisticPatches;
-        // surface it as a rejected promise so the trigger's contract (always returns
-        // a Promise) holds and callers can `.catch` it. Nothing else has run yet, so
-        // there is no other state to unwind here.
-        let patchHandles: IPatchHandle[];
-        try {
-            patchHandles = linkManager.applyOptimisticPatches(args);
-        } catch (error) {
-            return Promise.reject(error);
-        }
+        // Optimistic patches are applied inside wrappedQueryFn (first run only),
+        // so a throwing optimisticUpdate enters the machine like any other
+        // mutation failure — the entry exists and settles in `error`, state
+        // observers (agent / useCommand) see it, and mapError normalizes it at
+        // the single machine.fail() boundary.
+        let patchHandles: IPatchHandle[] = [];
+        let optimisticApplied = false;
 
         // Clean up existing entry for the same key, if any
         const existing = this._cache.get(entryKey);
@@ -137,16 +136,27 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
         };
 
         const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
-            // A non-async queryFn (or a sync generateRequestId) can throw *before*
-            // returning a promise. Convert that synchronous throw into a rejected
-            // promise here — this is the one point where both invariants converge:
-            // the rejection flows into the settle handler below (rolling back the
-            // already-applied optimistic patches) and back through `_execute`
-            // (transitioning the entry to `error`), so trigger() keeps its
-            // always-returns-a-Promise contract instead of throwing out of the
-            // QueryCacheEntry constructor and stranding the patches.
+            // A throwing optimisticUpdate, a non-async queryFn, or a sync
+            // generateRequestId can all throw *before* a promise exists. Convert
+            // that synchronous throw into a rejected promise here — this is the
+            // one point where the invariants converge: the rejection flows into
+            // the settle handler below (rolling back the already-applied
+            // optimistic patches) and back through `_execute` (transitioning the
+            // entry to `error`), so trigger() keeps its always-returns-a-Promise
+            // contract instead of throwing out of the QueryCacheEntry
+            // constructor and stranding the patches.
             let promise: Promise<TData>;
             try {
+                // Applied once per trigger, not per run: a retry executes after
+                // the first failure already rolled the patches back and must not
+                // re-apply them. A throwing optimisticUpdate rolls back its own
+                // partial patches inside applyOptimisticPatches, leaving
+                // patchHandles empty — the rejected settle below is then a no-op.
+                if (!optimisticApplied) {
+                    optimisticApplied = true;
+                    patchHandles = linkManager.applyOptimisticPatches(args);
+                }
+
                 promise = runQueryFn();
             } catch (error) {
                 promise = Promise.reject(error);
@@ -188,12 +198,14 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
             return promise;
         };
 
-        // 4. Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
+        // Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
         entry = new QueryCacheEntry<TArgs, TData>({
             queryFn: wrappedQueryFn,
             retentionTime: this._retentionTime,
             keyedArgs: keyed,
             resourceKey: this._key,
+            mapError: this._mapError,
+            errorSource: "command",
         });
 
         // Mutation result = the entry's first run. Captured now (before any retry
@@ -263,8 +275,8 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
      * @param key - Optional key to bind the agent to a specific cache entry.
      * @returns A new {@link ICommandAgent} instance.
      */
-    createAgent(key?: string): ICommandAgent<TArgs, TData> {
-        return new CommandAgent<TArgs, TData>(this, key);
+    createAgent(key?: string): ICommandAgent<TArgs, TData, TError> {
+        return new CommandAgent<TArgs, TData, TError>(this, key);
     }
 
     /**
@@ -277,7 +289,7 @@ export class Command<TArgs, TData> implements ICommand<TArgs, TData> {
      * @param key - Optional cache-entry key, forwarded to {@link trigger}.
      * @returns A `{ kind: "command", command, args, key }` descriptor.
      */
-    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData> {
+    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError> {
         return { kind: "command", command: this, args, key };
     }
 

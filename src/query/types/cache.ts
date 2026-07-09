@@ -3,6 +3,7 @@ import { Subject } from "rxjs";
 import type { Machine } from "@/query/core/machine";
 import type { ReadonlySignal } from "@/signals/types";
 
+import type { TMapError } from "./api";
 import type { IPatchHandle, Keyed } from "./common";
 
 // ==================== Cache Interfaces ====================
@@ -28,6 +29,13 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
     retentionTime: number | false;
     keyedArgs: Keyed<TArgs>;
     resourceKey?: string;
+    /**
+     * Normalizes a raw query rejection into the api's error type at the single
+     * point it enters the machine (`machine.fail`). Defaults to identity.
+     */
+    mapError?: TMapError;
+    /** Provenance forwarded to {@link mapError}'s context. Defaults to `"query"`. */
+    errorSource?: "query" | "command";
     initialMachine?: Machine<TArgs, TData>;
     beforeDevtoolsPush?: (machine: Machine<TArgs, TData>) => any;
 }

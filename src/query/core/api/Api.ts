@@ -8,6 +8,7 @@ import type {
     TApiSnapshot,
     TCommandOptions,
     TCreateApiOptions,
+    TMapError,
     TResourceOptions,
 } from "@/query/types";
 
@@ -19,6 +20,31 @@ import { Syncer } from "../syncer";
 import { DEFAULT_COMMAND_RETENTION_TIME, DEFAULT_RESOURCE_RETENTION_TIME } from "./constants";
 import { mergeHooks } from "./mergeHooks";
 import { normalizeLinks } from "./normalizeLinks";
+
+/**
+ * Wrap the consumer's `mapError` into an always-safe normalizer.
+ *
+ * - No consumer mapper → identity (`TError` stays `unknown`, behavior unchanged).
+ * - A throwing mapper must never break the state machine: the throw is logged and
+ *   the original (raw) error is used instead, so a failure state is always reached.
+ */
+function composeMapError(userMapError: TMapError | undefined): TMapError {
+    if (!userMapError) {
+        return (error) => error;
+    }
+
+    return (error, ctx) => {
+        try {
+            return userMapError(error, ctx);
+        } catch (mapErrorFailure) {
+            console.error(
+                "[rx-toolkit] mapError threw while normalizing an error; falling back to the original error.",
+                mapErrorFailure,
+            );
+            return error;
+        }
+    };
+}
 
 export class Api implements IApi {
     private readonly resources: Resource<any, any>[] = [];
@@ -33,6 +59,7 @@ export class Api implements IApi {
     private readonly snapshoter: Snapshoter;
     private readonly apiOnCacheEntryAdded: TCreateApiOptions["onCacheEntryAdded"];
     private readonly apiOnQueryStarted: TCreateApiOptions["onQueryStarted"];
+    private readonly apiMapError: TMapError;
     private readonly syncer: Syncer | null;
 
     constructor(options?: TCreateApiOptions) {
@@ -48,6 +75,7 @@ export class Api implements IApi {
         });
         this.apiOnCacheEntryAdded = options?.onCacheEntryAdded;
         this.apiOnQueryStarted = options?.onQueryStarted;
+        this.apiMapError = composeMapError(options?.mapError);
 
         const syncDriver = options?.syncDriver;
         const defaultSync = options?.defaultSync ?? "none";
@@ -87,6 +115,7 @@ export class Api implements IApi {
             key: effectiveKey,
             retentionTime: effectiveRetentionTime,
             serializeArgs: effectiveSerializeArgs,
+            mapError: this.apiMapError,
             onCacheEntryAdded: mergedOnCacheEntryAdded,
             onQueryStarted: mergedOnQueryStarted,
             getDevtoolsKey: opts.getDevtoolsKey,
@@ -134,6 +163,7 @@ export class Api implements IApi {
             queryFn: opts.queryFn,
             generateRequestId: opts.generateRequestId,
             key: effectiveKey,
+            mapError: this.apiMapError,
             links: normalizeLinks(opts.links),
             retentionTime: effectiveRetentionTime,
             onCacheEntryAdded: mergedOnCacheEntryAdded,

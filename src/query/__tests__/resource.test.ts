@@ -3002,3 +3002,180 @@ describe("Resource.getState", () => {
         expect(state.error).toBeInstanceOf(Error);
     });
 });
+
+// ==================== Synchronous throw from queryFn ====================
+//
+// A non-async queryFn can throw *synchronously*, before any promise exists.
+// That throw used to escape the QueryCacheEntry constructor — so trigger() /
+// ensure() / fetch() threw synchronously and no entry was created — and, on
+// refresh()/retry(), escaped _execute() after the machine had already moved to
+// refreshing/pending, stranding it there forever. The throw must instead flow
+// through the machine like any other query failure.
+describe("Resource — synchronous throw from queryFn", () => {
+    it("trigger() does not throw; the entry is created and settles in error state", async () => {
+        const error = new Error("sync boom");
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                throw error;
+            },
+        });
+
+        expect(() => resource.trigger(1)).not.toThrow();
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1);
+        expect(entry).not.toBeNull();
+        const state = entry!.machine$.peek().state;
+        expect(state.status).toBe("error");
+        if (state.status !== "error") throw new Error("expected error state");
+        expect(state.error).toBe(error);
+    });
+
+    it("ensure() rejects instead of throwing synchronously", async () => {
+        const error = new Error("sync boom");
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.ensure(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
+
+    it("fetch() rejects instead of throwing synchronously", async () => {
+        const error = new Error("sync boom");
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.fetch(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
+
+    it("refresh() lands in refresh-error (machine not stranded in refreshing) and can recover", async () => {
+        let attempt = 0;
+        const resource = createResource<number, string>({
+            queryFn: (n) => {
+                attempt++;
+                if (attempt === 2) throw new Error("sync boom");
+                return Promise.resolve(`data-${n}-attempt-${attempt}`);
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1)!;
+        entry.refresh();
+        await flushMicrotasks();
+
+        const state = entry.machine$.peek().state;
+        expect(state.status).toBe("refresh-error");
+        if (state.status !== "refresh-error") throw new Error("expected refresh-error state");
+        // Stale data survives the failed refresh.
+        expect(state.data).toBe("data-1-attempt-1");
+
+        // The machine is alive: a further refresh recovers.
+        entry.refresh();
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.machine$.peek().state.data).toBe("data-1-attempt-3");
+    });
+
+    it("retry() returns to error (machine not stranded in pending) and can recover", async () => {
+        let attempt = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                attempt++;
+                if (attempt < 3) throw new Error(`sync boom ${attempt}`);
+                return Promise.resolve("recovered");
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1)!;
+        expect(entry.machine$.peek().state.status).toBe("error");
+
+        // Retry hits another sync throw — must settle back in error, not hang in pending.
+        entry.retry();
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("error");
+
+        entry.retry();
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.machine$.peek().state.data).toBe("recovered");
+    });
+
+    it("beforeQuery fallback path settles the entry in error state", async () => {
+        const error = new Error("sync boom");
+        const resource = createResource<number, string>({
+            key: "r",
+            queryFn: () => {
+                throw error;
+            },
+            beforeQuery: async () => null,
+        });
+
+        // ensure() awaits the full beforeQuery → fallback-execute chain.
+        await expect(resource.ensure(1)).rejects.toBe(error);
+
+        const state = resource.getEntry(1)!.machine$.peek().state;
+        expect(state.status).toBe("error");
+        if (state.status !== "error") throw new Error("expected error state");
+        expect(state.error).toBe(error);
+    });
+
+    it("does not produce an unhandled rejection", async () => {
+        const tracker = await trackUnhandledRejections();
+        try {
+            const resource = createResource<number, string>({
+                queryFn: () => {
+                    throw new Error("sync boom");
+                },
+            });
+
+            resource.trigger(1);
+            await flushUnhandledRejections();
+
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
+    it("fires onQueryStarted with a rejecting $queryFulfilled", async () => {
+        const error = new Error("sync boom");
+        const seen: unknown[] = [];
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                throw error;
+            },
+            onQueryStarted: async (_args, { $queryFulfilled }) => {
+                try {
+                    await $queryFulfilled;
+                } catch (e) {
+                    seen.push(e);
+                }
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        expect(seen).toEqual([error]);
+    });
+});

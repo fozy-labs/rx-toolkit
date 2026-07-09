@@ -4,10 +4,10 @@ import { useConstant, useEventHandler } from "@/common/react";
 import type { ICommand, TCommandAgentState, TTriggerPromise } from "@/query/types";
 import { useSignal } from "@/signals/react";
 
-export function useCommand<TArgs, TData>(
-    command: ICommand<TArgs, TData>,
+export function useCommand<TArgs, TData, TError = unknown>(
+    command: ICommand<TArgs, TData, TError>,
     key?: string,
-): [trigger: (args: TArgs) => TTriggerPromise<TData>, state: TCommandAgentState<TArgs, TData>] {
+): [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandAgentState<TArgs, TData, TError>] {
     const agent = useConstant(() => command.createAgent(key), [command]);
 
     React.useEffect(() => {

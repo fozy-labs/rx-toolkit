@@ -718,6 +718,15 @@ describe("Link scenarios", () => {
             await expect(command.trigger("1", "k1")).rejects.toThrow("optimistic boom");
             await flushMicrotasks();
 
+            // The failure goes through the machine: the entry exists and holds the
+            // error, so state observers (agent / useCommand) see it too.
+            const cmdEntry = command.getEntry("k1");
+            expect(cmdEntry).not.toBeNull();
+            const cmdState = cmdEntry!.machine$.peek().state;
+            expect(cmdState.status).toBe("error");
+            if (cmdState.status !== "error") throw new Error("expected error state");
+            expect((cmdState.error as Error).message).toBe("optimistic boom");
+
             // Resource A's already-applied optimistic patch must be rolled back:
             // data restored and no dangling pending patch left behind.
             const stateA = entryA.machine$.peek().state;
@@ -1620,6 +1629,93 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
             });
 
             await command.trigger("x", "k1").catch(() => {});
+            await flushUnhandledRejections();
+
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+});
+
+// ==================== Throwing optimisticUpdate goes through the machine ====================
+//
+// A throwing optimisticUpdate used to be handled pre-flight: trigger() rejected,
+// but no cache entry was created — state observers (agent / useCommand) never
+// saw the failure, contradicting the "every failure enters the machine"
+// principle. Patches are now applied inside the entry's queryFn run, so the
+// throw settles the machine in `error` like any other mutation failure.
+describe("Command — throwing optimisticUpdate goes through the machine", () => {
+    function createThrowingOptimisticSetup(queryFn: (args: string, requestId: string) => Promise<string>) {
+        const resource = createLinkedResource<number, { value: string }>({
+            queryFn: async (n) => ({ value: `original-${n}` }),
+        });
+
+        const link: TLinkConfig<string, string, number, { value: string }> = {
+            resource,
+            forwardArgs: (cmdArgs) => parseInt(cmdArgs, 10),
+            optimisticUpdate: () => {
+                throw new Error("optimistic boom");
+            },
+        };
+
+        const command = createCommand<string, string>({ queryFn, links: [link] });
+
+        return { resource, command };
+    }
+
+    it("entry settles in error state; queryFn is not called", async () => {
+        const queryFn = vi.fn(async () => "cmd-result");
+        const { resource, command } = createThrowingOptimisticSetup(queryFn);
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        await command.trigger("1", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        const state = command.getEntry("k1")!.machine$.peek().state;
+        expect(state.status).toBe("error");
+        if (state.status !== "error") throw new Error("expected error state");
+        expect((state.error as Error).message).toBe("optimistic boom");
+        expect(queryFn).not.toHaveBeenCalled();
+    });
+
+    it("retry() after the failure runs queryFn without re-applying optimistic patches", async () => {
+        const queryFn = vi.fn(async () => "cmd-result");
+        const { resource, command } = createThrowingOptimisticSetup(queryFn);
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        const resourceEntry = resource.getEntry(1)!;
+
+        await command.trigger("1", "k1").catch(() => {});
+        await flushMicrotasks();
+
+        const cmdEntry = command.getEntry("k1")!;
+        cmdEntry.retry();
+        await flushMicrotasks();
+
+        expect(cmdEntry.machine$.peek().state.status).toBe("success");
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        // The resource was never optimistically patched — and the retry must not
+        // have tried to re-apply the throwing patch either.
+        const resourceState = resourceEntry.machine$.peek().state;
+        if (!hasData(resourceState)) throw new Error(`expected data state, got "${resourceState.status}"`);
+        expect(resourceState.data).toEqual({ value: "original-1" });
+        expect(resourceState.patchState).toBeNull();
+    });
+
+    it("does not produce an unhandled rejection", async () => {
+        const tracker = await trackUnhandledRejections();
+        try {
+            const { resource, command } = createThrowingOptimisticSetup(async () => "cmd-result");
+
+            resource.trigger(1);
+            await flushMicrotasks();
+
+            await command.trigger("1", "k1").catch(() => {});
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);

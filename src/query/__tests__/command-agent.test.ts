@@ -4,7 +4,9 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { Command } from "@/query/core/command/Command";
 import type { ICommandForAgent } from "@/query/core/command/CommandAgent";
 import { CommandAgent } from "@/query/core/command/CommandAgent";
-import type { IQueryCacheEntry, TCommandAgentState, TMachineState } from "@/query/types";
+import { Resource } from "@/query/core/resource/Resource";
+import { stableStringify } from "@/query/lib/stableStringify";
+import type { IQueryCacheEntry, TCommandAgentState, TLinkConfig, TMachineState } from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -542,5 +544,56 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
         await flushMicrotasks();
         expect(agent.state$().isSuccess).toBe(true);
         expect(agent.state$().data).toBe(2);
+    });
+});
+
+// ==================== 11. Real Command integration — throwing optimisticUpdate ====================
+
+// A throwing optimisticUpdate used to bypass the machine entirely: the trigger
+// envelope carried the error, but no cache entry was created, so the agent's
+// state$ (and useCommand) stayed idle — the failure was invisible to state
+// observers. It must surface on the agent like any other mutation failure.
+describe("CommandAgent + real Command (throwing optimisticUpdate)", () => {
+    it("agent state reflects the error, not just the envelope", async () => {
+        const resource = new Resource<number, { value: string }>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: async (n) => ({ value: `original-${n}` }),
+        });
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const link: TLinkConfig<number, number, number, { value: string }> = {
+            resource,
+            forwardArgs: (cmdArgs) => cmdArgs,
+            optimisticUpdate: () => {
+                throw new Error("optimistic boom");
+            },
+        };
+
+        const command = new Command<number, number>({
+            retentionTime: 0,
+            links: [link],
+            queryFn: async (args) => args,
+        });
+        const agent = command.createAgent();
+
+        const seen: string[] = [];
+        const eff = Signal.effect(() => {
+            seen.push(agent.state$().status);
+        });
+        _effects.push(eff);
+
+        const result = await agent.trigger(1);
+        expect(result.status).toBe("error");
+        if (result.status !== "error") throw new Error("expected error envelope");
+        expect((result.error as Error).message).toBe("optimistic boom");
+        await flushMicrotasks();
+
+        expect(seen).toContain("error");
+
+        const final = agent.state$();
+        expect(final.isError).toBe(true);
+        expect((final.error as Error).message).toBe("optimistic boom");
     });
 });

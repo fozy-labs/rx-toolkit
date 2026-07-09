@@ -1,23 +1,24 @@
-import type { ArgsOrVoidOrSkip, TMachineStatus, TResourceSnapshot } from "@/query";
+import type { ArgsOrVoidOrSkip, TResourceSnapshot } from "@/query";
 import type { ReadonlySignal } from "@/signals/types";
 
+import type { TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args, ArgsOrVoid, Keyed } from "./common";
 import type { TResourceAgentState } from "./state";
 
 // ==================== Resource Interface ====================
 
-export interface IResource<TArgs, TData> {
+export interface IResource<TArgs, TData, TError = unknown> {
     trigger(args: Args<TArgs>, doForce?: boolean): void;
     refresh(args: Args<TArgs>): void;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
     getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
     getEntries(): IterableIterator<IQueryCacheEntry<TArgs, TData>>;
-    createAgent(): IResourceAgent<TArgs, TData>;
+    createAgent(): IResourceAgent<TArgs, TData, TError>;
     serialize(args: Args<TArgs>): string;
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
-    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData>;
-    pack(args: Args<TArgs>): TPackedResource<TArgs, TData>;
+    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData, TError>;
+    pack(args: Args<TArgs>): TPackedResource<TArgs, TData, TError>;
     /** @experimental Imperative fetch API; the surface may change before stabilization. */
     ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
     /** @experimental Imperative fetch API; the surface may change before stabilization. */
@@ -53,29 +54,113 @@ export interface TResourceFetchOptions {
  * back to the library without executing anything. Discriminated by `kind`;
  * see {@link TPacked} for the command counterpart.
  */
-export interface TPackedResource<TArgs, TData> {
+export interface TPackedResource<TArgs, TData, TError = unknown> {
     kind: "resource";
-    resource: IResource<TArgs, TData>;
+    resource: IResource<TArgs, TData, TError>;
     args: Args<TArgs>;
 }
 
-export interface IResourceLiteState<TArgs, TData> {
-    status: TMachineStatus | "idle";
-    data: TData | null;
-    error: unknown;
-    args: TArgs | null;
-    isLoading: boolean;
-    isInitialLoading: boolean;
-    isRefreshing: boolean;
-    isRefreshError: boolean;
-    isSuccess: boolean;
-    isError: boolean;
+// The lite state (returned by {@link IResource.getState}) is a discriminated
+// union like the agent state, but without SWR: it reflects a single cache
+// entry, so the `error` variant never carries stale data and there is no
+// `retry` / `refresh`.
+
+/** No cache entry exists for the given arguments. */
+export interface TResourceLiteIdleState {
+    status: "idle";
+    data: null;
+    error: null;
+    args: null;
+    isLoading: false;
+    isInitialLoading: false;
+    isRefreshing: false;
+    isRefreshError: false;
+    isSuccess: false;
+    isError: false;
 }
+
+/** Initial load in flight: no data yet. */
+export interface TResourceLitePendingState<TArgs> {
+    status: "pending";
+    data: null;
+    error: null;
+    args: TArgs;
+    isLoading: true;
+    isInitialLoading: true;
+    isRefreshing: false;
+    isRefreshError: false;
+    isSuccess: false;
+    isError: false;
+}
+
+/** Query succeeded: `data` is present, no error. */
+export interface TResourceLiteSuccessState<TArgs, TData> {
+    status: "success";
+    data: TData;
+    error: null;
+    args: TArgs;
+    isLoading: false;
+    isInitialLoading: false;
+    isRefreshing: false;
+    isRefreshError: false;
+    isSuccess: true;
+    isError: false;
+}
+
+/** Initial query failed: `error` is present, no data. */
+export interface TResourceLiteErrorState<TArgs, TError = unknown> {
+    status: "error";
+    data: null;
+    error: TError;
+    args: TArgs;
+    isLoading: false;
+    isInitialLoading: false;
+    isRefreshing: false;
+    isRefreshError: false;
+    isSuccess: false;
+    isError: true;
+}
+
+/** Background refresh in flight; stale `data` stays available. */
+export interface TResourceLiteRefreshingState<TArgs, TData> {
+    status: "refreshing";
+    data: TData;
+    error: null;
+    args: TArgs;
+    isLoading: true;
+    isInitialLoading: false;
+    isRefreshing: true;
+    isRefreshError: false;
+    isSuccess: false;
+    isError: false;
+}
+
+/** Background refresh failed; stale `data` is preserved. */
+export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> {
+    status: "refresh-error";
+    data: TData;
+    error: TError;
+    args: TArgs;
+    isLoading: false;
+    isInitialLoading: false;
+    isRefreshing: false;
+    isRefreshError: true;
+    isSuccess: false;
+    isError: true;
+}
+
+export type IResourceLiteState<TArgs, TData, TError = unknown> =
+    | TResourceLiteIdleState
+    | TResourceLitePendingState<TArgs>
+    | TResourceLiteSuccessState<TArgs, TData>
+    | TResourceLiteErrorState<TArgs, TError>
+    | TResourceLiteRefreshingState<TArgs, TData>
+    | TResourceLiteRefreshErrorState<TArgs, TData, TError>;
 
 // ==================== Resource Agent Interface ====================
 
-export interface IResourceAgent<TArgs, TData> {
-    state$: ReadonlySignal<TResourceAgentState<TArgs, TData>>;
+export interface IResourceAgent<TArgs, TData, TError = unknown> {
+    state$: ReadonlySignal<TResourceAgentState<TArgs, TData, TError>>;
     start(): void;
     set(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
     retry(): void;
@@ -111,6 +196,12 @@ export interface IResourceConfig<TArgs, TData> {
     key?: string;
     retentionTime: number | false;
     serializeArgs: (args: TArgs) => string;
+    /**
+     * Normalizes raw query errors before they enter the machine. The Api always
+     * supplies one (identity when the consumer configured no `mapError`);
+     * defaults to identity if constructed directly. See {@link TMapError}.
+     */
+    mapError?: TMapError;
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
     getDevtoolsKey?: (args: Keyed<TArgs>) => string;

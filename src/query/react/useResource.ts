@@ -2,10 +2,10 @@ import { useConstant, useIsomorphicLayoutEffect } from "@/common/react";
 import type { ArgsOrVoidOrSkip, IResource, TResourceAgentState } from "@/query/types";
 import { useSignal } from "@/signals/react";
 
-export function useResource<TArgs, TData>(
-    resource: IResource<TArgs, TData>,
+export function useResource<TArgs, TData, TError = unknown>(
+    resource: IResource<TArgs, TData, TError>,
     args: ArgsOrVoidOrSkip<TArgs>,
-): TResourceAgentState<TArgs, TData> {
+): TResourceAgentState<TArgs, TData, TError> {
     const agent = useConstant(() => {
         const r = resource.createAgent();
 

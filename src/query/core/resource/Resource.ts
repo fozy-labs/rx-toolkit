@@ -9,6 +9,7 @@ import type {
     IResourceLiteState,
     Keyed,
     TCacheEntryAddedContext,
+    TMapError,
     TPackedResource,
     TQueryStartedContext,
     TResourceFetchOptions,
@@ -33,13 +34,14 @@ import { ResourceAgent } from "./ResourceAgent";
  * @template TArgs - Query argument type.
  * @template TData - Query return data type.
  */
-export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
+export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs, TData, TError> {
     private readonly _cache = unstable_KeyedSignal.state<QueryCacheEntry<TArgs, TData>>();
 
     private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
     readonly _key: string | undefined;
     private readonly _retentionTime: number | false;
     private readonly _serializeArgs: (args: TArgs) => string;
+    private readonly _mapError: TMapError;
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
     private readonly _beforeQuery?;
@@ -49,6 +51,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         this._key = config.key;
         this._retentionTime = config.retentionTime;
         this._serializeArgs = config.serializeArgs;
+        this._mapError = config.mapError ?? ((error) => error);
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;
         this._beforeQuery = config.beforeQuery;
@@ -176,8 +179,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * Create a reactive {@link ResourceAgent} that observes this resource
      * and provides SWR-aware state transitions.
      */
-    createAgent(): IResourceAgent<TArgs, TData> {
-        return new ResourceAgent<TArgs, TData>(this);
+    createAgent(): IResourceAgent<TArgs, TData, TError> {
+        return new ResourceAgent<TArgs, TData, TError>(this);
     }
 
     /**
@@ -213,7 +216,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @returns A `{ kind: "resource", resource, args }` descriptor.
      */
-    pack(args: Args<TArgs>): TPackedResource<TArgs, TData> {
+    pack(args: Args<TArgs>): TPackedResource<TArgs, TData, TError> {
         return { kind: "resource", resource: this, args };
     }
 
@@ -310,7 +313,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     /**
      * Get a simplified state object for the given arguments.
      */
-    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData> {
+    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData, TError> {
         const entry = this.getEntry(args, false);
 
         if (!entry) {
@@ -345,18 +348,50 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
             };
         }
 
-        if (machine.status === "refreshing" || machine.status === "refresh-error" || machine.status === "success") {
+        if (machine.status === "success") {
             return {
-                status: machine.status,
+                status: "success",
                 data: machine.state.data,
-                error: machine.status === "refresh-error" ? machine.state.error : null,
+                error: null,
                 args: entry.keyedArgs.value,
-                isLoading: machine.status === "refreshing",
+                isLoading: false,
                 isInitialLoading: false,
-                isRefreshing: machine.status === "refreshing",
-                isRefreshError: machine.status === "refresh-error",
-                isSuccess: machine.status === "success",
-                isError: machine.status === "refresh-error",
+                isRefreshing: false,
+                isRefreshError: false,
+                isSuccess: true,
+                isError: false,
+            };
+        }
+
+        if (machine.status === "refreshing") {
+            return {
+                status: "refreshing",
+                data: machine.state.data,
+                error: null,
+                args: entry.keyedArgs.value,
+                isLoading: true,
+                isInitialLoading: false,
+                isRefreshing: true,
+                isRefreshError: false,
+                isSuccess: false,
+                isError: false,
+            };
+        }
+
+        if (machine.status === "refresh-error") {
+            return {
+                status: "refresh-error",
+                data: machine.state.data,
+                // Sound per the mapError contract: any error the machine holds was
+                // normalized to TError at the queryFn boundary before entering it.
+                error: machine.state.error as TError,
+                args: entry.keyedArgs.value,
+                isLoading: false,
+                isInitialLoading: false,
+                isRefreshing: false,
+                isRefreshError: true,
+                isSuccess: false,
+                isError: true,
             };
         }
 
@@ -364,7 +399,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
             return {
                 status: "error",
                 data: null,
-                error: machine.state.error,
+                // Sound per the mapError contract (see refresh-error branch above).
+                error: machine.state.error as TError,
                 args: entry.keyedArgs.value,
                 isLoading: false,
                 isInitialLoading: false,
@@ -387,6 +423,23 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     }
 
     // ==================== Private ====================
+
+    /**
+     * Run the user's queryFn, converting a synchronous throw (possible with a
+     * non-async queryFn) into a rejected promise. Without this the throw would
+     * escape the QueryCacheEntry constructor on the initial run — no entry
+     * created, trigger()/ensure()/fetch() throwing synchronously — and escape
+     * `_execute` on refresh()/retry() after the machine had already moved to
+     * refreshing/pending, stranding it there. As a rejection it flows through
+     * the machine (→ error / refresh-error) like any other query failure.
+     */
+    private _callQueryFn(args: TArgs, signal: AbortSignal): Promise<TData> {
+        try {
+            return this._queryFn(args, signal);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
 
     /**
      * Get an existing cache entry or create a new one.
@@ -432,7 +485,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
         let initialQueryPromise: Promise<TData> | null = null;
 
         const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): Promise<TData> => {
-            const promise = this._queryFn(keyedArgs.value, signal);
+            const promise = this._callQueryFn(keyedArgs.value, signal);
 
             if (entry) {
                 // Subsequent calls (refresh / retry) — entry is already assigned
@@ -450,6 +503,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
             retentionTime: this._retentionTime,
             keyedArgs: keyed,
             resourceKey: this._key,
+            mapError: this._mapError,
+            errorSource: "query",
             initialMachine,
             beforeDevtoolsPush: undefined,
         });
@@ -476,7 +531,7 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
     /** Entry creation with beforeQuery intercept: starts in pending, asks other tabs first. */
     private _createEntryWithBeforeQuery(keyed: Keyed<TArgs>): QueryCacheEntry<TArgs, TData> {
         const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): Promise<TData> => {
-            const promise = this._queryFn(keyedArgs.value, signal);
+            const promise = this._callQueryFn(keyedArgs.value, signal);
             this._fireOnQueryStarted(entry, keyedArgs.value, promise);
             return promise;
         };
@@ -487,6 +542,8 @@ export class Resource<TArgs, TData> implements IResource<TArgs, TData> {
             retentionTime: this._retentionTime,
             keyedArgs: keyed,
             resourceKey: this._key,
+            mapError: this._mapError,
+            errorSource: "query",
             initialMachine: Machine.pending<TArgs, TData>(keyed.value),
             beforeDevtoolsPush: undefined,
         });

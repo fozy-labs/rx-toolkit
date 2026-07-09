@@ -26,7 +26,7 @@ interface Tracking<TArgs, TData> {
     current$: ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
 }
 
-export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
+export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAgent<TArgs, TData, TError> {
     private readonly _command: ICommandForAgent<TArgs, TData>;
 
     private readonly _tracking$: ReturnType<typeof Signal.state<Tracking<TArgs, TData> | null>>;
@@ -34,12 +34,12 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
     /** Cache key the agent is bound to (via constructor/setKey), reused by trigger. */
     private _boundKey: string | undefined;
 
-    readonly state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
+    readonly state$: ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>;
 
     constructor(command: ICommandForAgent<TArgs, TData>, key?: string) {
         this._command = command;
         this._tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
-        this.state$ = Signal.compute<TCommandAgentState<TArgs, TData>>(
+        this.state$ = Signal.compute<TCommandAgentState<TArgs, TData, TError>>(
             () => {
                 const tracking = this._tracking$();
                 if (!tracking) return this._createIdleState();
@@ -58,7 +58,7 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
         }
     }
 
-    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData> {
+    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError> {
         const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
 
         // A synchronous throw (e.g. from an optimistic patch) must surface as an
@@ -71,7 +71,7 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
             result = Promise.reject(error);
         }
 
-        return wrapTrigger(result);
+        return wrapTrigger<TData, TError>(result);
     }
 
     setKey(key: string): void {
@@ -97,26 +97,60 @@ export class CommandAgent<TArgs, TData> implements ICommandAgent<TArgs, TData> {
     private _deriveState(
         entry: IQueryCacheEntry<TArgs, TData>,
         machineState: TMachineState<TArgs, TData>,
-    ): TCommandAgentState<TArgs, TData> {
-        // Command agent uses a simplified status mapping:
-        // refreshing / refresh-error are not applicable to commands → map to pending.
-        const machineStatus = machineState.status;
-        const status: TCommandAgentState<TArgs, TData>["status"] =
-            machineStatus === "refreshing" || machineStatus === "refresh-error" ? "pending" : machineStatus;
+    ): TCommandAgentState<TArgs, TData, TError> {
+        // Each machine status maps to one state variant, constructed per branch so
+        // the compiler verifies every field against the discriminated union.
+        switch (machineState.status) {
+            // Command agent uses a simplified status mapping: refreshing /
+            // refresh-error are not applicable to commands → remapped to pending
+            // defensively, carrying their stale data / error through.
+            case "pending":
+            case "refreshing":
+            case "refresh-error": {
+                return {
+                    status: "pending",
+                    data: machineState.data,
+                    // Sound per the mapError contract: the machine only ever holds errors
+                    // already normalized to TError at the queryFn boundary.
+                    error: machineState.error as TError | null,
+                    args: machineState.args,
+                    isLoading: true,
+                    isSuccess: false,
+                    isError: false,
+                    retry: this.retry,
+                };
+            }
 
-        return {
-            status,
-            data: machineState.data,
-            error: machineState.error,
-            args: machineState.args,
-            isLoading: status === "pending",
-            isSuccess: status === "success",
-            isError: status === "error",
-            retry: this.retry,
-        };
+            case "success": {
+                return {
+                    status: "success",
+                    data: machineState.data,
+                    error: null,
+                    args: machineState.args,
+                    isLoading: false,
+                    isSuccess: true,
+                    isError: false,
+                    retry: this.retry,
+                };
+            }
+
+            case "error": {
+                return {
+                    status: "error",
+                    data: null,
+                    // Sound per the mapError contract (see the pending branch above).
+                    error: machineState.error as TError,
+                    args: machineState.args,
+                    isLoading: false,
+                    isSuccess: false,
+                    isError: true,
+                    retry: this.retry,
+                };
+            }
+        }
     }
 
-    private _createIdleState(): TCommandAgentState<TArgs, TData> {
+    private _createIdleState(): TCommandAgentState<TArgs, TData, TError> {
         return {
             status: "idle",
             data: null,

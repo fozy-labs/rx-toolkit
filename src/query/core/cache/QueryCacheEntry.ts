@@ -1,6 +1,13 @@
 import type { Observable, Subscription } from "rxjs";
 
-import type { IPatchHandle, IQueryCacheEntry, IQueryCacheEntryOptions, Keyed, TMachineState } from "@/query/types";
+import type {
+    IPatchHandle,
+    IQueryCacheEntry,
+    IQueryCacheEntryOptions,
+    Keyed,
+    TMachineState,
+    TMapError,
+} from "@/query/types";
 import type { ReadonlySignal } from "@/signals/types";
 
 import { abortReason } from "../../lib/abortReason";
@@ -25,6 +32,10 @@ export class QueryCacheEntry<TArgs, TData>
     private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData>;
     private _abortController: AbortController | null = null;
 
+    private readonly _mapError: TMapError;
+    private readonly _errorSource: "query" | "command";
+    private readonly _resourceKey: string | undefined;
+
     /** First data ever seen (survives error+retry); rejected only if the entry is removed first. */
     private readonly _firstLoaded: Promise<TData>;
 
@@ -43,6 +54,9 @@ export class QueryCacheEntry<TArgs, TData>
 
         this.keyedArgs = options.keyedArgs;
         this._queryFn = options.queryFn;
+        this._mapError = options.mapError ?? ((error) => error);
+        this._errorSource = options.errorSource ?? "query";
+        this._resourceKey = options.resourceKey;
         this.machine$ = this.state$;
 
         // The raw stream replays the current state, so hydrated entries settle
@@ -309,16 +323,24 @@ export class QueryCacheEntry<TArgs, TData>
 
                 const machine = this.machine$.peek();
 
-                switch (machine.status) {
-                    case "pending":
-                        this.set(machine.fail(error));
-                        break;
-                    case "refreshing":
-                        this.set(machine.fail(error));
-                        break;
-                    default:
-                        console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
+                if (machine.status !== "pending" && machine.status !== "refreshing") {
+                    console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
+                    return;
                 }
+
+                // Single normalization boundary: the raw rejection becomes the api's
+                // TError exactly here, as it enters the machine, so every reader of
+                // the machine's error — agent state, imperative-fetch rejections, the
+                // command result envelope, the Suspense throw — observes the same
+                // mapped instance. Aborted runs returned above and are never mapped.
+                const mappedError = this._mapError(error, {
+                    source: this._errorSource,
+                    args: this.keyedArgs.value,
+                    entryKey: this.keyedArgs.key,
+                    key: this._resourceKey,
+                });
+
+                this.set(machine.fail(mappedError));
             });
     }
 }

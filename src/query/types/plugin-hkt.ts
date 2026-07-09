@@ -21,6 +21,8 @@ export interface PluginHKT {
     readonly _TArgs: unknown;
     /** @phantom — substituted with the resource/command TData at application site */
     readonly _TData: unknown;
+    /** @phantom — substituted with the api's TError at application site */
+    readonly _TError: unknown;
 
     /** Override in subinterfaces to declare resource augmentation shape. */
     // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
@@ -33,20 +35,22 @@ export interface PluginHKT {
 // ==================== HKT Application ====================
 
 /**
- * "Apply" a PluginHKT — substitute TArgs/TData and extract the resource augmentation type.
+ * "Apply" a PluginHKT — substitute TArgs/TData/TError and extract the resource augmentation type.
  *
- * Mechanism: intersect the HKT interface with concrete `{ _TArgs: TArgs; _TData: TData }`.
- * Because `resourceType` references `this['_TArgs']`/`this['_TData']`, and `this` in the
+ * Mechanism: intersect the HKT interface with concrete `{ _TArgs: TArgs; _TData: TData; _TError: TError }`.
+ * Because `resourceType` references `this['_TArgs']`/`this['_TData']`/`this['_TError']`, and `this` in the
  * intersection resolves to the merged type, the phantom parameters become concrete.
  */
-type ApplyPluginResourceHKT<F extends PluginHKT, TArgs, TData> = (F & {
+type ApplyPluginResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
+    readonly _TError: TError;
 })["resourceType"];
 
-type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData> = (F & {
+type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
+    readonly _TError: TError;
 })["commandType"];
 
 // ==================== Plugin Augment Extraction ====================
@@ -57,13 +61,13 @@ type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData> = (F & {
  *
  * Uses bounded `infer H extends PluginHKT` to reject `undefined` from optional `_hkt`.
  */
-type ExtractResourceAugment<P, TArgs, TData> = P extends { readonly _hkt: infer H extends PluginHKT }
-    ? ApplyPluginResourceHKT<H, TArgs, TData>
+type ExtractResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+    ? ApplyPluginResourceHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
-type ExtractCommandAugment<P, TArgs, TData> = P extends { readonly _hkt: infer H extends PluginHKT }
-    ? ApplyPluginCommandHKT<H, TArgs, TData>
+type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+    ? ApplyPluginCommandHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
@@ -79,13 +83,19 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
  * - `readonly [ReactHooksPlugin, OtherPlugin]` → `{ useResource: ... } & { otherHook: ... }`
  * - `readonly IPlugin[]` (default) → `{}` (no augmentation)
  */
-export type CombinePluginResourceAugments<TPlugins extends readonly IPlugin[], TArgs, TData> = UnionToIntersection<
-    ExtractResourceAugment<TPlugins[number], TArgs, TData>
->;
+export type CombinePluginResourceAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = UnionToIntersection<ExtractResourceAugment<TPlugins[number], TArgs, TData, TError>>;
 
-export type CombinePluginCommandAugments<TPlugins extends readonly IPlugin[], TArgs, TData> = UnionToIntersection<
-    ExtractCommandAugment<TPlugins[number], TArgs, TData>
->;
+export type CombinePluginCommandAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = UnionToIntersection<ExtractCommandAugment<TPlugins[number], TArgs, TData, TError>>;
 
 // ==================== Exports ====================
 

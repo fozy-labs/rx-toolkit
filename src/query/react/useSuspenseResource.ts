@@ -23,10 +23,10 @@ import { useSignal } from "@/signals/react";
  * @param args - Query arguments (or `void` when `TArgs` is `void`).
  * @returns The settled resource state with non-null `data`.
  */
-export function useSuspenseResource<TArgs, TData>(
-    resource: IResource<TArgs, TData>,
+export function useSuspenseResource<TArgs, TData, TError = unknown>(
+    resource: IResource<TArgs, TData, TError>,
     args: ArgsOrVoid<TArgs>,
-): TSuspenseResourceState<TArgs, TData> {
+): TSuspenseResourceState<TArgs, TData, TError> {
     const agent = useConstant(() => {
         const r = resource.createAgent();
 
@@ -48,7 +48,7 @@ export function useSuspenseResource<TArgs, TData>(
 
     // Data present (success / refreshing / refresh-error / stale SWR) → render it.
     if (state.isSuccess || state.isRefreshing || state.isRefreshError || state.data != null) {
-        return state as TSuspenseResourceState<TArgs, TData>;
+        return state as TSuspenseResourceState<TArgs, TData, TError>;
     }
 
     // Initial error with nothing to fall back on → let an Error Boundary handle it.

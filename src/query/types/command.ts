@@ -1,5 +1,6 @@
 import type { ReadonlySignal } from "@/signals/types";
 
+import type { TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args } from "./common";
 import type { IResource, TPackedResource } from "./resource";
@@ -21,12 +22,12 @@ export type TLinksInput<TArgs, TData> = (
 
 // ==================== Command Interface ====================
 
-export interface ICommand<TArgs, TData> {
+export interface ICommand<TArgs, TData, TError = unknown> {
     trigger(args: Args<TArgs>, key?: string): Promise<TData>;
     getEntry(key: string): IQueryCacheEntry<TArgs, TData> | null;
     getEntry$(key: string): IQueryCacheEntry<TArgs, TData> | null;
-    createAgent(key?: string): ICommandAgent<TArgs, TData>;
-    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData>;
+    createAgent(key?: string): ICommandAgent<TArgs, TData, TError>;
+    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError>;
 }
 
 // ==================== Packed Descriptor ====================
@@ -37,9 +38,9 @@ export interface ICommand<TArgs, TData> {
  * run, with which args" back to the library without executing anything.
  * Discriminated by `kind`.
  */
-export interface TPackedCommand<TArgs, TData> {
+export interface TPackedCommand<TArgs, TData, TError = unknown> {
     kind: "command";
-    command: ICommand<TArgs, TData>;
+    command: ICommand<TArgs, TData, TError>;
     args: Args<TArgs>;
     key?: string;
 }
@@ -48,7 +49,9 @@ export interface TPackedCommand<TArgs, TData> {
  * Discriminated union of every packed descriptor. Narrow on `kind` to recover
  * the concrete resource/command shape.
  */
-export type TPacked<TArgs, TData> = TPackedResource<TArgs, TData> | TPackedCommand<TArgs, TData>;
+export type TPacked<TArgs, TData, TError = unknown> =
+    | TPackedResource<TArgs, TData, TError>
+    | TPackedCommand<TArgs, TData, TError>;
 
 // ==================== Trigger Result Envelope ====================
 
@@ -58,9 +61,9 @@ export type TPacked<TArgs, TData> = TPackedResource<TArgs, TData> | TPackedComma
  * The optional `undefined` counterparts let consumers narrow both ways:
  * `result.status === "error"` and `if (result.error)` work equally well.
  */
-export type TTriggerResult<TData> =
+export type TTriggerResult<TData, TError = unknown> =
     | { status: "success"; data: TData; error?: undefined }
-    | { status: "error"; data?: undefined; error: unknown };
+    | { status: "error"; data?: undefined; error: TError };
 
 /**
  * Promise returned by agent/hook-level `trigger`.
@@ -69,7 +72,7 @@ export type TTriggerResult<TData> =
  * envelope, so a bare `await trigger(...)` needs no try/catch. Call
  * {@link unwrap} when throwing semantics are wanted instead.
  */
-export interface TTriggerPromise<TData> extends Promise<TTriggerResult<TData>> {
+export interface TTriggerPromise<TData, TError = unknown> extends Promise<TTriggerResult<TData, TError>> {
     /**
      * The raw result: resolves with the mutation data, rejects with the
      * original error — the same contract as `Command.trigger`.
@@ -79,9 +82,9 @@ export interface TTriggerPromise<TData> extends Promise<TTriggerResult<TData>> {
 
 // ==================== Command Agent Interface ====================
 
-export interface ICommandAgent<TArgs, TData> {
-    state$: ReadonlySignal<TCommandAgentState<TArgs, TData>>;
-    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData>;
+export interface ICommandAgent<TArgs, TData, TError = unknown> {
+    state$: ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>;
+    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError>;
     setKey(key: string): void;
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry(): void;
@@ -124,6 +127,12 @@ export interface ICommandConfig<TArgs, TData> {
     generateRequestId?: (args: TArgs) => string | Promise<string>;
     /** Optional prefix for cache keys and devtools display. */
     key?: string;
+    /**
+     * Normalizes raw mutation errors before they enter the machine. The Api
+     * always supplies one (identity when the consumer configured no `mapError`);
+     * defaults to identity if constructed directly. See {@link TMapError}.
+     */
+    mapError?: TMapError;
     /** Link descriptors that bind this command to related resources. */
     links: TLinkConfig<TArgs, TData, any, any>[];
     /** Time (ms) to keep a cache entry after subscribers drop off. `false` disables auto-removal. */

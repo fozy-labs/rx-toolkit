@@ -116,11 +116,13 @@ try {
 |---|---|---|
 | `status` | `string` | `'idle'` · `'pending'` · `'success'` · `'error'` |
 | `data` | `TData \| null` | Данные последнего успешного ответа. |
-| `error` | `unknown` | Ошибка последнего запроса. |
+| `error` | `TError \| null` | Ошибка последней мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
 | `isLoading` | `boolean` | `true` при выполнении мутации. |
 | `isSuccess` | `boolean` | `true` когда мутация завершилась успешно. |
 | `isError` | `boolean` | `true` при ошибке мутации. |
 | `retry` | `() => void` | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
+
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` и `data: null`. Полная таблица вариантов — в [API агента команды][api-cmd-agent].
 
 
 ## Ретраи и request id

@@ -24,12 +24,12 @@ const agent = addTodoCommand.createAgent({ key: 'my-mutation-1' });
 
 ## Результат trigger
 
-`trigger` возвращает `TTriggerPromise<TData>` — промис, который **никогда не реджектится**. Итог мутации приходит конвертом `TTriggerResult<TData>`, дискриминированным по полю `status`:
+`trigger` возвращает `TTriggerPromise<TData, TError>` — промис, который **никогда не реджектится**. Итог мутации приходит конвертом `TTriggerResult<TData, TError>`, дискриминированным по полю `status` (`TError` типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror), по умолчанию `unknown`):
 
 ```typescript
-type TTriggerResult<TData> =
+type TTriggerResult<TData, TError = unknown> =
   | { status: "success"; data: TData; error?: undefined }
-  | { status: "error"; data?: undefined; error: unknown };
+  | { status: "error"; data?: undefined; error: TError };
 ```
 
 ```typescript
@@ -50,27 +50,46 @@ const data = await agent.trigger({ text: 'Задача' }).unwrap();
 
 ## Состояние (TCommandAgentState)
 
+`TCommandAgentState` — **дискриминированное объединение** по `status`: каждый статус — отдельный вариант с литеральными булевыми флагами и точными типами `data` / `error`. Проверка `status`, `isSuccess`, `isError` сужает тип:
+
+```typescript
+const state = agent.state$();
+
+if (state.isError) {
+  state.error; // TError — без `| null`
+  state.data;  // null
+}
+if (state.isSuccess) {
+  state.data;  // TData — без `| null`
+}
+```
+
+Поля (широкие типы на несуженном объединении):
+
 | Поле | Тип                                           | Описание |
 |------|-----------------------------------------------|----------|
 | `status` | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус агента. |
 | `data` | `TData \| null`                               | Данные результата мутации. `null` до завершения. |
-| `error` | `unknown`                                     | Ошибка мутации. `null` в `idle` / `pending` / `success`. |
-| `args` | `TArgs \| null`                               | Аргументы последнего вызова `trigger`. `null` в `idle`. |
+| `error` | `TError \| null`                              | Ошибка мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
+| `args` | `TArgs \| null`                               | Аргументы последнего вызова `trigger`. `null` только в `idle`. |
 | `isLoading` | `boolean`                                     | `true`, пока мутация выполняется (`pending`). |
 | `isSuccess` | `boolean`                                     | `true`, если мутация завершилась успешно. |
 | `isError` | `boolean`                                     | `true`, если мутация завершилась ошибкой. |
 | `retry` | `() => void`                                   | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
-| `entry` | `QueryCacheEntry<TArgs, TData> \| null`      | Текущая запись кэша. `null` в `idle`. |
 
 
-## Статусы
+## Варианты состояния
 
-| Статус | `isLoading` | `isSuccess` | `isError` | Описание |
-|--------|:-----------:|:-----------:|:---------:|----------|
-| `idle` | — | — | — | Мутация не запускалась или ключ не привязан. |
-| `pending` | ✓ | — | — | Мутация выполняется. |
-| `success` | — | ✓ | — | Мутация завершилась успешно, данные доступны в `data`. |
-| `error` | — | — | ✓ | Мутация завершилась ошибкой. |
+Типы вариантов экспортируются: `TCommandAgentIdleState`, `TCommandAgentPendingState`, `TCommandAgentSuccessState`, `TCommandAgentErrorState`.
+
+| Статус | `data` | `error` | `isLoading` | `isSuccess` | `isError` | Описание |
+|--------|:------:|:-------:|:-----------:|:-----------:|:---------:|----------|
+| `idle` | `null` | `null` | — | — | — | Мутация не запускалась или ключ не привязан. |
+| `pending` | `TData \| null`¹ | `TError \| null`¹ | ✓ | — | — | Мутация выполняется. |
+| `success` | `TData` | `null` | — | ✓ | — | Мутация завершилась успешно, данные доступны в `data`. |
+| `error` | `null` | `TError` | — | — | ✓ | Мутация завершилась ошибкой. |
+
+¹ Обычно `null`; несут устаревшие значения только при защитном ремаппинге вручную обновлённой (`refresh`) кэш-записи команды в `pending`.
 
 
 ## См. также
