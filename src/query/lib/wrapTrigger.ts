@@ -12,8 +12,10 @@ import type { TTriggerPromise, TTriggerResult } from "@/query/types";
 export function wrapTrigger<TData, TError = unknown>(promise: Promise<TData>): TTriggerPromise<TData, TError> {
     const wrapped = promise.then(
         (data): TTriggerResult<TData, TError> => ({ status: "success", data }),
-        // Sound per the mapError contract: the rejection was normalized to TError
-        // at the command's queryFn boundary before reaching here.
+        // Sound per the mapError contract: every rejection of Command.trigger's
+        // promise is normalized to TError before reaching here — queryFn failures
+        // at the machine boundary, entry-removal and pre-entry sync throws at
+        // their escape points inside Command / QueryCacheEntry.
         (error: unknown): TTriggerResult<TData, TError> => ({ status: "error", error: error as TError }),
     ) as TTriggerPromise<TData, TError>;
 

@@ -67,9 +67,34 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      *
      * @param argsOrKeyed - Plain arguments or a {@link Keyed} wrapper.
      * @param key - Optional cache-entry key. Auto-generated when omitted.
-     * @returns A promise that resolves with the mutation result.
+     * @returns A promise that resolves with the mutation result. Every
+     *   rejection is normalized via `mapError` — including the
+     *   `CacheEntryRemovedError` produced when the entry is evicted mid-flight
+     *   (re-trigger with the same key, `reset()` / `resetAll()`).
      */
     trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+        // trigger() must never throw synchronously, and every rejection of the
+        // returned promise must be normalized to the api's TError — the agent /
+        // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
+        // are mapped at the machine boundary and removals inside currentResult;
+        // this guard converts anything thrown before the entry takes over
+        // (argument normalization, cache bookkeeping) into a mapped rejection.
+        try {
+            return this._trigger(argsOrKeyed, key);
+        } catch (error) {
+            return Promise.reject(
+                this._mapError(error, {
+                    source: "command",
+                    args: isKeyed(argsOrKeyed) ? argsOrKeyed.value : argsOrKeyed,
+                    // The throw may precede key generation — best effort from the input.
+                    entryKey: isKeyed(argsOrKeyed) ? argsOrKeyed.key : (key ?? ""),
+                    key: this._key,
+                }),
+            );
+        }
+    }
+
+    private _trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
         const keyed = this._toKeyed(argsOrKeyed, key);
         const args = keyed.value;
         const entryKey = keyed.key;

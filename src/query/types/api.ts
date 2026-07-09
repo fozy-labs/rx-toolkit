@@ -27,7 +27,12 @@ export interface TErrorContext {
  * type. Runs exactly once per failure, at the boundary where the rejection is
  * first observed, so everything downstream — agent state, imperative-fetch
  * rejections, the Suspense throw, the command result envelope — sees the mapped
- * value. The inferred return type becomes the api's `TError`.
+ * value. The mapper also receives internal lifecycle errors that feed the typed
+ * mutation envelope: a `CacheEntryRemovedError` when a command entry is evicted
+ * mid-flight (re-trigger with the same key, `reset()`), so handle unknown
+ * shapes with a fallback branch. Deliberately kept raw: aborted runs (flow
+ * control, never mapped) and lifecycle-hook contexts (`$queryFulfilled` rejects
+ * with the raw error). The inferred return type becomes the api's `TError`.
  */
 export type TMapError<TError = unknown> = (error: unknown, ctx: TErrorContext) => TError;
 

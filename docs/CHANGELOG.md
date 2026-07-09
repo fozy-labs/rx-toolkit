@@ -3,8 +3,11 @@
 
 ## [Unreleased]
 
+
+## [0.10.2] - 2026-07-09
+
 ### Added
-- **Типизация ошибок (`mapError`)** — опция уровня API `createApi({ mapError })` нормализует любую сырую ошибку в единый тип. Поле `error` во всех состояниях ресурсов и команд типизируется как возвращаемое значение `mapError` вместо `unknown`; См. [Типизация ошибок](./query/api/README.md#типизация-ошибок-maperror).
+- **Типизация ошибок (`mapError`)** — опция уровня API `createApi({ mapError })` нормализует любую сырую ошибку в единый тип. Поле `error` во всех состояниях ресурсов и команд типизируется как возвращаемое значение `mapError` вместо `unknown`; См. [Типизация ошибок](./query/api/README.md#типизация-ошибок-maperror). Через `mapError` проходят и ошибки жизненного цикла мутаций: `CacheEntryRemovedError` при удалении незавершённой записи (повторный `trigger` с тем же ключом, `reset()` / `resetAll()`) попадает в реджект `Command.trigger` и конверт `TTriggerResult` уже нормализованным — типизация `TError` не нарушается; класс экспортируется публично. Сырыми (до `mapError`) остаются аборты и `$queryFulfilled` в lifecycle-хуках.
 - **Дискриминированные состояния** — `TResourceAgentState`, `TCommandAgentState`, `TSuspenseResourceState` и результат `getState()` стали дискриминированными объединениями: `status` и все булевые флаги — литералы каждого варианта.
 
 ### Fixed
@@ -310,7 +313,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...develop
+[0.10.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.1...v0.9.2

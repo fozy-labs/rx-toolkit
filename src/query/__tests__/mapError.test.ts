@@ -2,6 +2,7 @@ import { assertType, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
+import { CacheEntryRemovedError } from "@/query/core/errors";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TErrorContext } from "@/query/types";
 
@@ -406,6 +407,71 @@ describe("mapError — command", () => {
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetUnknownError);
+    });
+});
+
+// ==================== Command entry removal ====================
+
+describe("mapError — command entry removal", () => {
+    it("maps the eviction error when a re-trigger with the same key replaces an in-flight mutation", async () => {
+        const api = createApi({ mapError: toNetError });
+        const command = api.createCommand<string, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        const agent = command.createAgent();
+        const first = agent.trigger("a", "k");
+        void agent.trigger("b", "k");
+
+        const result = await first;
+        expect(result.status).toBe("error");
+        expect(result.error).toBeInstanceOf(NetUnknownError);
+        expect((result.error as NetUnknownError).original).toBeInstanceOf(CacheEntryRemovedError);
+    });
+
+    it("maps the removal error when resetAll() completes an in-flight mutation", async () => {
+        const api = createApi({ mapError: toNetError });
+        const command = api.createCommand<string, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        const pending = command.trigger("x", "k");
+        void pending.catch(() => {});
+        api.resetAll();
+
+        await expect(pending).rejects.toBeInstanceOf(NetUnknownError);
+    });
+
+    it("passes command provenance when mapping a removal error", async () => {
+        const mapError = vi.fn((error: unknown, _ctx: TErrorContext) => new NetUnknownError(error));
+        const api = createApi({ mapError });
+        const command = api.createCommand<string, string>({
+            key: "saveUser",
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        const first = command.trigger("a", "k");
+        void first.catch(() => {});
+        void command.trigger("b", "k");
+
+        await expect(first).rejects.toBeInstanceOf(NetUnknownError);
+        expect(mapError).toHaveBeenCalledTimes(1);
+        const ctx = mapError.mock.calls[0]![1];
+        expect(ctx).toEqual({ source: "command", args: "a", entryKey: "k", key: "saveUser" });
+    });
+
+    it("keeps the resource ensure() removal rejection raw (untyped channel)", async () => {
+        const api = createApi({ mapError: toNetError });
+        const resource = api.createResource<number, string>({
+            queryFn: () => new Promise<string>(() => {}),
+            retentionTime: false,
+        });
+
+        const pending = resource.ensure(1);
+        void pending.catch(() => {});
+        api.resetAll();
+
+        await expect(pending).rejects.toBeInstanceOf(CacheEntryRemovedError);
     });
 });
 

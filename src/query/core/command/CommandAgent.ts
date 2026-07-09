@@ -61,8 +61,11 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
     trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError> {
         const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
 
-        // A synchronous throw (e.g. from an optimistic patch) must surface as an
-        // error envelope, matching the previous `async` behavior of this method.
+        // Command.trigger never throws synchronously and normalizes every
+        // rejection to TError itself. This guard only covers foreign
+        // ICommandForAgent implementations that may still throw — such an error
+        // reaches the envelope unmapped (best effort), since the agent has no
+        // access to the api's mapError.
         let result: Promise<TData>;
         try {
             result = this._command.trigger(args, entryKey);

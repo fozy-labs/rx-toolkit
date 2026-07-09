@@ -10,6 +10,7 @@ import lifecycleHooksRaw from "./lifecycle-hooks.tsx?raw";
 import basicCommandRaw from "./basic-command.tsx?raw";
 import optimisticCommandRaw from "./optimistic-command.tsx?raw";
 import retryCommandRaw from "./retry-command.tsx?raw";
+import typedErrorsRaw from "./typed-errors.tsx?raw";
 
 export const examples = {
     simpleResource: simpleResourceRaw,
@@ -24,4 +25,5 @@ export const examples = {
     basicCommand: basicCommandRaw,
     optimisticCommand: optimisticCommandRaw,
     retryCommand: retryCommandRaw,
+    typedErrors: typedErrorsRaw,
 };

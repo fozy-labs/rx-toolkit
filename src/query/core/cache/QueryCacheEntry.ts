@@ -5,6 +5,7 @@ import type {
     IQueryCacheEntry,
     IQueryCacheEntryOptions,
     Keyed,
+    TErrorContext,
     TMachineState,
     TMapError,
 } from "@/query/types";
@@ -187,9 +188,17 @@ export class QueryCacheEntry<TArgs, TData>
      * Resolve/reject with the outcome of the machine's next settled state — the
      * same transitions as {@link whenFetched}, but without a keepalive
      * subscription, so the caller owns the entry's lifecycle. Backs `Command.trigger`.
+     *
+     * Entry-removal rejections (`CacheEntryRemovedError` from an eviction by a
+     * newer trigger or a `reset()`) pass through `mapError` here: this promise
+     * feeds the typed `TTriggerResult` envelope, whose `error` is declared as
+     * `TError`, so an unmapped escape would break that contract at runtime.
      */
     currentResult(): Promise<TData> {
-        const result = this._awaitState((state) => this._settleQueryOutcome(state), { keepalive: false });
+        const result = this._awaitState((state) => this._settleQueryOutcome(state), {
+            keepalive: false,
+            mapRemoval: true,
+        });
         // Suppress "nobody awaited" unhandled rejections (the promise may never be read).
         void result.catch(() => {});
         return result;
@@ -218,10 +227,14 @@ export class QueryCacheEntry<TArgs, TData>
      *   holds the share's refcount, so retention GC only resumes once the waiter
      *   settles or detaches. When `false`, observes the raw state stream without
      *   affecting the entry's lifecycle.
+     * @param opts.mapRemoval - When `true`, the removal rejection passes through
+     *   `mapError` — for waiters feeding a channel typed as `TError` (the
+     *   command result envelope). Waiters on untyped channels (`ensure`/`fetch`
+     *   rejections, `$cacheDataLoaded`) keep the raw `CacheEntryRemovedError`.
      */
     private _awaitState(
         settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
-        opts: { keepalive: boolean; signal?: AbortSignal },
+        opts: { keepalive: boolean; signal?: AbortSignal; mapRemoval?: boolean },
     ): Promise<TData> {
         const { keepalive, signal } = opts;
 
@@ -256,13 +269,27 @@ export class QueryCacheEntry<TArgs, TData>
                 },
                 error: (error: unknown) => finish(() => reject(error)),
                 // Stream disposed without a matching state — the entry was removed.
-                complete: () => finish(() => reject(new CacheEntryRemovedError("data loaded"))),
+                complete: () =>
+                    finish(() => {
+                        const removed = new CacheEntryRemovedError("data loaded");
+                        reject(opts.mapRemoval ? this._mapError(removed, this._errorContext()) : removed);
+                    }),
             });
 
             // The replayed current state can settle synchronously, before
             // `subscription` was assigned — release it now.
             if (isSettled) subscription.unsubscribe();
         });
+    }
+
+    /** Provenance handed to `mapError` for any failure surfaced by this entry. */
+    private _errorContext(): TErrorContext {
+        return {
+            source: this._errorSource,
+            args: this.keyedArgs.value,
+            entryKey: this.keyedArgs.key,
+            key: this._resourceKey,
+        };
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
@@ -332,13 +359,10 @@ export class QueryCacheEntry<TArgs, TData>
                 // TError exactly here, as it enters the machine, so every reader of
                 // the machine's error — agent state, imperative-fetch rejections, the
                 // command result envelope, the Suspense throw — observes the same
-                // mapped instance. Aborted runs returned above and are never mapped.
-                const mappedError = this._mapError(error, {
-                    source: this._errorSource,
-                    args: this.keyedArgs.value,
-                    entryKey: this.keyedArgs.key,
-                    key: this._resourceKey,
-                });
+                // mapped instance. Deliberately upstream of this boundary: lifecycle
+                // hooks ($queryFulfilled) are fed from the raw queryFn promise and
+                // see the raw error. Aborted runs returned above and are never mapped.
+                const mappedError = this._mapError(error, this._errorContext());
 
                 this.set(machine.fail(mappedError));
             });
