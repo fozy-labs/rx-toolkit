@@ -92,6 +92,10 @@ export class LocalState<T = string | null | number | undefined> {
         this._storageKey = slotStorageKey(options.key, options.userId);
         this._slotTtl = resolveSlotTtl(options.gc);
 
+        // Live registration: the GC re-touches this slot instead of expiring
+        // it, so a value held by a running app never hits its maxUnreadTime.
+        this._storage.registerSlot(this._storageKey, this._slotTtl);
+
         let initialValue = this._getStorageValue(options);
 
         if (initialValue === NONE) {
@@ -146,9 +150,10 @@ export class LocalState<T = string | null | number | undefined> {
 
         if (!parsed.success) {
             console.warn(`[LocalSignal]: invalid value for key "${options.key}" in storage`, parsed.error);
-            // Invalid data never becomes valid on its own — drop it so it does
-            // not resurface (and does not outlive its TTL as noise).
-            this._storage.removeSlot(this._storageKey);
+            // Self-heal: invalid data never becomes valid on its own — drop it
+            // so it does not resurface. Gated on format ownership (healSlot):
+            // data that only looks invalid to an older package must survive.
+            this._storage.healSlot(this._storageKey);
             return NONE;
         }
 
@@ -160,6 +165,14 @@ export class LocalState<T = string | null | number | undefined> {
     static KEY_PREFIX = KEY_PREFIX;
     static DEFAULT_DRIVER = resolveDefaultDriver();
 
-    /** Global GC tuning (`syncLimit` / `checkInterval` / `randomOffset`), in ms. */
-    static GC_OPTIONS = GC_OPTIONS;
+    /** Global GC tuning: `checkInterval` / `randomOffset` in ms, `syncLimit` in keys. */
+    static get GC_OPTIONS(): typeof GC_OPTIONS {
+        return GC_OPTIONS;
+    }
+
+    static set GC_OPTIONS(value: typeof GC_OPTIONS) {
+        // The GC engine reads the module-level object; replacing the reference
+        // would silently disconnect it, so assignment mutates it in place.
+        Object.assign(GC_OPTIONS, value);
+    }
 }

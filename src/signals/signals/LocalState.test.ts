@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { LocalSignal } from "./LocalSignal";
+import { LocalState } from "./LocalState";
 import { LOCAL_STATE_GC_DEFAULTS } from "./LocalStateStorage";
 
 const KEY_PREFIX = "__LSValue__";
@@ -216,6 +217,20 @@ describe("LocalState", () => {
             expect(localStorage.getItem(storageKey("clear-iso", "u1"))).toBeNull();
             expect(JSON.parse(localStorage.getItem(storageKey("clear-iso", "u2"))!).data).toBe(42);
         });
+
+        it("a key containing ':user:' does not collide with a per-user slot", () => {
+            const driver = createMarkedDriver();
+            const tricky = LocalSignal.state<unknown>({ key: "cart:user:42", defaultValue: "t", driver });
+            const scoped = LocalSignal.state<unknown>({ key: "cart", userId: "42", defaultValue: "s", driver });
+
+            tricky.set("tricky-value");
+            scoped.set("scoped-value");
+
+            const slotKeys = driver.keys().filter((k) => k !== KEY_PREFIX);
+            expect(slotKeys).toHaveLength(2);
+            expect(JSON.parse(driver.getItem(`${KEY_PREFIX}:cart:user:42`)!).data).toBe("scoped-value");
+            expect(JSON.parse(driver.getItem(`${KEY_PREFIX}:cart%3Auser%3A42`)!).data).toBe("tricky-value");
+        });
     });
 
     describe("observable", () => {
@@ -386,6 +401,35 @@ describe("LocalState", () => {
         });
     });
 
+    describe("static facade delegation", () => {
+        it("LocalSignal.GC_OPTIONS reads/writes through to the engine options", () => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+            expect(LocalSignal.GC_OPTIONS).toBe(LocalState.GC_OPTIONS);
+
+            LocalSignal.GC_OPTIONS = { ...original, syncLimit: 5 };
+
+            // Assignment must not replace the reference: the GC engine keeps
+            // reading the same shared object.
+            expect(LocalSignal.GC_OPTIONS).toBe(LocalState.GC_OPTIONS);
+            expect(LocalState.GC_OPTIONS.syncLimit).toBe(5);
+
+            LocalSignal.GC_OPTIONS = original;
+        });
+
+        it("LocalSignal.DEFAULT_DRIVER delegates to LocalState.DEFAULT_DRIVER", () => {
+            const original = LocalState.DEFAULT_DRIVER;
+            const driver = createMockDriver();
+
+            try {
+                LocalSignal.DEFAULT_DRIVER = driver;
+                expect(LocalState.DEFAULT_DRIVER).toBe(driver);
+                expect(LocalSignal.DEFAULT_DRIVER).toBe(driver);
+            } finally {
+                LocalSignal.DEFAULT_DRIVER = original;
+            }
+        });
+    });
+
     describe("format versioning (meta key)", () => {
         it("no meta → whole namespace is wiped and re-marked", () => {
             const driver = createMockDriver({
@@ -446,6 +490,98 @@ describe("LocalState", () => {
             expect(s.peek()).toBe(42);
             sub.unsubscribe();
         });
+
+        it("touch-on-read does not rewrite slots owned by a newer format", () => {
+            const newerMeta = meta(2, Date.now() + WEEK);
+            const stale = envelope("v2-value", Date.now() - 8 * DAY);
+            const driver = createMockDriver({
+                [KEY_PREFIX]: newerMeta,
+                [storageKey("foreign")]: stale,
+            });
+
+            const s = LocalSignal.state({ key: "foreign", defaultValue: "def", driver });
+            const sub = activate(s);
+
+            // The value is served, but the envelope stays byte-identical:
+            // rewriting it would drop fields a newer format may rely on.
+            expect(s.peek()).toBe("v2-value");
+            expect(driver.getItem(storageKey("foreign"))).toBe(stale);
+            sub.unsubscribe();
+        });
+
+        it("zod-schema failure does not delete a slot owned by a newer format", () => {
+            const slot = envelope({ migrated: true });
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(2, Date.now() + WEEK),
+                [storageKey("mig")]: slot,
+            });
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "mig", zodSchema: z.number(), defaultValue: 0, driver });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe(0);
+            expect(driver.getItem(storageKey("mig"))).toBe(slot);
+
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+    });
+
+    describe("resilience to throwing drivers", () => {
+        it("a read does not throw when the freshness touch hits a throwing setItem", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, Date.now() + WEEK)],
+                [storageKey("q"), envelope(42, Date.now() - 8 * DAY)],
+            ]);
+            const driver = {
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: () => {
+                    throw new Error("QuotaExceededError");
+                },
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            };
+
+            let s: ReturnType<typeof LocalSignal.state<number>> | undefined;
+            expect(() => {
+                s = LocalSignal.state({ key: "q", defaultValue: 0, driver });
+            }).not.toThrow();
+
+            const sub = activate(s!);
+            expect(s!.peek()).toBe(42);
+            sub.unsubscribe();
+        });
+
+        it("write-denied storage: constructors do not throw and defaults are served", () => {
+            const driver = {
+                getItem: () => null,
+                setItem: () => {
+                    throw new Error("denied");
+                },
+                removeItem: () => {},
+                keys: () => [],
+            };
+
+            // First construction runs the namespace init (meta write fails) …
+            let first: ReturnType<typeof LocalSignal.state<number>> | undefined;
+            expect(() => {
+                first = LocalSignal.state({ key: "w1", defaultValue: 1, driver });
+            }).not.toThrow();
+
+            // … and later constructions get the cached manager, still working.
+            let second: ReturnType<typeof LocalSignal.state<number>> | undefined;
+            expect(() => {
+                second = LocalSignal.state({ key: "w2", defaultValue: 2, driver });
+            }).not.toThrow();
+
+            const sub1 = activate(first!);
+            const sub2 = activate(second!);
+            expect(first!.peek()).toBe(1);
+            expect(second!.peek()).toBe(2);
+            sub1.unsubscribe();
+            sub2.unsubscribe();
+        });
     });
 
     describe("GC", () => {
@@ -497,8 +633,9 @@ describe("LocalState", () => {
 
             LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
 
-            // "Another tab" claims the deadline before our timer fires.
-            const foreignClaim = meta(1, BASE + 5 * WEEK);
+            // "Another tab" claims the deadline before our timer fires (a
+            // plausible value: implausibly far deadlines get clock-healed).
+            const foreignClaim = meta(1, BASE + 5 * DAY);
             driver.setItem(KEY_PREFIX, foreignClaim);
 
             vi.advanceTimersByTime(30 * MINUTE);
@@ -559,6 +696,195 @@ describe("LocalState", () => {
             vi.advanceTimersByTime(10 * WEEK);
             expect(map.has(storageKey("kept"))).toBe(true);
             sub.unsubscribe();
+        });
+
+        it("GC stands down when the namespace was re-marked with a newer version after init", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE - 1000),
+                [storageKey("v2data")]: '{"future": true}',
+                [storageKey("old")]: envelope(1, BASE - 61 * DAY),
+            });
+
+            LocalSignal.state({ key: "boot", defaultValue: 0, driver });
+
+            // Another tab upgrades the namespace before our due-timer fires.
+            // Its deadline is already LAPSED, so without the version re-check
+            // _runDueGc would claim (downgrading the meta to v1) and sweep.
+            const v2meta = meta(2, BASE - 500);
+            driver.setItem(KEY_PREFIX, v2meta);
+
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            // No downgrade of the meta, no sweep of foreign entries.
+            expect(driver.getItem(KEY_PREFIX)).toBe(v2meta);
+            expect(driver.getItem(storageKey("v2data"))).toBe('{"future": true}');
+            expect(driver.getItem(storageKey("old"))).not.toBeNull();
+
+            // Ownership is also dropped for slot ops: self-heal is disabled.
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const s = LocalSignal.state({ key: "v2data", defaultValue: "def", driver });
+            const sub = activate(s);
+            expect(s.peek()).toBe("def");
+            expect(driver.getItem(storageKey("v2data"))).toBe('{"future": true}');
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("slots alive in this session are re-touched by GC instead of expiring", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE + WEEK),
+                [storageKey("live")]: envelope(1, BASE),
+                [storageKey("dead")]: envelope(2, BASE),
+            });
+
+            LocalSignal.state({ key: "live", defaultValue: 0, driver });
+
+            // Well past maxUnreadTime (60 days) with weekly GC rounds running.
+            vi.advanceTimersByTime(70 * DAY);
+
+            expect(driver.getItem(storageKey("live"))).not.toBeNull();
+            expect(driver.getItem(storageKey("dead"))).toBeNull();
+        });
+
+        it("the deadline claim is written before the sweep starts", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE - 1000),
+                [storageKey("old")]: envelope(1, BASE - 61 * DAY),
+            });
+
+            const ops: string[] = [];
+            const origSet = driver.setItem;
+            const origRemove = driver.removeItem;
+            driver.setItem = (k: string, v: string) => {
+                ops.push(`set:${k}`);
+                origSet(k, v);
+            };
+            driver.removeItem = (k: string) => {
+                ops.push(`remove:${k}`);
+                origRemove(k);
+            };
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            const claimIndex = ops.indexOf(`set:${KEY_PREFIX}`);
+            const sweepIndex = ops.indexOf(`remove:${storageKey("old")}`);
+            expect(claimIndex).toBeGreaterThanOrEqual(0);
+            expect(sweepIndex).toBeGreaterThan(claimIndex);
+        });
+
+        it("an implausibly far nextGcAt (skewed clock) is healed instead of stalling GC", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE + 400 * DAY),
+                [storageKey("old")]: envelope(1, BASE - 61 * DAY),
+            });
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // Healed at schedule time (claim jitter mocked to 0).
+            expect(readMeta(driver)?.nextGcAt).toBe(BASE + WEEK);
+
+            vi.advanceTimersByTime(WEEK + HOUR);
+            expect(driver.getItem(storageKey("old"))).toBeNull();
+        });
+
+        it("live slots with a small maxUnreadTime are kept fresh by a dedicated re-touch loop", () => {
+            const driver = createMarkedDriver({ [storageKey("small-live")]: envelope(1, BASE, 4 * DAY) }, BASE + WEEK);
+
+            LocalSignal.state({ key: "small-live", defaultValue: 0, driver, gc: { maxUnreadTime: 4 * DAY } });
+
+            // The next GC round is a week away; only the dedicated
+            // min(checkInterval, ttl/2) = 2-day loop can refresh the envelope
+            // before the slot's own TTL elapses.
+            vi.advanceTimersByTime(3 * DAY);
+
+            const env = JSON.parse(driver.getItem(storageKey("small-live"))!);
+            expect(env.at).toBe(BASE + 2 * DAY);
+            expect(env.ttl).toBe(4 * DAY);
+        });
+
+        it("another tab does not sweep a small-ttl slot held live in this tab", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + WEEK)],
+                [storageKey("small"), envelope(1, BASE - 3 * DAY, 4 * DAY)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            // Tab B never constructed the slot; tab A holds it live.
+            LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+            LocalSignal.state({ key: "small", defaultValue: 0, driver: makeTab(), gc: { maxUnreadTime: 4 * DAY } });
+
+            // Several GC rounds from both tabs: B's sweeps must always see a
+            // fresh `at` maintained by A's dedicated re-touch loop.
+            vi.advanceTimersByTime(3 * WEEK);
+
+            expect(map.has(storageKey("small"))).toBe(true);
+        });
+
+        it("registering a tighter slot does not postpone an imminent re-touch of a looser one", () => {
+            const driver = createMarkedDriver(
+                { [storageKey("loose")]: envelope(1, BASE - 47 * HOUR, 4 * DAY) },
+                BASE + WEEK,
+            );
+
+            LocalSignal.state({ key: "loose", defaultValue: 0, driver, gc: { maxUnreadTime: 4 * DAY } });
+
+            // One minute before the 2-day loop would fire, the loose slot is
+            // already past its touch threshold (age ≈ 95h of a 4-day TTL).
+            vi.advanceTimersByTime(2 * DAY - MINUTE);
+
+            // Registering a tighter slot re-arms the loop with a fresh full
+            // wait — the pending touch must happen synchronously, not be lost.
+            LocalSignal.state({ key: "tight", defaultValue: 0, driver, gc: { maxUnreadTime: 2 * DAY } });
+
+            const env = JSON.parse(driver.getItem(storageKey("loose"))!);
+            expect(env.at).toBe(BASE + 2 * DAY - MINUTE);
+        });
+
+        it("raising checkInterval mid-session arms the live-touch loop at the next GC fire", () => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+
+            try {
+                const driver = createMockDriver({
+                    [KEY_PREFIX]: meta(1, BASE - 1000),
+                    [storageKey("d")]: envelope(1, BASE),
+                });
+
+                LocalSignal.state({ key: "d", defaultValue: 0, driver, gc: { maxUnreadTime: 20 * DAY } });
+
+                // With a 40-day GC cadence the weekly rounds no longer protect
+                // a 20-day TTL — the dedicated loop must take over on the next
+                // GC fire (threshold becomes min(40d, 10d) = 10 days).
+                LocalSignal.GC_OPTIONS = { ...original, checkInterval: 40 * DAY };
+
+                vi.advanceTimersByTime(30 * MINUTE); // due GC fire arms the loop
+                vi.advanceTimersByTime(12 * DAY);
+
+                const env = JSON.parse(driver.getItem(storageKey("d"))!);
+                expect(env.at).toBe(BASE + 30 * MINUTE + 10 * DAY);
+            } finally {
+                LocalSignal.GC_OPTIONS = original;
+            }
+        });
+
+        it("touch threshold respects a small per-slot maxUnreadTime", () => {
+            const driver = createMarkedDriver(
+                { [storageKey("small")]: envelope(1, BASE - 3 * DAY, 4 * DAY) },
+                BASE + WEEK,
+            );
+
+            // 3 days is below checkInterval (1 week) but past half the slot's
+            // own 4-day TTL — the read must refresh it or it dies mid-use.
+            LocalSignal.state({ key: "small", defaultValue: 0, driver, gc: { maxUnreadTime: 4 * DAY } });
+
+            const env = JSON.parse(driver.getItem(storageKey("small"))!);
+            expect(env.at).toBe(BASE);
+            expect(env.ttl).toBe(4 * DAY);
         });
     });
 
