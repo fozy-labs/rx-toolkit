@@ -1,14 +1,27 @@
-import { z, ZodType } from "zod/v4";
+import { ZodType } from "zod/v4";
 
 import { type SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
+import {
+    GC_OPTIONS,
+    KEY_PREFIX,
+    LOCAL_STATE_GC_DEFAULTS,
+    LocalStateStorage,
+    slotStorageKey,
+    type SlotTtl,
+    type StorageLike,
+} from "./LocalStateStorage";
 import { State } from "./State";
 
-type StorageLike = {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-    removeItem(key: string): void;
+export type LocalStateGcOptions = {
+    /** `false` makes the slot GC-exempt (never auto-removed). @default true */
+    enabled?: boolean;
+    /**
+     * Milliseconds a slot may stay unread/unwritten before the GC sweep
+     * removes it. @default LOCAL_STATE_GC_DEFAULTS.maxUnreadTime (60 days)
+     */
+    maxUnreadTime?: number;
 };
 
 export type LocalStateOptions<T> = {
@@ -19,6 +32,8 @@ export type LocalStateOptions<T> = {
     driver?: StorageLike;
     defaultValue: T;
     devtoolsOptions?: SignalOptionsOrKey;
+    /** Garbage-collection policy for this slot. @default true */
+    gc?: boolean | LocalStateGcOptions;
 };
 
 const NONE = Symbol("NONE");
@@ -38,10 +53,27 @@ function resolveDefaultDriver(): StorageLike | null {
     }
 }
 
+/**
+ * Collapses the `gc` option into the envelope `ttl` field:
+ * `null` = exempt, number = explicit maxUnreadTime, `undefined` = default
+ * policy (not persisted, so default changes reach already stored slots).
+ */
+function resolveSlotTtl(gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
+    if (gc === false) return null;
+    if (gc === true || gc === undefined) return undefined;
+    if (gc.enabled === false) return null;
+    if (gc.maxUnreadTime === undefined) return undefined;
+    if (gc.maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
+    return gc.maxUnreadTime;
+}
+
 export class LocalState<T = string | null | number | undefined> {
     private _state$;
     private _computed;
     private readonly _options;
+    private readonly _storage;
+    private readonly _storageKey;
+    private readonly _slotTtl;
     readonly obs;
 
     private get _driver() {
@@ -56,6 +88,9 @@ export class LocalState<T = string | null | number | undefined> {
 
     constructor(options: LocalStateOptions<T>) {
         this._options = options;
+        this._storage = LocalStateStorage.forDriver(this._driver);
+        this._storageKey = slotStorageKey(options.key, options.userId);
+        this._slotTtl = resolveSlotTtl(options.gc);
 
         let initialValue = this._getStorageValue(options);
 
@@ -79,7 +114,7 @@ export class LocalState<T = string | null | number | undefined> {
     }
 
     set(value: T, actionName?: string) {
-        this._setStorageValue(this._options, value);
+        this._storage.writeSlot(this._storageKey, value, this._slotTtl);
         this._state$.set(value, actionName);
     }
 
@@ -96,95 +131,35 @@ export class LocalState<T = string | null | number | undefined> {
     }
 
     clear() {
-        this._deleteStorageValue(this._options);
+        this._storage.removeSlot(this._storageKey);
         this._state$.set(this._options.defaultValue);
     }
 
-    /**
-     * Разбирает сырое значение из storage. Битый JSON (обрезка при quota,
-     * ручная правка, запись от старой версии) — ожидаемый кейс, а не исключение.
-     */
-    private _parseStorageItem(options: LocalStateOptions<any>, item: string) {
-        let json: unknown;
+    private _getStorageValue(options: LocalStateOptions<T>): T | typeof NONE {
+        const slot = this._storage.readSlot(this._storageKey, this._slotTtl);
 
-        try {
-            json = JSON.parse(item);
-        } catch (error) {
-            return { success: false, error } as const;
-        }
+        if (!slot.found) return NONE;
 
-        const schema = z.record(z.string(), options.zodSchema || z.any());
-        return schema.safeParse(json);
-    }
+        if (!options.zodSchema) return slot.data as T;
 
-    private _getStorageValue(options: LocalStateOptions<any>) {
-        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
-        const item = this._driver.getItem(storageKey);
-
-        if (!item) return NONE;
-
-        const parsed = this._parseStorageItem(options, item);
+        const parsed = options.zodSchema.safeParse(slot.data);
 
         if (!parsed.success) {
-            console.warn(`Invalid value for key "${options.key}" in localStorage`, parsed.error);
+            console.warn(`[LocalSignal]: invalid value for key "${options.key}" in storage`, parsed.error);
+            // Invalid data never becomes valid on its own — drop it so it does
+            // not resurface (and does not outlive its TTL as noise).
+            this._storage.removeSlot(this._storageKey);
             return NONE;
         }
 
-        const subKey = options.userId ? `user:${options.userId}` : "common";
-
-        if (!(subKey in parsed.data)) {
-            return NONE;
-        }
-
-        return parsed.data[subKey];
-    }
-
-    private _setStorageValue<T>(options: LocalStateOptions<T>, value: T) {
-        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
-        const item = this._driver.getItem(storageKey) || "{}";
-
-        const parsed = this._parseStorageItem(options, item);
-        const data = parsed.success ? parsed.data : {};
-
-        const subKey = options.userId ? `user:${options.userId}` : "common";
-        data[subKey] = value;
-
-        this._driver.setItem(storageKey, JSON.stringify(data));
-    }
-
-    private _deleteStorageValue(options: LocalStateOptions<any>) {
-        const storageKey = `${LocalState.KEY_PREFIX}:${options.key}`;
-        const item = this._driver.getItem(storageKey);
-
-        if (!item) return;
-
-        const parsed = this._parseStorageItem(options, item);
-
-        if (!parsed.success) {
-            this._driver.removeItem(storageKey);
-            return;
-        }
-
-        const data = parsed.data;
-
-        const subKey = options.userId ? `user:${options.userId}` : "common";
-
-        // Membership check, not truthiness — otherwise falsy values (0 / "" /
-        // false / null) are never removed and resurrect on the next reload.
-        if (!(subKey in data)) return;
-
-        delete data[subKey];
-
-        if (Object.keys(data).length === 0) {
-            this._driver.removeItem(storageKey);
-            return;
-        }
-
-        this._driver.setItem(storageKey, JSON.stringify(data));
+        return parsed.data;
     }
 
     // === static ===
 
-    static KEY_PREFIX = "__LSValue__";
+    static KEY_PREFIX = KEY_PREFIX;
     static DEFAULT_DRIVER = resolveDefaultDriver();
+
+    /** Global GC tuning (`syncLimit` / `checkInterval` / `randomOffset`), in ms. */
+    static GC_OPTIONS = GC_OPTIONS;
 }
