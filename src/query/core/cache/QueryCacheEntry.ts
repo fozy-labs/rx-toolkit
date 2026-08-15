@@ -187,12 +187,12 @@ export class QueryCacheEntry<TArgs, TData>
     /**
      * Resolve/reject with the outcome of the machine's next settled state — the
      * same transitions as {@link whenFetched}, but without a keepalive
-     * subscription, so the caller owns the entry's lifecycle. Backs `Command.trigger`.
+     * subscription, so the caller owns the entry's lifecycle. Backs `Command.execute`.
      *
      * Entry-removal rejections (`CacheEntryRemovedError` from an eviction by a
-     * newer trigger or a `reset()`) pass through `mapError` here: this promise
-     * feeds the typed `TTriggerResult` envelope, whose `error` is declared as
-     * `TError`, so an unmapped escape would break that contract at runtime.
+     * newer execute or a `reset()`) pass through `mapError` here: this promise
+     * is what typed consumers catch as `TError`, so an unmapped escape would
+     * break that contract at runtime.
      */
     currentResult(): Promise<TData> {
         const result = this._awaitState((state) => this._settleQueryOutcome(state), {

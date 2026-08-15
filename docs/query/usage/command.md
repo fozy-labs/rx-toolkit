@@ -78,35 +78,28 @@ function AddTodoForm() {
 Поведение хука:
 
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
-2. `trigger(args)` запускает `queryFn` и возвращает `TTriggerPromise<TData>` — [конверт результата](#результат-trigger); промис не реджектится.
+2. `trigger(args)` запускает `queryFn` и возвращает [нативный `Promise<TData>`](#результат-trigger).
 3. Состояние (`isLoading`, `isSuccess`, `isError`) обновляется реактивно.
 
 
 ## Результат trigger
 
-`trigger` из `useCommand` (и `agent.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
-
-```tsx
-const result = await trigger({ text });
-
-if (result.status === 'error') {
-  console.error(result.error);
-} else {
-  console.log(result.data);
-}
-```
-
-Когда удобнее «бросающая» семантика, у промиса есть `unwrap()` — сырой результат: данные при успехе, исключение при ошибке:
+`trigger` из `useCommand` (и `agent.trigger`) возвращает **нативный** промис: данные при успехе, реджект нормализованной через [`mapError`](../api/README.md#типизация-ошибок-maperror) ошибкой при провале:
 
 ```tsx
 try {
-  const data = await trigger({ text }).unwrap();
-} catch (err) {
-  // ошибка мутации
+  const data = await trigger({ text });
+  console.log(data);
+} catch (error) {
+  console.error(error);
 }
 ```
 
-Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.isError`.
+Игнорировать результат безопасно — реджект заранее обработан внутри агента, необработанного реджекта (unhandled rejection) не будет, а ошибка отразится реактивно через `state.isError`:
+
+```tsx
+<button onClick={() => trigger({ text })}>Добавить</button>
+```
 
 ## Состояния команды
 
@@ -151,26 +144,19 @@ function PayButton() {
 
 ## Императивный API
 
-### trigger
+### execute
 
 ```typescript
 // Без ключа — создаётся автоматическая кэш-запись
-const data = await addTodoCommand.trigger({ text: 'Новая задача' });
+const data = await addTodoCommand.execute({ text: 'Новая задача' });
 
 // С явным ключом — привязывает результат к кэш-записи 'my-mutation-1'
-const data = await addTodoCommand.trigger({ text: 'Новая задача' }, 'my-mutation-1');
+const data = await addTodoCommand.execute({ text: 'Новая задача' }, 'my-mutation-1');
 ```
 
-Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `key` идентифицирует кэш-запись.
+Запускает `queryFn` и возвращает сырой промис с результатом: при ошибке мутации он реджектится (нормализовано через `mapError`), и — в отличие от `trigger` агента/хука — реджект не пред-обработан: игнорирующий вызов обязан сам навесить `.catch`. Необязательный второй аргумент `key` идентифицирует кэш-запись.
 
-В отличие от `trigger` на уровне агента и хука, `Command.trigger` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
-
-```typescript
-import { wrapTrigger } from '@fozy-labs/rx-toolkit';
-
-const result = await wrapTrigger(addTodoCommand.trigger({ text: 'Задача' }));
-if (result.status === 'error') { /* ... */ }
-```
+Прежнее имя `Command.trigger` объявлено **deprecated** (контракт идентичен `execute`) и будет удалено в одном из следующих релизов.
 
 ### getEntry
 
@@ -199,8 +185,8 @@ const entry$ = Signal.compute(() => addTodoCommand.getEntry$('my-mutation-1'));
 ```typescript
 const agent = addTodoCommand.createAgent('my-mutation-1');
 
-// trigger через агент
-agent.trigger({ text: 'New todo' });
+// trigger через агент — fire-and-forget безопасен, ошибка придёт в state$
+void agent.trigger({ text: 'New todo' });
 // agent.state$() → { status: "pending", data: null, isLoading: true, ... }
 ```
 
@@ -213,10 +199,10 @@ agent.trigger({ text: 'New todo' });
 
 Способ указания ключа зависит от API:
 
-- **Императивно** — ключ передаётся вторым аргументом в метод `trigger`:
+- **Императивно** — ключ передаётся вторым аргументом в метод `execute`:
 
 ```typescript
-const data = await addTodoCommand.trigger({ text: 'Задача' }, 'my-mutation-1');
+const data = await addTodoCommand.execute({ text: 'Задача' }, 'my-mutation-1');
 ```
 
 - **React-хук** — ключ задаётся на уровне `useCommand`, а функция `trigger` вызывается только с `args`:

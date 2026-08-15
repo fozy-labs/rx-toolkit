@@ -60,7 +60,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             return;
         }
 
-        this._resource.trigger(tracking.keyed);
+        this._resource._getOrCreate(tracking.keyed);
     }
 
     /**
@@ -92,7 +92,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
 
         Batcher.run(() => {
             if (this._isStarted) {
-                this._resource.trigger(keyed);
+                this._resource._getOrCreate(keyed);
             }
 
             this._tracking$.set({
@@ -166,15 +166,15 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
 
         if (!entry) {
             if (this._isStarted) {
-                // A trigger has side effects (creates a cache entry + starts a fetch),
-                // so it cannot run synchronously inside this computed. Defer it — but on
-                // the microtask re-check that `tracking` is still the live one: args may
-                // have advanced, or the agent may have been stopped/cleared, within the
-                // same tick. Triggering the captured key then would spawn a phantom cache
-                // entry + fetch for args nobody tracks anymore.
+                // Entry creation has side effects (creates a cache entry + starts a
+                // fetch), so it cannot run synchronously inside this computed. Defer it —
+                // but on the microtask re-check that `tracking` is still the live one:
+                // args may have advanced, or the agent may have been stopped/cleared,
+                // within the same tick. Creating the captured key then would spawn a
+                // phantom cache entry + fetch for args nobody tracks anymore.
                 queueMicrotask(() => {
                     if (this._isStarted && this._tracking$.peek()?.keyed.key === tracking.keyed.key) {
-                        this._resource.trigger(tracking.keyed);
+                        this._resource._getOrCreate(tracking.keyed);
                     }
                 });
 

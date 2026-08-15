@@ -9,6 +9,11 @@ import type { TResourceAgentState } from "./state";
 // ==================== Resource Interface ====================
 
 export interface IResource<TArgs, TData, TError = unknown> {
+    /**
+     * @deprecated Use {@link prefetch}: `trigger(args)` ≡ `prefetch(args)`,
+     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Will be
+     * removed in a future release.
+     */
     trigger(args: Args<TArgs>, doForce?: boolean): void;
     refresh(args: Args<TArgs>): void;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
@@ -19,12 +24,12 @@ export interface IResource<TArgs, TData, TError = unknown> {
     toKeyed(args: Args<TArgs>): Keyed<TArgs>;
     getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData, TError>;
     pack(args: Args<TArgs>): TPackedResource<TArgs, TData, TError>;
-    /** @experimental Imperative fetch API; the surface may change before stabilization. */
+    /** Resolve with cached data, loading it first when absent. Rejects on failure/abort. */
     ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
-    /** @experimental Imperative fetch API; the surface may change before stabilization. */
+    /** Resolve with the result of a fresh query. Rejects on failure/abort. */
     fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
-    /** @experimental Imperative fetch API; the surface may change before stabilization. */
-    prefetch(args: Args<TArgs>): Promise<void>;
+    /** Fire-and-forget cache warm-up; creates the entry synchronously, never rejects. */
+    prefetch(args: Args<TArgs>, options?: TResourcePrefetchOptions): Promise<void>;
 }
 
 // ==================== Fetch Options ====================
@@ -32,8 +37,6 @@ export interface IResource<TArgs, TData, TError = unknown> {
 /**
  * Options for the imperative {@link IResource.ensure} / {@link IResource.fetch}
  * methods.
- *
- * @experimental Part of the new imperative fetch API; may change before stabilization.
  */
 export interface TResourceFetchOptions {
     /**
@@ -44,6 +47,16 @@ export interface TResourceFetchOptions {
      * request. {@link IResource.prefetch} is intentionally not abort-aware.
      */
     signal?: AbortSignal;
+}
+
+/** Options for {@link IResource.prefetch}. */
+export interface TResourcePrefetchOptions {
+    /**
+     * When `true`, warms the cache with *fresh* data: an existing entry is
+     * refreshed (or retried after an error) instead of being reused as-is —
+     * the fire-and-forget counterpart of {@link IResource.fetch}.
+     */
+    force?: boolean;
 }
 
 // ==================== Packed Descriptor ====================

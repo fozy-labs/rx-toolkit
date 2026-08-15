@@ -2675,6 +2675,54 @@ describe("Resource.prefetch", () => {
         await resource.prefetch(1);
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
+
+    it("creates the entry synchronously, before the promise settles", () => {
+        const resource = createResource<number, string>({ queryFn: async () => "data" });
+
+        void resource.prefetch(1);
+
+        expect(resource.getEntry(1)).not.toBeNull();
+    });
+
+    it("force: refreshes an existing entry with fresh data", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => `v${++callCount}`,
+        });
+
+        await resource.prefetch(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v1");
+
+        await resource.prefetch(1, { force: true });
+        expect(callCount).toBe(2);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v2");
+    });
+
+    it("force: creates and loads a cold entry", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        await resource.prefetch(1, { force: true });
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
+
+    it("force: retries a previously failed entry and still never rejects", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                throw new Error(`fail-${callCount}`);
+            },
+        });
+
+        await resource.prefetch(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+
+        await expect(resource.prefetch(1, { force: true })).resolves.toBeUndefined();
+        expect(callCount).toBe(2);
+    });
 });
 
 // ==================== Abort semantics ====================

@@ -635,12 +635,12 @@ describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
     });
 });
 
-// ==================== 13. Stale re-trigger on rapid args change (microtask) ====================
+// ==================== 13. Stale re-create on rapid args change (microtask) ====================
 //
-// _deriveState schedules a deferred re-trigger — queueMicrotask(trigger(tracking.keyed)) —
+// _deriveState schedules a deferred re-create — queueMicrotask(_getOrCreate(tracking.keyed)) —
 // when the agent is started and its tracked entry is absent (evicted-while-tracked). The
 // captured `tracking` is the key at schedule time. If args advance within the SAME tick before
-// the microtask fires, the stale key must NOT be triggered: it would spawn a phantom cache entry
+// the microtask fires, the stale key must NOT be re-created: it would spawn a phantom cache entry
 // and a fetch for args nobody tracks anymore. Guarded by a live-tracking (key) re-check.
 describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", () => {
     it("does not trigger the evicted-then-superseded key when args advance within one tick", async () => {
@@ -661,9 +661,9 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
 
-        const triggerSpy = vi.spyOn(resource, "trigger");
+        const createSpy = vi.spyOn(resource, "_getOrCreate");
 
-        // Derive hits "entry null + started" → queues microtask(trigger(key 1)).
+        // Derive hits "entry null + started" → queues microtask(_getOrCreate(key 1)).
         expect(agent.state$.peek().status).toBe("pending");
 
         // Args advance to 3 within the SAME tick, before the queued microtask fires.
@@ -671,8 +671,8 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
 
         await flushMicrotasks();
 
-        // The queued microtask must NOT re-trigger the stale key 1.
-        const staleCalls = triggerSpy.mock.calls.filter(([keyed]) => (keyed as { value: number }).value === 1);
+        // The queued microtask must NOT re-create the stale key 1.
+        const staleCalls = createSpy.mock.calls.filter(([keyed]) => (keyed as { value: number }).value === 1);
         expect(staleCalls).toHaveLength(0);
     });
 
@@ -692,12 +692,12 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
 
-        const triggerSpy = vi.spyOn(resource, "trigger");
-        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(trigger(key 1))
+        const createSpy = vi.spyOn(resource, "_getOrCreate");
+        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(_getOrCreate(key 1))
         // args unchanged
         await flushMicrotasks();
 
-        const recreated = triggerSpy.mock.calls.some(([keyed]) => (keyed as { value: number }).value === 1);
+        const recreated = createSpy.mock.calls.some(([keyed]) => (keyed as { value: number }).value === 1);
         expect(recreated).toBe(true);
     });
 });

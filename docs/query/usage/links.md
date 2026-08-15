@@ -39,7 +39,7 @@ link({
 Стратегии выполняются в разные моменты жизненного цикла команды:
 
 ```
-trigger(args)
+execute(args)
   │
   ├── optimisticUpdate  ← немедленно, до ответа сервера
   │      └─ THROW ── rollback всех патчей + reject; queryFn не вызывается

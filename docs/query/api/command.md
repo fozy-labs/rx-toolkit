@@ -42,7 +42,8 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `trigger`     | `args: Args<TArgs>` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][agent-api-trigger] на уровне агента/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `trigger` с тем же ключом, `reset()`). |
+| `execute`     | `args: Args<TArgs>, key?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится. Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
+| `trigger`     | `args: Args<TArgs>, key?: string` | `Promise<TData>`    | **Deprecated.** Прежнее имя `execute` — контракт идентичен. Будет удалён в одном из следующих релизов. |
 | `createAgent` | `key?: string`      | `Agent`                 | Создаёт реактивный [агент][agent] — наблюдатель за командой. Необязательный ключ привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
@@ -53,7 +54,7 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [конверт результата][agent-api-trigger] `TTriggerPromise<TData>` (не реджектится; `.unwrap()` — сырой промис). В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [нативный промис][agent-api-trigger] `Promise<TData>`: при ошибке реджектится, но реджект заранее обработан внутри агента — fire-and-forget вызов не даёт unhandled rejection. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
 
 
 ## Pack
@@ -65,7 +66,7 @@ const packed = addTodoCommand.pack({ text: "buy milk" }, "draft-1");
 // → { kind: "command", command: addTodoCommand, args: { text: "buy milk" }, key: "draft-1" }
 
 // Позже дескриптор разворачивается:
-await packed.command.trigger(packed.args, packed.key);
+await packed.command.execute(packed.args, packed.key);
 ```
 
 Все дескрипторы (`TPackedResource` и `TPackedCommand`) объединены в дискриминированный союз `TPacked<TArgs, TData>` с полем-дискриминатором `kind`, поэтому один обработчик может принимать и ресурсы, и команды:
@@ -73,9 +74,9 @@ await packed.command.trigger(packed.args, packed.key);
 ```typescript
 function run(packed: TPacked<unknown, unknown>) {
     if (packed.kind === "resource") {
-        packed.resource.trigger(packed.args);
+        void packed.resource.prefetch(packed.args);
     } else {
-        void packed.command.trigger(packed.args, packed.key);
+        void packed.command.execute(packed.args, packed.key).catch(() => {});
     }
 }
 ```

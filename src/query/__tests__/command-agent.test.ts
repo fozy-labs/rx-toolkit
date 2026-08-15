@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
+import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { Command } from "@/query/core/command/Command";
 import type { ICommandForAgent } from "@/query/core/command/CommandAgent";
 import { CommandAgent } from "@/query/core/command/CommandAgent";
@@ -58,10 +59,10 @@ function refreshErrorState<TArgs, TData>(args: TArgs, data: TData, error: unknow
 /** Create a mock ICommandForAgent. entries map keyed by key string. */
 function createMockCommand<TArgs = string, TData = string>() {
     const entries = new Map<string, ReturnType<typeof createMockEntry<TArgs, TData>>>();
-    let triggerImpl: (args: any, key?: string) => Promise<TData> = async () => "default" as any;
+    let executeImpl: (args: any, key?: string) => Promise<TData> = async () => "default" as any;
 
     const command: ICommandForAgent<TArgs, TData> = {
-        trigger: vi.fn((args, key) => triggerImpl(args, key)),
+        execute: vi.fn((args, key) => executeImpl(args, key)),
         getEntry$: vi.fn((key: string) => entries.get(key)?.entry ?? null),
     };
 
@@ -73,9 +74,9 @@ function createMockCommand<TArgs = string, TData = string>() {
             entries.set(key, mock);
             return mock;
         },
-        setTriggerImpl(fn: (args: any, key?: string) => Promise<TData>) {
-            triggerImpl = fn;
-            (command.trigger as any).mockImplementation(fn);
+        setExecuteImpl(fn: (args: any, key?: string) => Promise<TData>) {
+            executeImpl = fn;
+            (command.execute as any).mockImplementation(fn);
         },
     };
 }
@@ -122,7 +123,7 @@ describe("CommandAgent trigger success", () => {
         const mock = createMockCommand<string, string>();
         const entryMock = mock.addEntry("k1", pendingState("hello"));
 
-        mock.setTriggerImpl(async () => "result");
+        mock.setExecuteImpl(async () => "result");
 
         const agent = new CommandAgent(mock.command);
         const s = observe(agent);
@@ -152,7 +153,7 @@ describe("CommandAgent trigger error", () => {
         const entryMock = mock.addEntry("k1", pendingState("hello"));
 
         const err = new Error("fail");
-        mock.setTriggerImpl(async () => {
+        mock.setExecuteImpl(async () => {
             throw err;
         });
 
@@ -164,9 +165,7 @@ describe("CommandAgent trigger error", () => {
         const promise = agent.trigger("hello", "k1");
         expect(s.get().status).toBe("pending");
 
-        const result = await promise;
-        expect(result.status).toBe("error");
-        expect(result.error).toBe(err);
+        await expect(promise).rejects.toBe(err);
 
         // Simulate machine transitioning to error
         entryMock.setMachineState(errorState("hello", err));
@@ -177,73 +176,86 @@ describe("CommandAgent trigger error", () => {
     });
 });
 
-// ==================== 3b. Trigger result envelope ====================
+// ==================== 3b. Native trigger promise contract ====================
 
-describe("CommandAgent trigger envelope", () => {
-    it("resolves with a success envelope", async () => {
+describe("CommandAgent trigger promise contract", () => {
+    it("resolves with the raw mutation data", async () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", pendingState("hello"));
-        mock.setTriggerImpl(async () => "result");
+        mock.setExecuteImpl(async () => "result");
 
         const agent = new CommandAgent(mock.command);
 
-        const result = await agent.trigger("hello", "k1");
-        expect(result).toEqual({ status: "success", data: "result" });
-        expect(result.error).toBeUndefined();
+        await expect(agent.trigger("hello", "k1")).resolves.toBe("result");
     });
 
-    it("resolves with an error envelope instead of rejecting", async () => {
+    it("rejects with the raw error", async () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", pendingState("hello"));
         const err = new Error("fail");
-        mock.setTriggerImpl(async () => {
+        mock.setExecuteImpl(async () => {
             throw err;
         });
 
         const agent = new CommandAgent(mock.command);
 
-        // No try/catch — the envelope promise never rejects.
-        const result = await agent.trigger("hello", "k1");
-        expect(result.status).toBe("error");
-        expect(result.error).toBe(err);
-        expect(result.data).toBeUndefined();
+        await expect(agent.trigger("hello", "k1")).rejects.toBe(err);
     });
 
-    it("unwrap() resolves with the raw data", async () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", pendingState("hello"));
-        mock.setTriggerImpl(async () => "result");
-
-        const agent = new CommandAgent(mock.command);
-
-        await expect(agent.trigger("hello", "k1").unwrap()).resolves.toBe("result");
-    });
-
-    it("unwrap() rejects with the raw error", async () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", pendingState("hello"));
-        const err = new Error("fail");
-        mock.setTriggerImpl(async () => {
-            throw err;
-        });
-
-        const agent = new CommandAgent(mock.command);
-
-        await expect(agent.trigger("hello", "k1").unwrap()).rejects.toBe(err);
-    });
-
-    it("wraps a synchronous trigger throw into an error envelope", async () => {
+    it("converts a synchronous execute throw into a rejection", async () => {
         const mock = createMockCommand<string, string>();
         const err = new Error("sync boom");
-        mock.setTriggerImpl(() => {
+        mock.setExecuteImpl(() => {
             throw err;
         });
 
         const agent = new CommandAgent(mock.command);
 
-        const result = await agent.trigger("hello", "k1");
-        expect(result.status).toBe("error");
-        expect(result.error).toBe(err);
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = agent.trigger("hello", "k1");
+        }).not.toThrow();
+        await expect(promise).rejects.toBe(err);
+    });
+
+    it("ignored failing trigger does not produce an unhandled rejection", async () => {
+        const tracker = await trackUnhandledRejections();
+        try {
+            const mock = createMockCommand<string, string>();
+            mock.addEntry("k1", pendingState("hello"));
+            mock.setExecuteImpl(async () => {
+                throw new Error("ignored");
+            });
+
+            const agent = new CommandAgent(mock.command);
+
+            // Fire-and-forget: nobody attaches a handler to the returned promise.
+            void agent.trigger("hello", "k1");
+
+            await flushUnhandledRejections();
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
+    it("awaiting callers still observe the rejection despite the internal pre-handle", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        const err = new Error("fail");
+        mock.setExecuteImpl(async () => {
+            throw err;
+        });
+
+        const agent = new CommandAgent(mock.command);
+
+        let caught: unknown;
+        try {
+            await agent.trigger("hello", "k1");
+        } catch (error) {
+            caught = error;
+        }
+        expect(caught).toBe(err);
     });
 });
 
@@ -511,9 +523,7 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
         });
         _effects.push(eff);
 
-        const result = await agent.trigger(100);
-        expect(result.status).toBe("error");
-        expect(result.error).toBe(err);
+        await expect(agent.trigger(100)).rejects.toBe(err);
         await flushMicrotasks();
 
         expect(seen).toContain("pending");
@@ -550,11 +560,11 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
 // ==================== 11. Real Command integration — throwing optimisticUpdate ====================
 
 // A throwing optimisticUpdate used to bypass the machine entirely: the trigger
-// envelope carried the error, but no cache entry was created, so the agent's
+// promise carried the error, but no cache entry was created, so the agent's
 // state$ (and useCommand) stayed idle — the failure was invisible to state
 // observers. It must surface on the agent like any other mutation failure.
 describe("CommandAgent + real Command (throwing optimisticUpdate)", () => {
-    it("agent state reflects the error, not just the envelope", async () => {
+    it("agent state reflects the error, not just the rejection", async () => {
         const resource = new Resource<number, { value: string }>({
             retentionTime: false,
             serializeArgs: stableStringify,
@@ -584,10 +594,7 @@ describe("CommandAgent + real Command (throwing optimisticUpdate)", () => {
         });
         _effects.push(eff);
 
-        const result = await agent.trigger(1);
-        expect(result.status).toBe("error");
-        if (result.status !== "error") throw new Error("expected error envelope");
-        expect((result.error as Error).message).toBe("optimistic boom");
+        await expect(agent.trigger(1)).rejects.toThrow("optimistic boom");
         await flushMicrotasks();
 
         expect(seen).toContain("error");

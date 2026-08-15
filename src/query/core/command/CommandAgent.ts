@@ -1,21 +1,13 @@
-import type {
-    Args,
-    ICommandAgent,
-    IQueryCacheEntry,
-    TCommandAgentState,
-    TMachineState,
-    TTriggerPromise,
-} from "@/query/types";
+import type { Args, ICommandAgent, IQueryCacheEntry, TCommandAgentState, TMachineState } from "@/query/types";
 import { Signal } from "@/signals";
 import type { ReadonlySignal } from "@/signals/types";
 
 import { isKeyed } from "../../lib/toKeyed";
-import { wrapTrigger } from "../../lib/wrapTrigger";
 
 // Minimal contract that CommandAgent needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
 export interface ICommandForAgent<TArgs, TData> {
-    trigger(args: Args<TArgs>, key?: string): Promise<TData>;
+    execute(args: Args<TArgs>, key?: string): Promise<TData>;
     getEntry$(key: string): IQueryCacheEntry<TArgs, TData> | null;
 }
 
@@ -58,23 +50,35 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
         }
     }
 
-    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError> {
+    /**
+     * Execute the mutation and track its cache entry via {@link state$}.
+     *
+     * Returns the native mutation promise: resolves with the result, rejects
+     * with the mapError-normalized error. The rejection is pre-handled here —
+     * the internal no-op catch marks this promise as handled without consuming
+     * the rejection — so a fire-and-forget call site never surfaces an
+     * unhandled rejection (the failure still lands in {@link state$}), while
+     * awaiting callers observe the rejection as usual.
+     */
+    trigger(args: Args<TArgs>, key?: string): Promise<TData> {
         const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
 
-        // Command.trigger never throws synchronously and normalizes every
+        // Command.execute never throws synchronously and normalizes every
         // rejection to TError itself. This guard only covers foreign
         // ICommandForAgent implementations that may still throw — such an error
-        // reaches the envelope unmapped (best effort), since the agent has no
+        // reaches the caller unmapped (best effort), since the agent has no
         // access to the api's mapError.
         let result: Promise<TData>;
         try {
-            result = this._command.trigger(args, entryKey);
+            result = this._command.execute(args, entryKey);
             this._observeKey(entryKey);
         } catch (error) {
             result = Promise.reject(error);
         }
 
-        return wrapTrigger<TData, TError>(result);
+        void result.catch(() => {});
+
+        return result;
     }
 
     setKey(key: string): void {

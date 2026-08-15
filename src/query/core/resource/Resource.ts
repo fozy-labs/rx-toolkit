@@ -13,6 +13,7 @@ import type {
     TPackedResource,
     TQueryStartedContext,
     TResourceFetchOptions,
+    TResourcePrefetchOptions,
 } from "@/query/types";
 import { Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
 
@@ -73,6 +74,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Execute a query with the given arguments.
      *
+     * @deprecated Use {@link prefetch}: `trigger(args)` ≡ `prefetch(args)`,
+     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Will be
+     * removed in a future release.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces a refresh even if data is cached.
      */
@@ -211,7 +215,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Bundle this resource with arguments into an inert {@link TPackedResource}
      * descriptor. Nothing is executed — the consumer hands the descriptor back to
-     * the library, which can later read `resource`/`args` (e.g. `resource.trigger(args)`).
+     * the library, which can later read `resource`/`args` (e.g. `resource.prefetch(args)`).
      *
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @returns A `{ kind: "resource", resource, args }` descriptor.
@@ -231,8 +235,6 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Designed for router loaders (`ensureQueryData`-style): the consumer awaits
      * data, then a component mounts and subscribes within the retention window.
      *
-     * @experimental Part of the new imperative fetch API; the surface may change
-     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
@@ -264,8 +266,6 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * in-flight query is awaited rather than duplicated. Rejects if the query
      * fails, the entry is removed, or `options.signal` aborts.
      *
-     * @experimental Part of the new imperative fetch API; the surface may change
-     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
@@ -295,16 +295,18 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Warm the cache for the given arguments without surfacing the result.
      *
-     * A fire-and-forget {@link ensure}: reuses cached data when present, never
-     * rejects, and — unlike {@link ensure} — is intentionally not abort-aware so
-     * speculative warm-ups survive navigation.
+     * A fire-and-forget {@link ensure}: reuses cached data when present, creates
+     * the entry synchronously, never rejects, and — unlike {@link ensure} — is
+     * intentionally not abort-aware so speculative warm-ups survive navigation.
+     * With `options.force` it warms with *fresh* data instead (a fire-and-forget
+     * {@link fetch}): an existing entry is refreshed, or retried after an error.
      *
-     * @experimental Part of the new imperative fetch API; the surface may change
-     *   (rename / reshape) before stabilization.
      * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param options - See {@link TResourcePrefetchOptions}.
      */
-    prefetch(args: Args<TArgs>): Promise<void> {
-        return this.ensure(args).then(
+    prefetch(args: Args<TArgs>, options?: TResourcePrefetchOptions): Promise<void> {
+        const settled = options?.force ? this.fetch(args) : this.ensure(args);
+        return settled.then(
             () => undefined,
             () => undefined,
         );
@@ -428,7 +430,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Run the user's queryFn, converting a synchronous throw (possible with a
      * non-async queryFn) into a rejected promise. Without this the throw would
      * escape the QueryCacheEntry constructor on the initial run — no entry
-     * created, trigger()/ensure()/fetch() throwing synchronously — and escape
+     * created, prefetch()/ensure()/fetch() throwing synchronously — and escape
      * `_execute` on refresh()/retry() after the machine had already moved to
      * refreshing/pending, stranding it there. As a rejection it flows through
      * the machine (→ error / refresh-error) like any other query failure.
@@ -444,11 +446,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Get an existing cache entry or create a new one.
      *
-     * @internal Used by {@link ResourceAgent} and Command links.
+     * @internal Used by {@link ResourceAgent} and Command links. Public only for
+     * intra-library access — not part of the supported API.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces a refresh on an existing entry.
      */
-    private _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
+    _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
         const keyed = this.toKeyed(args);
         const existing = this._cache.get(keyed.key);
 
