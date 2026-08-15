@@ -6,6 +6,7 @@ import {
     DependencyTracker,
     Devtools,
     Effect,
+    FromSignal,
     LocalSignal,
     LocalState,
     // types
@@ -107,6 +108,12 @@ describe("Signals module exports", () => {
             expect(typeof Signal.state).toBe("function");
             expect(typeof Signal.compute).toBe("function");
             expect(typeof Signal.effect).toBe("function");
+            expect(typeof Signal.from).toBe("function");
+        });
+
+        it("exports FromSignal", () => {
+            expect(FromSignal).toBeDefined();
+            expect(typeof FromSignal.create).toBe("function");
         });
 
         it("exports LocalState", () => {

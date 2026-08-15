@@ -108,6 +108,11 @@ describe("Root module exports (@/index)", () => {
             expect(mod.Signal).toBeDefined();
         });
 
+        it("exports FromSignal", async () => {
+            const mod = await import("@/index");
+            expect(mod.FromSignal).toBeDefined();
+        });
+
         it("exports LocalState", async () => {
             const mod = await import("@/index");
             expect(mod.LocalState).toBeDefined();

@@ -37,6 +37,7 @@ import {
     Tab,
     Tabs,
 } from '@heroui/react';
+import { debounceTime, scan, startWith, Subject } from 'rxjs';
 import { fetches } from '../utils/fetches';
 
 function processExample(code: string): string {
@@ -81,6 +82,7 @@ export function LiveExample({
         Computed,
         createApi,
         CURRENT_SNAPSHOT_VERSION,
+        debounceTime,
         Divider,
         Effect,
         fetches,
@@ -89,13 +91,16 @@ export function LiveExample({
         LocalState,
         React,
         reactHooksPlugin,
+        scan,
         Select,
         SelectItem,
         Signal,
         SKIP,
         Slider,
         Spinner,
+        startWith,
         State,
+        Subject,
         Switch,
         Tab,
         Tabs,

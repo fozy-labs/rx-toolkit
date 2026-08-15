@@ -1,5 +1,6 @@
 export * from "./Computed";
 export * from "./Effect";
+export * from "./FromSignal";
 export * from "./LocalSignal";
 export * from "./LocalState";
 export * from "./Signal";
