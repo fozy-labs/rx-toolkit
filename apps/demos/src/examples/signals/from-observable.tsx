@@ -2,24 +2,22 @@ import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
 import { Button, Card, CardBody, CardHeader, Chip, Input } from "@heroui/react";
 import { debounceTime, scan, startWith, Subject } from "rxjs";
 
-// Stateful-пайплайн: scan хранит счётчик в живой подписке.
-// keepAlive: 'forever' удерживает её от первого чтения до dispose() —
-// состояние не сбрасывается, даже когда сигнал никто не наблюдает.
 const clickBus$ = new Subject<void>();
+// Состояние существует, пока на него подписаны (и в течение таски после отписки)
 const clickCount$ = Signal.from(
     clickBus$.pipe(
         scan((n) => n + 1, 0),
         startWith(0),
     ),
-    { keepAlive: 'forever', key: 'SignalFrom/clickCount$' },
+    { keepAlive: 'task', key: 'SignalFrom/clickCount$' },
 );
 
 // Асинхронный пайплайн: до первой эмиссии debounceTime у сигнала нет значения,
 // поэтому передаём default. Пока подписка «горячая», чтения идут из кеша.
 const query$ = Signal.state('', 'SignalFrom/query$');
-const debounced$ = Signal.from(
+const debounced$ = Signal.from<string | null>(
     query$.obs.pipe(debounceTime(300)),
-    { default: '', key: 'SignalFrom/debounced$' },
+    { default: null, key: 'SignalFrom/debounced$' },
 );
 
 export function Base() {
