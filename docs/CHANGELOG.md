@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+### Added
+- **`Signal.from(source, options?)`** — read-only сигнал над RxJS Observable с общей (shared) подпиской на источник и replay-кешем. Опция `keepAlive` (`'none' | 'microtask' | 'task' | 'forever' | число мс`, по умолчанию `'microtask'`) управляет удержанием подписки после ухода последнего потребителя: чтения при «горячей» подписке бесплатны, stateful-пайплайны (`scan` и т.п.) не перезапускаются на каждом чтении. Опции `default` (явный `undefined` — валидное значение) и `key` (DevTools). Возвращает `DisposableSignal<T>`: `dispose()` снимает подписку и замораживает последнее значение. Классовый аналог — `FromSignal`. См. [RxSignals](./signals/README.md#signalfrom).
+
+### Deprecated
+- **`signalize`** — переподписывается на источник при каждом чтении: асинхронные источники навсегда «залипают» на `defaultValue` (или бросают `"No value emitted"`), а `.obs` при этом эмитит корректно — эффекты просыпаются, но читают устаревшее значение. Используйте `Signal.from`; точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`.
+
 
 ## [0.10.2] - 2026-07-09
 

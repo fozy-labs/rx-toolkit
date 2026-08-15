@@ -117,6 +117,72 @@ const effect = Signal.effect(() => {
 });
 ```
 
+### Signal.from
+
+Оборачивает RxJS Observable в read-only сигнал с общей (shared) подпиской на источник. Пока подписка «горячая», чтения бесплатны — значение отдаётся из replay-кеша; опция `keepAlive` управляет тем, как долго подписка живёт после ухода последнего потребителя (подписчика `.obs` или pull-чтения). Заменяет устаревший [`signalize`](#signalize-устаревшее).
+
+```typescript
+import { debounceTime, fromEvent, scan, startWith } from 'rxjs';
+import { Signal } from '@fozy-labs/rx-toolkit';
+
+// Stateful-пайплайн: подписка живёт до dispose(), scan не теряет состояние
+const clicks$ = Signal.from(
+    fromEvent(document, 'click').pipe(
+        scan((n) => n + 1, 0),
+        startWith(0),
+    ),
+    { keepAlive: 'forever' },
+);
+
+console.log(clicks$()); // актуальный счётчик кликов
+
+// Асинхронный источник: до первой эмиссии возвращается default
+const query$ = Signal.state('');
+const debounced$ = Signal.from(query$.obs.pipe(debounceTime(300)), { default: '' });
+```
+
+**Опции (`SignalFromOptions<T>`):**
+
+| Опция | По умолчанию | Описание |
+|---|---|---|
+| `default` | — | Значение, пока источник ещё не эмитил (холодное чтение или подключённый, но «молчащий» источник). Явный `undefined` — валидный default. Без него такие чтения бросают `"No value emitted"`. |
+| `keepAlive` | `'microtask'` | Сколько живёт подписка на источник после ухода последнего потребителя (см. ниже). |
+| `key` | — | Ключ для DevTools, как у `Signal.state` / `Signal.compute`. |
+
+**`keepAlive`:**
+
+- `'none'` — без удержания: каждое чтение подписывается и сразу отписывается (поведение старого `signalize`);
+- `'microtask'` — до конца текущей очереди микротасок: чтения в одном синхронном «бёрсте» разделяют одну подписку;
+- `'task'` — до следующей макротаски;
+- `'forever'` — от первого обращения до `dispose()`;
+- число — грейс-окно в миллисекундах, продлеваемое каждым потребителем.
+
+**Жизненный цикл:**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Cold
+    Cold --> Hot : чтение / подписка на .obs
+    Hot --> Hot : эмиссия источника — кеш обновлён
+    Hot --> Grace : ушёл последний потребитель
+    Grace --> Hot : обращение в окне keepAlive (бесплатно)
+    Grace --> Cold : окно истекло — отписка, кеш сброшен
+    Hot --> Frozen : dispose()
+    Grace --> Frozen : dispose()
+    Cold --> Frozen : dispose()
+    Frozen --> [*]
+```
+
+Семантика:
+
+- Переход Grace → Cold **сбрасывает кеш**: следующее чтение перезапускает источник «с нуля». Для `'forever'` переходов в Grace/Cold нет.
+- `dispose()` замораживает последнее значение (как у `State`): чтения продолжают возвращать его, `.obs` завершается, подписка на источник снимается. Если кеша на момент `dispose()` не было — чтения возвращают `default` / бросают.
+- Ошибка источника: синхронная пробрасывается читателю, подписчики `.obs` получают error-нотификацию; в обоих случаях сигнал сбрасывается в Cold, и следующее чтение повторяет подписку (ретрай).
+- `complete` источника: значение остаётся в кеше до истечения keepAlive-окна (при `'forever'` — до `dispose()`), затем холодный рестарт.
+- Повторяющиеся одинаковые значения дедуплицируются по `Object.is` — согласованно с остальным движком.
+
+Возвращает `DisposableSignal<T>`. Классовый аналог — `FromSignal.create(source, options)`.
+
 ## Типы сигналов
 
 Возвращаемые значения фабрик образуют иерархию по возможностям:
@@ -124,14 +190,14 @@ const effect = Signal.effect(() => {
 | Тип | Возможности | Откуда |
 |---|---|---|
 | `ReadonlySignal<T>` | `()`, `get()`, `peek()`, `obs` | `signalize(...)`, `SourceSignal.create(...)` |
-| `DisposableSignal<T>` | `ReadonlySignal<T>` + `dispose()` / `[Symbol.dispose]` | `Signal.compute(...)` |
+| `DisposableSignal<T>` | `ReadonlySignal<T>` + `dispose()` / `[Symbol.dispose]` | `Signal.compute(...)`, `Signal.from(...)` |
 | `StateSignal<T>` | `DisposableSignal<T>` + `set()`, `update()` | `Signal.state(...)` |
 
 `DisposableSignal<T>` расширяет `ReadonlySignal<T>`, а `StateSignal<T>` — `DisposableSignal<T>`.
 
 ## Жизненный цикл сигналов
 
-`State` и `Computed` (а также результаты `Signal.state` / `Signal.compute`) можно завершить методом `dispose()` — он отписывает внутренние подписки и освобождает ресурсы. Для `Computed` это останавливает вычисление и очищает кеш.
+`State`, `Computed` и `FromSignal` (а также результаты `Signal.state` / `Signal.compute` / `Signal.from`) можно завершить методом `dispose()` — он отписывает внутренние подписки и освобождает ресурсы. Для `Computed` это останавливает вычисление и очищает кеш; для `Signal.from` — снимает подписку на источник и замораживает последнее значение.
 
 ```ts
 const count = Signal.state(0);
@@ -347,44 +413,25 @@ users.dispose();   // освобождение
 
 ## Операторы
 
-### signalize
+### signalize (устаревшее)
 
-Преобразует RxJS Observable в Signal. Позволяет использовать любой Observable как реактивный сигнал.
+> **Deprecated.** Используйте [`Signal.from`](#signalfrom). `signalize` не удерживает подписку: каждое чтение подписывается на источник и тут же отписывается. Поэтому источник без синхронной (реплеящейся) эмиссии **навсегда** возвращает `defaultValue` (или бросает `"No value emitted"`), а stateful-пайплайны (`scan`, `startWith` и т.п.) перезапускаются «с нуля» на каждом чтении. Точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`.
+
+Преобразует RxJS Observable в read-only сигнал. Работает корректно только с источниками, которые синхронно эмитят значение при **каждой** подписке: `BehaviorSubject`, `ReplaySubject`, `shareReplay(1)`, `of(...)` и т.п.
 
 ```typescript
-import { interval, startWith } from 'rxjs';
-import { signalize, Effect } from '@fozy-labs/rx-toolkit';
-
-// Создаем Observable, который эмитит значение каждую секунду
-const timer$ = interval(1000).pipe(
-    startWith(0),
-);
-
-// Преобразуем Observable в Signal
-const tick$ = signalize(timer$);
-
-// Теперь можно использовать tick$ как обычный Signal
-new Effect(() => {
-    console.log(`Timer: ${tick$.get()}`);
-});
-
-// Доступ к значению без подписки
-console.log(tick$.peek());
-```
-
-**Значение по умолчанию (`defaultValue`):**
-
-Если источник эмитит асинхронно (`Subject`, `interval`, HTTP-запрос и т.п.), то до первой эмиссии у сигнала нет значения, и чтение через `()`/`peek()`/`get()` выбросит `"No value emitted"`. Передайте `defaultValue`, чтобы вернуть его до первой эмиссии:
-
-```ts
-import { Subject } from 'rxjs';
+import { BehaviorSubject } from 'rxjs';
 import { signalize } from '@fozy-labs/rx-toolkit';
 
-const source$ = new Subject<number>();
-const value$ = signalize(source$, 0); // 0 — значение до первой эмиссии
+const source$ = new BehaviorSubject(0);
+const value$ = signalize(source$);
 
-console.log(value$()); // 0 (источник ещё ничего не эмитил)
+console.log(value$()); // 0 — BehaviorSubject реплеит текущее значение при подписке
+source$.next(1);
+console.log(value$()); // 1
 ```
+
+**Значение по умолчанию (`defaultValue`):** возвращается, когда источник не эмитит синхронно. Для асинхронных источников (`Subject`, `interval`, HTTP-запрос) это означает, что чтение будет возвращать `defaultValue` **всегда**, а не «до первой эмиссии»: при этом `.obs` эмитит корректно, поэтому `Effect`/`Computed` будут просыпаться, но читать устаревший `defaultValue`. Для таких источников переходите на `Signal.from`.
 
 ## Батчинг обновлений (Batcher)
 
@@ -416,7 +463,7 @@ Batcher.run(() => {
 
 ```typescript
 import { filter, take, debounceTime } from 'rxjs';
-import { Signal, Computed, signalize } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
 
 const clicks = Signal.state(0);
 
@@ -431,10 +478,11 @@ tenClicks$.subscribe(() => {
 });
 
 // Или наоборот - превращаем Observable в Signal
-const debouncedClicks$ = signalize(
+const debouncedClicks$ = Signal.from(
     clicks.obs.pipe(
         debounceTime(300)
-    )
+    ),
+    { default: 0 }
 );
 
 // Теперь debouncedClicks$ можно использовать в Computed/Effect

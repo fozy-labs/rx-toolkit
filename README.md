@@ -83,7 +83,7 @@ const clicker$ = fromEvent(document, 'click').pipe(
 );
 
 // Получаем сигнал из Observable
-const clickCount$ = signalize(clicker$);
+const clickCount$ = Signal.from(clicker$);
 const doubled$ = Signal.compute(() => clickCount$() * 2);
 
 console.log(doubled$()); // Всегда актуальное значение
