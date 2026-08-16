@@ -78,9 +78,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
      * match on an `error`-state entry: `prefetch` retries it in both modes,
      * while `trigger` left it untouched (its force path went through
-     * `refresh()`, which is a no-op from `error`). `prefetch` also holds a
-     * keepalive subscription until the load settles (retention GC starts
-     * later). Will be removed in a future release.
+     * `refresh()`, which is a no-op from `error`). And unlike `trigger`,
+     * every `prefetch` call — cache hits included — holds a keepalive
+     * subscription until it settles and then restarts the entry's retention
+     * countdown. Will be removed in a future release.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces a refresh even if data is cached.
      */
@@ -247,7 +248,15 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return Promise.reject(abortReason(options.signal));
         }
 
-        const keyed = this.toKeyed(args);
+        // A user-supplied serializeArgs may throw synchronously; convert it into
+        // a rejection so the promise contract holds (prefetch then swallows it,
+        // keeping its never-rejects guarantee).
+        let keyed: Keyed<TArgs>;
+        try {
+            keyed = this.toKeyed(args);
+        } catch (error) {
+            return Promise.reject(error);
+        }
         const existing = this._cache.get(keyed.key);
 
         if (!existing) {
@@ -280,7 +289,13 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return Promise.reject(abortReason(options.signal));
         }
 
-        const keyed = this.toKeyed(args);
+        // See ensure: a throwing serializeArgs must reject, not throw.
+        let keyed: Keyed<TArgs>;
+        try {
+            keyed = this.toKeyed(args);
+        } catch (error) {
+            return Promise.reject(error);
+        }
         const existing = this._cache.get(keyed.key);
 
         if (!existing) {
@@ -452,8 +467,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Get an existing cache entry or create a new one.
      *
-     * @internal Used by {@link ResourceAgent} and Command links. Public only for
-     * intra-library access — not part of the supported API.
+     * @internal Used by {@link ResourceAgent}. Public only for intra-library
+     * access — not part of the supported API.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces a refresh on an existing entry.
      */

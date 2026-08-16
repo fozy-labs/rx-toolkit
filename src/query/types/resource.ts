@@ -13,9 +13,10 @@ export interface IResource<TArgs, TData, TError = unknown> {
      * @deprecated Use {@link prefetch}: `trigger(args)` ≈ `prefetch(args)`,
      * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
      * match on an `error`-state entry: `prefetch` retries it in both modes,
-     * while `trigger` left it untouched. `prefetch` also holds a keepalive
-     * subscription until the load settles (retention GC starts later). Will
-     * be removed in a future release.
+     * while `trigger` left it untouched. And unlike `trigger`, every
+     * `prefetch` call — cache hits included — holds a keepalive subscription
+     * until it settles and then restarts the entry's retention countdown.
+     * Will be removed in a future release.
      */
     trigger(args: Args<TArgs>, doForce?: boolean): void;
     refresh(args: Args<TArgs>): void;

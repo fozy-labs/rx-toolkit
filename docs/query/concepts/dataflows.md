@@ -79,7 +79,7 @@ sequenceDiagram
             Note over Agent: return stable(prev, next)
         end
 
-        Res -->> Agent: void
+        Res -->> Agent: Entry (pending)
         Agent-->>Hook: void
     end
 

@@ -103,7 +103,7 @@ const usersResource = api.createResource({
 - `getEntry(args)` / `getEntry(args, false)` — lookup без создания.
 - `getEntry$(args)` / `getEntry$(args, false)` — реактивный **read-only**: чтение не меняет кэш и отдаёт `null`, пока записи нет. (`getEntry$(args, true)` — наоборот, инициирует лениво при чтении; см. «Реактивный путь».)
 - `serialize`, `toKeyed`, `getEntries`, `pack`, `reset` — утилиты, упаковка и очистка.
-- Гидрация снапшотом (`config.snapshot`) — создаёт запись, но `queryFn` **не** запускает: данные уже есть. Запрос пойдёт лишь при последующем `refresh` / `fetch` / `prefetch({ force: true })`.
+- Гидрация снапшотом (`config.snapshot`) — создаёт запись; **свежий** снапшот `queryFn` не запускает (данные уже есть) — запрос пойдёт лишь при последующем `refresh` / `fetch` / `prefetch({ force: true })`. Снапшот с `isStale: true` (запись была в `refresh-error` или старше `snapshotValidTime`) — исключение: он сразу стартует фоновый refresh.
 
 
 ## getState

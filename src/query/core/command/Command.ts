@@ -199,7 +199,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // Link orchestration runs per execution; the result itself is surfaced by
             // the entry's native promise (`entry.currentResult()`), settled where the
             // machine transitions. This `.then` is registered before the one in
-            // `_execute`, so `settle` runs before `trigger()`'s promise resolves.
+            // `_execute`, so `settle` runs before `execute()`'s promise resolves.
             promise.then(
                 (result) => {
                     if (!firstAttemptSettled) {
@@ -247,7 +247,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         const firstResult = entry.currentResult();
 
         // machine$.peek() in _execute() leaves refcount at 0, which starts
-        // timer(retentionTime). Hold refcount ≥ 1 until the trigger settles so
+        // timer(retentionTime). Hold refcount ≥ 1 until the mutation settles so
         // the GC timer cannot fire and complete() the entry mid-flight.
         // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
         // re-rejects with firstResult's error and nobody consumes it, so every

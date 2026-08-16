@@ -214,7 +214,7 @@ const data = await addTodoCommand.execute({ text: 'Задача' }, 'my-mutation
 
 ```tsx
 const [trigger, state] = addTodoCommand.useCommand('my-mutation-1');
-await trigger({ text: 'Задача' });
+void trigger({ text: 'Задача' }); // fire-and-forget безопасен; для await — try/catch
 ```
 
 - **Агент** — ключ передаётся в `createAgent` и может меняться с помощью методов `trigger` или `setKey`:
