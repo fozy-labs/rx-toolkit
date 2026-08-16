@@ -2723,6 +2723,27 @@ describe("Resource.prefetch", () => {
         await expect(resource.prefetch(1, { force: true })).resolves.toBeUndefined();
         expect(callCount).toBe(2);
     });
+
+    it("force: awaits an in-flight query instead of starting another", async () => {
+        let resolveQuery!: (v: string) => void;
+        const queryFn = vi.fn(
+            () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
+        );
+        const resource = createResource<number, string>({ queryFn });
+
+        void resource.prefetch(1);
+        const p = resource.prefetch(1, { force: true });
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        resolveQuery("data");
+        await p;
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
 });
 
 // ==================== Abort semantics ====================
