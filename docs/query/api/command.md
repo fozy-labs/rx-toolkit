@@ -54,7 +54,7 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `useCommand`  | `key?: string`      | `[trigger, TCommandState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [нативный промис][agent-api-trigger] `Promise<TData>`: при ошибке реджектится, но реджект заранее обработан внутри агента — fire-and-forget вызов не даёт unhandled rejection. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+| `useCommand`  | `key?: string`      | `[trigger, TCommandAgentState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [нативный промис][agent-api-trigger] `Promise<TData>`: при ошибке реджектится, но реджект заранее обработан внутри агента — fire-and-forget вызов не даёт unhandled rejection. В `state` доступен `retry()` для повторного запуска упавшей мутации.|
 
 
 ## Pack

@@ -16,7 +16,7 @@
 
 ### Deprecated
 - **`Command.trigger`** — переименован в **`Command.execute`** (контракт идентичен: сырой промис, реджектится, `mapError`). Старое имя работает и будет удалено в одном из следующих релизов.
-- **`Resource.trigger`** — используйте **`prefetch`**: `trigger(args)` ≡ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`.
+- **`Resource.trigger`** — используйте **`prefetch`**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Детали — в [гайде по миграции](./migrations/0.11.0.md).
 - **`signalize`** — переподписывается на источник при каждом чтении: асинхронные источники навсегда «залипают» на `defaultValue` (или бросают `"No value emitted"`), а `.obs` при этом эмитит корректно — эффекты просыпаются, но читают устаревшее значение. Используйте `Signal.from`; точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`.
 
 ### Removed

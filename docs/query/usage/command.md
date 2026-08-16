@@ -61,8 +61,13 @@ function AddTodoForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
-    await trigger({ text });
-    setText('');
+    try {
+      await trigger({ text });
+      setText('');
+    } catch {
+      // Ошибка уже в state.error — здесь только реакция на неуспех самого сабмита.
+      // Голый await пробросил бы реджект в промис handleSubmit (unhandled rejection).
+    }
   };
 
   return (
@@ -154,7 +159,7 @@ const data = await addTodoCommand.execute({ text: 'Новая задача' });
 const data = await addTodoCommand.execute({ text: 'Новая задача' }, 'my-mutation-1');
 ```
 
-Запускает `queryFn` и возвращает сырой промис с результатом: при ошибке мутации он реджектится (нормализовано через `mapError`), и — в отличие от `trigger` агента/хука — реджект не пред-обработан: игнорирующий вызов обязан сам навесить `.catch`. Необязательный второй аргумент `key` идентифицирует кэш-запись.
+Запускает `queryFn` и возвращает сырой промис с результатом: при ошибке мутации он реджектится (нормализовано через `mapError`). В отличие от `trigger` агента/хука, пред-обработка реджекта здесь **контрактно не гарантируется** — игнорирующий вызов должен сам навесить `.catch`. Необязательный второй аргумент `key` идентифицирует кэш-запись.
 
 Прежнее имя `Command.trigger` объявлено **deprecated** (контракт идентичен `execute`) и будет удалено в одном из следующих релизов.
 

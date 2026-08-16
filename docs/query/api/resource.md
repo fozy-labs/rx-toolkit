@@ -40,7 +40,7 @@ const usersResource = api.createResource({
 
 | Метод          | Параметры                                     | Возвращаемое значение     | Описание                                                                                                                             |
 |----------------|-----------------------------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `trigger`        | `args: Args<TArgs>, doForce = false`          | `void`                    | **Deprecated.** Используйте `prefetch`: `trigger(args)` ≡ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Будет удалён в одном из следующих релизов. |
+| `trigger`        | `args: Args<TArgs>, doForce = false`          | `void`                    | **Deprecated.** Используйте `prefetch`: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Будет удалён в одном из следующих релизов. |
 | `refresh`      | `args: Args<TArgs>`                           | `void`                    | Помечает запись как устаревшую и запускает фоновый перезапрос (SWR).                                                                 |
 | `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `QueryCacheEntry \| null` | Синхронно возвращает кэш-запись.                                                                                                     |
 | `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
@@ -143,6 +143,8 @@ void packed.resource.prefetch(packed.args);
 | `prefetch` | переиспользует данные; `force: true` — перезапрашивает | запускает запрос и ждёт | `Promise<void>`  | проглатывает |
 
 `prefetch(args, { force: true })` — fire-and-forget аналог `fetch`: прогревает кэш заведомо свежими данными (существующую запись перезапрашивает, упавшую ретраит), при этом никогда не реджектит.
+
+> При включённой [кросс-табовой синхронизации][usage-broadcast] (`sync: true`) холодная запись сначала спрашивает данные у других вкладок (`beforeQuery`): `fetch` и `prefetch({ force: true })` на **холодной** записи могут отдать данные соседней вкладки вместо собственного сетевого запроса. «Свежесть» здесь означает «свежее содержимое кэша», а не гарантированный запрос из этой вкладки.
 
 ```typescript
 // TanStack Router loader: данные нужны для рендера → ensure (abort-aware)

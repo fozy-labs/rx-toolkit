@@ -142,7 +142,7 @@ const fresh = await usersResource.fetch({ page: 1 });
 
 Параллельные вызовы с одинаковыми аргументами дедуплицируются — все ждут один общий in-flight запрос. Детали (отмена, retention, `force`) — в [API ресурса][api-resource].
 
-Прежний метод `trigger(args, doForce?)` объявлен **deprecated**: `trigger(args)` ≡ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`.
+Прежний метод `trigger(args, doForce?)` объявлен **deprecated**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал.
 
 ### refresh
 

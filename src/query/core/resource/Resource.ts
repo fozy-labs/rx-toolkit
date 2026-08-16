@@ -74,9 +74,13 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Execute a query with the given arguments.
      *
-     * @deprecated Use {@link prefetch}: `trigger(args)` ≡ `prefetch(args)`,
-     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Will be
-     * removed in a future release.
+     * @deprecated Use {@link prefetch}: `trigger(args)` ≈ `prefetch(args)`,
+     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
+     * match on an `error`-state entry: `prefetch` retries it in both modes,
+     * while `trigger` left it untouched (its force path went through
+     * `refresh()`, which is a no-op from `error`). `prefetch` also holds a
+     * keepalive subscription until the load settles (retention GC starts
+     * later). Will be removed in a future release.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces a refresh even if data is cached.
      */
@@ -264,7 +268,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Unlike {@link ensure}, this always reflects the result of a fresh query: a
      * cached entry is refreshed (or retried) and the new result awaited; an
      * in-flight query is awaited rather than duplicated. Rejects if the query
-     * fails, the entry is removed, or `options.signal` aborts.
+     * fails, the entry is removed, or `options.signal` aborts. With cross-tab
+     * sync enabled, a cold entry may be filled from another tab's cache
+     * (`beforeQuery`) instead of this tab's own network round-trip.
      *
      * @param args - Query arguments (or a {@link Keyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.

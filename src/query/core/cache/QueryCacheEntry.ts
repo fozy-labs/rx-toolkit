@@ -229,8 +229,9 @@ export class QueryCacheEntry<TArgs, TData>
      *   affecting the entry's lifecycle.
      * @param opts.mapRemoval - When `true`, the removal rejection passes through
      *   `mapError` — for waiters feeding a channel typed as `TError` (the
-     *   command result envelope). Waiters on untyped channels (`ensure`/`fetch`
-     *   rejections, `$cacheDataLoaded`) keep the raw `CacheEntryRemovedError`.
+     *   command execute/trigger rejection). Waiters on untyped channels
+     *   (`ensure`/`fetch` rejections, `$cacheDataLoaded`) keep the raw
+     *   `CacheEntryRemovedError`.
      */
     private _awaitState(
         settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
@@ -358,7 +359,7 @@ export class QueryCacheEntry<TArgs, TData>
                 // Single normalization boundary: the raw rejection becomes the api's
                 // TError exactly here, as it enters the machine, so every reader of
                 // the machine's error — agent state, imperative-fetch rejections, the
-                // command result envelope, the Suspense throw — observes the same
+                // command execute/trigger rejection, the Suspense throw — observes the same
                 // mapped instance. Deliberately upstream of this boundary: lifecycle
                 // hooks ($queryFulfilled) are fed from the raw queryFn promise and
                 // see the raw error. Aborted runs returned above and are never mapped.
