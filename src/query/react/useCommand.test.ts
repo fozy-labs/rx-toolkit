@@ -6,24 +6,26 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
-import type { TCommandAgentState } from "@/query/types";
+import type { TCommandAgentState, TTriggerPromise } from "@/query/types";
 
 const h = React.createElement;
 
 // ==================== Helpers ====================
 
+type Trigger<TArgs, TData> = (args: TArgs) => TTriggerPromise<TData>;
+
 interface Captured<TArgs, TData> {
-    trigger: (args: TArgs) => Promise<TData>;
+    trigger: Trigger<TArgs, TData>;
     state: TCommandAgentState<TArgs, TData>;
     /** Every trigger reference seen across renders (identity check). */
-    triggers: Array<(args: TArgs) => Promise<TData>>;
+    triggers: Array<Trigger<TArgs, TData>>;
     /** Re-render the probe, optionally with a different bound key. */
     rerender: (newKey?: string) => void;
 }
 
 /** Render a probe component around useCommand and expose the live tuple. */
 function setup<TArgs, TData>(
-    useCommand: (key?: string) => [(args: TArgs) => Promise<TData>, TCommandAgentState<TArgs, TData>],
+    useCommand: (key?: string) => [Trigger<TArgs, TData>, TCommandAgentState<TArgs, TData>],
     key?: string,
 ): Captured<TArgs, TData> {
     const captured = {} as Captured<TArgs, TData>;
@@ -45,7 +47,7 @@ function setup<TArgs, TData>(
 // ==================== Tests ====================
 
 describe("useCommand", () => {
-    it("starts idle; trigger resolves with the mutation data and state reaches success", async () => {
+    it("starts idle; trigger resolves with a success envelope and state reaches success", async () => {
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const command = api.createCommand<string, string>({
             queryFn: async (args) => `result-${args}`,
@@ -54,18 +56,18 @@ describe("useCommand", () => {
         const c = setup(command.useCommand);
         expect(c.state.status).toBe("idle");
 
-        let resolved: string | undefined;
+        let result: Awaited<ReturnType<typeof c.trigger>> | undefined;
         await act(async () => {
-            resolved = await c.trigger("x");
+            result = await c.trigger("x");
             await flushMicrotasks();
         });
 
-        expect(resolved).toBe("result-x");
+        expect(result).toEqual({ status: "success", data: "result-x" });
         expect(c.state.status).toBe("success");
         expect(c.state.data).toBe("result-x");
     });
 
-    it("trigger rejects with the mapError-normalized error and state reaches error", async () => {
+    it("trigger resolves with an error envelope carrying the mapError-normalized error", async () => {
         class NetError extends Error {}
         const api = createApi({
             plugins: [reactHooksPlugin()],
@@ -79,19 +81,42 @@ describe("useCommand", () => {
 
         const c = setup(command.useCommand);
 
+        let result: Awaited<ReturnType<typeof c.trigger>> | undefined;
+        await act(async () => {
+            // No try/catch — the envelope promise never rejects.
+            result = await c.trigger("x");
+            await flushMicrotasks();
+        });
+
+        expect(result?.status).toBe("error");
+        expect(result?.error).toBeInstanceOf(NetError);
+        expect(c.state.status).toBe("error");
+        expect(c.state.error).toBe(result?.error);
+    });
+
+    it("unwrap() exposes the raw throwing promise", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const err = new Error("boom");
+        const command = api.createCommand<string, string>({
+            queryFn: async () => {
+                throw err;
+            },
+        });
+
+        const c = setup(command.useCommand);
+
         let caught: unknown;
         await act(async () => {
             try {
-                await c.trigger("x");
+                await c.trigger("x").unwrap();
             } catch (error) {
                 caught = error;
             }
             await flushMicrotasks();
         });
 
-        expect(caught).toBeInstanceOf(NetError);
+        expect(caught).toBe(err);
         expect(c.state.status).toBe("error");
-        expect(c.state.error).toBe(caught);
     });
 
     it("fire-and-forget failing trigger produces no unhandled rejection; error lands in state", async () => {

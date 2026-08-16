@@ -11,6 +11,7 @@ import type {
     TResourceAgentState,
     TResourceOptions,
     TSuspenseResourceState,
+    TTriggerPromise,
 } from "@/query/types";
 
 import { useCommand } from "./useCommand";
@@ -27,7 +28,7 @@ type ReactHooksResourceShape<TArgs, TData, TError> = {
 type ReactHooksCommandShape<TArgs, TData, TError> = {
     useCommand: (
         key?: string,
-    ) => [trigger: (args: TArgs) => Promise<TData>, state: TCommandAgentState<TArgs, TData, TError>];
+    ) => [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandAgentState<TArgs, TData, TError>];
 };
 
 /**

@@ -165,7 +165,9 @@ describe("CommandAgent trigger error", () => {
         const promise = agent.trigger("hello", "k1");
         expect(s.get().status).toBe("pending");
 
-        await expect(promise).rejects.toBe(err);
+        const result = await promise;
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
 
         // Simulate machine transitioning to error
         entryMock.setMachineState(errorState("hello", err));
@@ -176,20 +178,22 @@ describe("CommandAgent trigger error", () => {
     });
 });
 
-// ==================== 3b. Native trigger promise contract ====================
+// ==================== 3b. Trigger result envelope ====================
 
-describe("CommandAgent trigger promise contract", () => {
-    it("resolves with the raw mutation data", async () => {
+describe("CommandAgent trigger envelope", () => {
+    it("resolves with a success envelope", async () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", pendingState("hello"));
         mock.setExecuteImpl(async () => "result");
 
         const agent = new CommandAgent(mock.command);
 
-        await expect(agent.trigger("hello", "k1")).resolves.toBe("result");
+        const result = await agent.trigger("hello", "k1");
+        expect(result).toEqual({ status: "success", data: "result" });
+        expect(result.error).toBeUndefined();
     });
 
-    it("rejects with the raw error", async () => {
+    it("resolves with an error envelope instead of rejecting", async () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", pendingState("hello"));
         const err = new Error("fail");
@@ -199,10 +203,37 @@ describe("CommandAgent trigger promise contract", () => {
 
         const agent = new CommandAgent(mock.command);
 
-        await expect(agent.trigger("hello", "k1")).rejects.toBe(err);
+        // No try/catch — the envelope promise never rejects.
+        const result = await agent.trigger("hello", "k1");
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
+        expect(result.data).toBeUndefined();
     });
 
-    it("converts a synchronous execute throw into a rejection", async () => {
+    it("unwrap() resolves with the raw data", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        mock.setExecuteImpl(async () => "result");
+
+        const agent = new CommandAgent(mock.command);
+
+        await expect(agent.trigger("hello", "k1").unwrap()).resolves.toBe("result");
+    });
+
+    it("unwrap() rejects with the raw error", async () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+        const err = new Error("fail");
+        mock.setExecuteImpl(async () => {
+            throw err;
+        });
+
+        const agent = new CommandAgent(mock.command);
+
+        await expect(agent.trigger("hello", "k1").unwrap()).rejects.toBe(err);
+    });
+
+    it("wraps a synchronous execute throw into an error envelope", async () => {
         const mock = createMockCommand<string, string>();
         const err = new Error("sync boom");
         mock.setExecuteImpl(() => {
@@ -211,19 +242,17 @@ describe("CommandAgent trigger promise contract", () => {
 
         const agent = new CommandAgent(mock.command);
 
-        let promise!: Promise<string>;
-        expect(() => {
-            promise = agent.trigger("hello", "k1");
-        }).not.toThrow();
-        await expect(promise).rejects.toBe(err);
+        const result = await agent.trigger("hello", "k1");
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
     });
 
     it("ignored failing trigger does not produce an unhandled rejection", async () => {
         // Keep this mock-based test even though useCommand.test.ts has an
         // end-to-end twin: a real Command pre-handles its promise internally
         // (currentResult's no-op catch), so this is the only test that fails
-        // if CommandAgent.trigger drops its own pre-handle — the sole
-        // contractual guarantee at the agent level.
+        // if CommandAgent.trigger stops wrapping — the sole contractual
+        // guarantee at the agent level.
         const tracker = await trackUnhandledRejections();
         try {
             const mock = createMockCommand<string, string>();
@@ -242,25 +271,6 @@ describe("CommandAgent trigger promise contract", () => {
         } finally {
             tracker.stop();
         }
-    });
-
-    it("awaiting callers still observe the rejection despite the internal pre-handle", async () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", pendingState("hello"));
-        const err = new Error("fail");
-        mock.setExecuteImpl(async () => {
-            throw err;
-        });
-
-        const agent = new CommandAgent(mock.command);
-
-        let caught: unknown;
-        try {
-            await agent.trigger("hello", "k1");
-        } catch (error) {
-            caught = error;
-        }
-        expect(caught).toBe(err);
     });
 });
 
@@ -528,7 +538,9 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
         });
         _effects.push(eff);
 
-        await expect(agent.trigger(100)).rejects.toBe(err);
+        const result = await agent.trigger(100);
+        expect(result.status).toBe("error");
+        expect(result.error).toBe(err);
         await flushMicrotasks();
 
         expect(seen).toContain("pending");
@@ -565,11 +577,11 @@ describe("CommandAgent + real Command (retentionTime: 0 teardown)", () => {
 // ==================== 11. Real Command integration — throwing optimisticUpdate ====================
 
 // A throwing optimisticUpdate used to bypass the machine entirely: the trigger
-// promise carried the error, but no cache entry was created, so the agent's
+// envelope carried the error, but no cache entry was created, so the agent's
 // state$ (and useCommand) stayed idle — the failure was invisible to state
 // observers. It must surface on the agent like any other mutation failure.
 describe("CommandAgent + real Command (throwing optimisticUpdate)", () => {
-    it("agent state reflects the error, not just the rejection", async () => {
+    it("agent state reflects the error, not just the envelope", async () => {
         const resource = new Resource<number, { value: string }>({
             retentionTime: false,
             serializeArgs: stableStringify,
@@ -599,7 +611,10 @@ describe("CommandAgent + real Command (throwing optimisticUpdate)", () => {
         });
         _effects.push(eff);
 
-        await expect(agent.trigger(1)).rejects.toThrow("optimistic boom");
+        const result = await agent.trigger(1);
+        expect(result.status).toBe("error");
+        if (result.status !== "error") throw new Error("expected error envelope");
+        expect((result.error as Error).message).toBe("optimistic boom");
         await flushMicrotasks();
 
         expect(seen).toContain("error");

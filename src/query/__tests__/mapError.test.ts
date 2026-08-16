@@ -326,7 +326,7 @@ describe("mapError — robustness", () => {
 // ==================== Command behavior ====================
 
 describe("mapError — command", () => {
-    it("maps the agent trigger rejection", async () => {
+    it("maps the command result envelope error", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -335,10 +335,13 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetError);
+        const result = await agent.trigger("x");
+
+        expect(result.status).toBe("error");
+        expect(result.error).toBeInstanceOf(NetError);
     });
 
-    it("maps an unknown error on the agent trigger rejection", async () => {
+    it("maps the rejection from the agent trigger's unwrap()", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -347,7 +350,7 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetUnknownError);
+        await expect(agent.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
     });
 
     it("maps the raw Command.execute rejection", async () => {
@@ -371,7 +374,10 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetUnknownError);
+        const result = await agent.trigger("x");
+
+        expect(result.status).toBe("error");
+        expect(result.error).toBeInstanceOf(NetUnknownError);
     });
 
     it("maps a throwing optimistic-patch update", async () => {
@@ -397,7 +403,10 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        await expect(agent.trigger(1)).rejects.toBeInstanceOf(NetUnknownError);
+        const result = await agent.trigger(1);
+
+        expect(result.status).toBe("error");
+        expect(result.error).toBeInstanceOf(NetUnknownError);
     });
 });
 
@@ -414,14 +423,10 @@ describe("mapError — command entry removal", () => {
         const first = agent.trigger("a", "k");
         void agent.trigger("b", "k");
 
-        const error: unknown = await first.then(
-            () => {
-                throw new Error("expected rejection");
-            },
-            (reason: unknown) => reason,
-        );
-        expect(error).toBeInstanceOf(NetUnknownError);
-        expect((error as NetUnknownError).original).toBeInstanceOf(CacheEntryRemovedError);
+        const result = await first;
+        expect(result.status).toBe("error");
+        expect(result.error).toBeInstanceOf(NetUnknownError);
+        expect((result.error as NetUnknownError).original).toBeInstanceOf(CacheEntryRemovedError);
     });
 
     it("maps the removal error when resetAll() completes an in-flight mutation", async () => {
@@ -503,7 +508,7 @@ describe("mapError — type-level", () => {
         assertType<IsExact<Err, NetError | NetUnknownError | null>>(true as const);
     });
 
-    it("types the hook trigger as a native promise of the mutation data", () => {
+    it("types the command result envelope error via the plugin + mapError", () => {
         const api = createApi({ plugins: [reactHooksPlugin()], mapError: toNetError });
         const command = api.createCommand({
             queryFn: async (_args: string): Promise<number> => 1,
@@ -511,6 +516,8 @@ describe("mapError — type-level", () => {
 
         // Derive the types without invoking the hook (it is not inside a component).
         type Trigger = ReturnType<typeof command.useCommand>[0];
-        assertType<IsExact<Trigger, (args: string) => Promise<number>>>(true as const);
+        type Result = Awaited<ReturnType<Trigger>>;
+        type ErrorVariant = Extract<Result, { status: "error" }>;
+        assertType<IsExact<ErrorVariant["error"], NetError | NetUnknownError>>(true as const);
     });
 });

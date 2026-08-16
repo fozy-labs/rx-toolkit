@@ -64,7 +64,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             return;
         }
 
-        this._resource._getOrCreate(tracking.keyed);
+        this._resource.getEntry(tracking.keyed, true);
     }
 
     /**
@@ -103,7 +103,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
 
         Batcher.run(() => {
             if (this._isStarted) {
-                this._resource._getOrCreate(keyed);
+                this._resource.getEntry(keyed, true);
             }
 
             this._tracking$.set({
@@ -185,7 +185,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 // phantom cache entry + fetch for args nobody tracks anymore.
                 queueMicrotask(() => {
                     if (this._isStarted && this._tracking$.peek()?.keyed.key === tracking.keyed.key) {
-                        this._resource._getOrCreate(tracking.keyed);
+                        this._resource.getEntry(tracking.keyed, true);
                     }
                 });
 

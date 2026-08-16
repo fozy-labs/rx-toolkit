@@ -114,7 +114,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      */
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): QueryCacheEntry<TArgs, TData> | null;
-    getEntry(args: ArgsOrVoid<TArgs>, doInitiate = false): QueryCacheEntry<TArgs, TData> | null {
+    getEntry(args: Keyed<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
+    getEntry(args: ArgsOrVoid<TArgs> | Keyed<TArgs>, doInitiate = false): QueryCacheEntry<TArgs, TData> | null {
         const keyed = this.toKeyed(args as Args<TArgs>);
 
         const entry = this._cache.get(keyed.key);
@@ -467,15 +468,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
     }
 
-    /**
-     * Get an existing cache entry or create a new one.
-     *
-     * @internal Used by {@link ResourceAgent}. Public only for intra-library
-     * access — not part of the supported API.
-     * @param args - Query arguments.
-     * @param doForce - When `true`, forces a refresh on an existing entry.
-     */
-    _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
+    /** Get an existing cache entry (refreshing it when `doForce`) or create a new one. */
+    private _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
         const keyed = this.toKeyed(args);
         const existing = this._cache.get(keyed.key);
 

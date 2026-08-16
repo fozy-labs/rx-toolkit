@@ -26,11 +26,11 @@ export interface TErrorContext {
  * Normalizes every raw error surfaced by a query/command into the api's error
  * type. Runs exactly once per failure, at the boundary where the rejection is
  * first observed, so everything downstream — agent state, imperative-fetch
- * rejections, the Suspense throw, the command execute/trigger rejection — sees
- * the mapped value. The mapper also receives internal lifecycle errors that
- * feed the typed mutation rejection: a `CacheEntryRemovedError` when a command
- * entry is evicted mid-flight (re-execute with the same key, `reset()`), so
- * handle unknown shapes with a fallback branch. Deliberately kept raw: aborted runs (flow
+ * rejections, the Suspense throw, the command result envelope — sees the mapped
+ * value. The mapper also receives internal lifecycle errors that feed the typed
+ * mutation envelope: a `CacheEntryRemovedError` when a command entry is evicted
+ * mid-flight (re-execute with the same key, `reset()`), so handle unknown
+ * shapes with a fallback branch. Deliberately kept raw: aborted runs (flow
  * control, never mapped) and lifecycle-hook contexts (`$queryFulfilled` rejects
  * with the raw error). The inferred return type becomes the api's `TError`.
  */
@@ -76,7 +76,7 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
     syncDriver?: ISyncDriver;
     /**
      * Normalizes raw query/command errors into a typed error. When provided, the
-     * `error` on every resource/command state (and every mutation rejection)
+     * `error` on every resource/command state (and the mutation result envelope)
      * is typed as its return value instead of `unknown`. See {@link TMapError}.
      */
     mapError?: TMapError<TError>;

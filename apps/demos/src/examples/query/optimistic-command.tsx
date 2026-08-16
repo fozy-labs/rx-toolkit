@@ -63,10 +63,10 @@ export function Base() {
     const handleToggle = async (item: TodoItem) => {
         const newCompleted = !item.completed;
         setLastAction(`Модерация "${item.text}" → ${newCompleted ? '✅ публикация' : '⬜ снятие'}`);
-        try {
-            await trigger({ id: item.id, completed: newCompleted });
+        const result = await trigger({ id: item.id, completed: newCompleted });
+        if (result.status === 'success') {
             setLastAction(`✅ Подтверждено: "${item.text}" → ${newCompleted ? 'опубликовано' : 'снято с публикации'}`);
-        } catch {
+        } else {
             setLastAction(`❌ Откат: "${item.text}" — сервер вернул ошибку`);
         }
     };

@@ -184,7 +184,7 @@ export function Base() {
                     Один mapError на уровне API нормализует сырые ошибки в типизированный AppError.
                     Поле state.error больше не unknown — дискриминант kind сужает его до NotFoundError /
                     ServerError / NetworkError с их полями. Тот же экземпляр видят состояние хука, реджект
-                    ensure()/fetch() и реджект trigger у мутаций.
+                    ensure()/fetch() и конверт мутаций.
                 </p>
             </CardBody>
         </Card>

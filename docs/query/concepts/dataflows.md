@@ -41,7 +41,8 @@ sequenceDiagram
 
     opt синхронно
         Hook->>Agent: start()
-        Agent->>Res: _getOrCreate(keyedArgs, doForce=false)
+        Agent->>Res: getEntry(keyedArgs, doInitiate=true)
+        Res-->>Res: _getOrCreate(keyedArgs, doForce=false)
         Res->>Cache: get(key)
         Cache-->>Res: null
         Res->>Entry: new Entry(options)
@@ -242,7 +243,7 @@ sequenceDiagram
 
     Note over Res: Потребитель A уже прошёл «Cache miss»<br/>(см. одноимённый раздел выше)
 
-    Agent->>Res: _getOrCreate(keyedArgs, doForce=false)
+    Agent->>Res: getEntry(keyedArgs, doInitiate=true)
     Res->>Cache: get(key)
     Cache-->>Res: existing Entry (pending)
     Res-->>Agent: existing Entry

@@ -64,6 +64,33 @@ export type TPacked<TArgs, TData, TError = unknown> =
     | TPackedResource<TArgs, TData, TError>
     | TPackedCommand<TArgs, TData, TError>;
 
+// ==================== Trigger Result Envelope ====================
+
+/**
+ * Settled outcome of a mutation, discriminated by `status`.
+ *
+ * The optional `undefined` counterparts let consumers narrow both ways:
+ * `result.status === "error"` and `if (result.error)` work equally well.
+ */
+export type TTriggerResult<TData, TError = unknown> =
+    | { status: "success"; data: TData; error?: undefined }
+    | { status: "error"; data?: undefined; error: TError };
+
+/**
+ * Promise returned by agent/hook-level `trigger`.
+ *
+ * Never rejects — the outcome is delivered as a {@link TTriggerResult}
+ * envelope, so a bare `await trigger(...)` needs no try/catch. Call
+ * {@link unwrap} when throwing semantics are wanted instead.
+ */
+export interface TTriggerPromise<TData, TError = unknown> extends Promise<TTriggerResult<TData, TError>> {
+    /**
+     * The raw result: resolves with the mutation data, rejects with the
+     * original error — the same contract as `Command.execute`.
+     */
+    unwrap(): Promise<TData>;
+}
+
 // ==================== Command Agent Interface ====================
 
 export interface ICommandAgent<TArgs, TData, TError = unknown> {
@@ -71,14 +98,13 @@ export interface ICommandAgent<TArgs, TData, TError = unknown> {
     /**
      * Execute the mutation and track its cache entry via {@link state$}.
      *
-     * Returns the native mutation promise: resolves with the result, rejects
-     * with the mapError-normalized error (`TError`). The rejection is
-     * pre-handled internally, so a fire-and-forget call site
-     * (`onClick={() => trigger(args)}`) never surfaces an unhandled rejection —
-     * the failure still lands in {@link state$}. Awaiting callers observe the
-     * rejection as usual (`try { await trigger(args) } catch (error) { ... }`).
+     * Returns a {@link TTriggerPromise}: it never rejects — the outcome arrives
+     * as a {@link TTriggerResult} envelope, so a fire-and-forget call site
+     * (`onClick={() => trigger(args)}`) can never surface an unhandled
+     * rejection. `unwrap()` hands back the raw throwing promise
+     * (`Command.execute`'s contract) when that is wanted instead.
      */
-    trigger(args: Args<TArgs>, key?: string): Promise<TData>;
+    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError>;
     setKey(key: string): void;
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry(): void;

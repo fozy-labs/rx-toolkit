@@ -75,11 +75,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
     execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
         // execute() must never throw synchronously, and every rejection of the
         // returned promise must be normalized to the api's TError — the agent /
-        // hook level (CommandAgent.trigger) and typed consumers rely on that
-        // guarantee. queryFn failures are mapped at the machine boundary and
-        // removals inside currentResult; this guard converts anything thrown
-        // before the entry takes over (argument normalization, cache
-        // bookkeeping) into a mapped rejection.
+        // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
+        // are mapped at the machine boundary and removals inside currentResult;
+        // this guard converts anything thrown before the entry takes over
+        // (argument normalization, cache bookkeeping) into a mapped rejection.
         try {
             return this._execute(argsOrKeyed, key);
         } catch (error) {

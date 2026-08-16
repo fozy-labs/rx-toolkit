@@ -63,8 +63,8 @@ export function Base() {
     const realCharges = attempts.filter(a => a.charged).length;
 
     const handlePay = () => {
-        // Fire-and-forget: реджект промиса уже обработан внутри агента, ошибка
-        // отражается реактивно через state.isError — unhandled rejection не будет.
+        // Промис trigger не реджектится — ошибка приходит конвертом
+        // и отражается реактивно через state.isError.
         void pay({ amount: 100 });
     };
 

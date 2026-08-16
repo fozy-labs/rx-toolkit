@@ -1899,8 +1899,8 @@ describe("Command agent integration", () => {
 
         const eff = Signal.effect(() => agent.state$());
 
-        // agent.trigger rejects natively — swallow here, the state carries the error.
-        await agent.trigger("a").catch(() => {});
+        // The envelope promise never rejects — no catch needed for a failing trigger.
+        await agent.trigger("a");
         await flushMicrotasks();
         expect(agent.state$.peek().status).toBe("error");
 

@@ -637,7 +637,7 @@ describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
 
 // ==================== 13. Stale re-create on rapid args change (microtask) ====================
 //
-// _deriveState schedules a deferred re-create — queueMicrotask(_getOrCreate(tracking.keyed)) —
+// _deriveState schedules a deferred re-create — queueMicrotask(getEntry(tracking.keyed, true)) —
 // when the agent is started and its tracked entry is absent (evicted-while-tracked). The
 // captured `tracking` is the key at schedule time. If args advance within the SAME tick before
 // the microtask fires, the stale key must NOT be re-created: it would spawn a phantom cache entry
@@ -661,9 +661,9 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
 
-        const createSpy = vi.spyOn(resource, "_getOrCreate");
+        const createSpy = vi.spyOn(resource, "getEntry");
 
-        // Derive hits "entry null + started" → queues microtask(_getOrCreate(key 1)).
+        // Derive hits "entry null + started" → queues microtask(getEntry(key 1, true)).
         expect(agent.state$.peek().status).toBe("pending");
 
         // Args advance to 3 within the SAME tick, before the queued microtask fires.
@@ -672,7 +672,9 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         await flushMicrotasks();
 
         // The queued microtask must NOT re-create the stale key 1.
-        const staleCalls = createSpy.mock.calls.filter(([keyed]) => (keyed as { value: number }).value === 1);
+        const staleCalls = createSpy.mock.calls.filter(
+            ([keyed, doInitiate]) => doInitiate === true && (keyed as { value: number }).value === 1,
+        );
         expect(staleCalls).toHaveLength(0);
     });
 
@@ -692,12 +694,14 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
 
-        const createSpy = vi.spyOn(resource, "_getOrCreate");
-        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(_getOrCreate(key 1))
+        const createSpy = vi.spyOn(resource, "getEntry");
+        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(getEntry(key 1, true))
         // args unchanged
         await flushMicrotasks();
 
-        const recreated = createSpy.mock.calls.some(([keyed]) => (keyed as { value: number }).value === 1);
+        const recreated = createSpy.mock.calls.some(
+            ([keyed, doInitiate]) => doInitiate === true && (keyed as { value: number }).value === 1,
+        );
         expect(recreated).toBe(true);
     });
 });

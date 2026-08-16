@@ -64,10 +64,9 @@ export function Base() {
         const text = inputText.trim();
         if (!text) return;
         inputText$.set('');
-        try {
-            await trigger({ text });
-        } catch (error) {
-            console.error(error);
+        const result = await trigger({ text });
+        if (result.status === 'error') {
+            console.error(result.error);
         }
     };
 

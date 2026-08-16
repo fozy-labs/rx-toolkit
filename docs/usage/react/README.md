@@ -164,14 +164,14 @@ function EditUserForm({ user }: { user: User }) {
         event.preventDefault();
         const formData = new FormData(event.target as HTMLFormElement);
         
-        try {
-            const updated = await updateUser({
-                id: user.id,
-                data: Object.fromEntries(formData)
-            });
-            console.log('Обновлено:', updated);
-        } catch (error) {
-            console.error('Ошибка:', error);
+        const result = await updateUser({
+            id: user.id,
+            data: Object.fromEntries(formData)
+        });
+        if (result.status === 'success') {
+            console.log('Обновлено:', result.data);
+        } else {
+            console.error('Ошибка:', result.error);
         }
     };
 
@@ -201,9 +201,8 @@ function EditUserForm({ user }: { user: User }) {
 ```
 
 **trigger функция:**
-- Возвращает нативный Promise с результатом команды
-- При ошибке Promise реджектится (ошибка нормализована через `mapError`)
-- Реджект заранее обработан внутри агента: fire-and-forget вызов (`onClick={() => trigger(args)}`) не даёт unhandled rejection, ошибка отражается через `state`
+- Возвращает `TTriggerPromise<TData>` — конверт результата, дискриминированный по `status`
+- Промис не реджектится; `.unwrap()` даёт сырой промис с «бросающей» семантикой
 - Функция стабильна (не меняется между рендерами)
 
 **state объект:**
