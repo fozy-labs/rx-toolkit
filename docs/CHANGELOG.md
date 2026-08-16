@@ -3,11 +3,14 @@
 
 ## [Unreleased]
 
+
+## [0.11.0] - 2026-08-17
+
 [Гайд по миграции с 0.10.x](./migrations/0.11.0.md)
 
 ### Changed
 - `ensure` / `fetch` / `prefetch` **стабилизированы**. `prefetch` получил опции `{ force?: boolean }`.
--  Обновлен формат хранения `LocalSignal`.
+- Обновлён формат хранения `LocalSignal`.
 - `Resource.getEntry(args, true)` типизируется как `IQueryCacheEntry` без `| null` — перегрузка, аналогичная `getEntry$`.
 
 ### Added
@@ -15,7 +18,7 @@
 - **Автоочистка `LocalSignal`**.
 
 ### Deprecated
-- **`Command.trigger`** — переименован в **`Command.execute`** (контракт идентичен: сырой промис, реджектится, `mapError`). 
+- **`Command.trigger`** — переименован в **`Command.execute`** (контракт идентичен: сырой промис, реджектится, `mapError`).
 - **`Resource.trigger`** — используйте **`prefetch`**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Детали — в [гайде по миграции](./migrations/0.11.0.md).
 - **`signalize`** — используйте `Signal.from`; точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`.
 
@@ -337,7 +340,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.0...develop
+[0.11.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.9.2...v0.10.0
