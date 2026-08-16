@@ -19,7 +19,7 @@ interface Tracking<TArgs, TData> {
  * Reactive observer for a {@link Resource} with SWR behaviour.
  *
  * The agent tracks a single cache entry at a time, deriving a flat
- * {@link TResourceAgentState} signal. When arguments change via {@link start},
+ * {@link TResourceAgentState} signal. When arguments change via {@link set},
  * the previous entry's data is preserved as stale fallback (SWR).
  *
  * @template TArgs - Query argument type.
@@ -50,6 +50,10 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     // ==================== Public API (IResourceAgent) ====================
 
     /**
+     * Start observing with the args previously supplied to {@link set}, and
+     * trigger the query for them. A no-op beyond flipping the started flag when
+     * no args have been set yet (or after `SKIP`); the query then starts from
+     * the next {@link set}.
      */
     start(): void {
         this._isStarted = true;
@@ -64,9 +68,16 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     }
 
     /**
+     * Set the observed args. Before {@link start} this only records them; once
+     * the agent is started, changing the args also triggers the query for them.
+     * `SKIP` clears the observation and drops the agent back to `idle`.
+     *
+     * `mark` (default `false`) makes an unstarted agent report `pending` rather
+     * than `idle` while no cache entry exists yet: `useResource` sets args during
+     * render but only starts in a layout effect, and marking hides that gap.
      */
-    set(args: ArgsOrVoidOrSkip<TArgs>, mark: boolean): void {
-        this._isMarked = mark ?? false;
+    set(args: ArgsOrVoidOrSkip<TArgs>, mark: boolean = false): void {
+        this._isMarked = mark;
         const tracking = this._tracking$.peek();
 
         if (args === SKIP) {

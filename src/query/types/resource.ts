@@ -11,6 +11,7 @@ import type { TResourceAgentState } from "./state";
 export interface IResource<TArgs, TData, TError = unknown> {
     trigger(args: Args<TArgs>, doForce?: boolean): void;
     refresh(args: Args<TArgs>): void;
+    getEntry(args: ArgsOrVoid<TArgs>, doInitiate: true): IQueryCacheEntry<TArgs, TData>;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
     getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
     getEntries(): IterableIterator<IQueryCacheEntry<TArgs, TData>>;
@@ -186,7 +187,6 @@ export interface TResourceOptions<TArgs, TData> {
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
     snapshotValidTime?: number | false;
     sync?: boolean;
-    getDevtoolsKey?: (args: Keyed<TArgs>) => string;
 }
 
 // ==================== Resource Config (internal) ====================
@@ -204,7 +204,6 @@ export interface IResourceConfig<TArgs, TData> {
     mapError?: TMapError;
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
-    getDevtoolsKey?: (args: Keyed<TArgs>) => string;
     /** Pre-populated entries from snapshot hydration (key → snapshot meta). */
     snapshot?: TResourceSnapshot;
     /** Cross-tab sync hook: called before queryFn to check if another tab has cached data. */
