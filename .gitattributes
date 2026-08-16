@@ -1,0 +1,30 @@
+# Line endings: LF in the repository *and* in the working tree.
+#
+# `text=auto` normalizes on commit; `eol=lf` also pins the checkout, which
+# overrides a machine-local `core.autocrlf=true` (the Windows default). Without
+# it, Windows clones get CRLF working copies and every file fails Prettier
+# (`endOfLine: "lf"`) and contradicts .editorconfig (`end_of_line = lf`).
+* text=auto eol=lf
+
+# Windows-only scripts must keep CRLF to stay executable by cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets: no EOL conversion, no textual diffs.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+
+# Generated: collapsed in GitHub diffs, excluded from language stats.
+package-lock.json linguist-generated=true
