@@ -17,35 +17,34 @@ const agent = addTodoCommand.createAgent('my-mutation-1');
 | Метод | Сигнатура | Описание |
 |-------|-----------|----------|
 | `state$` | `ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>` | Сигнал состояния агента. |
-| `trigger` | `(args: Args<TArgs>, key?: string) => TTriggerPromise<TData, TError>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из `Keyed`-аргументов (если args обёрнуты), затем из параметра `key`, затем из привязанного ключа агента, иначе генерируется. Возвращает [конверт результата](#результат-trigger). |
+| `trigger` | `(args: Args<TArgs>, key?: string) => Promise<TData>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из `Keyed`-аргументов (если args обёрнуты), затем из параметра `key`, затем из привязанного ключа агента, иначе генерируется. Возвращает [нативный промис результата](#результат-trigger). |
 | `setKey` | `(key: string) => void` | Привязывает агент к кэш-записи по ключу (используется и для наблюдения, и последующими `trigger`). |
 | `retry` | `() => void` | Перезапускает отслеживаемую мутацию. No-op вне состояния `error`. Повтор переиспользует тот же [request id][query-fn]. |
 
 
 ## Результат trigger
 
-`trigger` возвращает `TTriggerPromise<TData, TError>` — промис, который **никогда не реджектится**. Итог мутации приходит конвертом `TTriggerResult<TData, TError>`, дискриминированным по полю `status` (`TError` типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror), по умолчанию `unknown`):
+`trigger` возвращает **нативный** `Promise<TData>`: при успехе резолвится данными мутации, при ошибке реджектится нормализованной через [`mapError`](./README.md#типизация-ошибок-maperror) ошибкой (`TError`, по умолчанию `unknown`).
+
+Реджект заранее обработан внутри агента: на возвращаемый промис навешан внутренний no-op catch, поэтому fire-and-forget вызов не порождает unhandled rejection — ошибка при этом всё равно отражается в `state$`:
 
 ```typescript
-type TTriggerResult<TData, TError = unknown> =
-  | { status: "success"; data: TData; error?: undefined }
-  | { status: "error"; data?: undefined; error: TError };
+// Fire-and-forget: результат не нужен, ошибка придёт через state$.
+void agent.trigger({ text: 'Задача' });
 ```
 
+Ожидающий вызов видит реджект как обычно:
+
 ```typescript
-const result = await agent.trigger({ text: 'Задача' });
-if (result.status === 'error') {
-  console.error(result.error);
-} else {
-  console.log(result.data);
+try {
+  const data = await agent.trigger({ text: 'Задача' });
+  console.log(data);
+} catch (error) {
+  console.error(error); // TError после mapError
 }
 ```
 
-Когда нужна «бросающая» семантика (сырые данные при успехе, исключение при ошибке — как у `Command.trigger`), используйте `unwrap()`:
-
-```typescript
-const data = await agent.trigger({ text: 'Задача' }).unwrap();
-```
+Тот же контракт — у `trigger` из хука `useCommand`.
 
 
 ## Состояние (TCommandAgentState)

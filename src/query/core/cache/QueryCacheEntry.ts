@@ -187,12 +187,12 @@ export class QueryCacheEntry<TArgs, TData>
     /**
      * Resolve/reject with the outcome of the machine's next settled state — the
      * same transitions as {@link whenFetched}, but without a keepalive
-     * subscription, so the caller owns the entry's lifecycle. Backs `Command.trigger`.
+     * subscription, so the caller owns the entry's lifecycle. Backs `Command.execute`.
      *
      * Entry-removal rejections (`CacheEntryRemovedError` from an eviction by a
-     * newer trigger or a `reset()`) pass through `mapError` here: this promise
-     * feeds the typed `TTriggerResult` envelope, whose `error` is declared as
-     * `TError`, so an unmapped escape would break that contract at runtime.
+     * newer execute or a `reset()`) pass through `mapError` here: this promise
+     * is what typed consumers catch as `TError`, so an unmapped escape would
+     * break that contract at runtime.
      */
     currentResult(): Promise<TData> {
         const result = this._awaitState((state) => this._settleQueryOutcome(state), {
@@ -229,8 +229,9 @@ export class QueryCacheEntry<TArgs, TData>
      *   affecting the entry's lifecycle.
      * @param opts.mapRemoval - When `true`, the removal rejection passes through
      *   `mapError` — for waiters feeding a channel typed as `TError` (the
-     *   command result envelope). Waiters on untyped channels (`ensure`/`fetch`
-     *   rejections, `$cacheDataLoaded`) keep the raw `CacheEntryRemovedError`.
+     *   command execute/trigger rejection). Waiters on untyped channels
+     *   (`ensure`/`fetch` rejections, `$cacheDataLoaded`) keep the raw
+     *   `CacheEntryRemovedError`.
      */
     private _awaitState(
         settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
@@ -358,7 +359,7 @@ export class QueryCacheEntry<TArgs, TData>
                 // Single normalization boundary: the raw rejection becomes the api's
                 // TError exactly here, as it enters the machine, so every reader of
                 // the machine's error — agent state, imperative-fetch rejections, the
-                // command result envelope, the Suspense throw — observes the same
+                // command execute/trigger rejection, the Suspense throw — observes the same
                 // mapped instance. Deliberately upstream of this boundary: lifecycle
                 // hooks ($queryFulfilled) are fed from the raw queryFn promise and
                 // see the raw error. Aborted runs returned above and are never mapped.

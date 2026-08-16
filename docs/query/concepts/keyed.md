@@ -12,7 +12,7 @@ type Keyed<T> = { value: T; key: string };
 ```
 
 - **`Keyed<T>`** — аргументы, обёрнутые с предвычисленным ключом кэша. Пара `{ value, key }`, где `key` — результат сериализации.
-- **`Args<TArgs>`** — объединённый тип: сырые аргументы или `Keyed`. Все публичные методы (`trigger`, `refresh`, `getEntry`, `getEntry$`) принимают `Args<TArgs>`.
+- **`Args<TArgs>`** — объединённый тип: сырые аргументы или `Keyed`. Все публичные методы (`prefetch`, `refresh`, `getEntry`, `getEntry$` и т.д.) принимают `Args<TArgs>`.
 
 
 ## Пайплайн аргументов

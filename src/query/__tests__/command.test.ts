@@ -45,14 +45,14 @@ function createLinkedResource<TArgs = number, TData = string>(
     });
 }
 
-// ==================== trigger ====================
+// ==================== execute ====================
 
-describe("Command.trigger", () => {
+describe("Command.execute", () => {
     it("calls queryFn with provided args and resolves with result", async () => {
         const queryFn = vi.fn(async (args: string) => `result-${args}`);
         const command = createCommand<string, string>({ queryFn });
 
-        const result = await command.trigger("hello", "k1");
+        const result = await command.execute("hello", "k1");
         expect(queryFn).toHaveBeenCalledWith("hello", expect.any(String));
         expect(result).toBe("result-hello");
     });
@@ -65,7 +65,7 @@ describe("Command.trigger", () => {
             },
         });
 
-        await expect(command.trigger("x", "k1")).rejects.toBe(error);
+        await expect(command.execute("x", "k1")).rejects.toBe(error);
     });
 
     it("auto-generates a key when none is provided", async () => {
@@ -73,7 +73,7 @@ describe("Command.trigger", () => {
             queryFn: async () => "ok",
         });
 
-        command.trigger("a");
+        command.execute("a");
         // We can't predict the exact auto-key, but an entry should exist
         // The key format is `${Date.now()}-${counter}`
         // After trigger, the entry is created. We'll verify via reset (which clears entries).
@@ -86,7 +86,7 @@ describe("Command.trigger", () => {
             queryFn: async () => "ok",
         });
 
-        command.trigger("a", "my-key");
+        command.execute("a", "my-key");
         await flushMicrotasks();
 
         const entry = command.getEntry("my-key");
@@ -102,12 +102,12 @@ describe("Command.trigger", () => {
             },
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         await flushMicrotasks();
 
         const entry1 = command.getEntry("k1");
 
-        command.trigger("b", "k1");
+        command.execute("b", "k1");
         await flushMicrotasks();
 
         const entry2 = command.getEntry("k1");
@@ -124,7 +124,7 @@ describe("Command.trigger", () => {
                 }),
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         const entry1 = command.getEntry("k1")!;
 
         let completed = false;
@@ -135,7 +135,7 @@ describe("Command.trigger", () => {
         // Trigger again with same key — should complete the first entry
         const command2queryFn = vi.fn(async () => "second");
         // We need a new command or we just trigger again on the same
-        command.trigger("b", "k1");
+        command.execute("b", "k1");
 
         expect(completed).toBe(true);
     });
@@ -145,7 +145,7 @@ describe("Command.trigger", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
 
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
@@ -163,7 +163,7 @@ describe("Command.trigger", () => {
             },
         });
 
-        const promise = command.trigger("x", "k1");
+        const promise = command.execute("x", "k1");
         await promise.catch(() => {});
         await flushMicrotasks();
 
@@ -172,7 +172,7 @@ describe("Command.trigger", () => {
         expect(entry!.machine$.peek().state.status).toBe("error");
     });
 
-    it("failed trigger does not produce an unhandled rejection (no lifecycle hooks)", async () => {
+    it("failed execute does not produce an unhandled rejection (no lifecycle hooks)", async () => {
         const tracker = await trackUnhandledRejections();
 
         try {
@@ -182,13 +182,36 @@ describe("Command.trigger", () => {
                 },
             });
 
-            await command.trigger("x", "k1").catch(() => {});
+            await command.execute("x", "k1").catch(() => {});
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);
         } finally {
             tracker.stop();
         }
+    });
+});
+
+// ==================== trigger (deprecated alias) ====================
+
+describe("Command.trigger (deprecated alias of execute)", () => {
+    it("resolves with the mutation result, identical to execute", async () => {
+        const queryFn = vi.fn(async (args: string) => `result-${args}`);
+        const command = createCommand<string, string>({ queryFn });
+
+        await expect(command.trigger("hello", "k1")).resolves.toBe("result-hello");
+        expect(command.getEntry("k1")).not.toBeNull();
+    });
+
+    it("rejects with the raw error, identical to execute", async () => {
+        const error = new Error("mutation failed");
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                throw error;
+            },
+        });
+
+        await expect(command.trigger("x", "k1")).rejects.toBe(error);
     });
 });
 
@@ -200,7 +223,7 @@ describe("Command.getEntry", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(command.getEntry("k1")).not.toBeNull();
@@ -219,7 +242,7 @@ describe("Command.getEntry", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
@@ -238,7 +261,7 @@ describe("Command.getEntry$", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(command.getEntry$("k1")).not.toBeNull();
@@ -261,7 +284,7 @@ describe("Command.getEntry$", () => {
         expect(command.getEntry$("k1")).toBeNull();
 
         // After trigger, entry exists
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         expect(command.getEntry$("k1")).not.toBeNull();
     });
 
@@ -278,7 +301,7 @@ describe("Command.getEntry$", () => {
         // Initially null
         expect(results).toEqual([null]);
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         // Effect should have re-run with the entry present
@@ -303,7 +326,7 @@ describe("Command.getEntry$", () => {
 
         expect(values).toEqual([false]);
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(values.length).toBeGreaterThanOrEqual(2);
@@ -324,13 +347,13 @@ describe("Command.getEntry$", () => {
             entries.push(command.getEntry$("k1"));
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         await flushMicrotasks();
 
         const firstEntry = entries[entries.length - 1];
         expect(firstEntry).not.toBeNull();
 
-        command.trigger("b", "k1");
+        command.execute("b", "k1");
         await flushMicrotasks();
 
         // Effect should have re-run again
@@ -353,8 +376,8 @@ describe("Command.getEntry$ — non-last entry removal (N1 regression)", () => {
     it("effect over a NON-last entry re-evaluates to null when that entry is completed", async () => {
         const command = createCommand<string, string>({ queryFn: async () => "data" });
 
-        command.trigger("a", "k1");
-        command.trigger("b", "k2"); // k2 is _lastEntry$, so k1 is the non-last entry
+        command.execute("a", "k1");
+        command.execute("b", "k2"); // k2 is _lastEntry$, so k1 is the non-last entry
         await flushMicrotasks();
 
         const results: (null | object)[] = [];
@@ -375,8 +398,8 @@ describe("Command.getEntry$ — non-last entry removal (N1 regression)", () => {
     it("compute over a NON-last entry re-evaluates to null when that entry is completed", async () => {
         const command = createCommand<string, string>({ queryFn: async () => "data" });
 
-        command.trigger("a", "k1");
-        command.trigger("b", "k2");
+        command.execute("a", "k1");
+        command.execute("b", "k2");
         await flushMicrotasks();
 
         const hasEntry$ = Signal.compute(() => command.getEntry$("k1") !== null);
@@ -447,12 +470,12 @@ describe("Command.pack", () => {
         expect(packed.key).toBeUndefined();
     });
 
-    it("descriptor can be replayed via command.trigger", async () => {
+    it("descriptor can be replayed via command.execute", async () => {
         const queryFn = vi.fn(async (s: string) => `result-${s}`);
         const command = createCommand<string, string>({ queryFn });
 
         const packed = command.pack("world", "k2");
-        const result = await packed.command.trigger(packed.args, packed.key);
+        const result = await packed.command.execute(packed.args, packed.key);
 
         expect(result).toBe("result-world");
         expect(queryFn).toHaveBeenCalledWith("world", expect.any(String));
@@ -467,8 +490,8 @@ describe("Command.reset", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("a", "k1");
-        command.trigger("b", "k2");
+        command.execute("a", "k1");
+        command.execute("b", "k2");
         await flushMicrotasks();
 
         expect(command.getEntry("k1")).not.toBeNull();
@@ -485,8 +508,8 @@ describe("Command.reset", () => {
             queryFn: async () => "data",
         });
 
-        command.trigger("a", "k1");
-        command.trigger("b", "k2");
+        command.execute("a", "k1");
+        command.execute("b", "k2");
 
         const entry1 = command.getEntry("k1")!;
         const entry2 = command.getEntry("k2")!;
@@ -524,13 +547,13 @@ describe("Command.reset", () => {
             },
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         await flushMicrotasks();
         expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data-1");
 
         command.reset();
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         await flushMicrotasks();
         expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data-2");
     });
@@ -572,7 +595,7 @@ describe("Link scenarios", () => {
             // Execute command — should trigger refresh on the linked resource
             const refreshSpy = vi.spyOn(resource, "refresh");
 
-            await command.trigger("1", "k1");
+            await command.execute("1", "k1");
             await flushMicrotasks();
 
             expect(refreshSpy).toHaveBeenCalledWith(1);
@@ -601,7 +624,7 @@ describe("Link scenarios", () => {
 
             const refreshSpy = vi.spyOn(resource, "refresh");
 
-            await command.trigger("1", "k1").catch(() => {});
+            await command.execute("1", "k1").catch(() => {});
             await flushMicrotasks();
 
             expect(refreshSpy).not.toHaveBeenCalled();
@@ -636,7 +659,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            await command.trigger("1", "k1");
+            await command.execute("1", "k1");
             await flushMicrotasks();
 
             expect(optimisticSpy).toHaveBeenCalled();
@@ -668,7 +691,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            await command.trigger("1", "k1").catch(() => {});
+            await command.execute("1", "k1").catch(() => {});
             await flushMicrotasks();
 
             // After rollback, data should be unchanged
@@ -715,7 +738,7 @@ describe("Link scenarios", () => {
             });
 
             // The throwing optimisticUpdate must surface as a rejected trigger.
-            await expect(command.trigger("1", "k1")).rejects.toThrow("optimistic boom");
+            await expect(command.execute("1", "k1")).rejects.toThrow("optimistic boom");
             await flushMicrotasks();
 
             // The failure goes through the machine: the entry exists and holds the
@@ -767,7 +790,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            await command.trigger("1", "k1");
+            await command.execute("1", "k1");
             await flushMicrotasks();
 
             expect(updateSpy).toHaveBeenCalledWith(
@@ -800,7 +823,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            await command.trigger("1", "k1").catch(() => {});
+            await command.execute("1", "k1").catch(() => {});
             await flushMicrotasks();
 
             expect(updateSpy).not.toHaveBeenCalled();
@@ -853,7 +876,7 @@ describe("Link scenarios", () => {
                     });
 
                     // The mutation itself succeeds, so trigger resolves.
-                    await expect(command.trigger("1", "k1")).resolves.toBe("cmd-result");
+                    await expect(command.execute("1", "k1")).resolves.toBe("cmd-result");
                     await flushMicrotasks();
                     await flushUnhandledRejections();
 
@@ -913,7 +936,7 @@ describe("Link scenarios", () => {
                         links: [throwingLink, appliedLink],
                     });
 
-                    await expect(command.trigger("1", "k1")).resolves.toBe("done");
+                    await expect(command.execute("1", "k1")).resolves.toBe("done");
                     await flushMicrotasks();
                     await flushUnhandledRejections();
 
@@ -955,7 +978,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            await command.trigger("1", "k1");
+            await command.execute("1", "k1");
             await flushMicrotasks();
 
             // refresh is called but with undefined — resource.refresh(undefined) is a no-op
@@ -970,7 +993,7 @@ describe("Link scenarios", () => {
                 links: [],
             });
 
-            const result = await command.trigger("x", "k1");
+            const result = await command.execute("x", "k1");
             expect(result).toBe("result");
         });
     });
@@ -990,7 +1013,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         expect(addedArgs).toEqual(["a"]);
     });
 
@@ -1004,7 +1027,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(loadedData).toBe("loaded");
@@ -1028,7 +1051,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         const entry = command.getEntry("k1")!;
 
         // Complete the entry before queryFn resolves
@@ -1050,7 +1073,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
@@ -1069,7 +1092,7 @@ describe("onCacheEntryAdded lifecycle", () => {
         });
 
         // Should not throw
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(command.getEntry("k1")).not.toBeNull();
@@ -1089,7 +1112,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        command.trigger("a", "k1");
+        command.execute("a", "k1");
         await flushMicrotasks();
 
         expect(startedArgs).toEqual(["a"]);
@@ -1105,7 +1128,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(fulfilledData).toEqual({ data: "result" });
@@ -1127,7 +1150,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        await command.trigger("x", "k1").catch(() => {});
+        await command.execute("x", "k1").catch(() => {});
         await flushMicrotasks();
 
         expect(rejectedError).toBeInstanceOf(Error);
@@ -1146,7 +1169,7 @@ describe("onQueryStarted lifecycle", () => {
                 },
             });
 
-            await command.trigger("x", "k1").catch(() => {});
+            await command.execute("x", "k1").catch(() => {});
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);
@@ -1164,7 +1187,7 @@ describe("onQueryStarted lifecycle", () => {
         });
 
         // Should not throw
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         await flushMicrotasks();
 
         expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data");
@@ -1180,7 +1203,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         expect(firedCount).toBe(1);
     });
 });
@@ -1197,8 +1220,8 @@ describe("Key generation", () => {
             },
         });
 
-        command.trigger("a");
-        command.trigger("b");
+        command.execute("a");
+        command.execute("b");
 
         expect(keys).toHaveLength(2);
         expect(keys[0]).not.toBe(keys[1]);
@@ -1213,9 +1236,9 @@ describe("Key generation", () => {
             },
         });
 
-        command.trigger("a");
-        command.trigger("b");
-        command.trigger("c");
+        command.execute("a");
+        command.execute("b");
+        command.execute("c");
 
         // Keys should end with -0, -1, -2 respectively
         expect(keys[0]).toMatch(/-0$/);
@@ -1240,9 +1263,9 @@ describe("Edge cases", () => {
             },
         });
 
-        command.trigger("a", "k1");
-        command.trigger("b", "k1");
-        command.trigger("c", "k1");
+        command.execute("a", "k1");
+        command.execute("b", "k1");
+        command.execute("c", "k1");
 
         // Only the latest entry should be in cache
         const entry = command.getEntry("k1")!;
@@ -1258,7 +1281,7 @@ describe("Edge cases", () => {
             queryFn: () => new Promise<string>(() => {}), // never resolves
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
 
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
@@ -1281,7 +1304,7 @@ describe("Edge cases", () => {
             },
         });
 
-        command.trigger("x", "k1");
+        command.execute("x", "k1");
         command.reset();
         await flushMicrotasks();
 
@@ -1302,11 +1325,11 @@ describe("Edge cases", () => {
             },
         });
 
-        command.trigger("first", "k1");
+        command.execute("first", "k1");
         const firstEntry = command.getEntry("k1")!;
 
         // Replace with new entry for same key
-        command.trigger("second", "k1");
+        command.execute("second", "k1");
         await flushMicrotasks();
 
         const secondEntry = command.getEntry("k1")!;
@@ -1330,8 +1353,8 @@ describe("Edge cases", () => {
                 }),
         });
 
-        const p1 = command.trigger("a", "k1");
-        const p2 = command.trigger("b", "k2");
+        const p1 = command.execute("a", "k1");
+        const p2 = command.execute("b", "k2");
 
         expect(command.getEntry("k1")).not.toBeNull();
         expect(command.getEntry("k2")).not.toBeNull();
@@ -1382,8 +1405,8 @@ describe("Edge cases", () => {
         });
 
         // Fire two triggers in rapid succession (different keys so both stay alive)
-        const p1 = command.trigger("1", "k1");
-        const p2 = command.trigger("1", "k2");
+        const p1 = command.execute("1", "k1");
+        const p2 = command.execute("1", "k2");
 
         // Both optimistic patches should have been applied synchronously
         const dataAfterOptimistic = resourceEntry.machine$.peek().state.data;
@@ -1411,14 +1434,14 @@ describe("Edge cases", () => {
 
 // ==================== Edge Cases (MEDIUM priority) ====================
 
-describe("Command — trigger with pre-Keyed args", () => {
+describe("Command — execute with pre-Keyed args", () => {
     it("uses the custom key from toKeyed wrapper", async () => {
         const command = createCommand<{ data: string }, string>({
             queryFn: async (args) => `result-${args.data}`,
         });
 
         const keyed = toKeyed({ data: "x" }, () => "custom-key");
-        await command.trigger(keyed);
+        await command.execute(keyed);
 
         const entry = command.getEntry("custom-key");
         expect(entry).not.toBeNull();
@@ -1434,7 +1457,7 @@ describe("Command request id", () => {
         const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
         const command = createCommand<string, string>({ queryFn });
 
-        await command.trigger("a", "k1");
+        await command.execute("a", "k1");
 
         const requestId = queryFn.mock.calls[0][1];
         expect(typeof requestId).toBe("string");
@@ -1445,8 +1468,8 @@ describe("Command request id", () => {
         const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
         const command = createCommand<string, string>({ queryFn });
 
-        await command.trigger("a", "k1");
-        await command.trigger("a", "k2");
+        await command.execute("a", "k1");
+        await command.execute("a", "k2");
 
         expect(queryFn.mock.calls[0][1]).not.toBe(queryFn.mock.calls[1][1]);
     });
@@ -1460,7 +1483,7 @@ describe("Command request id", () => {
         });
         const command = createCommand<string, string>({ queryFn });
 
-        await command.trigger("a", "k1").catch(() => {});
+        await command.execute("a", "k1").catch(() => {});
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
@@ -1481,7 +1504,7 @@ describe("Command request id", () => {
             generateRequestId: (args) => `id-for-${args}`,
         });
 
-        await command.trigger("hello", "k1");
+        await command.execute("hello", "k1");
 
         expect(queryFn).toHaveBeenCalledWith("hello", "id-for-hello");
     });
@@ -1493,7 +1516,7 @@ describe("Command request id", () => {
             generateRequestId: async (args) => `async-id-for-${args}`,
         });
 
-        await command.trigger("hello", "k1");
+        await command.execute("hello", "k1");
 
         expect(queryFn).toHaveBeenCalledWith("hello", "async-id-for-hello");
     });
@@ -1514,7 +1537,7 @@ describe("Command request id", () => {
             },
         });
 
-        await command.trigger("a", "k1").catch(() => {});
+        await command.execute("a", "k1").catch(() => {});
         await flushMicrotasks();
 
         command.getEntry("k1")!.retry();
@@ -1530,13 +1553,13 @@ describe("Command request id", () => {
 //
 // A non-async queryFn (or a sync generateRequestId) can throw *synchronously*,
 // before any promise exists. That throw used to propagate straight out of the
-// QueryCacheEntry constructor and thus out of trigger() — violating the
-// "trigger always returns a Promise" contract — and, worse, leaving any
+// QueryCacheEntry constructor and thus out of execute() — violating the
+// "execute always returns a Promise" contract — and, worse, leaving any
 // already-applied optimistic patches dangling (their rollback is attached to a
-// queryFn promise that was never created). Both must be contained: trigger
+// queryFn promise that was never created). Both must be contained: execute
 // rejects, and optimistic patches roll back.
 describe("Command — synchronous throw from queryFn / generateRequestId", () => {
-    it("trigger() rejects (does not synchronously throw) when a non-async queryFn throws", async () => {
+    it("execute() rejects (does not synchronously throw) when a non-async queryFn throws", async () => {
         const error = new Error("sync boom");
         const command = createCommand<string, string>({
             queryFn: () => {
@@ -1546,7 +1569,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
 
         let promise!: Promise<string>;
         expect(() => {
-            promise = command.trigger("x", "k1");
+            promise = command.execute("x", "k1");
         }).not.toThrow();
 
         await expect(promise).rejects.toBe(error);
@@ -1559,13 +1582,13 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
             },
         });
 
-        await command.trigger("x", "k1").catch(() => {});
+        await command.execute("x", "k1").catch(() => {});
         await flushMicrotasks();
 
         expect(command.getEntry("k1")!.machine$.peek().state.status).toBe("error");
     });
 
-    it("trigger() rejects (does not synchronously throw) when a sync generateRequestId throws", async () => {
+    it("execute() rejects (does not synchronously throw) when a sync generateRequestId throws", async () => {
         const error = new Error("id boom");
         const queryFn = vi.fn(async () => "ok");
         const command = createCommand<string, string>({
@@ -1577,7 +1600,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
 
         let promise!: Promise<string>;
         expect(() => {
-            promise = command.trigger("x", "k1");
+            promise = command.execute("x", "k1");
         }).not.toThrow();
 
         await expect(promise).rejects.toBe(error);
@@ -1609,7 +1632,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
             links: [link],
         });
 
-        await expect(command.trigger("1", "k1")).rejects.toThrow("sync boom");
+        await expect(command.execute("1", "k1")).rejects.toThrow("sync boom");
         await flushMicrotasks();
 
         // The optimistic patch must be rolled back: data restored, no dangling patch.
@@ -1628,7 +1651,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
                 },
             });
 
-            await command.trigger("x", "k1").catch(() => {});
+            await command.execute("x", "k1").catch(() => {});
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);
@@ -1671,7 +1694,7 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
         resource.trigger(1);
         await flushMicrotasks();
 
-        await command.trigger("1", "k1").catch(() => {});
+        await command.execute("1", "k1").catch(() => {});
         await flushMicrotasks();
 
         const state = command.getEntry("k1")!.machine$.peek().state;
@@ -1689,7 +1712,7 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
         await flushMicrotasks();
         const resourceEntry = resource.getEntry(1)!;
 
-        await command.trigger("1", "k1").catch(() => {});
+        await command.execute("1", "k1").catch(() => {});
         await flushMicrotasks();
 
         const cmdEntry = command.getEntry("k1")!;
@@ -1715,7 +1738,7 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
             resource.trigger(1);
             await flushMicrotasks();
 
-            await command.trigger("1", "k1").catch(() => {});
+            await command.execute("1", "k1").catch(() => {});
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);
@@ -1738,7 +1761,7 @@ describe("Command retry", () => {
             },
         });
 
-        await command.trigger("a", "k1").catch(() => {});
+        await command.execute("a", "k1").catch(() => {});
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
@@ -1776,7 +1799,7 @@ describe("Command retry", () => {
         resource.trigger(1);
         await flushMicrotasks();
 
-        await command.trigger("1", "k1").catch(() => {});
+        await command.execute("1", "k1").catch(() => {});
         await flushMicrotasks();
 
         const refreshSpy = vi.spyOn(resource, "refresh");
@@ -1790,7 +1813,7 @@ describe("Command retry", () => {
 
 // ==================== retentionTime: 0 without observers ====================
 
-describe("trigger() without observers — retentionTime: 0 regression", () => {
+describe("execute() without observers — retentionTime: 0 regression", () => {
     afterEach(() => {
         vi.useRealTimers();
     });
@@ -1808,7 +1831,7 @@ describe("trigger() without observers — retentionTime: 0 regression", () => {
             links: [],
         });
 
-        const promise = command.trigger("x", "k1");
+        const promise = command.execute("x", "k1");
 
         // Fire the retentionTime timer(0). Without the keepalive fix, this GCs
         // the entry and rejects `promise` with CacheEntryRemovedError.
@@ -1834,7 +1857,7 @@ describe("trigger() without observers — retentionTime: 0 regression", () => {
             links: [],
         });
 
-        const promise = command.trigger("x", "k1");
+        const promise = command.execute("x", "k1");
 
         await vi.runAllTimersAsync();
 
@@ -1876,8 +1899,8 @@ describe("Command agent integration", () => {
 
         const eff = Signal.effect(() => agent.state$());
 
-        // The envelope promise never rejects — no catch needed for a failing trigger.
-        await agent.trigger("a");
+        // agent.trigger rejects natively — swallow here, the state carries the error.
+        await agent.trigger("a").catch(() => {});
         await flushMicrotasks();
         expect(agent.state$.peek().status).toBe("error");
 

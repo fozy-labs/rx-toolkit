@@ -345,17 +345,18 @@ describe("createApi.createCommand", () => {
         const api = createApi();
         const command = api.createCommand({ queryFn: async () => "ok" });
 
+        expect(command.execute).toBeTypeOf("function");
         expect(command.trigger).toBeTypeOf("function");
         expect(command.getEntry).toBeTypeOf("function");
         expect(command.createAgent).toBeTypeOf("function");
     });
 
-    it("command.trigger executes queryFn", async () => {
+    it("command.execute executes queryFn", async () => {
         const queryFn = vi.fn(async (x: number) => x * 2);
         const api = createApi();
         const command = api.createCommand({ queryFn });
 
-        const result = await command.trigger(5);
+        const result = await command.execute(5);
         expect(result).toBe(10);
         expect(queryFn).toHaveBeenCalledWith(5, expect.any(String));
     });
@@ -449,7 +450,7 @@ describe("createApi.resetAll", () => {
             queryFn: async () => "ok",
         });
 
-        await command.trigger(undefined as void);
+        await command.execute(undefined as void);
 
         api.resetAll();
         // After reset, command entries should be cleared

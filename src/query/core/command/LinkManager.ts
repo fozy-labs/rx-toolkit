@@ -81,7 +81,7 @@ export class LinkManager<TArgs, TData> {
      * patches, apply update patches, and invalidate linked resources.
      *
      * Contract: **this never throws.** It runs inside an unconsumed `.then`
-     * handler in {@link Command.trigger}, so any escaping error would become an
+     * handler in {@link Command.execute}, so any escaping error would become an
      * unhandled rejection — and the mutation itself has already succeeded, so
      * there is nowhere to surface it. On a fulfilled result every phase is
      * therefore isolated and the optimistic handles are always committed exactly

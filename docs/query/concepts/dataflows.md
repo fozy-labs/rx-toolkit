@@ -41,8 +41,7 @@ sequenceDiagram
 
     opt синхронно
         Hook->>Agent: start()
-        Agent->>Res: trigger(keyedArgs, doForce=false)
-        Res-->>Res: _getOrCreate(keyedArgs, doForce=false)
+        Agent->>Res: _getOrCreate(keyedArgs, doForce=false)
         Res->>Cache: get(key)
         Cache-->>Res: null
         Res->>Entry: new Entry(options)
@@ -80,7 +79,7 @@ sequenceDiagram
             Note over Agent: return stable(prev, next)
         end
 
-        Res -->> Agent: void
+        Res -->> Agent: Entry (pending)
         Agent-->>Hook: void
     end
 
@@ -243,10 +242,10 @@ sequenceDiagram
 
     Note over Res: Потребитель A уже прошёл «Cache miss»<br/>(см. одноимённый раздел выше)
 
-    Agent->>Res: trigger(keyedArgs, doForce=false)
+    Agent->>Res: _getOrCreate(keyedArgs, doForce=false)
     Res->>Cache: get(key)
     Cache-->>Res: existing Entry (pending)
-    Res-->>Agent: void
+    Res-->>Agent: existing Entry
 ```
 
 ## Потоки команды (Command)
@@ -270,7 +269,7 @@ sequenceDiagram
 
     UI->>Hook: trigger(args)
     Hook->>Agent: trigger(args)
-    Agent->>Cmd: trigger(keyedArgs)
+    Agent->>Cmd: execute(keyedArgs)
     Cmd->>Cache: get(key)
     Cache-->>Cmd: null
     Cmd->>Entry: new Entry(options)
@@ -358,7 +357,7 @@ sequenceDiagram
     participant Res as Resource
     participant Entry as QueryCacheEntry
 
-    Note over Cmd: trigger(args) — полный поток<br/>см. «Мутация — базовый поток»
+    Note over Cmd: execute(args) — полный поток<br/>см. «Мутация — базовый поток»
 
     Note over Lnk: optimisticUpdate: fn
 

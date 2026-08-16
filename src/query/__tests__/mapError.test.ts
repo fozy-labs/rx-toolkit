@@ -326,7 +326,7 @@ describe("mapError — robustness", () => {
 // ==================== Command behavior ====================
 
 describe("mapError — command", () => {
-    it("maps the command result envelope error", async () => {
+    it("maps the agent trigger rejection", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -335,13 +335,10 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        const result = await agent.trigger("x");
-
-        expect(result.status).toBe("error");
-        expect(result.error).toBeInstanceOf(NetError);
+        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetError);
     });
 
-    it("maps the rejection from the agent trigger's unwrap()", async () => {
+    it("maps an unknown error on the agent trigger rejection", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -350,10 +347,10 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        await expect(agent.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
+        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetUnknownError);
     });
 
-    it("maps the raw Command.trigger rejection", async () => {
+    it("maps the raw Command.execute rejection", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -361,7 +358,7 @@ describe("mapError — command", () => {
             },
         });
 
-        await expect(command.trigger("x", "k1")).rejects.toBeInstanceOf(NetError);
+        await expect(command.execute("x", "k1")).rejects.toBeInstanceOf(NetError);
     });
 
     it("maps a failed async generateRequestId", async () => {
@@ -374,10 +371,7 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        const result = await agent.trigger("x");
-
-        expect(result.status).toBe("error");
-        expect(result.error).toBeInstanceOf(NetUnknownError);
+        await expect(agent.trigger("x")).rejects.toBeInstanceOf(NetUnknownError);
     });
 
     it("maps a throwing optimistic-patch update", async () => {
@@ -403,10 +397,7 @@ describe("mapError — command", () => {
         });
 
         const agent = command.createAgent();
-        const result = await agent.trigger(1);
-
-        expect(result.status).toBe("error");
-        expect(result.error).toBeInstanceOf(NetUnknownError);
+        await expect(agent.trigger(1)).rejects.toBeInstanceOf(NetUnknownError);
     });
 });
 
@@ -423,10 +414,14 @@ describe("mapError — command entry removal", () => {
         const first = agent.trigger("a", "k");
         void agent.trigger("b", "k");
 
-        const result = await first;
-        expect(result.status).toBe("error");
-        expect(result.error).toBeInstanceOf(NetUnknownError);
-        expect((result.error as NetUnknownError).original).toBeInstanceOf(CacheEntryRemovedError);
+        const error: unknown = await first.then(
+            () => {
+                throw new Error("expected rejection");
+            },
+            (reason: unknown) => reason,
+        );
+        expect(error).toBeInstanceOf(NetUnknownError);
+        expect((error as NetUnknownError).original).toBeInstanceOf(CacheEntryRemovedError);
     });
 
     it("maps the removal error when resetAll() completes an in-flight mutation", async () => {
@@ -435,7 +430,7 @@ describe("mapError — command entry removal", () => {
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        const pending = command.trigger("x", "k");
+        const pending = command.execute("x", "k");
         void pending.catch(() => {});
         api.resetAll();
 
@@ -450,9 +445,9 @@ describe("mapError — command entry removal", () => {
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        const first = command.trigger("a", "k");
+        const first = command.execute("a", "k");
         void first.catch(() => {});
-        void command.trigger("b", "k");
+        void command.execute("b", "k");
 
         await expect(first).rejects.toBeInstanceOf(NetUnknownError);
         expect(mapError).toHaveBeenCalledTimes(1);
@@ -508,7 +503,7 @@ describe("mapError — type-level", () => {
         assertType<IsExact<Err, NetError | NetUnknownError | null>>(true as const);
     });
 
-    it("types the command result envelope error via the plugin + mapError", () => {
+    it("types the hook trigger as a native promise of the mutation data", () => {
         const api = createApi({ plugins: [reactHooksPlugin()], mapError: toNetError });
         const command = api.createCommand({
             queryFn: async (_args: string): Promise<number> => 1,
@@ -516,8 +511,6 @@ describe("mapError — type-level", () => {
 
         // Derive the types without invoking the hook (it is not inside a component).
         type Trigger = ReturnType<typeof command.useCommand>[0];
-        type Result = Awaited<ReturnType<Trigger>>;
-        type ErrorVariant = Extract<Result, { status: "error" }>;
-        assertType<IsExact<ErrorVariant["error"], NetError | NetUnknownError>>(true as const);
+        assertType<IsExact<Trigger, (args: string) => Promise<number>>>(true as const);
     });
 });

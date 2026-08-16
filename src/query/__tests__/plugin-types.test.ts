@@ -9,7 +9,6 @@ import type {
     TCommandAgentState,
     TResourceAgentState,
     TSuspenseResourceState,
-    TTriggerPromise,
 } from "@/query/types";
 import type { PluginHKT } from "@/query/types/plugin-hkt";
 
@@ -154,7 +153,7 @@ describe("Plugin HKT type-level tests", () => {
         assertType<IsExact<Param, string | undefined>>(true as const);
 
         // Return type is [trigger, state] tuple
-        type ExpectedTrigger = (args: TArgs) => TTriggerPromise<TData>;
+        type ExpectedTrigger = (args: TArgs) => Promise<TData>;
         type ExpectedState = TCommandAgentState<TArgs, TData>;
         type ExpectedReturn = [trigger: ExpectedTrigger, state: ExpectedState];
 

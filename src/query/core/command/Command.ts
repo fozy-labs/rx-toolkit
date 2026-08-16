@@ -70,17 +70,18 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * @returns A promise that resolves with the mutation result. Every
      *   rejection is normalized via `mapError` — including the
      *   `CacheEntryRemovedError` produced when the entry is evicted mid-flight
-     *   (re-trigger with the same key, `reset()` / `resetAll()`).
+     *   (re-execute with the same key, `reset()` / `resetAll()`).
      */
-    trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
-        // trigger() must never throw synchronously, and every rejection of the
+    execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+        // execute() must never throw synchronously, and every rejection of the
         // returned promise must be normalized to the api's TError — the agent /
-        // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
-        // are mapped at the machine boundary and removals inside currentResult;
-        // this guard converts anything thrown before the entry takes over
-        // (argument normalization, cache bookkeeping) into a mapped rejection.
+        // hook level (CommandAgent.trigger) and typed consumers rely on that
+        // guarantee. queryFn failures are mapped at the machine boundary and
+        // removals inside currentResult; this guard converts anything thrown
+        // before the entry takes over (argument normalization, cache
+        // bookkeeping) into a mapped rejection.
         try {
-            return this._trigger(argsOrKeyed, key);
+            return this._execute(argsOrKeyed, key);
         } catch (error) {
             return Promise.reject(
                 this._mapError(error, {
@@ -94,7 +95,15 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    private _trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+    /**
+     * @deprecated Renamed to {@link execute} (identical contract). Will be
+     * removed in a future release.
+     */
+    trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+        return this.execute(argsOrKeyed, key);
+    }
+
+    private _execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
         const keyed = this._toKeyed(argsOrKeyed, key);
         const args = keyed.value;
         const entryKey = keyed.key;
@@ -122,7 +131,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
-        // backend. A fresh `trigger` creates a new entry and therefore a new id.
+        // backend. A fresh `execute` creates a new entry and therefore a new id.
         let requestId: string | undefined;
         let requestIdPromise: Promise<string> | undefined;
 
@@ -167,12 +176,12 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // one point where the invariants converge: the rejection flows into
             // the settle handler below (rolling back the already-applied
             // optimistic patches) and back through `_execute` (transitioning the
-            // entry to `error`), so trigger() keeps its always-returns-a-Promise
+            // entry to `error`), so execute() keeps its always-returns-a-Promise
             // contract instead of throwing out of the QueryCacheEntry
             // constructor and stranding the patches.
             let promise: Promise<TData>;
             try {
-                // Applied once per trigger, not per run: a retry executes after
+                // Applied once per execute, not per run: a retry runs after
                 // the first failure already rolled the patches back and must not
                 // re-apply them. A throwing optimisticUpdate rolls back its own
                 // partial patches inside applyOptimisticPatches, leaving
@@ -190,7 +199,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // Link orchestration runs per execution; the result itself is surfaced by
             // the entry's native promise (`entry.currentResult()`), settled where the
             // machine transitions. This `.then` is registered before the one in
-            // `_execute`, so `settle` runs before `trigger()`'s promise resolves.
+            // `_execute`, so `settle` runs before `execute()`'s promise resolves.
             promise.then(
                 (result) => {
                     if (!firstAttemptSettled) {
@@ -208,7 +217,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
                         linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
                     }
                     // Retry failed: nothing to settle — optimistic handles were already
-                    // aborted and the original trigger promise already rejected. The
+                    // aborted and the original execute promise already rejected. The
                     // machine stays in `error`, ready for another retry.
                 },
             );
@@ -238,11 +247,11 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         const firstResult = entry.currentResult();
 
         // machine$.peek() in _execute() leaves refcount at 0, which starts
-        // timer(retentionTime). Hold refcount ≥ 1 until the trigger settles so
+        // timer(retentionTime). Hold refcount ≥ 1 until the mutation settles so
         // the GC timer cannot fire and complete() the entry mid-flight.
         // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
         // re-rejects with firstResult's error and nobody consumes it, so every
-        // failed trigger would surface a global unhandled rejection.
+        // failed execute would surface a global unhandled rejection.
         const keepalive = entry.obs.subscribe();
         const releaseKeepalive = () => keepalive.unsubscribe();
         void firstResult.then(releaseKeepalive, releaseKeepalive);
@@ -308,10 +317,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * Bundle this command with arguments (and an optional cache key) into an inert
      * {@link TPackedCommand} descriptor. Nothing is executed — the consumer hands
      * the descriptor back to the library, which can later run it
-     * (e.g. `command.trigger(args, key)`).
+     * (e.g. `command.execute(args, key)`).
      *
      * @param args - Mutation arguments (or a {@link Keyed} wrapper).
-     * @param key - Optional cache-entry key, forwarded to {@link trigger}.
+     * @param key - Optional cache-entry key, forwarded to {@link execute}.
      * @returns A `{ kind: "command", command, args, key }` descriptor.
      */
     pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError> {

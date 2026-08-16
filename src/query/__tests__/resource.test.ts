@@ -2552,6 +2552,23 @@ describe("Resource.ensure", () => {
 
         expect(await resource.ensure(undefined as void)).toBe("void-data");
     });
+
+    it("rejects (does not synchronously throw) when serializeArgs throws", async () => {
+        const error = new Error("serialize boom");
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.ensure(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
 });
 
 // ==================== fetch ====================
@@ -2639,6 +2656,23 @@ describe("Resource.fetch", () => {
 
         await expect(resource.fetch(1)).rejects.toThrow("boom");
     });
+
+    it("rejects (does not synchronously throw) when serializeArgs throws", async () => {
+        const error = new Error("serialize boom");
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.fetch(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
 });
 
 // ==================== prefetch ====================
@@ -2674,6 +2708,112 @@ describe("Resource.prefetch", () => {
 
         await resource.prefetch(1);
         expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("creates the entry synchronously, before the promise settles", () => {
+        const resource = createResource<number, string>({ queryFn: async () => "data" });
+
+        void resource.prefetch(1);
+
+        expect(resource.getEntry(1)).not.toBeNull();
+    });
+
+    it("force: refreshes an existing entry with fresh data", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => `v${++callCount}`,
+        });
+
+        await resource.prefetch(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v1");
+
+        await resource.prefetch(1, { force: true });
+        expect(callCount).toBe(2);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v2");
+    });
+
+    it("force: creates and loads a cold entry", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        await resource.prefetch(1, { force: true });
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
+
+    it("force: retries a previously failed entry and still never rejects", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                throw new Error(`fail-${callCount}`);
+            },
+        });
+
+        await resource.prefetch(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+
+        await expect(resource.prefetch(1, { force: true })).resolves.toBeUndefined();
+        expect(callCount).toBe(2);
+    });
+
+    it("force: awaits an in-flight query instead of starting another", async () => {
+        let resolveQuery!: (v: string) => void;
+        const queryFn = vi.fn(
+            () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
+        );
+        const resource = createResource<number, string>({ queryFn });
+
+        void resource.prefetch(1);
+        const p = resource.prefetch(1, { force: true });
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        resolveQuery("data");
+        await p;
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
+
+    it("force: refreshes a refresh-error entry with fresh data", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 2) throw new Error("refresh failed");
+                return `v${callCount}`;
+            },
+        });
+
+        await resource.ensure(1); // v1
+        await resource.fetch(1).catch(() => {}); // refresh fails → refresh-error
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("refresh-error");
+
+        await resource.prefetch(1, { force: true });
+
+        const state = resource.getEntry(1)!.machine$.peek().state;
+        expect(state.status).toBe("success");
+        expect(state.data).toBe("v3");
+    });
+
+    it("never rejects (and does not synchronously throw) when serializeArgs throws", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw new Error("serialize boom");
+            },
+        });
+
+        let promise!: Promise<void>;
+        expect(() => {
+            promise = resource.prefetch(1);
+        }).not.toThrow();
+
+        await expect(promise).resolves.toBeUndefined();
     });
 });
 
