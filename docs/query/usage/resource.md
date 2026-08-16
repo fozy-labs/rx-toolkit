@@ -142,6 +142,8 @@ const fresh = await usersResource.fetch({ page: 1 });
 
 Параллельные вызовы с одинаковыми аргументами дедуплицируются — все ждут один общий in-flight запрос. Детали (отмена, retention, `force`) — в [API ресурса][api-resource].
 
+`void` перед `prefetch` нужен только чтобы унять `@typescript-eslint/no-floating-promises`: сам промис не реджектится, обрабатывать нечего. Как разрешить вызов в конфиге линтера и писать без `void` — в [API ресурса][prefetch-lint].
+
 Прежний метод `trigger(args, doForce?)` объявлен **deprecated**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал.
 
 ### refresh
@@ -247,6 +249,7 @@ agent.set(SKIP);        // idle: data: null, status: "idle"
 [command]: ./command.md
 [machine]: ../concepts/machine.md
 [api-resource]: ../api/resource.md
+[prefetch-lint]: ../api/resource.md#prefetch-и-no-floating-promises
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
 [cache]: ../concepts/cache.md

@@ -169,6 +169,26 @@ export const Route = createFileRoute('/users/$id')({
 <Link onMouseEnter={() => usersResource.prefetch({ id })} ... />
 ```
 
+### `prefetch` и `no-floating-promises`
+
+Промис `prefetch` никогда не реджектится, поэтому игнорировать его безопасно. Но правило [`@typescript-eslint/no-floating-promises`][no-floating-promises] этого не знает и требует пометить вызов оператором `void`:
+
+```typescript
+void usersResource.prefetch({ page: 1 });
+```
+
+Пометка здесь не несёт информации — обрабатывать нечего. Если этот шум мешает, разрешите `prefetch` точечно, не отключая правило (опция доступна с `@typescript-eslint` 8.x):
+
+```javascript
+"@typescript-eslint/no-floating-promises": ["error", {
+    allowForKnownSafeCalls: [
+        { from: "package", name: "prefetch", package: "@fozy-labs/rx-toolkit" },
+    ],
+}]
+```
+
+`ensure` и `fetch` при этом продолжают требовать `await` или явной обработки — они реджектятся.
+
 ### Отмена (`signal`)
 
 `ensure` и `fetch` принимают `AbortSignal`. Отмена **отвязывает вызывающего** от запроса: возвращённый промис реджектит причиной отмены (`signal.reason`). Сам запрос при этом **не прерывается**, если на кэш-записи есть другие потребители (подписанный компонент, другой `ensure`/`fetch`) — разделяемый in-flight запрос продолжается для них. Запрос, оставшийся без потребителей, сворачивается обычным retention-сборщиком (`retentionTime`), который при срабатывании прерывает `queryFn` через его `AbortSignal`.
@@ -204,3 +224,4 @@ export const Route = createFileRoute('/users/$id')({
 [usage-broadcast]: ../usage/broadcast.md
 [usage-snapshot]: ../usage/snapshot.md
 [keyed]: ../concepts/keyed.md
+[no-floating-promises]: https://typescript-eslint.io/rules/no-floating-promises/
