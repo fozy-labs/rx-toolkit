@@ -26,15 +26,17 @@ const usersResource = api.createResource({
 | `serializeArgs`      | `(args: TArgs) => string`                                   | `stableStringify` | Сериализация аргументов в кэш-ключ.                                 |
 | `onCacheEntryAdded`  | `(args, ctx) => void`                                       | —                 | Вызывается при создании кэш-записи. См. [lifecycle hooks][usage-lifecycle]. |
 | `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                      | —                 | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `snapshotValidTime`  | `number \| false`                                           | наследуется от API | Время (мс) валидности гидрированных из снимка данных (в [API][api-readme] по умолчанию `false`). См. [снимок][usage-snapshot]. |
 | `sync`               | `boolean`                                                   | `false`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
-| `getDevtoolsKey`     | `(args: Keyed<TArgs>) => string`                            | —                 | Ключ аргументов для отображения в DevTools.                            |
 
 
 ### Опции класса (Resource)
 
 | Опция         | Тип                                                     | По умолчанию | Описание                   |
 |---------------|---------------------------------------------------------|--------------|----------------------------|
-| `beforeQuery` | `(args: Keyed<TArgs>) => Promise<TData \| typeof NONE>` | —            | Вызывается перед `queryFn` |
+| `beforeQuery` | `(resourceKey: string, entryKey: string) => Promise<{ data: TData } \| null>` | —            | Вызывается перед `queryFn`. Вернув `{ data }`, подменяет результат запроса; `null` — запрос выполняется как обычно. Внутренний хук [кросс-табовой синхронизации][usage-broadcast]. |
+| `mapError`    | `TMapError`                                             | `identity`   | Нормализатор ошибок; проставляется из `createApi({ mapError })`. |
+| `snapshot`    | `TResourceSnapshot`                                     | —            | Записи для гидрации из [снимка][usage-snapshot]. |
 
 ## Методы
 
@@ -42,28 +44,38 @@ const usersResource = api.createResource({
 |----------------|-----------------------------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `trigger`        | `args: Args<TArgs>, doForce = false`          | `void`                    | Запускает запрос с заданными аргументами. При `doForce = false` (по умолчанию) перезапрос для существующей записи кэша не делает. |
 | `refresh`      | `args: Args<TArgs>`                           | `void`                    | Помечает запись как устаревшую и запускает фоновый перезапрос (SWR).                                                                 |
-| `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `QueryCacheEntry \| null` | Синхронно возвращает кэш-запись.                                                                                                     |
-| `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
-| `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `QueryCacheEntry \| null`      | Реактивный аналог `getEntry` — для использования в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
-| `createAgent`  | —                                             | `Agent<TArgs, TData>`     | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
+| `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `IQueryCacheEntry \| null` | Синхронно возвращает кэш-запись. При `doInitiate = true` создаёт отсутствующую, и тип сужается до `IQueryCacheEntry`.                  |
+| `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData, TError>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
+| `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `ReadonlySignal<IQueryCacheEntry \| null>` | Реактивный аналог `getEntry`: возвращает **сигнал**, зависимость возникает при его чтении в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
+| `getEntries`   | —                                             | `IterableIterator<IQueryCacheEntry>` | Итератор по всем живым кэш-записям ресурса.                                                                     |
+| `createAgent`  | —                                             | `IResourceAgent<TArgs, TData, TError>` | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
 | `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
 | `toKeyed`      | `args: Args<TArgs>`                           | `Keyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
-| `pack`         | `args: Args<TArgs>`                           | `TPackedResource<TArgs, TData>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [pack][pack]. |
+| `pack`         | `args: Args<TArgs>`                           | `TPackedResource<TArgs, TData, TError>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [pack][pack]. |
 | `ensure`       | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | ⚠️ Экспериментально. Отдаёт кэшированные данные мгновенно, если они есть; иначе запускает запрос и ждёт. Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
 | `fetch`        | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | ⚠️ Экспериментально. Всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
 | `prefetch`     | `args: Args<TArgs>`                           | `Promise<void>`          | ⚠️ Экспериментально. Fire-and-forget прогрев кэша: переиспользует кэш, никогда не реджектит, не abort-aware. См. [ensure / fetch / prefetch][fetch-methods]. |
-| `_getOrCreate` | `args: Args<TArgs>, doForce = false`          | `CacheEntry`              | Внутренний метод. Получает существующую или создаёт новую запись кэша для аргументов.                                                |
+
+### Только на классе `Resource`
+
+Эти члены объявлены на классе, но **не входят в `IResource`** — тип, который возвращает `api.createResource()`.
+
+| Метод           | Параметры     | Возвращаемое значение      | Описание                                                                                        |
+|-----------------|---------------|----------------------------|-------------------------------------------------------------------------------------------------|
+| `getEntryByKey` | `key: string` | `IQueryCacheEntry \| null` | Прямой lookup по сериализованному ключу (как его отдаёт `serialize`), без повторной сериализации. |
+| `reset`         | —             | `void`                     | Завершает и удаляет все кэш-записи ресурса. Публичного эквивалента для одного ресурса нет: `api.resetAll()` чистит весь кэш.                  |
 
 ### Расширения
 
 | Метод          | Параметры                                      | Возвращаемое значение   | Описание                                                                       |
 |----------------|------------------------------------------------|-------------------------|--------------------------------------------------------------------------------|
-| `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceState<TData>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
+| `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceAgentState<TArgs, TData, TError>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
+| `useSuspenseResource` | `args: ArgsOrVoid<TArgs>` | `TSuspenseResourceState<TArgs, TData, TError>` | React-хук с Suspense: первичная загрузка бросает промис, первичная ошибка без fallback-данных — в Error Boundary; `data` всегда не `null`. `SKIP` не поддерживается. |
 
 
 ## Что запускает запрос
 
-Выполнение `queryFn` можно инициировать несколькими способами. Они различаются по трём осям: **создаёт ли холодную запись**, **форсит ли свежие данные** и **как отдаёт результат**. Все создания записей проходят через единственную точку `_getOrCreate` (а у записи `queryFn` авто-исполняется в конструкторе, если не передан снапшот).
+Выполнение `queryFn` можно инициировать несколькими способами. Они различаются по трём осям: **создаёт ли холодную запись**, **форсит ли свежие данные** и **как отдаёт результат**. Запись запускает `queryFn` при создании, если ей не передана начальная машина.
 
 ### Императивные методы
 
@@ -73,7 +85,7 @@ const usersResource = api.createResource({
 | `ensure(args, opt?)`       | холодная → создаёт; `error` → ретрай                                                                    | нет (кэш/устаревшие отдаёт сразу) | `Promise<TData>`      | да          | реджект      |
 | `fetch(args, opt?)`        | холодная → создаёт; `success`/`refresh-error` → `refresh`; `error` → ретрай; in-flight → ждёт          | да                            | `Promise<TData>`          | да          | реджект      |
 | `prefetch(args)`           | холодная → создаёт; `error` → ретрай                                                                    | нет                           | `Promise<void>`           | нет         | проглатывает |
-| `getEntry(args, true)`     | холодная → создаёт и запускает                                                                          | нет                           | `QueryCacheEntry \| null` | нет         | —            |
+| `getEntry(args, true)`     | холодная → создаёт и запускает                                                                          | нет                           | `IQueryCacheEntry \| null` | нет         | —            |
 | `refresh(args)`            | **только** существующая (`success`/`refresh-error`) → фоновый перезапрос; холодную **не создаёт**       | да (фоновый SWR)              | `void`                    | нет         | —            |
 
 Тонкости, которые легко перепутать:
@@ -102,8 +114,8 @@ const usersResource = api.createResource({
 - `getState(args)` — read-only снимок состояния (внутри `getEntry(args, false)`).
 - `getEntry(args)` / `getEntry(args, false)` — lookup без создания.
 - `getEntry$(args)` / `getEntry$(args, false)` — реактивный **read-only**: чтение не меняет кэш и отдаёт `null`, пока записи нет. (`getEntry$(args, true)` — наоборот, инициирует лениво при чтении; см. «Реактивный путь».)
-- `serialize`, `toKeyed`, `getEntries`, `pack`, `reset` — утилиты, упаковка и очистка.
-- Гидрация снапшотом (`config.snapshot`) — создаёт запись, но `queryFn` **не** запускает: данные уже есть. Запрос пойдёт лишь при последующем `refresh` / `fetch` / `trigger(force)`.
+- `serialize`, `toKeyed`, `getEntries`, `pack` — утилиты и упаковка (а также `reset` на классе).
+- Гидрация снапшотом (`createApi({ initialSnapshot })`) — создаёт запись и `queryFn` **не** запускает, пока данные считаются валидными. Исключение — записи, помеченные устаревшими: по `snapshotValidTime` либо со статусом `refresh-error` (такие считаются устаревшими всегда). Они гидрируются в статусе `refreshing`, и перезапрос стартует сразу.
 
 
 ## getState
@@ -183,7 +195,8 @@ export const Route = createFileRoute('/users/$id')({
 [machine]: ../concepts/machine.md
 [agent]: ../concepts/agent.md
 [agent-api]: ./resource-agent.md
-[agent-status]: ./resource-agent.md#статусы
+[agent-status]: ./resource-agent.md#варианты-состояния
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md
+[usage-snapshot]: ../usage/snapshot.md
 [keyed]: ../concepts/keyed.md

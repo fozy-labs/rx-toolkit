@@ -15,8 +15,10 @@
 | `retentionTime`      | `number \| false`                                                  | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять.                  |
 | `keyedArgs`          | `Keyed<TArgs>`                                                     | (Обязательное поле) | Аргументы для `queryFn`. Используются для дедупликации и отображения в DevTools.                        |
 | `resourceKey`        | `string`                                                           | —                   | Ключ для отображения в DevTools.                                                                        |
-| `initialMachine`     | `IMachine<TArgs, TData>`                                           | —                   | Машина состояний для инициализации записи.                                                              |
-| `beforeDevtoolsPush` | `(state: TState) => TState`                                        | —                   | Функция для изменения состояния перед отправкой в DevTools. Полезно для удаления чувствительных данных. |
+| `mapError`           | `TMapError` — `(error: unknown, ctx: TErrorContext) => unknown`    | `identity`          | Нормализует сырую ошибку в точке входа в машину (`machine.fail`). Прокидывается из [API][api-readme].    |
+| `errorSource`        | `'query'` \| `'command'`                                           | `'query'`           | Провенанс, попадающий в контекст `mapError`.                                                            |
+| `initialMachine`     | `Machine<TArgs, TData>`                                            | —                   | Машина состояний для инициализации записи.                                                              |
+| `beforeDevtoolsPush` | `(machine: Machine<TArgs, TData>) => any`                          | —                   | Функция для изменения состояния перед отправкой в DevTools. Полезно для удаления чувствительных данных. `Resource` и `Command` её не пробрасывают. |
 
 
 ## Свойства
@@ -24,7 +26,7 @@
 | Свойство   | Тип                                          | Описание                                                    |
 |------------|----------------------------------------------|-------------------------------------------------------------|
 | `keyedArgs` | `Keyed<TArgs>`                              | Аргументы, с которыми была создана запись.                  |
-| `machine$` | `ReadonlySignal<TMachineInstance<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
+| `machine$` | `ReadonlySignal<Machine<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
 
 > Наследуемые свойства `state$`, `completed$` — см. [CacheEntry][cache-entry-api].
 
@@ -35,7 +37,11 @@
 |---------------|-------------------------------|-----------------------|---------------------------------------------------------------------|
 | `refresh`     | —                             | `void`                | Переводит запись в `refreshing` и перезапрашивает данные. |
 | `retry`       | —                             | `void`                | Перезапускает запрос после ошибки.                                         |
-| `createPatch` | `patchFn: (data: TData) => void` | `IPatchHandle \| null` | Создаёт оптимистичный. См. [Патчинг][patching-section].             |
+| `createPatch` | `patchFn: (data: TData) => void` | `IPatchHandle \| null` | Создаёт оптимистичный патч. См. [Патчинг][patching-section].             |
+| `whenLoaded`  | `signal?: AbortSignal`        | `Promise<TData>`      | ⚠️ Экспериментально. Резолвится, как только у записи есть данные — включая устаревшие (`refreshing` / `refresh-error`); реджектит на терминальной ошибке. Стоит за `Resource.ensure` / `prefetch`. |
+| `whenFetched` | `signal?: AbortSignal`        | `Promise<TData>`      | ⚠️ Экспериментально. Дожидается свежих данных (`success`), реджектит на `error` / `refresh-error`. Стоит за `Resource.fetch`. |
+
+Оба реджектят ещё в двух случаях: `CacheEntryRemovedError`, если запись завершилась раньше подходящего состояния (`reset()` / `resetAll()` / явный `complete()`), и причиной отмены (`signal.reason`), если переданный `AbortSignal` сработал первым. Сборка по `retentionTime` таким источником **не** является: пока ожидание не завершилось, оно удерживает refcount записи и откладывает сборку.
 
 
 > Наследуемые `peek()`, `set()`, `complete()` — см. [CacheEntry][cache-entry-api].
@@ -43,7 +49,7 @@
 
 ## Выполнение запроса
 
-При создании записи `queryFn` вызывается автоматически, если `initialState` **не** было указано.
+При создании записи `queryFn` вызывается автоматически, если `initialMachine` **не** была указана — либо если указанная машина находится в статусе `refreshing` (гидрация устаревшего снимка сразу запускает перезапрос).
 
 Принудительный запрос (`refresh()`) прерывает текущий запрос через `AbortSignal` и запускает новый.
 
@@ -77,3 +83,4 @@
 [query-execution]: #выполнение-запроса
 [patching-section]: #патчинг
 [broadcast-usage]: ../usage/broadcast.md
+[api-readme]: ./README.md

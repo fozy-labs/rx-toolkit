@@ -99,9 +99,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Synchronously return the cache entry for the given arguments.
      *
      * @param args - Query arguments (or `void` when `TArgs` is `void`).
-     * @param doInitiate - When `true`, creates and starts the entry if absent.
+     * @param doInitiate - When `true`, creates and starts the entry if absent,
+     *   so the result is never `null`.
      * @returns The cache entry, or `null` if not found and `doInitiate` is `false`.
      */
+    getEntry(args: ArgsOrVoid<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
+    getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): QueryCacheEntry<TArgs, TData> | null;
     getEntry(args: ArgsOrVoid<TArgs>, doInitiate = false): QueryCacheEntry<TArgs, TData> | null {
         const keyed = this.toKeyed(args as Args<TArgs>);
 

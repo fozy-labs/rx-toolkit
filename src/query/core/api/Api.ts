@@ -118,7 +118,6 @@ export class Api implements IApi {
             mapError: this.apiMapError,
             onCacheEntryAdded: mergedOnCacheEntryAdded,
             onQueryStarted: mergedOnQueryStarted,
-            getDevtoolsKey: opts.getDevtoolsKey,
             snapshot: initialEntries,
             beforeQuery: syncEnabled
                 ? (this.syncer!.beforeQuery as IResourceConfig<TArgs, TData>["beforeQuery"])

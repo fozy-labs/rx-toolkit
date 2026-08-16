@@ -93,7 +93,7 @@ function UserProfile({ userId }: { userId: string | null }) {
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `status` | `string` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'refreshing'` · `'refresh-error'` |
+| `status` | `TAgentStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'refreshing'` · `'refresh-error'` |
 | `data` | `TData \| null` | Данные последнего успешного ответа. Сохраняются при `refreshing`. |
 | `error` | `TError \| null` | Ошибка последнего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
 | `isLoading` | `boolean` | `true` при любом незавершённом запросе. |
@@ -130,10 +130,10 @@ if (state.isSuccess) {
 ### trigger
 
 ```typescript
-const data = await usersResource.trigger({ page: 1 });
+usersResource.trigger({ page: 1 });
 ```
 
-Запускает `queryFn` и возвращает промис с результатом. Параллельные вызовы с одинаковыми аргументами дедуплицируются — возвращается один и тот же промис.
+Гарантирует, что кэш-запись существует и запущена; возвращает `void`. Для уже закэшированных данных перезапрос не делает — форсировать можно вторым аргументом `doForce`. Если нужен результат промисом, используйте `ensure` / `fetch`.
 
 ### refresh
 
@@ -141,7 +141,7 @@ const data = await usersResource.trigger({ page: 1 });
 usersResource.refresh({ page: 1 });
 ```
 
-Запускает повторный запрос для кэш-записи. Если у записи есть активные подписчики — запрос выполняется немедленно. Без подписчиков — данные будут перезапрошены при следующем обращении.
+Запускает фоновый перезапрос для существующей кэш-записи — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает только из статусов `success` и `refresh-error`; на `pending` / `error` — предупреждение в консоль и no-op (после ошибки нужен `retry`).
 
 
 ### getEntry
@@ -152,17 +152,25 @@ usersResource.refresh({ page: 1 });
 // Проверить, есть ли данные в кэше
 const entry = usersResource.getEntry({ page: 1 });
 if (entry) {
-  console.log(entry.machine$().data);
+  console.log(entry.machine$().state.data);
 }
 ```
 
 
 ### getEntry$
 
-Реактивный аналог `getEntry`. Вызывает сигнал внутри, поэтому должен использоваться в реактивном контексте (`Signal.compute`, `Signal.effect` и т. д.). Возвращает кэш-запись или `null`.
+Реактивный аналог `getEntry`. **Возвращает сигнал** `ReadonlySignal<IQueryCacheEntry | null>` — не саму запись: вызов ничего не читает и не подписывает, зависимость возникает при чтении полученного сигнала в реактивном контексте (`Signal.compute`, `Signal.effect` и т. д.).
 
 ```ts
-const entry$ = Signal.compute(() => usersResource.getEntry$({ page: page$() }));
+const entry$ = usersResource.getEntry$({ page: 1 });
+Signal.effect(() => console.log(entry$()?.machine$().state.data));
+```
+
+Если аргументы реактивны, сигнал пересоздаётся на каждом вычислении — читать его нужно сразу, иначе внешний `Computed` вернёт сигнал и не подпишется на кэш:
+
+```ts
+const dynEntry$ = Signal.compute(() => usersResource.getEntry$({ page: page$() })());
+//                                                                            ^^ чтение обязательно
 ```
 
 Второй аргумент `doInitiate` (по умолчанию `false`). При `false` сигнал — чистый наблюдатель: чтение не меняет кэш и отдаёт `null`, пока записи нет. При `true` **чтение** сигнала создаёт и запускает запись, если её нет, поэтому сигнал всегда отдаёт запись — пересоздавая её при чтении даже после удаления. Создание ленивое: оно происходит при первом чтении сигнала, а не в момент вызова `getEntry$`, и само это чтение имеет побочный эффект — стартует запрос и вызывает хуки `onCacheEntryAdded` / `onQueryStarted`. Не используйте `doInitiate: true` там, где чтение должно оставаться чистым (например, в рендере React).
@@ -191,18 +199,21 @@ if (state.isSuccess) {
 
 ```ts
 const agent = usersResource.createAgent();
-agent.start({ page: 1 });
+agent.set({ page: 1 });
+agent.start();
 // agent.state$() → { status: "pending", data: null, isInitialLoading: true, ... }
 ```
 
-При смене аргументов через `start(newArgs)` агент реализует SWR-поведение:
-    если предыдущий запрос содержит данные (статус `success` или `refreshing`),
+При смене аргументов через `set(newArgs)` агент реализует SWR-поведение:
+    если предыдущая запись **уже содержит данные** (статус `success`, `refreshing` или `refresh-error`),
     они сохраняются в `data`, а `status` переключается на `"refreshing"` до получения нового ответа.
 Это позволяет показывать устаревшие данные вместо пустого состояния.
+Если предыдущий запрос ещё не завершился (`pending`), переносить нечего — агент уйдёт в `pending` с `data: null`.
 
 ```ts
-agent.start({ page: 2 }); // SWR: data от page:1, status: "refreshing"
-agent.start(SKIP);        // idle: data: null, status: "idle"
+// page:1 уже загрузилась (success)
+agent.set({ page: 2 }); // SWR: data от page:1, status: "refreshing"
+agent.set(SKIP);        // idle: data: null, status: "idle"
 ```
 
 
