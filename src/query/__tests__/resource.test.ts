@@ -2552,6 +2552,23 @@ describe("Resource.ensure", () => {
 
         expect(await resource.ensure(undefined as void)).toBe("void-data");
     });
+
+    it("rejects (does not synchronously throw) when serializeArgs throws", async () => {
+        const error = new Error("serialize boom");
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.ensure(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
+    });
 });
 
 // ==================== fetch ====================
@@ -2638,6 +2655,23 @@ describe("Resource.fetch", () => {
         });
 
         await expect(resource.fetch(1)).rejects.toThrow("boom");
+    });
+
+    it("rejects (does not synchronously throw) when serializeArgs throws", async () => {
+        const error = new Error("serialize boom");
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw error;
+            },
+        });
+
+        let promise!: Promise<string>;
+        expect(() => {
+            promise = resource.fetch(1);
+        }).not.toThrow();
+
+        await expect(promise).rejects.toBe(error);
     });
 });
 
@@ -2743,6 +2777,43 @@ describe("Resource.prefetch", () => {
 
         expect(queryFn).toHaveBeenCalledTimes(1);
         expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+    });
+
+    it("force: refreshes a refresh-error entry with fresh data", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 2) throw new Error("refresh failed");
+                return `v${callCount}`;
+            },
+        });
+
+        await resource.ensure(1); // v1
+        await resource.fetch(1).catch(() => {}); // refresh fails → refresh-error
+        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("refresh-error");
+
+        await resource.prefetch(1, { force: true });
+
+        const state = resource.getEntry(1)!.machine$.peek().state;
+        expect(state.status).toBe("success");
+        expect(state.data).toBe("v3");
+    });
+
+    it("never rejects (and does not synchronously throw) when serializeArgs throws", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => "data",
+            serializeArgs: () => {
+                throw new Error("serialize boom");
+            },
+        });
+
+        let promise!: Promise<void>;
+        expect(() => {
+            promise = resource.prefetch(1);
+        }).not.toThrow();
+
+        await expect(promise).resolves.toBeUndefined();
     });
 });
 

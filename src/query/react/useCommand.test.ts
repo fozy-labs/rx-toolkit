@@ -17,7 +17,8 @@ interface Captured<TArgs, TData> {
     state: TCommandAgentState<TArgs, TData>;
     /** Every trigger reference seen across renders (identity check). */
     triggers: Array<(args: TArgs) => Promise<TData>>;
-    rerender: () => void;
+    /** Re-render the probe, optionally with a different bound key. */
+    rerender: (newKey?: string) => void;
 }
 
 /** Render a probe component around useCommand and expose the live tuple. */
@@ -27,8 +28,8 @@ function setup<TArgs, TData>(
 ): Captured<TArgs, TData> {
     const captured = {} as Captured<TArgs, TData>;
 
-    function Probe() {
-        const [trigger, state] = useCommand(key);
+    function Probe({ cmdKey }: { cmdKey?: string }) {
+        const [trigger, state] = useCommand(cmdKey);
         captured.trigger = trigger;
         captured.state = state;
         captured.triggers.push(trigger);
@@ -36,8 +37,8 @@ function setup<TArgs, TData>(
     }
 
     captured.triggers = [];
-    const view = render(h(Probe));
-    captured.rerender = () => view.rerender(h(Probe));
+    const view = render(h(Probe, { cmdKey: key }));
+    captured.rerender = (newKey?: string) => view.rerender(h(Probe, { cmdKey: newKey ?? key }));
     return captured;
 }
 
@@ -161,5 +162,40 @@ describe("useCommand", () => {
         expect(keys).toEqual(["k1"]);
         expect(c.state.status).toBe("success");
         expect(c.state.data).toBe("HELLO");
+    });
+
+    it("re-binding the key via re-render switches the observed entry", async () => {
+        const keys: string[] = [];
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const command = api.createCommand<string, string>({
+            queryFn: async (args) => args.toUpperCase(),
+            onCacheEntryAdded: (_args, ctx) => {
+                keys.push(ctx.entry.keyedArgs.key);
+            },
+        });
+
+        const c = setup(command.useCommand, "k1");
+
+        await act(async () => {
+            await c.trigger("first");
+            await flushMicrotasks();
+        });
+        expect(c.state.data).toBe("FIRST");
+
+        // Key changes on re-render → useEffect re-binds the agent via setKey.
+        await act(async () => {
+            c.rerender("k2");
+            await flushMicrotasks();
+        });
+        expect(c.state.status).toBe("idle"); // no entry under k2 yet
+
+        await act(async () => {
+            await c.trigger("second");
+            await flushMicrotasks();
+        });
+
+        expect(keys).toEqual(["k1", "k2"]);
+        expect(c.state.status).toBe("success");
+        expect(c.state.data).toBe("SECOND");
     });
 });

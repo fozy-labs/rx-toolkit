@@ -219,6 +219,11 @@ describe("CommandAgent trigger promise contract", () => {
     });
 
     it("ignored failing trigger does not produce an unhandled rejection", async () => {
+        // Keep this mock-based test even though useCommand.test.ts has an
+        // end-to-end twin: a real Command pre-handles its promise internally
+        // (currentResult's no-op catch), so this is the only test that fails
+        // if CommandAgent.trigger drops its own pre-handle — the sole
+        // contractual guarantee at the agent level.
         const tracker = await trackUnhandledRejections();
         try {
             const mock = createMockCommand<string, string>();
