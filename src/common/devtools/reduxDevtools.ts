@@ -110,13 +110,20 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     const taskDelay = options.taskDelay ?? 0;
 
     let state = {} as Record<string, any>;
+    // Ownership bookkeeping. Every state() call is one distinct source instance,
+    // so the call itself is the identity — nothing extra is required from the
+    // caller. The map holds only strings and numbers (never a reference to the
+    // source), and the owner releases its key on disposal, so it stays the size
+    // of the live devtools tree instead of growing with every key ever seen.
+    const owners = new Map<string, number>();
+    let lastInstanceId = 0;
     const connection = devtools.connect({ name: options.name ?? "RxToolkit" });
     connection.init(state);
 
     const scheduler = createBatchScheduler(batchStrategy, taskDelay);
 
     // Отслеживаем тип последнего действия для правильного action type в devtools
-    let pendingActionType: "create" | "update" | "clear" = "update";
+    let pendingActionType: "create" | "recreate" | "update" | "clear" = "update";
     let pendingActionName: string | null = null;
 
     const flushToDevtools = () => {
@@ -133,17 +140,45 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     return {
         state(name, initState) {
             const keys = name.split("/");
+            const instanceId = ++lastInstanceId;
+            // The key is still held by an earlier instance — its source was never
+            // disposed (explicitly or by GC). That is not a collision by itself:
+            // the usual case is a recreated source whose predecessor is already
+            // dead. Take the key over and report it as a recreate; a genuine
+            // collision surfaces below, when the superseded instance keeps writing.
+            const isRecreate = owners.has(name);
 
-            state = applyState(keys, initState, state, existConsoleWarning);
-            pendingActionType = "create";
+            owners.set(name, instanceId);
+
+            state = applyState(keys, initState, state);
+            pendingActionType = isRecreate ? "recreate" : "create";
             scheduler.schedule(flushToDevtools);
 
+            let hasWarnedOnStaleWrite = false;
+
             return (newState, actionName?: string) => {
+                const ownerId = owners.get(name);
+
+                if (ownerId !== instanceId) {
+                    // A late event from a superseded instance. Disposal is routine
+                    // here (an explicit dispose() or the GC finalizer of the old
+                    // source) and must stay silent — above all it must not delete
+                    // the current owner's entry. A write, however, means two live
+                    // sources share one key: report it once per instance and drop
+                    // the value, so the tree keeps showing the current owner.
+                    if (newState !== "$COMPLETED" && newState !== "$CLEANED" && !hasWarnedOnStaleWrite) {
+                        hasWarnedOnStaleWrite = true;
+                        staleWriteConsoleWarning(name, instanceId, ownerId);
+                    }
+                    return;
+                }
+
                 if (!pendingActionName && actionName) {
                     pendingActionName = actionName;
                 }
 
                 if (newState === "$COMPLETED" || newState === "$CLEANED") {
+                    owners.delete(name);
                     state = deleteState(keys, state);
                     pendingActionType = "clear";
                     scheduler.schedule(flushToDevtools);
@@ -151,8 +186,8 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
                 }
 
                 state = applyState(keys, newState, state);
-                // Не перезаписываем 'create' на 'update' если create еще не отправлен
-                if (pendingActionType !== "create") {
+                // Не перезаписываем 'create'/'recreate' на 'update' если он еще не отправлен
+                if (pendingActionType !== "create" && pendingActionType !== "recreate") {
                     pendingActionType = "update";
                 }
                 scheduler.schedule(flushToDevtools);
@@ -161,32 +196,29 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     };
 }
 
-function existConsoleWarning(paths: string[]) {
+function staleWriteConsoleWarning(path: string, staleInstanceId: number, ownerId: number | undefined) {
     if (typeof console === "undefined" || typeof console.warn !== "function") {
         return false;
     }
 
-    const path = paths.join("/");
+    const owner = ownerId === undefined ? "released (its owner has been disposed)" : `held by instance #${ownerId}`;
 
     console.warn(`
-[RxToolkit Redux Devtools] Warning: ${path} is already defined in the state.
-This may lead to unexpected behavior in Redux Devtools.
-Consider using a unique path for each state or ensure that states are properly clearedwhen completed.
+[RxToolkit Redux Devtools] Warning: key collision on ${path}.
+An update arrived from instance #${staleInstanceId}, but the key is ${owner}.
+Two live states share the same devtools key, so this update is ignored to keep the tree consistent.
+Consider using a unique path for each state or ensure that states are properly disposed when completed.
 `);
 
     return true;
 }
 
-function applyState(keys: string[], newState: any, state: any, warnFn?: (paths: string[]) => void) {
+function applyState(keys: string[], newState: any, state: any) {
     const acc = { ...state };
     let current = acc;
 
     keys.forEach((key, i, arr) => {
         if (i === arr.length - 1) {
-            if (key in current && warnFn) {
-                warnFn(keys);
-            }
-
             current[key] = newState;
         } else {
             current[key] = { ...(current[key] ?? {}) };

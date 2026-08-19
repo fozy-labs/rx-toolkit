@@ -126,6 +126,107 @@ describe("reduxDevtools", () => {
         });
     });
 
+    describe("key ownership (instances)", () => {
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('re-registering a live key sends "recreate" without warning', async () => {
+            const { extension, connection } = createMockExtension();
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            dt.state("counter", 0);
+            await Promise.resolve();
+            connection.send.mockClear();
+
+            dt.state("counter", 5);
+            await Promise.resolve();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "RECREATE" }, { counter: 5 });
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it("ignores updates from a superseded instance and warns once", async () => {
+            const { extension, connection } = createMockExtension();
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            const stale = dt.state("counter", 0);
+            const current = dt.state("counter", 5);
+            await Promise.resolve();
+            connection.send.mockClear();
+
+            stale(1);
+            stale(2);
+            await Promise.resolve();
+
+            expect(connection.send).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledTimes(1);
+
+            current(7);
+            await Promise.resolve();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE" }, { counter: 7 });
+        });
+
+        it("ignores $COMPLETED from a superseded instance, keeping the current entry", async () => {
+            const { extension, connection } = createMockExtension();
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            const stale = dt.state("counter", 0);
+            const current = dt.state("counter", 5);
+            await Promise.resolve();
+            connection.send.mockClear();
+
+            // A late finalizer/dispose of the old signal must not wipe the new one.
+            stale("$COMPLETED" as any);
+            await Promise.resolve();
+
+            expect(connection.send).not.toHaveBeenCalled();
+            expect(warn).not.toHaveBeenCalled();
+
+            current(7);
+            await Promise.resolve();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE" }, { counter: 7 });
+        });
+
+        it('releases the key on the owner disposal, so the next state() is a "create"', async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            const owner = dt.state("counter", 0);
+            owner("$COMPLETED" as any);
+            await Promise.resolve();
+            connection.send.mockClear();
+
+            dt.state("counter", 9);
+            await Promise.resolve();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { counter: 9 });
+        });
+
+        it("does not resurrect a released key from a superseded instance", async () => {
+            const { extension, connection } = createMockExtension();
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            const stale = dt.state("counter", 0);
+            const current = dt.state("counter", 5);
+            current("$COMPLETED" as any);
+            await Promise.resolve();
+            connection.send.mockClear();
+
+            stale(1);
+            await Promise.resolve();
+
+            expect(connection.send).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe("batch strategies", () => {
         it("sync strategy sends via Batcher scheduler", async () => {
             const { extension, connection } = createMockExtension();
