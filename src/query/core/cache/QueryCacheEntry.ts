@@ -86,7 +86,7 @@ export class QueryCacheEntry<TArgs, TData>
             return;
         }
 
-        this.set(machine.refresh());
+        this.set(machine.refresh(), "refresh");
         this._execute();
     }
 
@@ -99,7 +99,7 @@ export class QueryCacheEntry<TArgs, TData>
             return;
         }
 
-        this.set(machine.retry());
+        this.set(machine.retry(), "retry");
         this._execute();
     }
 
@@ -121,7 +121,7 @@ export class QueryCacheEntry<TArgs, TData>
                 current.patchState
             ) {
                 const finished = current.finishPatch();
-                this.set(finished);
+                this.set(finished, "patch-settled");
 
                 if (finished.patchState?.isConsistencyViolation) {
                     this.refresh();
@@ -131,7 +131,7 @@ export class QueryCacheEntry<TArgs, TData>
 
         const { machine: newMachine, handle } = machine.createPatch(patchFn, onSettle);
 
-        this.set(newMachine);
+        this.set(newMachine, "patch");
 
         return handle;
     }
@@ -311,7 +311,7 @@ export class QueryCacheEntry<TArgs, TData>
         switch (machine.status) {
             case "success":
             case "refresh-error":
-                this.set(machine.refresh());
+                this.set(machine.refresh(), "refetch");
                 break;
             case "pending":
             case "refreshing":
@@ -330,11 +330,11 @@ export class QueryCacheEntry<TArgs, TData>
 
                 switch (machine.status) {
                     case "pending":
-                        this.set(machine.success(data));
+                        this.set(machine.success(data), "success");
                         break;
                     case "refreshing": {
                         const rebased = machine.rebase(data);
-                        this.set(rebased);
+                        this.set(rebased, "rebase");
 
                         if (rebased.patchState?.isConsistencyViolation) {
                             this.refresh();
@@ -364,7 +364,11 @@ export class QueryCacheEntry<TArgs, TData>
                 // see the raw error. Aborted runs returned above and are never mapped.
                 const mappedError = this._mapError(error, this._errorContext());
 
-                this.set(machine.fail(mappedError));
+                // Name the failure by the state it lands in: a failed background refresh
+                // keeps its data, a failed first load has none to keep.
+                const failedAction = machine.status === "refreshing" ? "refresh-error" : "error";
+
+                this.set(machine.fail(mappedError), failedAction);
             });
     }
 }

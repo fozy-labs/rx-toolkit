@@ -591,7 +591,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 if (result) {
                     const machine = entry.machine$.peek();
                     if (machine.status === "pending") {
-                        entry.set(machine.success(result.data));
+                        entry.set(machine.success(result.data), "sync");
                     }
                 } else {
                     entry._execute();

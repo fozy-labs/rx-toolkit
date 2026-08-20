@@ -19,6 +19,16 @@ interface ReduxDevtoolsConnection {
  */
 export type BatchStrategy = "sync" | "microtask" | "task";
 
+type PendingActionType = "create" | "recreate" | "update" | "clear";
+
+// Fixed rendering order, so the label of a batch does not depend on the order
+// in which its keys happened to be touched.
+const TYPE_ORDER: PendingActionType[] = ["create", "recreate", "update", "clear"];
+
+// A batch of many named updates would otherwise produce a label too long to
+// scan in the devtools timeline.
+const MAX_NAMES_IN_ACTION_TYPE = 5;
+
 type Options = {
     name?: string;
     driver?: ReduxDevtoolsExtension;
@@ -122,19 +132,85 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
 
     const scheduler = createBatchScheduler(batchStrategy, taskDelay);
 
-    // Отслеживаем тип последнего действия для правильного action type в devtools
-    let pendingActionType: "create" | "recreate" | "update" | "clear" = "update";
-    let pendingActionName: string | null = null;
+    // Per-key bookkeeping of the running batch. One flush carries the whole
+    // batch in a single send, so a lone action type/name cannot describe it:
+    // the name coming from one key would end up labelling an action that moved
+    // other keys too. We record what happened to every key instead and render
+    // the batch honestly — the set of types it contains, followed by the names
+    // it collected — so a name is never pinned onto a foreign entry.
+    const pending = new Map<string, { type: PendingActionType; name: string | null }>();
+
+    const markPending = (key: string, type: PendingActionType, actionName?: string) => {
+        const entry = pending.get(key);
+
+        if (!entry) {
+            // `||` not `??`: an empty name is no name at all. Anything else
+            // would occupy the first-wins slot below with a value that is
+            // never rendered, swallowing the next real name of the batch.
+            pending.set(key, { type, name: actionName || null });
+            return;
+        }
+
+        // Structural events (create/recreate/clear) outrank a plain update
+        // regardless of order: an update following a create in the same batch
+        // is still part of that create, and a key cleared and re-created within
+        // one batch ends up as the create it currently is. Between two
+        // structural events the later one wins.
+        if (type !== "update" || entry.type === "update") {
+            entry.type = type;
+        }
+
+        // The first name of a key wins — it is the one that opened the
+        // transition; the rest are its follow-ups inside the same batch.
+        if (entry.name === null && actionName) {
+            entry.name = actionName;
+        }
+    };
+
+    const buildActionType = () => {
+        const types = new Set<PendingActionType>();
+        // `seen` carries the deduplication and the total count; `names` keeps
+        // only what is rendered, so a batch of many distinct names costs no
+        // more than the cap.
+        const seen = new Set<string>();
+        const names: string[] = [];
+
+        pending.forEach((entry) => {
+            types.add(entry.type);
+
+            if (!entry.name || seen.has(entry.name)) return;
+
+            seen.add(entry.name);
+
+            if (names.length < MAX_NAMES_IN_ACTION_TYPE) {
+                names.push(entry.name);
+            }
+        });
+
+        const head = TYPE_ORDER.filter((type) => types.has(type))
+            .join("+")
+            .toUpperCase();
+
+        // An empty batch cannot reach the flush (every schedule() is preceded
+        // by a markPending), but the fallback keeps the label well-formed.
+        const prefix = head || "UPDATE";
+
+        if (seen.size === 0) return prefix;
+
+        const rest = seen.size - names.length;
+        const shown = names.join(", ");
+
+        return rest > 0 ? `${prefix}: ${shown} +${rest} more` : `${prefix}: ${shown}`;
+    };
 
     const flushToDevtools = () => {
-        const type = pendingActionName
-            ? `${pendingActionType.toUpperCase()}: ${pendingActionName}`
-            : pendingActionType.toUpperCase();
+        const type = buildActionType();
+
+        // Drained before the send: a throwing extension must not leave the
+        // batch behind to mislabel — and inflate — the next one.
+        pending.clear();
 
         connection.send({ type }, state);
-
-        pendingActionType = "update"; // Сбрасываем на дефолт после отправки
-        pendingActionName = null; // Сбрасываем имя после отправки
     };
 
     return {
@@ -151,7 +227,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
             owners.set(name, instanceId);
 
             state = applyState(keys, initState, state);
-            pendingActionType = isRecreate ? "recreate" : "create";
+            markPending(name, isRecreate ? "recreate" : "create");
             scheduler.schedule(flushToDevtools);
 
             let hasWarnedOnStaleWrite = false;
@@ -173,23 +249,16 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
                     return;
                 }
 
-                if (!pendingActionName && actionName) {
-                    pendingActionName = actionName;
-                }
-
                 if (newState === "$COMPLETED" || newState === "$CLEANED") {
                     owners.delete(name);
                     state = deleteState(keys, state);
-                    pendingActionType = "clear";
+                    markPending(name, "clear", actionName);
                     scheduler.schedule(flushToDevtools);
                     return;
                 }
 
                 state = applyState(keys, newState, state);
-                // Не перезаписываем 'create'/'recreate' на 'update' если он еще не отправлен
-                if (pendingActionType !== "create" && pendingActionType !== "recreate") {
-                    pendingActionType = "update";
-                }
+                markPending(name, "update", actionName);
                 scheduler.schedule(flushToDevtools);
             };
         },

@@ -271,4 +271,217 @@ describe("reduxDevtools", () => {
             expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { counter: 2 });
         });
     });
+
+    describe("action names", () => {
+        const flush = () => Promise.resolve();
+
+        it("appends the action name to the type", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const updater = dt.state("counter", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            updater(1, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE: success" }, { counter: 1 });
+        });
+
+        it("keeps the first name of a key within one batch", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const updater = dt.state("counter", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            updater(1, "refresh");
+            updater(2, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE: refresh" }, { counter: 2 });
+        });
+
+        it("does not carry a name over to the next batch", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const updater = dt.state("counter", 0);
+
+            await flush();
+            updater(1, "success");
+            await flush();
+            connection.send.mockClear();
+
+            updater(2);
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE" }, { counter: 2 });
+        });
+
+        it("lists the names of every key touched by the batch", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const counter = dt.state("counter", 0);
+            const modal = dt.state("modal", "closed");
+
+            await flush();
+            connection.send.mockClear();
+
+            counter(1, "success");
+            modal("open", "toggle");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith(
+                { type: "UPDATE: success, toggle" },
+                { counter: 1, modal: "open" },
+            );
+        });
+
+        it("does not pin a name of one key onto a foreign action type", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const counter = dt.state("counter", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            // One batch: a fresh key is created while another one is updated.
+            // The label must name both events instead of stamping "success"
+            // — which belongs to `counter` — onto a plain CREATE.
+            dt.state("modal", "closed");
+            counter(1, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith(
+                { type: "CREATE+UPDATE: success" },
+                { counter: 1, modal: "closed" },
+            );
+        });
+
+        it("keeps the create type when the same key is named right after creation", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+
+            const updater = dt.state("counter", 0);
+            updater(1, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE: success" }, { counter: 1 });
+        });
+
+        it("reports a cleared key alongside a named update", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const counter = dt.state("counter", 0);
+            const modal = dt.state("modal", "closed");
+
+            await flush();
+            connection.send.mockClear();
+
+            counter(1, "success");
+            modal("$COMPLETED" as any);
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE+CLEAR: success" }, { counter: 1 });
+        });
+
+        it("deduplicates identical names", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const a = dt.state("a", 0);
+            const b = dt.state("b", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            a(1, "success");
+            b(1, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE: success" }, { a: 1, b: 1 });
+        });
+
+        it("caps the name list and reports the remainder", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const names = ["n1", "n2", "n3", "n4", "n5", "n6", "n7"];
+            const updaters = names.map((name) => dt.state(name, 0));
+
+            await flush();
+            connection.send.mockClear();
+
+            updaters.forEach((updater, i) => updater(1, names[i]));
+            await flush();
+
+            expect(connection.send.mock.calls[0][0]).toEqual({ type: "UPDATE: n1, n2, n3, n4, n5 +2 more" });
+        });
+
+        it("treats an empty name as no name", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const updater = dt.state("counter", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            // An empty string must not occupy the first-wins slot of the key,
+            // or the real name right behind it would be swallowed.
+            updater(1, "");
+            updater(2, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "UPDATE: success" }, { counter: 2 });
+        });
+
+        it("reports a recreated key alongside a named update", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const counter = dt.state("counter", 0);
+            dt.state("modal", "closed");
+
+            await flush();
+            connection.send.mockClear();
+
+            dt.state("modal", "reopened");
+            counter(1, "success");
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith(
+                { type: "RECREATE+UPDATE: success" },
+                { counter: 1, modal: "reopened" },
+            );
+        });
+
+        it("reports a key cleared and re-created within one batch as a create", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const owner = dt.state("counter", 0);
+
+            await flush();
+            connection.send.mockClear();
+
+            owner("$COMPLETED" as any);
+            dt.state("counter", 42);
+            await flush();
+
+            expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { counter: 42 });
+        });
+
+        it("does not add the remainder tail at exactly the cap", async () => {
+            const { extension, connection } = createMockExtension();
+            const dt = reduxDevtools({ driver: extension, batchStrategy: "microtask" });
+            const names = ["n1", "n2", "n3", "n4", "n5"];
+            const updaters = names.map((name) => dt.state(name, 0));
+
+            await flush();
+            connection.send.mockClear();
+
+            updaters.forEach((updater, i) => updater(1, names[i]));
+            await flush();
+
+            expect(connection.send.mock.calls[0][0]).toEqual({ type: "UPDATE: n1, n2, n3, n4, n5" });
+        });
+    });
 });

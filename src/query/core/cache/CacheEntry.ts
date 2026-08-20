@@ -54,10 +54,10 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         return this._state$.peek();
     }
 
-    /** Update stored state (no-op if completed) */
-    set(state: TState): void {
+    /** Update stored state (no-op if completed). `actionName` labels the change in devtools. */
+    set(state: TState, actionName?: string): void {
         if (this._isCompleted) return;
-        this._state$.set(state);
+        this._state$.set(state, actionName);
     }
 
     /** Fire onClean$ and mark completed. Subsequent set() calls are no-ops. */

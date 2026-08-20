@@ -4,7 +4,11 @@ export interface SignalLifecycleHook<T = any> {
     onDispose?: () => void;
 }
 
-export type TBeforeDevtoolsPushFn<T = any> = (newValue: T, push: (v: T) => void, actionName?: string) => void;
+export type TBeforeDevtoolsPushFn<T = any> = (
+    newValue: T,
+    push: (value: T, actionName?: string) => void,
+    actionName?: string,
+) => void;
 
 export interface SignalOptions<T = any> {
     key?: string;

@@ -1,7 +1,7 @@
 import { Subject } from "rxjs";
 
 import type { Machine } from "@/query/core/machine";
-import type { ReadonlySignal } from "@/signals/types";
+import type { ReadonlySignal, TBeforeDevtoolsPushFn } from "@/signals/types";
 
 import type { TMapError } from "./api";
 import type { IPatchHandle, Keyed } from "./common";
@@ -11,14 +11,14 @@ import type { IPatchHandle, Keyed } from "./common";
 export interface ICacheEntryOptions<TState> {
     retentionTime: number | false;
     devtoolsKey: string;
-    beforeDevtoolsPush?: (state: TState) => TState;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TState>;
 }
 
 export interface ICacheEntry<TState> {
     readonly completed$: Subject<void>;
     readonly state$: ReadonlySignal<TState>;
     peek(): TState;
-    set(state: TState): void;
+    set(state: TState, actionName?: string): void;
     complete(): void;
 }
 
@@ -37,7 +37,7 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
     /** Provenance forwarded to {@link mapError}'s context. Defaults to `"query"`. */
     errorSource?: "query" | "command";
     initialMachine?: Machine<TArgs, TData>;
-    beforeDevtoolsPush?: (machine: Machine<TArgs, TData>) => any;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<Machine<TArgs, TData>>;
 }
 
 export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArgs, TData>> {
