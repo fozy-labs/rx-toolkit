@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Added
+- **Statechart** — стейт-машины в формате конфига XState v5 на собственном рантайме поверх сигналов, без зависимости от `xstate`. См. [docs/statechart](./statechart/README.md).
+- **Stately Inspector** — адаптер `statelyInspector()` без зависимостей (протокол `@statelyai/inspect@0.7.2`). См. [Stately Inspector](./devtools/README.md#stately-inspector).
+
 
 ## [0.11.2] - 2026-08-20
 

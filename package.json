@@ -37,6 +37,7 @@
     "tsconfig-paths": "4.2.0",
     "typescript": "5.9.2",
     "vitest": "^4.0.18",
+    "xstate": "^5.32.5",
     "zod": "4.1.11"
   },
   "peerDependencies": {

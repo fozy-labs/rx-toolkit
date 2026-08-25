@@ -43,6 +43,7 @@ Three modules:
   - `api/createApi.ts` is the entry point; 
   - plugins (e.g. `react/ReactHooksPlugin.ts` adding `useResource`/`useCommand`/`useSuspenseResource`) extend resources/commands via HKT-based types in `types/plugin-hkt.ts`.
 - **`src/common/`** — shared utils, Redux DevTools integration, global default options, shared React helpers.
+- `.tmp` - temporary files (gitignore)
 
 Docs for query concepts (`docs/query/concepts/`: machine → cache → agent) are the best deep-dive into `src/query/core/`.
 

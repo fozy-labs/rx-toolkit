@@ -11,3 +11,5 @@ benchmarks
 .thoughts
 
 .claude/settings.local.json
+
+.tmp/
