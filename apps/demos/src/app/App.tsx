@@ -13,6 +13,7 @@ import HomePage from '../pages/HomePage.mdx';
 import SignalsPage from '../pages/SignalsPage.mdx';
 import QueriesPage from '../pages/QueriesPage.mdx';
 import PokemonPage from '../pages/PokemonPage.mdx';
+import StatechartPage from '../pages/StatechartPage.mdx';
 
 export default function App() {
     const location = useLocation();
@@ -47,6 +48,11 @@ export default function App() {
                             Pokemon
                         </Link>
                     </NavbarItem>
+                    <NavbarItem isActive={location.pathname === '/statechart'}>
+                        <Link to="/statechart" className={location.pathname === '/statechart' ? 'text-primary' : 'text-foreground'}>
+                            Statechart
+                        </Link>
+                    </NavbarItem>
                 </NavbarContent>
             </Navbar>
 
@@ -56,6 +62,7 @@ export default function App() {
                     <Route path="/signals" element={<SignalsPage />}/>
                     <Route path="/queries" element={<QueriesPage />}/>
                     <Route path="/pokemon" element={<PokemonPage />}/>
+                    <Route path="/statechart" element={<StatechartPage />}/>
                 </Routes>
             </main>
         </div>

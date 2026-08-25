@@ -1,0 +1,34 @@
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components";
+import { Statecharts } from "../examples";
+
+# Стейт-машины (statechart)
+
+Машина описывается в формате XState v5 через `createMachine(config, implementations)` и исполняется
+собственным рантаймом библиотеки: `MachineSignal.state(definition)` возвращает сигнал снапшота
+(`value`, `context`, `status`, `tags`) с методами `send`, `matches`, `can`, `start`, `stop`, `dispose`.
+Зависимости от `xstate` нет, при этом описание совместимо с инструментами Stately
+(Inspector, Studio).
+
+## Примеры
+
+<QueryTabs>
+    <Tab key="trafficLight" title="Светофор (after)">
+        <LiveExample
+            title="Отложенные переходы и вложенные состояния"
+            initialCode={Statecharts.examples.trafficLight}
+        />
+    </Tab>
+    <Tab key="signupForm" title="Регистрация (parallel + guards)">
+        <LiveExample
+            title="Параллельные регионы, гварды и assign"
+            initialCode={Statecharts.examples.signupForm}
+        />
+    </Tab>
+    <Tab key="inspector" title="Плеер (Stately Inspector)">
+        <LiveExample
+            title="History и живая диаграмма в Stately Inspector"
+            initialCode={Statecharts.examples.inspectorPlayer}
+        />
+    </Tab>
+</QueryTabs>
