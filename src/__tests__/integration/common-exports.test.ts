@@ -11,6 +11,13 @@ describe("Common module exports", () => {
             expect(mod.combineDevtools).toBeDefined();
             expect(typeof mod.combineDevtools).toBe("function");
         });
+
+        it("exports statelyInspector", async () => {
+            const mod = await import("@/common/devtools");
+            expect(mod.statelyInspector).toBeDefined();
+            expect(typeof mod.statelyInspector).toBe("function");
+            expect(mod.STATELY_INSPECT_PROTOCOL_VERSION).toBe("0.7.2");
+        });
     });
 
     describe("@/common/options", () => {

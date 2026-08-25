@@ -6,6 +6,10 @@ describe("SharedOptions", () => {
             expect(SharedOptions.DEVTOOLS).toBe(null);
         });
 
+        it("MACHINE_DEVTOOLS defaults to null", () => {
+            expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
+        });
+
         it("onQueryError defaults to null", () => {
             expect(SharedOptions.onQueryError).toBe(null);
         });
@@ -32,12 +36,14 @@ describe("SharedOptions", () => {
     describe("reset()", () => {
         it("restores all defaults", () => {
             SharedOptions.DEVTOOLS = { state: () => () => {} } as any;
+            SharedOptions.MACHINE_DEVTOOLS = { actor: () => ({ event() {}, snapshot() {}, stop() {} }) };
             SharedOptions.onQueryError = () => {};
             SharedOptions.getScopeName = () => "scope";
 
             SharedOptions.reset();
 
             expect(SharedOptions.DEVTOOLS).toBe(null);
+            expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
             expect(SharedOptions.onQueryError).toBe(null);
             expect(SharedOptions.getScopeName).toBe(null);
         });

@@ -13,6 +13,7 @@ import { DefaultOptions } from '@fozy-labs/rx-toolkit';
 
 DefaultOptions.update({
     DEVTOOLS: reduxDevtools(),
+    MACHINE_DEVTOOLS: statelyInspector(),
     onQueryError: (error) => console.error(error),
     getScopeName: () => MyScopeLibarary.getCurrentScopeName(),
 });
@@ -22,7 +23,45 @@ DefaultOptions.update({
 
 ### DEVTOOLS
 
+**Тип:** `DevtoolsLike | null`  
+**По умолчанию:** `null`
+
+Интеграция с devtools для сигналов, ресурсов и команд (Redux DevTools, `@reatom/devtools`, кастомный адаптер).
+
 **См.** [Документация Devtools](../devtools/README.md)
+
+---
+
+### MACHINE_DEVTOOLS
+
+**Тип:** `MachineDevtoolsLike | null`  
+**По умолчанию:** `null`
+
+Инспектор стейт-машин, общий для всех инстансов `MachineSignal.state(...)` / `new Statechart(...)`.
+Отдельная опция, потому что интерфейс инспектора (`actor` → `event` / `snapshot` / `stop`) не сводится
+к `DevtoolsLike`, который моделирует именованные значения. `combineDevtools` на неё не влияет.
+
+Встроенный адаптер — `statelyInspector()` (Stately Inspector). Снапшоты машин при этом
+по-прежнему попадают и в Redux DevTools через `DEVTOOLS` под базовым ключом `Statechart`.
+
+```typescript
+import { DefaultOptions, statelyInspector } from '@fozy-labs/rx-toolkit';
+
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    DefaultOptions.update({
+        MACHINE_DEVTOOLS: statelyInspector(),
+    });
+}
+```
+
+Опция `inspector` в настройках инстанса имеет приоритет: свой адаптер или `null`, чтобы
+отключить инспектор для конкретной машины.
+
+```typescript
+const light$ = MachineSignal.state(trafficLight, { inspector: null });
+```
+
+**См.** [Stately Inspector](../devtools/README.md#stately-inspector)
 
 ---
 
