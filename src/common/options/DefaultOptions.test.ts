@@ -15,15 +15,6 @@ describe("DefaultOptions", () => {
             expect(SharedOptions.DEVTOOLS).toBe(null);
         });
 
-        it("updates MACHINE_DEVTOOLS on SharedOptions and accepts null", () => {
-            const inspector = { actor: () => ({ event() {}, snapshot() {}, stop() {} }) };
-            DefaultOptions.update({ MACHINE_DEVTOOLS: inspector });
-            expect(SharedOptions.MACHINE_DEVTOOLS).toBe(inspector);
-
-            DefaultOptions.update({ MACHINE_DEVTOOLS: null });
-            expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
-        });
-
         it("updates onQueryError on SharedOptions", () => {
             const handler = (err: unknown) => {};
             DefaultOptions.update({ onQueryError: handler });

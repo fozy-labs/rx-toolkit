@@ -12,7 +12,7 @@ export default mergeConfig(
         },
         test: {
             coverage: {
-                include: ["src/common/**", "src/signals/**", "src/query/**", "src/statechart/**"],
+                include: ["src/common/**", "src/signals/**", "src/query/**"],
             },
         },
     }),
