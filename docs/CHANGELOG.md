@@ -4,13 +4,6 @@
 ## [Unreleased]
 
 
-## [0.12.0-rc.0] - 2026-08-25
-
-### Added
-- **Statechart** — стейт-машины в формате конфига XState v5 на собственном рантайме поверх сигналов, без зависимости от `xstate`. См. [docs/statechart](./statechart/README.md).
-- **Stately Inspector** — адаптер `statelyInspector()` без зависимостей (протокол `@statelyai/inspect@0.7.2`). См. [Stately Inspector](./devtools/README.md#stately-inspector).
-
-
 ## [0.11.2] - 2026-08-20
 
 ### Added
@@ -363,8 +356,7 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0-rc.0...develop
-[0.12.0-rc.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0-rc.0
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...develop
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.1
 [0.10.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...v0.10.2
