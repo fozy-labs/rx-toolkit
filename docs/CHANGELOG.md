@@ -3,6 +3,11 @@
 
 ## [Unreleased]
 
+
+## [0.12.0-rc.1] - 2026-08-29
+
+Заменяет `0.12.0-rc.0`: тот опубликован из состояния до отката `d732538`, его секция снята откатом; ниже — все изменения с 0.11.2.
+
 ### Added
 - **Statechart** — стейт-машины в формате конфига XState v5 на собственном рантайме поверх сигналов, без зависимости от `xstate`. См. [docs/statechart](./statechart/README.md).
 - **Statechart**: builtin `mutate()` — обновление `context` через Immer-draft; `config.source` / `definition.source` — исходный текст `.mmd`-схемы; функции таблицы реализаций могут сужать тип `event` до переходов, которые на них ссылаются.
@@ -367,7 +372,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0-rc.1...develop
+[0.12.0-rc.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0-rc.1
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.1
 [0.10.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...v0.10.2
