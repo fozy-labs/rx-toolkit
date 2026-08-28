@@ -5,16 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "statechart:generate": "npm run build --prefix ../converter --silent && node ../converter/dist/cli.js src/examples/statechart/square.mmd"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fozy-labs/rx-toolkit": "file:../..",
+    "@fozy-labs/statechart-viz": "file:../viz",
     "@heroui/react": "2.8.5",
     "@mdx-js/react": "3.1.1",
     "@mdx-js/rollup": "3.1.1",
     "@tailwindcss/typography": "^0.5.19",
     "framer-motion": "12.23.24",
+    "mermaid": "11.17.2",
     "prism-react-renderer": "2.4.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",

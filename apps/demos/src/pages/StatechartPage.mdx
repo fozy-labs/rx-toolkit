@@ -1,0 +1,45 @@
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components";
+import { StatechartViz } from "@fozy-labs/statechart-viz";
+import { Statecharts } from "../examples";
+
+# Стейт-машины (statechart)
+
+Машина описывается в формате XState v5 через `createMachine(config, implementations)` и исполняется
+собственным рантаймом библиотеки: `MachineSignal.state(definition)` возвращает сигнал снапшота
+(`value`, `context`, `status`, `tags`) с методами `send`, `matches`, `can`, `start`, `stop`, `dispose`.
+Зависимости от `xstate` нет, при этом описание совместимо с инструментами Stately
+(Inspector, Studio). Машину можно описать и одним `.mmd`-файлом — mermaid `stateDiagram-v2` с
+директивами `%% @…`: конвертер `apps/converter` генерирует из него типизированный код, а `StatechartViz`
+из `apps/viz` показывает живую диаграмму (вкладка `square.mmd`).
+
+## Примеры
+
+<QueryTabs>
+    <Tab key="trafficLight" title="Светофор (after)">
+        <LiveExample
+            title="Отложенные переходы и вложенные состояния"
+            initialCode={Statecharts.examples.trafficLight}
+        />
+    </Tab>
+    <Tab key="signupForm" title="Регистрация (parallel + guards)">
+        <LiveExample
+            title="Параллельные регионы, гварды и assign"
+            initialCode={Statecharts.examples.signupForm}
+        />
+    </Tab>
+    <Tab key="inspector" title="Плеер (Stately Inspector)">
+        <LiveExample
+            title="History и живая диаграмма в Stately Inspector"
+            initialCode={Statecharts.examples.inspectorPlayer}
+        />
+    </Tab>
+    <Tab key="square" title="square.mmd (конвертер + viz)">
+        <pre className="text-xs p-3 mb-3 rounded-md bg-gray-100 dark:bg-gray-800 overflow-auto">{Statecharts.sources.squareMmd}</pre>
+        <LiveExample
+            title="Схема → сгенерированная машина → viz"
+            initialCode={Statecharts.examples.squareViz}
+            scope={{ StatechartViz, square: Statecharts.square }}
+        />
+    </Tab>
+</QueryTabs>

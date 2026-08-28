@@ -6,3 +6,4 @@ export * from "./common/utils/shallowEqual";
 export * from "./signals";
 
 export * from "./query";
+export * from "./statechart";

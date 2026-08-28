@@ -1,0 +1,98 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`round trip: 'gate' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine gate
+    %% @context initial: {"n":0}
+    [*] --> check
+    check --> big: [isBig]
+    check --> small: [isSmall]
+    check --> zero
+    big --> check: RESET
+    small --> check: RESET
+    zero --> check: RESET
+"
+`;
+
+exports[`round trip: 'player' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine player
+    [*] --> idle
+    idle --> running: PLAY
+    running --> idle: done
+    running --> idle: STOP
+    state running {
+        [*] --> quiet
+        quiet --> loud: LOUDER
+        loud --> quiet: QUIETER
+        loud --> [*]: MUTE
+        --
+        [*] --> playing
+        playing --> paused: PAUSE
+        playing --> [*]: END
+        paused --> playing: PAUSE
+    }
+    idle --> loud: JUMP
+    paused --> idle: QUIT
+"
+`;
+
+exports[`round trip: 'router' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine router
+    %% @context initial: {"role":"guest"}
+    [*] --> home
+    home --> admin: OPEN [isAdmin]
+    home --> member: OPEN [isMember] / log
+    home --> public: OPEN
+    home --> [*]: QUIT
+    admin --> home: BACK
+    member --> home: BACK
+    state "Public area" as public
+    public --> home: BACK
+"
+`;
+
+exports[`round trip: 'square' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine square
+    %% @context initial: {"result":null,"error":null}
+    [*] --> idle
+    idle --> done: SQUARE [isFinite] / square
+    idle --> error: SQUARE / reject
+    done --> idle: RESET / clear
+    error --> idle: RESET / clear
+"
+`;
+
+exports[`round trip: 'timer' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine timer
+    %% @context initial: {"ticks":0}
+    [*] --> waiting
+    waiting --> fired: after 2000 [ready]
+    waiting --> stalled: after 2000
+    waiting --> fired: after slow / tick
+    fired --> waiting: RESET
+    stalled --> waiting: RESET
+"
+`;
+
+exports[`round trip: 'trafficLight' > renders a stable diagram (grammar drift shows up here) 1`] = `
+"stateDiagram-v2
+    %% @machine trafficLight
+    %% @context initial: {"power":true,"retries":0}
+    [*] --> off
+    off --> working: POWER_ON [hasPower] / logStart
+    working --> off: POWER_OFF
+    working --> broken: done
+    state working {
+        [*] --> green
+        green --> yellow: after 3000
+        yellow --> red: after 1000 / warn
+        red --> green: after 3000
+        red --> [*]: FAULT
+    }
+    broken --> off: RESET / retry
+"
+`;

@@ -3,6 +3,17 @@
 
 ## [Unreleased]
 
+### Added
+- **Statechart** — стейт-машины в формате конфига XState v5 на собственном рантайме поверх сигналов, без зависимости от `xstate`. См. [docs/statechart](./statechart/README.md).
+- **Statechart**: builtin `mutate()` — обновление `context` через Immer-draft; `config.source` / `definition.source` — исходный текст `.mmd`-схемы; функции таблицы реализаций могут сужать тип `event` до переходов, которые на них ссылаются.
+- **Statechart**: `toMermaid()` выводит диаграмму на диалекте конвертера — `%% @machine`, `%% @context initial`, подписи `EVENT [guard] / a, b`, `after`, `done`, без подписи для `always`, `[*]` для `$final`, регионы `parallel` через `--`, `entry` / `exit` многострочными `note`.
+- **Stately Inspector** — адаптер `statelyInspector()` без зависимостей (протокол `@statelyai/inspect@0.7.2`). См. [Stately Inspector](./devtools/README.md#stately-inspector).
+- **Statechart: авторинг схемой** — приложения монорепозитория, не часть пакета: конвертер `apps/converter` (`.mmd` — mermaid `stateDiagram-v2` с директивами `%% @…` — в типизированный `*.generated.ts` с `createMachine`; перед записью конфиг проверяется `createMachine`) и viz `apps/viz` (React-компонент `StatechartViz`: подсветка активных состояний, отправка событий кликом по переходу, лог событий, `context`; режим `machine` для запущенной машины и режим `source` для текста `.mmd`). См. [Авторинг машины в .mmd](./statechart/README.md#авторинг-машины-в-mmd).
+- Страница Statechart в `apps/demos`: светофор, регистрация, плеер со Stately Inspector и `square.mmd` с встроенным viz.
+
+### Fixed
+- Относительные импорты в `dist/` теперь с расширением `.js` (`tsc-alias --resolve-full-paths`): пакет импортируется из Node ESM напрямую и типизируется под `moduleResolution: nodenext`. Раньше `import("@fozy-labs/rx-toolkit")` в Node падал с `ERR_UNSUPPORTED_DIR_IMPORT`, а работал только через бандлеры.
+
 
 ## [0.11.2] - 2026-08-20
 

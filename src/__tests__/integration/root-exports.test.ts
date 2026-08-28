@@ -123,4 +123,54 @@ describe("Root module exports (@/index)", () => {
             expect(mod.LocalSignal).toBeDefined();
         });
     });
+
+    describe("statechart re-exports", () => {
+        it("exports createMachine", async () => {
+            const mod = await import("@/index");
+            expect(mod.createMachine).toBeDefined();
+        });
+
+        it("exports MachineDefinition", async () => {
+            const mod = await import("@/index");
+            expect(mod.MachineDefinition).toBeDefined();
+        });
+
+        it("exports MachineSignal", async () => {
+            const mod = await import("@/index");
+            expect(mod.MachineSignal).toBeDefined();
+            expect(typeof mod.MachineSignal.state).toBe("function");
+        });
+
+        it("exports Statechart", async () => {
+            const mod = await import("@/index");
+            expect(mod.Statechart).toBeDefined();
+        });
+
+        it("exports the builtin action creators", async () => {
+            const mod = await import("@/index");
+            expect(mod.assign).toBeDefined();
+            expect(mod.mutate).toBeDefined();
+            expect(mod.raise).toBeDefined();
+            expect(mod.cancel).toBeDefined();
+            expect(mod.log).toBeDefined();
+        });
+
+        it("exports the builtin guard creators", async () => {
+            const mod = await import("@/index");
+            expect(mod.and).toBeDefined();
+            expect(mod.or).toBeDefined();
+            expect(mod.not).toBeDefined();
+            expect(mod.stateIn).toBeDefined();
+        });
+
+        it("exports MachineConfigError", async () => {
+            const mod = await import("@/index");
+            expect(mod.MachineConfigError).toBeDefined();
+        });
+
+        it("exports statelyInspector (from common/devtools)", async () => {
+            const mod = await import("@/index");
+            expect(mod.statelyInspector).toBeDefined();
+        });
+    });
 });

@@ -6,8 +6,8 @@
   "type": "module",
   "prettier": "@fozy-labs/js-configs/prettier",
   "scripts": {
-    "build": "rimraf ./dist && tsc && tsc-alias",
-    "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w\")",
+    "build": "rimraf ./dist && tsc && tsc-alias --resolve-full-paths",
+    "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w --resolve-full-paths\")",
     "ts-check": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:watch": "vitest",
@@ -37,6 +37,7 @@
     "tsconfig-paths": "4.2.0",
     "typescript": "5.9.2",
     "vitest": "^4.0.18",
+    "xstate": "^5.32.5",
     "zod": "4.1.11"
   },
   "peerDependencies": {
