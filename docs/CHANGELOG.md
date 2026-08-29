@@ -9,14 +9,9 @@
 
 ### Added
 - **Statechart** — стейт-машины на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
-- **Statechart**: builtin `mutate()` — обновление `context` через Immer-draft; `config.source` / `definition.source` — исходный текст `.mmd`-схемы; функции таблицы реализаций могут сужать тип `event` до переходов, которые на них ссылаются.
-- **Statechart**: `toMermaid()` выводит диаграмму на диалекте конвертера — `%% @machine`, `%% @context initial`, подписи `EVENT [guard] / a, b`, `after`, `done`, без подписи для `always`, `[*]` для `$final`, регионы `parallel` через `--`, `entry` / `exit` многострочными `note`.
-- **Statechart**: адаптер внешнего инспектора `statelyInspector()` без зависимостей. См. [Совместимость с XState и Stately](./statechart/xstate.md#stately-inspector).
-- **Statechart: авторинг схемой** — отдельные пакеты, не часть `@fozy-labs/rx-toolkit`: конвертер `@fozy-labs/statechart-converter` (`.mmd` — mermaid `stateDiagram-v2` с директивами `%% @…` — в типизированный `*.generated.ts` с `createMachine`; перед записью конфиг проверяется `createMachine`) и viz `@fozy-labs/statechart-viz` (React-компонент `StatechartViz`: подсветка активных состояний, отправка событий кликом по переходу, лог событий, `context`; режим `machine` для запущенной машины и режим `source` для текста `.mmd`). См. [Авторинг машины в .mmd](./statechart/README.md#авторинг-машины-в-mmd).
-- Страница Statechart в `apps/demos`: светофор, регистрация, плеер с внешним инспектором и `square.mmd` с встроенным viz.
 
 ### Fixed
-- Относительные импорты в `dist/` теперь с расширением `.js` (`tsc-alias --resolve-full-paths`): пакет импортируется из Node ESM напрямую и типизируется под `moduleResolution: nodenext`. Раньше `import("@fozy-labs/rx-toolkit")` в Node падал с `ERR_UNSUPPORTED_DIR_IMPORT`, а работал только через бандлеры.
+- Исправлены относительные импорты в `dist` приводившие к ошибке "ERR_UNSUPPORTED_DIR_IMPORT" в Nodejs.
 
 
 ## [0.11.2] - 2026-08-20
