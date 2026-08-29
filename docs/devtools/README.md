@@ -5,7 +5,7 @@ RxToolkit предоставляет интеграцию с популярны�
 **Отслеживает изменения:**
 - Сигналов (Signal / Computed)
 - Ресурсов и команд (Resource / Command)
-- Стейт-машин (Statechart) — в Redux DevTools и в [Stately Inspector](#stately-inspector)
+- Стейт-машин (Statechart) — в Redux DevTools и во внешнем [инспекторе](#инспектор-стейт-машин)
 
 ---
 
@@ -132,128 +132,15 @@ const hidden$ = MachineSignal.state(trafficLight, { isDisabled: true });
 
 ---
 
-## Stately Inspector
+## Инспектор стейт-машин
 
-Живой визуализатор стейт-машин от Stately: диаграмма, подсветка активного состояния,
-таймлайн событий и sequence-диаграмма. **RxToolkit включает встроенный адаптер `statelyInspector()`** —
-без зависимостей, реализует протокол `@statelyai/inspect@0.7.2`. Устанавливать `@statelyai/inspect`
-и `xstate` не нужно.
+Опция `inspector` у `MachineSignal.state()` / `new Statechart()` и глобальный `MACHINE_DEVTOOLS`
+подключают внешний визуализатор машины. Встроенный адаптер `statelyInspector()` — без зависимостей;
+его установка, опции, протокол и ограничение односторонности описаны в
+[Совместимости с XState и Stately](../statechart/xstate.md#stately-inspector).
 
-### Установка
-
-Никаких пакетов ставить не требуется. Подключите адаптер глобально — все стейт-машины
-начнут отправлять в инспектор описание, события и снапшоты:
-
-```typescript
-import { DefaultOptions, statelyInspector } from '@fozy-labs/rx-toolkit';
-
-DefaultOptions.update({
-    MACHINE_DEVTOOLS: statelyInspector(),
-});
-```
-
-По умолчанию `statelyInspector()` сразу открывает `https://stately.ai/inspect`
-в новом окне (`window.open`). Если браузер заблокировал popup, в консоль выводится
-предупреждение, а события копятся в буфере до подключения.
-
-### Опции statelyInspector
-
-```typescript
-statelyInspector({
-    // URL инспектора
-    url: 'https://stately.ai/inspect',
-
-    // Загрузить инспектор в iframe вместо нового окна
-    iframe: document.querySelector('iframe#inspector'),
-
-    // Открыть инспектор сразу при создании (иначе — вручную через inspector.start())
-    autoStart: true,
-
-    // Сколько событий хранить, пока инспектор не подключился (старые вытесняются)
-    maxDeferredEvents: 200,
-
-    // Фильтр событий: вернул false — событие не отправляется
-    filter: (event) => event.type !== '@xstate.event',
-
-    // Преобразование события перед отправкой (по умолчанию — serializeInspectionEvent)
-    serialize: (event) => serializeInspectionEvent(event),
-
-    // Собственный транспорт вместо окна/iframe (например, WebSocket)
-    adapter: { start() {}, stop() {}, send(event) {} },
-})
-```
-
-| Опция               | Тип                                                  | По умолчанию                  | Описание                                                                                                                                                     |
-|---------------------|------------------------------------------------------|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `url`               | `string`                                             | `https://stately.ai/inspect`  | Адрес страницы инспектора                                                                                                                                    |
-| `iframe`            | `HTMLIFrameElement \| null`                          | `null`                        | Встроить инспектор в iframe; иначе открывается окно `window.open(url, "xstateinspector")`                                                                   |
-| `window`            | `Window`                                             | `globalThis.window`           | Хост-окно (для тестов). Без `window` (SSR / Node) адаптер — тихий no-op                                                                                      |
-| `autoStart`         | `boolean`                                            | `true`                        | Вызвать `start()` при создании                                                                                                                               |
-| `maxDeferredEvents` | `number`                                             | `200`                         | Размер буфера событий до хендшейка `@statelyai.connected`; буфер переигрывается при каждом (пере)подключении страницы инспектора                             |
-| `filter`            | `(event: StatelyInspectionEvent) => boolean`         | `() => true`                  | Отсекает события до сериализации                                                                                                                             |
-| `serialize`         | `(event) => StatelyInspectionEvent`                  | `serializeInspectionEvent`    | JSON-раундтрип: функции → `{ type: fn.name }`, HTML-элементы → `outerHTML`, циклические ссылки → `"[Circular]"`, `bigint` → строка                            |
-| `adapter`           | `{ start?(), stop?(), send(event) }`                 | —                             | Собственный транспорт. Заменяет браузерный, поэтому несовместим с `url`, `iframe` и `window` — их совместное указание бросает ошибку                         |
-
-Возвращаемый объект `StatelyInspector` реализует `MachineDevtoolsLike` и дополнительно даёт
-`status` (`'disconnected' | 'connected'`), `start()` и `stop()` (оба идемпотентны;
-`stop()` отправляет `@statelyai.disconnected` и снимает слушатели, `start()` после `stop()`
-открывает инспектор заново).
-
-### Подключение на инстанс
-
-Опция `inspector` у `MachineSignal.state()` / `new Statechart()` переопределяет
-глобальную настройку: свой адаптер или `null`, чтобы отключить инспектор для конкретной машины.
-
-```typescript
-import { MachineSignal, statelyInspector } from '@fozy-labs/rx-toolkit';
-
-// Отдельный инспектор в iframe только для этой машины
-const light$ = MachineSignal.state(trafficLight, {
-    inspector: statelyInspector({ iframe: document.querySelector('iframe#inspector') }),
-});
-
-// Эта машина в инспектор не попадает, даже если задан MACHINE_DEVTOOLS
-const internal$ = MachineSignal.state(trafficLight, { inspector: null });
-```
-
-Приоритет: `inspector` в опциях инстанса → `SharedOptions.MACHINE_DEVTOOLS`
-(задаётся через `DefaultOptions.update({ MACHINE_DEVTOOLS })`) → инспектора нет.
-
-### Что показывается
-
-Каждый инстанс машины регистрируется как отдельный корневой актор (`rootId === sessionId`):
-
-| Событие протокола  | Когда отправляется                                                                                     |
-|--------------------|--------------------------------------------------------------------------------------------------------|
-| `@xstate.actor`    | При создании инстанса: имя (`id` машины), сырой конфиг в JSON и начальный снапшот                       |
-| `@xstate.event`    | На каждое принятое событие, включая системные (`xstate.init`, `xstate.after.*`, `xstate.done.state.*`) |
-| `@xstate.snapshot` | После каждого макрошага — даже если состояние не изменилось; после `stop()` — снапшот `stopped`         |
-
-Функции в конфиге (inline-действия, гарды, `assign` и другие builtins) сериализуются как
-`{ type: fn.name }` — ровно так же, как это делает `@statelyai/inspect` для машины XState,
-поэтому диаграмма выглядит идентично. В инспектор уходят `status`, `value`, `context`,
-`output`, `error` и `tags` снапшота. После `dispose()` инстанс перестаёт отправлять события.
-
-### Ограничение: инспектор односторонний
-
-В XState v5 протокол Stately Inspector **не имеет обратного канала**: отправить событие
-в работающее приложение кликом по переходу в инспекторе нельзя (в `@statelyai/inspect`
-входящие сообщения не обрабатываются — слушается только хендшейк подключения).
-Управлять машиной из devtools можно было в XState v4 (`@xstate/inspect`), в v5 эту
-возможность убрали. Адаптер RxToolkit повторяет протокол v5 и тоже работает
-только «из приложения в инспектор».
-
-### Development-режим
-
-Как и Redux DevTools, инспектор стоит подключать только в разработке
-и только в браузере — `window.open` на сервере невозможен, а без `window` адаптер
-всё равно молча ничего не делает:
-
-```typescript
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
-    DefaultOptions.update({ MACHINE_DEVTOOLS: statelyInspector() });
-}
-```
+Живая диаграмма без сторонних сервисов — компонент `StatechartViz`, см.
+[Viz](../statechart/README.md#viz).
 
 ---
 
@@ -298,7 +185,7 @@ DefaultOptions.update({
     // Devtools интеграция
     DEVTOOLS: reduxDevtools(),
 
-    // Stately Inspector для стейт-машин
+    // Внешний инспектор стейт-машин
     MACHINE_DEVTOOLS: statelyInspector(),
     
     // Глобальный обработчик ошибок запросов
@@ -320,7 +207,7 @@ DefaultOptions.update({
 | Параметр | Тип | Описание |
 |----------|-----|----------|
 | `DEVTOOLS` | `DevtoolsLike \| null` | Интеграция с devtools |
-| `MACHINE_DEVTOOLS` | `MachineDevtoolsLike \| null` | Инспектор стейт-машин ([Stately Inspector](#stately-inspector)) |
+| `MACHINE_DEVTOOLS` | `MachineDevtoolsLike \| null` | [Инспектор стейт-машин](#инспектор-стейт-машин) |
 | `onQueryError` | `(error: unknown) => void` | Глобальный обработчик ошибок запросов |
 | `getScopeName` | `() => string \| null` | Получение имени текущего scope |
 

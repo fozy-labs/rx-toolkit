@@ -28,10 +28,10 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - ⚡ **Built on RxJS** — Наследует всю мощь RxJS.
 - 💾 **Кеш-менеджер** — Предоставляет Query реализацию для работы с данными.
 - 🧪 **Query** — Кеш-менеджер с machine states, плагинами и SSR snapshots.
-- 🤖 **Statechart** — Стейт-машины в формате XState v5 на собственном рантайме поверх сигналов,
-  без зависимости от `xstate`. Совместимы с тулингом Stately (Inspector, Studio). Машину можно описать
-  одним `.mmd`-файлом (mermaid + директивы): конвертер в типизированный код и интерактивная
-  визуализация — в `apps/` монорепозитория.
+- 🤖 **Statechart** — Стейт-машины на собственном рантайме поверх сигналов: вложенные, параллельные,
+  финальные и history-состояния, таймеры, гварды и действия. Машину можно описать одним `.mmd`-файлом
+  (mermaid + директивы): конвертер в типизированный код и интерактивная визуализация — пакеты
+  репозитория [fozy-labs/statechart](https://github.com/fozy-labs/statechart).
 - 🔷 **TypeScript-first** — Полная типизация.
 - 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS.
   Поставляется с React-хуками из коробки.
@@ -39,7 +39,7 @@ RxToolkit решает эти проблемы, предоставляя сво�
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
 - [**RxQuery**](./docs/query/README.md) - кеш-менеджер для работы с данными
-- [**Statechart**](./docs/statechart/README.md) - стейт-машины в формате XState
+- [**Statechart**](./docs/statechart/README.md) - стейт-машины поверх сигналов
 - [**Statechart: авторинг в .mmd**](./docs/statechart/README.md#авторинг-машины-в-mmd) - конвертер `.mmd` → TypeScript и viz
 - [**React**](./docs/usage/react/README.md) - интеграция с React
 - [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
@@ -161,7 +161,7 @@ function ShoppingCart() {
 ```typescript
 import { createMachine, MachineSignal, assign } from '@fozy-labs/rx-toolkit';
 
-// Описание — конфиг в формате XState v5, понятный тулингу Stately
+// Описание — декларативный конфиг машины
 const trafficLight = createMachine(
     {
         id: 'trafficLight',
@@ -193,7 +193,6 @@ light$.can({ type: 'TIMER' });
 const isRed$ = Signal.compute(() => light$().value === 'red');
 const light = useSignal(light$); // React
 
-// Экспорт для Stately Studio / Mermaid
-trafficLight.toXStateSource();
+// Экспорт диаграммы — stateDiagram-v2 на диалекте конвертера
 trafficLight.toMermaid();
 ```

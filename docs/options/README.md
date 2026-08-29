@@ -41,7 +41,7 @@ DefaultOptions.update({
 Отдельная опция, потому что интерфейс инспектора (`actor` → `event` / `snapshot` / `stop`) не сводится
 к `DevtoolsLike`, который моделирует именованные значения. `combineDevtools` на неё не влияет.
 
-Встроенный адаптер — `statelyInspector()` (Stately Inspector). Снапшоты машин при этом
+Встроенный адаптер — `statelyInspector()`. Снапшоты машин при этом
 по-прежнему попадают и в Redux DevTools через `DEVTOOLS` под базовым ключом `Statechart`.
 
 ```typescript
@@ -61,7 +61,7 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 const light$ = MachineSignal.state(trafficLight, { inspector: null });
 ```
 
-**См.** [Stately Inspector](../devtools/README.md#stately-inspector)
+**См.** [Инспектор стейт-машин](../devtools/README.md#инспектор-стейт-машин)
 
 ---
 

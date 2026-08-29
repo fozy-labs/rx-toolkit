@@ -1,15 +1,15 @@
 # Модуль Statechart
 
-Модуль Statechart — конечные автоматы (стейтчарты) в формате конфигурации **XState v5**, исполняемые собственным рантаймом поверх [сигналов][signals]. Пакет `xstate` **не является зависимостью**: конфиг описывается в его формате ради совместимости со стандартным тулингом Stately (Stately Inspector, Stately Studio «import from code», `@xstate/machine-extractor`), а семантика переходов сверена с `xstate@5.32.5` дифференциальными тестами.
+Модуль Statechart — конечные автоматы (стейтчарты) поверх [сигналов][signals]: вложенные, параллельные, финальные и history-состояния, `entry` / `exit`, `always`, `after`, `onDone`, гварды и действия. Собственный рантайм, без внешних зависимостей.
 
 Что даёт модуль:
 
-- **Описание в формате XState v5** — вложенные, параллельные, финальные и history-состояния, `entry`/`exit`, `always`, `after`, `onDone`, гварды и действия.
-- **Инстанс как сигнал** — `MachineSignal.state(definition)` возвращает callable-сигнал снапшота: его можно читать в `Computed`/`Effect`, подписываться через `.obs`, использовать в React через `useSignal`.
-- **Devtools** — снапшот виден в Redux DevTools как обычный сигнал, а живая диаграмма открывается в Stately Inspector.
-- **Экспорт** — `toXStateSource()` для вставки в Stately Studio и `toMermaid()` — диаграмма `stateDiagram-v2` на диалекте конвертера `apps/converter` (документация, viz).
+- **Декларативное описание** — машина это чистые данные (конфиг) плюс таблица реализаций по именам. Конфиг сериализуем, поэтому его можно показать, экспортировать и разобрать обратно.
+- **Авторинг схемой** — машину можно описать одним `.mmd`-файлом (mermaid `stateDiagram-v2` + директивы `%% @…`): [конвертер][converter] генерирует типизированный `createMachine`, [viz][viz] показывает живую диаграмму. См. [Авторинг машины в .mmd](#авторинг-машины-в-mmd).
+- **Инстанс как сигнал** — `MachineSignal.state(definition)` возвращает callable-сигнал снапшота: его можно читать в `Computed` / `Effect`, подписываться через `.obs`, использовать в React через `useSignal`.
+- **Экспорт диаграммы** — `toMermaid()` возвращает `stateDiagram-v2` на диалекте конвертера: годится и для документации, и для viz, и для обратного разбора в конфиг.
+- **Devtools** — снапшот виден в Redux DevTools как обычный сигнал.
 - **Строгая валидация** — всё, что рантайм не реализует, падает с понятной ошибкой в `createMachine()`, а не игнорируется молча.
-- **Авторинг схемой** — машину можно описать одним `.mmd`-файлом (mermaid `stateDiagram-v2` + директивы `%% @…`): конвертер `apps/converter` генерирует типизированный `createMachine`, viz `apps/viz` показывает живую диаграмму. См. [Авторинг машины в .mmd](#авторинг-машины-в-mmd).
 
 ## Содержание
 
@@ -20,16 +20,15 @@
 - [MachineSignal.state](#machinesignalstate)
 - [Интеграция с сигналами и React](#интеграция-с-сигналами-и-react)
 - [Devtools](#devtools)
-- [Экспорт в Stately Studio: toXStateSource](#экспорт-в-stately-studio-toxstatesource)
 - [Экспорт в Mermaid: toMermaid](#экспорт-в-mermaid-tomermaid)
 - [Авторинг машины в .mmd](#авторинг-машины-в-mmd)
 - [Тестирование](#тестирование)
-- [Отличия от XState v5](#отличия-от-xstate-v5)
+- [Совместимость со сторонним тулингом](#совместимость-со-сторонним-тулингом)
 
 
 ## Концепция: описание и инстанс
 
-Модуль разделяет два слоя — ровно как `createMachine()` → `createActor()` в самом XState.
+Модуль разделяет два слоя.
 
 | | Описание — `MachineDefinition` | Инстанс — `MachineSignal.state()` |
 |---|---|---|
@@ -37,36 +36,36 @@
 | Состояние | нет | есть |
 | Создаётся | один раз на модуль, через `createMachine()` | сколько угодно раз на одно описание |
 | Жизненный цикл | нет | `start()` / `stop()` / `dispose()` |
-| Зачем | якорь вывода типов; валидация один раз; `provide()` для подмены реализаций в тестах; `toXStateSource()` / `toMermaid()` | связка с `State` / `Batcher` / devtools |
+| Зачем | якорь вывода типов; валидация один раз; `provide()` для подмены реализаций в тестах; `toMermaid()` | связка с `State` / `Batcher` / devtools |
 
 ```mermaid
 flowchart LR
   subgraph author["Авторинг"]
-    C["config<br/>(чистые данные)"]
+    MMD[".mmd-схема<br/>диаграмма + директивы"]
+    C["config<br/>чистые данные"]
     I["implementations<br/>actions / guards / delays"]
   end
   subgraph def["createMachine() → MachineDefinition"]
-    V["валидация<br/>(MachineConfigError)"]
+    V["валидация<br/>MachineConfigError"]
     P["provide()"]
-    T["toXStateSource()<br/>toMermaid()"]
+    T["toMermaid()"]
   end
   subgraph inst["MachineSignal.state() → инстанс"]
     R["интерпретатор<br/>микрошаги, таймеры, очередь"]
-    S["сигнал снапшота<br/>{ status, value, context, ... }"]
+    S["сигнал снапшота<br/>status, value, context, …"]
   end
   subgraph view["Просмотр"]
-    INS["Stately Inspector"]
-    STU["Stately Studio"]
+    VIZ["StatechartViz"]
     RDX["Redux DevTools"]
   end
+  MMD -- "statechart-convert" --> C
   C --> V
   I --> V
   V --> P
   V --> R
   R --> S
-  C -->|"config как JSON"| INS
-  S -->|"снапшоты"| INS
-  T --> STU
+  T --> VIZ
+  S --> VIZ
   S --> RDX
 ```
 
@@ -85,7 +84,7 @@ interface LightContext {
 
 type LightEvent = { type: "TIMER" } | { type: "SET_READY"; ready: boolean };
 
-// Описание: конфиг в формате XState v5 + таблица реализаций по именам
+// Описание: конфиг + таблица реализаций по именам
 export const trafficLight = createMachine(
     {
         id: "trafficLight",
@@ -139,15 +138,14 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 
 Важные моменты, которые видно уже в этом примере:
 
-- `createMachine` — это **обязательное** имя вызова: экстрактор Stately ищет вызовы именно по нему (см. [Экспорт в Stately Studio](#экспорт-в-stately-studio-toxstatesource)).
-- Действия и гварды в конфиге — **строковые имена**, реализации лежат отдельно. Конфиг остаётся сериализуемым, что нужно и инспектору, и экспорту.
-- `types: {} as { context: ...; events: ... }` — идиома XState v5 для вывода типов; в рантайме ключ игнорируется.
+- Действия и гварды в конфиге — **строковые имена**, реализации лежат отдельно. Так конфиг остаётся сериализуемым: его можно вывести диаграммой и показать в devtools.
+- `types: {} as { context: ...; events: ... }` — только для вывода типов; в рантайме ключ игнорируется.
 - Сам `send()` синхронный: один вызов — один макрошаг — одна публикация снапшота внутри `Batcher.run`.
 
 
 ## Формат конфигурации
 
-Поддерживается подмножество `MachineConfig` из XState v5. Всё, что в таблицах ниже не перечислено, **отклоняется** в `createMachine()` (см. [Что не поддерживается](#что-не-поддерживается)).
+Конфиг — чистые данные. Всё, что в таблицах ниже не перечислено, **отклоняется** в `createMachine()` (см. [Что не поддерживается](#что-не-поддерживается)).
 
 ### Ключи стейт-ноды
 
@@ -155,7 +153,7 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 |---|---|---|
 | `id` | `string` | уникальный id для таргетов `#id`; по умолчанию `<machineId>.<путь>` |
 | `type` | `"atomic" \| "compound" \| "parallel" \| "final" \| "history"` | выводится из `states` / `history`, если не указан |
-| `initial` | `string` | ключ начального дочернего состояния (только `compound`); только строка, объектная форма XState не принимается |
+| `initial` | `string` | ключ начального дочернего состояния (только `compound`); только строка, объектная форма не принимается |
 | `states` | `Record<string, StateNodeConfig>` | вложенные состояния; ключи без `.` (ключи вида `$final`, `$0` — как у конвертера — допустимы) |
 | `on` | `Record<EventDescriptor, Transition>` | переходы по событиям |
 | `always` | `Transition` | eventless-переходы, перепроверяются после каждого микрошага |
@@ -172,10 +170,10 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 
 | Ключ | Значение | Примечания |
 |---|---|---|
-| `context` | объект или `() => объект` | объект **разделяется всеми инстансами** (как в XState); для объектов на инстанс используйте фабрику |
+| `context` | объект или `() => объект` | объект **разделяется всеми инстансами**; для объектов на инстанс используйте фабрику |
 | `types` | `{ context?, events?, output?, tags?, meta? }` | только для вывода типов, в рантайме игнорируется |
 | `output` | значение или `({ context, event }) => value` | результат машины при входе в финальное состояние верхнего уровня |
-| `source` | `string` | исходный текст `.mmd`-схемы, из которой машина сгенерирована конвертером; доступен как `definition.source`, сохраняется в `provide()`, в `toXStateSource()` не выводится; в рантайме не используется |
+| `source` | `string` | исходный текст `.mmd`-схемы, из которой машина сгенерирована конвертером; доступен как `definition.source`, сохраняется в `provide()`; в рантайме не используется |
 
 Корень должен быть `compound` (есть `states` и `initial`) или `parallel`.
 
@@ -187,8 +185,8 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 - объект: `{ target?, actions?, guard?, reenter?, description?, meta? }`;
 - массив объектов — **выигрывает первый с прошедшим гвардом**;
 - `target` может быть массивом только для одновременного входа в несколько регионов одного `parallel`-состояния;
-- без `target` — targetless-переход: действия выполняются, состояние не меняется (`exit`/`entry` не срабатывают);
-- `reenter: true` — выйти и заново войти в исходное состояние, даже если цель — его потомок (по умолчанию `false`, как в XState v5).
+- без `target` — targetless-переход: действия выполняются, состояние не меняется (`exit` / `entry` не срабатывают);
+- `reenter: true` — выйти и заново войти в исходное состояние, даже если цель — его потомок (по умолчанию `false`).
 
 Форматы таргетов:
 
@@ -275,12 +273,12 @@ export const wizard = createMachine({
 });
 ```
 
-Событие `onDone` имеет тип `xstate.done.state.<id>` и несёт `output` финального потомка. Вход в финальное состояние **верхнего уровня** завершает машину: `snapshot.status` становится `"done"`, `snapshot.output` — результат корневого `output`, таймеры снимаются, дальнейшие события игнорируются.
+Событие `onDone` имеет тип `xstate.done.state.<id>` и несёт `output` финального потомка ([почему такой префикс][xstate]). Вход в финальное состояние **верхнего уровня** завершает машину: `snapshot.status` становится `"done"`, `snapshot.output` — результат корневого `output`, таймеры снимаются, дальнейшие события игнорируются.
 
 ### Типизация
 
 - `createMachine<TContext, TEvent, TOutput>(config, implementations?)`. `TContext` выводится из `context` / `types.context`, `TEvent` — из `types.events` (по умолчанию `AnyEventObject` — любой `{ type: string }` с `unknown`-полями), `TOutput` — из `types.output`.
-- Внутри `on.<EVENT>` тип `event` сужается до соответствующего члена объединения (как `ExtractEvent` в XState); в `entry`/`exit`/`always`/`after` `event` — всё объединение целиком.
+- Внутри `on.<EVENT>` тип `event` сужается до соответствующего члена объединения; в `entry` / `exit` / `always` / `after` `event` — всё объединение целиком.
 - Экспортируемые типы: `MachineConfig`, `StateNodeConfig`, `TransitionConfig`, `EventObject`, `AnyEventObject`, `StateValue`, `MachineSnapshot`, `MachineImplementations`, `StatechartOptions`, `MachineStateSignal` и др. — все из корня пакета.
 
 ### Что не поддерживается
@@ -290,12 +288,11 @@ export const wizard = createMachine({
 | Категория | Ключи / конструкции |
 |---|---|
 | Акторная модель | `invoke`, `spawn`, `services`, `actors`, `system`, `input`, `sendTo`, `sendParent`, `stopChild` |
-| Прочее XState v5 | `emit`, `enqueueActions`, `strict`, `onDone` на корне, `initial` в объектной форме |
-| Зарезервированные события в `on` | `xstate.init` и `xstate.stop` (переход по ним никогда не выбирается), `xstate.error.*`, `xstate.done.actor.*`, `xstate.snapshot.*`, `xstate.promise.*` (события акторной системы). Wildcard `xstate.*` и семейства `xstate.done.state.*` / `xstate.after.*` разрешены — они срабатывают, как в XState |
-| Только XState v4 | `cond` (→ `guard`), `internal` (→ `reenter: false`), `in` (→ `stateIn()`), `activities`, `predictableActionArguments`, `preserveActionOrder`, `schema`, `tsTypes` |
+| Прочее | `emit`, `enqueueActions`, `strict`, `onDone` на корне, `initial` в объектной форме |
+| Зарезервированные события в `on` | системные типы `xstate.init` и `xstate.stop`, а также события акторной системы (`xstate.error.*`, `xstate.done.actor.*`, `xstate.snapshot.*`, `xstate.promise.*`). Семейства `xstate.done.state.*` / `xstate.after.*` и wildcard `xstate.*` разрешены — они срабатывают |
 | Неизвестные ключи | любые другие ключи стейт-ноды, перехода, объекта `{ type, params }` или таблицы реализаций |
 | Builtin-объекты вручную | `{ type: "xstate.assign", ... }` — используйте экспортируемые `assign()` и т. д. |
-| Креаторы из пакета `xstate` | `assign`, `raise`, `cancel`, `log`, `and`, `or`, `not`, `stateIn`, импортированные из `xstate` (а также `sendTo`, `sendParent`, `forwardTo`, `enqueueActions`, `emit`, `spawnChild`, `stopChild`) — это обычные функции без нашего бренда, которые выполнились бы как пустые no-op; отклоняются и в конфиге, и в таблице реализаций. Используйте креаторы из `@fozy-labs/rx-toolkit` |
+| Ключи и креаторы чужих диалектов | перечислены в [совместимости][xstate] |
 
 ```typescript
 import { createMachine, MachineConfigError } from "@fozy-labs/rx-toolkit";
@@ -345,7 +342,7 @@ interface MachineImplementations<TContext, TEvent> {
 | Инлайн-функция | `({ context, event }) => { ... }` | `({ context }) => boolean` |
 | Builtin | `assign(...)`, `mutate(...)`, `raise(...)`, `cancel(...)`, `log(...)` | `and([...])`, `or([...])`, `not(...)`, `stateIn(...)` |
 
-Инлайн-функции удобны в прототипах, но в инспекторе и экспорте они видны только по имени функции (анонимные — как `anonymous`). Для машин, которые вы собираетесь смотреть в Stately, предпочитайте имена из таблицы.
+Инлайн-функции удобны в прототипах, но в диаграмме и в devtools они видны только по имени функции (анонимные — как `anonymous`). Для машин, которые вы собираетесь смотреть глазами, предпочитайте имена из таблицы.
 
 ```typescript
 import { createMachine } from "@fozy-labs/rx-toolkit";
@@ -388,16 +385,16 @@ export const counter = createMachine(
 );
 ```
 
-Порядок выполнения действий — как в XState v5: `exit` исходных состояний → действия перехода → `entry` целевых; `assign` применяется в том же порядке, и последующие действия уже видят обновлённый `context`. Пользовательские действия исполняются синхронно внутри макрошага, **до** публикации нового снапшота — `peek()` изнутри действия вернёт ещё предыдущий снапшот.
+Порядок выполнения действий: `exit` исходных состояний → действия перехода → `entry` целевых; `assign` применяется в том же порядке, и последующие действия уже видят обновлённый `context`. Пользовательские действия исполняются синхронно внутри макрошага, **до** публикации нового снапшота — `peek()` изнутри действия вернёт ещё предыдущий снапшот.
 
 ### Builtin-действия
 
-Импортируются из корня пакета. Это декларативные объекты (технически — замороженные функции с брендом, как в XState); **вызывать их напрямую нельзя**, только класть в `entry` / `exit` / `actions` или в таблицу `actions`.
+Импортируются из корня пакета. Это декларативные объекты (технически — замороженные функции с брендом); **вызывать их напрямую нельзя**, только класть в `entry` / `exit` / `actions` или в таблицу `actions`.
 
 | Builtin | Описание |
 |---|---|
 | `assign(partial \| ({ context, event }) => partial)` | обновляет `context` shallow-merge'ем; в объектной форме каждое поле — значение или функция `({ context, event }) => value` |
-| `mutate(({ context, event }) => void)` | обновляет `context` через Immer-draft: рецепт мутирует `context` на месте, результат — новый объект (нетронутые части разделяются с предыдущим, предыдущий не меняется), возвращаемое значение рецепта игнорируется. Draft'ятся plain-объекты и массивы; `Map` / `Set` / экземпляры классов передаются как есть. В XState аналога нет — это носитель тел `@action` конвертера; `toXStateSource()` импортирует `mutate` из `@fozy-labs/rx-toolkit` |
+| `mutate(({ context, event }) => void)` | обновляет `context` через Immer-draft: рецепт мутирует `context` на месте, результат — новый объект (нетронутые части разделяются с предыдущим, предыдущий не меняется), возвращаемое значение рецепта игнорируется. Draft'ятся plain-объекты и массивы; `Map` / `Set` / экземпляры классов передаются как есть. Это носитель тел `@action` конвертера |
 | `raise(event \| ({ context, event }) => event, { delay?, id? }?)` | отправляет событие самой машине: без `delay` — во внутреннюю очередь текущего макрошага, с `delay` — по таймеру (`delay` — миллисекунды, имя из `delays` или функция) |
 | `cancel(id \| ({ context, event }) => id)` | отменяет отложенный `raise` по его `id` (или `after`-таймер по типу его события `xstate.after.<delay>.<id>`) |
 | `log(value? \| ({ context, event }) => value, label?)` | пишет в `logger` инстанса (по умолчанию `console.log`); без аргументов — `{ context, event }` |
@@ -508,7 +505,7 @@ export const house = createMachine(
 
 ### Задержки
 
-`after`-ключи и `delay` у `raise` могут быть числом (миллисекунды) или именем из `delays`. Реализация задержки — число либо функция `({ context, event }, params) => number`; результат, не являющийся числом, приводит к ошибке рантайма (XState в таком случае поднял бы событие немедленно).
+`after`-ключи и `delay` у `raise` могут быть числом (миллисекунды) или именем из `delays`. Реализация задержки — число либо функция `({ context, event }, params) => number`; результат, не являющийся числом, приводит к ошибке рантайма.
 
 
 ## MachineSignal.state
@@ -525,7 +522,7 @@ MachineSignal.state(definition, options?): MachineStateSignal<TContext, TEvent, 
 |---|---|---|
 | `key` | `"Statechart/<machine id>"` | ключ в Redux DevTools; семантика как у `SignalOptions.key` с `base: "Statechart"` (`{base}` → `Statechart`). Без ключа первый живой инстанс описания получает `Statechart/<machine id>`, одновременно живущие с ним инстансы того же описания — `Statechart/<machine id>#2`, `#3`, … (наименьший свободный номер; освобождается в `dispose()`). Для стабильного осмысленного имени задавайте ключ |
 | `isDisabled` | `undefined` | отключить Redux DevTools для инстанса |
-| `inspector` | `SharedOptions.MACHINE_DEVTOOLS` | адаптер Stately Inspector; `null` отключает |
+| `inspector` | `SharedOptions.MACHINE_DEVTOOLS` | внешний инспектор машины; `null` отключает (см. [совместимость][xstate]) |
 | `autoStart` | `true` | вызвать `start()` в конструкторе. При `false` начальный снапшот всё равно вычисляется, но его эффекты и очередь событий ждут первого `start()` |
 | `clock` | `globalThis` | `{ setTimeout, clearTimeout }` для `after` и отложенных `raise`; подменяется в тестах |
 | `onError` | `undefined` | приёмник ошибок рантайма; без него ошибка бросается из `send()` / `start()` |
@@ -542,10 +539,10 @@ MachineSignal.state(definition, options?): MachineStateSignal<TContext, TEvent, 
 | `definition` | исходное `MachineDefinition` |
 | `status` | статус **движка**: `"idle"` до `start()`, `"running"`, `"stopped"` после `stop()` / done / error, `"disposed"` |
 | `send(event)` | синхронно обработать событие (один макрошаг). До `start()` — в очередь; после stop / done / error / dispose — игнорируется |
-| `matches(stateValue)` | находится ли машина в состоянии (семантика XState `matches`) |
+| `matches(stateValue)` | находится ли машина в состоянии: частичное совпадение по родителю, путь строкой (`"a.b"`) или вложенный объект |
 | `can(event)` | выберет ли событие хотя бы один незапрещённый переход на текущем снапшоте |
 | `start()` | запустить (после `stop()` / done / error — переинициализация с нуля); после `dispose()` бросает |
-| `stop()` | обработать `xstate.stop`: снапшот со `status: "stopped"`, таймеры сняты, очередь очищена; `exit`-действия **не** выполняются (как в XState) |
+| `stop()` | обработать `xstate.stop`: снапшот со `status: "stopped"`, таймеры сняты, очередь очищена; `exit`-действия **не** выполняются |
 | `dispose()` / `[Symbol.dispose]` | остановить, завершить сигнал (убрать из DevTools), отпустить инспектор. Идемпотентно |
 
 ### Снапшот
@@ -563,7 +560,7 @@ type MachineSnapshot<TContext, TOutput> = {
 
 Снапшот — неизменяемый объект; новый создаётся только когда макрошаг что-то изменил, иначе ссылка стабильна (`Object.is`), и производные сигналы не пересчитываются. Тип — размеченное объединение по `status`, поэтому после проверки `snapshot.status === "done"` поле `output` имеет тип `TOutput`.
 
-Не путайте два статуса: `light$.status` описывает движок (запущен / остановлен / освобождён), `light$().status` — состояние самой машины по XState.
+Не путайте два статуса: `light$.status` описывает движок (запущен / остановлен / освобождён), `light$().status` — состояние самой машины.
 
 ### matches и can
 
@@ -597,14 +594,14 @@ stateDiagram-v2
     stopped --> disposed : dispose()
 ```
 
-При `autoStart: true` (по умолчанию) инстанс сразу оказывается в `running`. `send()` из действия (реентерабельный вызов) ставится в очередь и обрабатывается после текущего макрошага — поведение XState; все снапшоты такой серии публикуются в одном `Batcher.run`.
+При `autoStart: true` (по умолчанию) инстанс сразу оказывается в `running`. `send()` из действия (реентерабельный вызов) ставится в очередь и обрабатывается после текущего макрошага; все снапшоты такой серии публикуются в одном `Batcher.run`.
 
 То же относится к вызовам из синхронных подписчиков `obs` и из `Signal.effect` / `Computed`, реагирующих на новый снапшот: события, отправленные во время серии, дообрабатываются, пока очередь не опустеет (каждый раунд — свой `Batcher.run`, так что эффекты видят каждый снапшот). `stop()` и `dispose()` изнутри серии откладываются до её конца. `start()` изнутри серии (например, эффект, перезапускающий машину по `done` / `error` / `stopped`) выполняется после серии — и после `onError`; если ошибка серии не обработана (нет `onError`), она бросается из `send()`, а запрошенный перезапуск отбрасывается: машина остаётся в состоянии `error`, согласованном с исключением.
 
 ### Таймеры
 
 - `after: { 3000: "yellow" }` планирует событие `xstate.after.3000.<id ноды>` через `clock.setTimeout`; выход из состояния снимает таймер.
-- `raise(event, { delay, id })` — отложенное событие; `cancel(id)` его отменяет. Повторный `raise` с тем же `id` при ещё живом таймере **заменяет** его (XState оставил бы оба таймера).
+- `raise(event, { delay, id })` — отложенное событие; `cancel(id)` его отменяет. Повторный `raise` с тем же `id` при ещё живом таймере **заменяет** его.
 - `stop()`, `dispose()`, вход в финальное состояние верхнего уровня и ошибка снимают все таймеры.
 - Отложенные события доставляются через ту же очередь, что и `send()`, поэтому таймер, сработавший во время обработки другого события, не вклинивается в середину макрошага.
 
@@ -618,7 +615,7 @@ stateDiagram-v2
 2. таймеры снимаются, очередь очищается, движок переходит в `stopped`, последующие события игнорируются;
 3. если задан `options.onError` — он вызывается после завершения батча; иначе ошибка бросается из `send()` / `start()` (или из конструктора при `autoStart`). Ошибка из таймерного события без `onError` всплывает как необработанное исключение колбэка таймера.
 
-Ошибка на начальном макрошаге (например, бросающий начальный `assign`) даёт снапшот `status: "error"` с пред-инициализационными `value` / `context` и синхронный throw из конструктора / `start()`; XState в этой ситуации отдал бы пустой `{ status: "error", error }` асинхронно.
+Ошибка на начальном макрошаге (например, бросающий начальный `assign`) даёт снапшот `status: "error"` с пред-инициализационными `value` / `context` и синхронный throw из конструктора / `start()`.
 
 После ошибки машину можно перезапустить: `start()` переинициализирует её с нуля — в том числе из `onError` или из `Signal.effect`, реагирующего на снапшот со `status: "error"` (перезапуск из эффекта выполняется после `onError`; без `onError` ошибка бросается из `send()`, а перезапуск отбрасывается).
 
@@ -637,7 +634,7 @@ if (counter$().status === "error") {
 
 ### Класс Statechart
 
-`MachineSignal.state()` — тонкий фасад над движком `Statechart`; тот экспортируется для продвинутой композиции (например, когда движок нужно хранить как поле класса). Это те же опции и те же методы, но снапшот лежит в поле `state: ReadonlySignal<MachineSnapshot>`, а не в самом объекте; дополнительно есть `getSnapshot()` (алиас `state.peek()`) и `sessionId` (id сессии в инспекторе).
+`MachineSignal.state()` — тонкий фасад над движком `Statechart`; тот экспортируется для продвинутой композиции (например, когда движок нужно хранить как поле класса). Это те же опции и те же методы, но снапшот лежит в поле `state: ReadonlySignal<MachineSnapshot>`, а не в самом объекте; дополнительно есть `getSnapshot()` (алиас `state.peek()`) и `sessionId` (id сессии инспектора).
 
 ```typescript
 import { Statechart } from "@fozy-labs/rx-toolkit";
@@ -701,105 +698,14 @@ updater, вызовет его и сохранит возвращённый сн
 
 ## Devtools
 
-Подробности — в [документации по devtools][devtools].
+Снапшот живёт в `State` с `base: "Statechart"`: без ключа запись называется `Statechart/<machine id>` (одновременно живущие инстансы того же описания — `Statechart/<machine id>#2`, `#3`, …), с ключом — как вы указали. Каждый макрошаг публикуется с именем действия, равным типу события (`TIMER`, `xstate.init`, `xstate.after.3000.trafficLight.green`, `xstate.stop`). `dispose()` убирает запись. Подробности — в [документации по devtools][devtools].
 
-- **Redux DevTools.** Снапшот живёт в `State` с `base: "Statechart"`: без ключа запись называется `Statechart/<machine id>` (одновременно живущие инстансы того же описания — `Statechart/<machine id>#2`, `#3`, …), с ключом — как вы указали. Каждый макрошаг публикуется с именем действия, равным типу события (`TIMER`, `xstate.init`, `xstate.after.3000.trafficLight.green`, `xstate.stop`). `dispose()` убирает запись.
-- **Stately Inspector.** Адаптер `statelyInspector()` без зависимостей воспроизводит протокол `@statelyai/inspect`: открывает `https://stately.ai/inspect` в окне или iframe, регистрирует каждый инстанс, отправляет события и снапшоты. Инспектор получает JSON конфига (функции — как `{ type: fn.name }`), поэтому именованные реализации выглядят в нём осмысленно. Канал односторонний: отправлять события в приложение из инспектора нельзя. Адаптер — best-effort: если он бросил исключение, машина продолжает работать, ошибка один раз логируется через `console.error`, а инспектор для этого инстанса отключается.
-
-```typescript
-import { DefaultOptions, statelyInspector } from "@fozy-labs/rx-toolkit";
-
-// глобально — для всех машин
-DefaultOptions.update({ MACHINE_DEVTOOLS: statelyInspector() });
-
-// или на конкретный инстанс
-const inspected$ = MachineSignal.state(trafficLight, {
-    key: "trafficLight/inspected",
-    inspector: statelyInspector({ iframe: document.querySelector("iframe") }),
-});
-
-// выключить для инстанса
-const silent$ = MachineSignal.state(trafficLight, { key: "trafficLight/silent", inspector: null });
-```
-
-
-## Экспорт в Stately Studio: toXStateSource
-
-`definition.toXStateSource(options?)` печатает готовый к вставке модуль с вызовом `createMachine({...})` — ровно то, что понимает Stately Studio «Import from code» и `@xstate/machine-extractor`.
-
-```typescript
-console.log(trafficLight.toXStateSource());
-```
-
-```typescript
-import { createMachine, assign } from "xstate";
-
-export const trafficLight = createMachine({
-    id: "trafficLight",
-    initial: "green",
-    context: {
-        ready: false,
-        cycles: 0,
-    },
-    states: {
-        green: {
-            after: {
-                3000: "yellow",
-            },
-        },
-        yellow: {
-            on: {
-                TIMER: {
-                    target: "red",
-                    guard: "isReady",
-                    actions: "warn",
-                },
-            },
-        },
-        red: {
-            on: {
-                TIMER: {
-                    target: "green",
-                    actions: assign({
-                        cycles: cycles,
-                    }),
-                },
-            },
-        },
-    },
-    on: {
-        SET_READY: {
-            actions: assign({
-                ready: ready,
-            }),
-        },
-    },
-});
-```
-
-Опции `ToXStateSourceOptions`:
-
-| Опция | По умолчанию | Описание |
-|---|---|---|
-| `exportName` | id машины как идентификатор (`"machine"`, если id нет) | имя экспортируемой константы |
-| `includeImport` | `true` | строка `import { createMachine, ... } from "xstate"` с фактически использованными builtin'ами |
-| `includeImplementations` | `false` | вторым аргументом печатается таблица реализаций; функции — идентификаторами по своему `name` |
-| `indent` | `4` | пробелов на уровень |
-
-Функции в конфиге (инлайн-действия, гварды, функции внутри builtin'ов, `context`-фабрика) печатаются **идентификаторами по своему `name`** — в примере выше стрелки из `assign({ cycles: ... })` стали `cycles`, анонимные функции печатаются как `anonymous`. Такой модуль пригоден для импорта диаграммы, но не для исполнения без доопределения этих идентификаторов. Ключ `types` не печатается; `satisfies` никогда не печатается.
-
-### Правило для исходного кода
-
-Экстрактор Stately и «Import from code» работают на уровне AST и не резолвят импорты. Чтобы ваш исходник читался тулингом напрямую (без `toXStateSource()`):
-
-- вызов должен называться `createMachine` — источник импорта не проверяется, `@fozy-labs/rx-toolkit` для экстрактора неотличим от `xstate`;
-- конфиг — литералом внутри вызова или переменной, объявленной **в том же файле**;
-- **никакого `satisfies`** — экстрактор его не парсит и молча пропускает машину. `config as Type` допустим.
+Живую диаграмму с подсветкой активных состояний даёт [`StatechartViz`](#viz). Опция `inspector` подключает внешний инспектор — см. [совместимость][xstate].
 
 
 ## Экспорт в Mermaid: toMermaid
 
-`definition.toMermaid(options?)` возвращает `stateDiagram-v2` на диалекте конвертера `apps/converter`: mermaid рендерит текст как есть, а конвертер разбирает его обратно в конфиг (для машин в пределах mermaid-подмножества). У машины, сгенерированной из `.mmd`-файла, исходный текст доступен как `definition.source` — viz показывает именно его; `toMermaid()` нужен машинам, написанным конфигом.
+`definition.toMermaid(options?)` возвращает `stateDiagram-v2` на диалекте [конвертера][converter]: mermaid рендерит текст как есть, а конвертер разбирает его обратно в конфиг (для машин в пределах mermaid-подмножества). У машины, сгенерированной из `.mmd`-файла, исходный текст доступен как `definition.source` — viz показывает именно его; `toMermaid()` нужен машинам, написанным конфигом.
 
 ```typescript
 console.log(trafficLight.toMermaid());
@@ -871,43 +777,48 @@ stateDiagram-v2
 
 ### Round-trip с конвертером
 
-Для машины в пределах mermaid-подмножества `parse(definition.toMermaid())` (конвертер `apps/converter`) восстанавливает конфиг по структуре и именам: `id`, `initial`, дерево `states`, переходы с именами guards / actions / delays, регионы `$0` / `$1`, `$final`, `description`. Гарантия закреплена round-trip-тестами конвертера (`apps/converter/test/roundTrip.test.ts`). Не восстанавливается:
+Для машины в пределах mermaid-подмножества `parse(definition.toMermaid())` ([конвертер][converter]) восстанавливает конфиг по структуре и именам: `id`, `initial`, дерево `states`, переходы с именами guards / actions / delays, регионы `$0` / `$1`, `$final`, `description`. Гарантия закреплена round-trip-тестами конвертера. Не восстанавливается:
 
 - тела guards / actions / delays и `@context type` — у конфига их нет, поэтому `toMermaid()` не выводит директивы `@guard` / `@action` / `@delay` / `@context type`. Чтобы передать результат конвертеру или режиму `source` viz, эти директивы дописываются вручную: парсер отвергает необъявленные имена;
 - `context` не-JSON (фабрика, `Date`, …) — директивы `@context initial` нет;
 - конструкции вне подмножества из таблицы выше — конвертер их не читает.
 
-Id состояний в диаграмме — ключи конфига (правило в таблице выше): при повторе ключа в другом родителе или символах вне `[A-Za-z0-9_]` id отличается от ключа, и viz в режиме `machine` такое состояние не подсвечивает (см. [ограничения viz](../../apps/viz/README.md#ограничения)).
+Id состояний в диаграмме — ключи конфига (правило в таблице выше): при повторе ключа в другом родителе или символах вне `[A-Za-z0-9_]` id отличается от ключа, и viz в режиме `machine` такое состояние не подсвечивает (см. [ограничения viz][viz-limits]).
 
 
 ## Авторинг машины в `.mmd`
 
-Машину можно описать одним самодостаточным файлом — mermaid `stateDiagram-v2` с директивами `%% @…` (id машины, тип и начальное значение `context`, payload событий, тела guards / actions / delays). Файл остаётся валидным mermaid и рендерится без плагинов. Подмножество mermaid, грамматика подписи перехода и директивы описаны в [README конвертера](../../apps/converter/README.md) — это их единственный дом.
+Машину можно описать одним самодостаточным файлом — mermaid `stateDiagram-v2` с директивами `%% @…` (id машины, тип и начальное значение `context`, payload событий, тела guards / actions / delays). Файл остаётся валидным mermaid и рендерится без плагинов. Подмножество mermaid, грамматика подписи перехода и директивы описаны в [README конвертера][converter] — это их единственный дом.
 
 ```mermaid
 flowchart LR
     MMD["square.mmd<br/>директивы + диаграмма"]
-    MMD -- "statechart-convert<br/>(apps/converter)" --> GEN["square.generated.ts<br/>Context, Events, StateId, source, definition"]
+    MMD -- "statechart-convert" --> GEN["square.generated.ts<br/>Context, Events, StateId, source, definition"]
     GEN -- "MachineSignal.state(definition)" --> RT["MachineSignal<br/>без eval"]
-    RT -- "machine" --> VIZ["StatechartViz<br/>(apps/viz)"]
-    MMD -- "source: parse + new Function" --> VIZ
+    RT -- "режим machine" --> VIZ["StatechartViz"]
+    MMD -- "режим source: parse + new Function" --> VIZ
 ```
 
-Сгенерированный файл — обычный TypeScript: `createMachine<Context, Events>(config, implementations)`, где тела директив типизированы `Context` и `Events` файла, а тип `event` сужен до переходов, которые ссылаются на реализацию; `config.source` хранит исходный текст, и viz показывает его вместо [`toMermaid()`](#экспорт-в-mermaid-tomermaid). Перед записью конвертер прогоняет конфиг через `createMachine`, так что невалидная машина падает при конвертации, а не в рантайме. Пример — `apps/demos/src/examples/statechart/square.mmd` и `square.generated.ts` рядом (скрипт `npm run statechart:generate` в `apps/demos`).
+Сгенерированный файл — обычный TypeScript: `createMachine<Context, Events>(config, implementations)`, где тела директив типизированы `Context` и `Events` файла, а тип `event` сужен до переходов, которые ссылаются на реализацию; `config.source` хранит исходный текст, и viz показывает его вместо [`toMermaid()`](#экспорт-в-mermaid-tomermaid). Перед записью конвертер прогоняет конфиг через `createMachine`, так что невалидная машина падает при конвертации, а не в рантайме. Пример — `apps/demos/src/examples/statechart/square.mmd` и `square.generated.ts` рядом.
 
 Где исполняется код из схемы:
 
 | Потребитель | Как исполняет тела | Проверка типов |
 |---|---|---|
 | Приложение | `*.generated.ts` — обычный TS, без eval | `tsc` против `Context` / `Events` файла |
-| Viz, режим `source` | `new Function("context", "event", body)` в `apps/viz` | нет — ошибка в теле проявляется в рантайме |
+| Viz, режим `source` | `new Function("context", "event", body)` | нет — ошибка в теле проявляется в рантайме |
 | Ядро библиотеки | никогда | — |
 
-Следствия для хоста режима `source` (CSP `unsafe-eval`, чужой `.mmd` — чужой код) — в [README viz](../../apps/viz/README.md#правило-eval--csp).
+Следствия для хоста режима `source` (CSP `unsafe-eval`, чужой `.mmd` — чужой код) — в [README viz][viz-csp].
 
 ### Viz
 
-`apps/viz` — React-компонент `StatechartViz`: диаграмма mermaid с подсветкой активных состояний, отправка событий кликом по переходу, лог событий и `context`. Режим `machine` принимает запущенный `MachineSignal.state(...)` и рендерит `definition.source ?? definition.toMermaid()`; режим `source` — текст `.mmd`. Пропсы, режимы и ограничения — в [README viz](../../apps/viz/README.md).
+`StatechartViz` — React-компонент: диаграмма mermaid с подсветкой активных состояний, отправка событий кликом по переходу, лог событий и `context`. Режим `machine` принимает запущенный `MachineSignal.state(...)` и рендерит `definition.source ?? definition.toMermaid()`; режим `source` — текст `.mmd`. Пропсы, режимы и ограничения — в [README viz][viz].
+
+```bash
+npm install --save-dev @fozy-labs/statechart-converter
+npm install @fozy-labs/statechart-viz
+```
 
 ```tsx
 import { MachineSignal } from "@fozy-labs/rx-toolkit";
@@ -918,7 +829,7 @@ const square$ = MachineSignal.state(square);
 <StatechartViz machine={square$} />;
 ```
 
-Конвертер и viz — приложения монорепозитория (`apps/*`), не часть пакета `@fozy-labs/rx-toolkit`.
+Конвертер и viz — отдельные пакеты репозитория [fozy-labs/statechart][statechart-repo], не часть `@fozy-labs/rx-toolkit`.
 
 
 ## Тестирование
@@ -993,31 +904,17 @@ function createManualClock(): MachineClock & { flush(): void } {
 - `MachineConfigError` имеет поля `path` и `detail` — удобно для точечных проверок валидации.
 
 
-## Отличия от XState v5
+## Совместимость со сторонним тулингом
 
-Семантика переходов сверена с `xstate@5.32.5` дифференциальными тестами; сознательные отличия перечислены здесь.
-
-| Область | Отличие |
-|---|---|
-| Область поддержки | нет акторной модели (`invoke`, `spawn`, `system`, `input`, `emit`, `sendTo` и т. д.) — такие ключи отклоняются в `createMachine()` |
-| `initial` | только строка; объектная форма `{ target, actions }` не принимается |
-| `onDone` на корне | ошибка конфига (XState принимает, но переход никогда не срабатывает) |
-| `assign` | shallow-merge, как в XState; Immer не используется |
-| `mutate` | builtin без аналога в XState: обновление `context` через Immer-draft (см. [Builtin-действия](#builtin-действия)) |
-| `source` на корне | принимается (исходный `.mmd`-текст для viz), `toXStateSource()` его не выводит |
-| Повторный `raise` с тем же `id` | заменяет ещё живой таймер (XState держит оба, `cancel` достаёт только последний) |
-| Именованная задержка, вернувшая не число | ошибка рантайма (XState поднимает событие немедленно) |
-| `can()` | `false` на снапшоте со `status` не `"active"` и после `dispose()` |
-| `start()` после stop / done / error | переинициализация с нуля (в XState поведение перезапуска не определено) |
-| Ошибки при инициализации | снапшот сохраняет пред-инициализационные `value` / `context`, throw синхронный |
-| События после stop / done / error / dispose | игнорируются; `start()` после `dispose()` бросает |
-| Лимит микрошагов | опция инстанса `maxMicrosteps` вместо ключа конфига `maxIterations` |
-| `snapshot.tags` | массив `readonly string[]`, а не `Set` |
-| `xstate.init` / `xstate.stop` / события акторной системы в `on` | ошибка конфига (XState принимает, но переход никогда не срабатывает) |
-| Креаторы `assign` и др., импортированные из пакета `xstate` | ошибка конфига (у нас они выполнились бы как пустые no-op) |
-| `definition.config` | тот же объект, что передан в `createMachine`, глубоко заморожен после валидации (кроме объекта `context`) и типизирован как read-only |
+Формат конфига совпадает с XState v5, а системные события носят префикс `xstate.` — это открывает сторонние инструменты (инспектор, экстрактор, импорт диаграммы) и ничего не требует от вас, если они не нужны. Все относящиеся сюда факты — экспорт `toXStateSource()`, адаптер `statelyInspector()`, отличия семантики, отвергаемые ключи чужих диалектов — собраны в одном документе: [Совместимость с XState и Stately][xstate].
 
 
 [signals]: ../signals/README.md
 [react]: ../usage/react/README.md
 [devtools]: ../devtools/README.md
+[xstate]: ./xstate.md
+[statechart-repo]: https://github.com/fozy-labs/statechart
+[converter]: https://github.com/fozy-labs/statechart/blob/main/packages/converter/README.md
+[viz]: https://github.com/fozy-labs/statechart/blob/main/packages/viz/README.md
+[viz-limits]: https://github.com/fozy-labs/statechart/blob/main/packages/viz/README.md#ограничения
+[viz-csp]: https://github.com/fozy-labs/statechart/blob/main/packages/viz/README.md#правило-eval--csp
