@@ -11,7 +11,7 @@
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fozy-labs/rx-toolkit": "file:../..",
-    "@fozy-labs/statechart-viz": "file:../viz",
+    "@fozy-labs/statechart-viz": "0.1.0",
     "@heroui/react": "2.8.5",
     "@mdx-js/react": "3.1.1",
     "@mdx-js/rollup": "3.1.1",
