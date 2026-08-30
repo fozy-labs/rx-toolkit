@@ -38,6 +38,17 @@ export const fetches = {
         ];
         return users.find(user => user.id === userId) || null;
     },
+    getUsersByIds: async (args: { userIds: number[] }) => {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const users = [
+            { id: 1, name: 'Алексей Иванов', role: 'Разработчик', avatar: '👨‍💻' },
+            { id: 2, name: 'Мария Петрова', role: 'Дизайнер', avatar: '👩‍🎨' },
+            { id: 3, name: 'Иван Сидоров', role: 'Менеджер', avatar: '👨‍💼' },
+            { id: 4, name: 'Елена Кузнецова', role: 'Аналитик', avatar: '👩‍💼' },
+            { id: 5, name: 'Дмитрий Смирнов', role: 'Тестировщик', avatar: '👨‍🔬' },
+        ];
+        return users.filter(user => args.userIds.includes(user.id));
+    },
     getUserStats: async (args: { userId: number; period: string }): Promise<{ commits: number; pullRequests: number; reviews: number }> => {
         await new Promise(resolve => setTimeout(resolve, 800));
         const userStats = {
