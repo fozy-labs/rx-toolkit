@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`api.createBatchResource`** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов. См. [docs/query/usage/batch-resource](./query/usage/batch-resource.md).
+
 ## [0.12.0-rc.1] - 2026-08-29
 
 Заменяет `0.12.0-rc.0`.
