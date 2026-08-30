@@ -1,3 +1,4 @@
+import type { TBatchResourceOptions } from "./batch-resource";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { ICommand, TCommandOptions } from "./command";
 import type { CombinePluginCommandAugments, CombinePluginResourceAugments, PluginHKT } from "./plugin-hkt";
@@ -90,6 +91,9 @@ export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[], 
     createResource<TArgs = void, TData = unknown>(
         options: TResourceOptions<TArgs, TData>,
     ): IResource<TArgs, TData, TError> & CombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
+    createBatchResource<TResArgs, TResData, TId, TItem, TArgs = TId[]>(
+        options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    ): IResource<TArgs, TItem[], TError> & CombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError>;
     createCommand<TArgs = void, TData = unknown>(
         options: TCommandOptions<TArgs, TData>,
     ): ICommand<TArgs, TData, TError> & CombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;

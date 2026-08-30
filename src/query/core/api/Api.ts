@@ -6,12 +6,14 @@ import type {
     IResource,
     IResourceConfig,
     TApiSnapshot,
+    TBatchResourceOptions,
     TCommandOptions,
     TCreateApiOptions,
     TMapError,
     TResourceOptions,
 } from "@/query/types";
 
+import { BatchRuntime } from "../batch-resource/BatchRuntime";
 import { Command } from "../command/Command";
 import { Resource } from "../resource/Resource";
 import { Snapshoter } from "../snapshoter";
@@ -144,6 +146,34 @@ export class Api implements IApi {
 
         // Spread augmented properties onto the resource object
         Object.assign(resource, augmented);
+
+        return resource;
+    };
+
+    /**
+     * Create a batch resource: a wrapper over an existing resource that fetches
+     * collections of items by ids with per-item cache granularity — only the
+     * ids missing from the shared item cache reach the wrapped resource.
+     */
+    createBatchResource = <TResArgs, TResData, TId, TItem, TArgs = TId[]>(
+        opts: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    ): IResource<TArgs, TItem[]> => {
+        const runtime = new BatchRuntime<TArgs, TId, TItem, TResArgs, TResData>(opts);
+
+        // An ordinary resource caching one entry per id-set, so agents, hooks,
+        // SWR and plugin augmentation work unchanged; the runtime deduplicates
+        // the network traffic underneath. Cross-tab sync is disabled: it would
+        // fill id-set entries bypassing the per-id item cache.
+        const resource = this.createResource<TArgs, TItem[]>({
+            queryFn: runtime.queryFn,
+            key: opts.key,
+            retentionTime: opts.retentionTime,
+            serializeArgs: opts.serializeArgs,
+            onCacheEntryAdded: runtime.onCacheEntryAdded,
+            sync: false,
+        });
+
+        runtime.attach(resource);
 
         return resource;
     };

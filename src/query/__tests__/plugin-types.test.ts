@@ -111,6 +111,70 @@ describe("Plugin HKT type-level tests", () => {
         resource.useSuspenseResource;
     });
 
+    // ---------- Batch resource gets the same augmentation as a resource ----------
+
+    it("createApi with reactHooksPlugin → createBatchResource returns useResource typed over TId[] / TItem[]", () => {
+        type TUser = { id: number; name: string };
+
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const users = api.createResource({
+            queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: "x" })),
+        });
+        const batch = api.createBatchResource({
+            resource: users,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+        });
+
+        assertType<typeof batch.useResource>(batch.useResource);
+
+        // Without parseArgs the batch args default to the id list.
+        type HookFn = typeof batch.useResource;
+        type Param = Parameters<HookFn>[0];
+        type Ret = ReturnType<HookFn>;
+
+        assertType<IsExact<Param, ArgsOrVoidOrSkip<number[]>>>(true as const);
+        assertType<IsExact<Ret, TResourceAgentState<number[], TUser[]>>>(true as const);
+    });
+
+    it("createBatchResource with parseArgs → useResource typed over the custom args", () => {
+        type TUser = { id: number; name: string };
+        type TBatchArgs = { ids: number[]; tag?: string };
+
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const users = api.createResource({
+            queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: "x" })),
+        });
+        const batch = api.createBatchResource({
+            resource: users,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+            parseArgs: (args: TBatchArgs) => args.ids,
+        });
+
+        type HookFn = typeof batch.useResource;
+        type Param = Parameters<HookFn>[0];
+
+        assertType<IsExact<Param, ArgsOrVoidOrSkip<TBatchArgs>>>(true as const);
+    });
+
+    it("createApi without plugins → createBatchResource does NOT return useResource", () => {
+        const api = createApi();
+        const users = api.createResource({
+            queryFn: async (args: { userIds: number[] }) => args.userIds.map((id) => ({ id })),
+        });
+        const batch = api.createBatchResource({
+            resource: users,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+        });
+
+        // @ts-expect-error — useResource should not exist without the plugin
+        batch.useResource;
+    });
+
     // ---------- Command with ReactHooksPlugin includes useCommand ----------
 
     it("createApi with reactHooksPlugin → createCommand returns useCommand", () => {

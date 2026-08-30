@@ -74,6 +74,12 @@ describe("Query module exports (@/index)", () => {
     });
 
     describe("core re-exports", () => {
+        it("exports BatchItemMissingError", async () => {
+            const mod = await import("@/index");
+            expect(mod.BatchItemMissingError).toBeDefined();
+            expect(typeof mod.BatchItemMissingError).toBe("function");
+        });
+
         it("exports Machine", async () => {
             const mod = await import("@/index");
             expect(mod.Machine).toBeDefined();
