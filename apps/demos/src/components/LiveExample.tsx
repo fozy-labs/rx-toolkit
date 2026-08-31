@@ -49,7 +49,7 @@ import {
     Tab,
     Tabs,
 } from '@heroui/react';
-import { debounceTime, scan, startWith, Subject } from 'rxjs';
+import { debounceTime, map, scan, startWith, Subject, take, timer } from 'rxjs';
 import { fetches } from '../utils/fetches';
 
 function processExample(code: string): string {
@@ -108,6 +108,7 @@ export function LiveExample({
         LocalState,
         log,
         MachineSignal,
+        map,
         not,
         or,
         raise,
@@ -128,6 +129,8 @@ export function LiveExample({
         Switch,
         Tab,
         Tabs,
+        take,
+        timer,
         unstable_KeyedSignal,
         ProxySignal,
         useCommand,
