@@ -27,4 +27,4 @@
 *.zip binary
 
 # Generated: collapsed in GitHub diffs, excluded from language stats.
-package-lock.json linguist-generated=true
+pnpm-lock.yaml linguist-generated=true

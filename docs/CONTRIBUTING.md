@@ -33,16 +33,16 @@ git clone https://github.com/fozy-labs/rx-toolkit.git
 cd rx-toolkit
 
 # Установка зависимостей
-npm install
+pnpm install
 
 # Проверка типов
-npm run ts-check
+pnpm run ts-check
 
 # Запуск тестов
-npm run test
+pnpm run test
 
 # Сборка
-npm run build
+pnpm run build
 ```
 
 
@@ -84,8 +84,8 @@ rx-toolkit/
 
 ```bash
 cd apps/demos
-npm install
-npm run dev            # http://localhost:3000
+pnpm install
+pnpm run dev           # http://localhost:3000
 ```
 
 
@@ -128,10 +128,10 @@ apps/demos/src/
 Используется **Vitest** с окружением `jsdom`.
 
 ```bash
-npm run test            # Однократный запуск
-npm run test:watch      # Watch-режим
-npm run test:coverage   # Отчёт о покрытии
-npm run test:ui         # Vitest UI в браузере
+pnpm run test            # Однократный запуск
+pnpm run test:watch      # Watch-режим
+pnpm run test:coverage   # Отчёт о покрытии
+pnpm run test:ui         # Vitest UI в браузере
 ```
 
 - Тесты размещаются рядом с кодом: `MyModule.test.ts`
@@ -143,13 +143,13 @@ npm run test:ui         # Vitest UI в браузере
 ### Команды
 
 ```bash
-npm run lint           # Проверка линтером (ESLint)
-npm run lint:fix       # Автоисправление ошибок линтера
-npm run format         # Форматирование кода (Prettier)
-npm run format:check   # Проверка форматирования без изменений
+pnpm run lint           # Проверка линтером (ESLint)
+pnpm run lint:fix       # Автоисправление ошибок линтера
+pnpm run format         # Форматирование кода (Prettier)
+pnpm run format:check   # Проверка форматирования без изменений
 ```
 
-> `apps/demos/` имеет отдельную конфигурацию ESLint: `cd apps/demos && npx eslint src/`
+> `apps/demos/` имеет отдельную конфигурацию ESLint: `cd apps/demos && pnpm exec eslint src/`
 
 ### Настройка редактора
 

@@ -29,8 +29,7 @@ export type GuardImplementation<TContext extends MachineContext, TEvent extends 
     | BuiltinGuard<TContext, TEvent, ImplementationParams>;
 
 export type DelayImplementation<TContext extends MachineContext, TEvent extends EventObject> =
-    | number
-    | Bivariant<Parameters<DelayExpr<TContext, TEvent, ImplementationParams>>, number>;
+    number | Bivariant<Parameters<DelayExpr<TContext, TEvent, ImplementationParams>>, number>;
 
 /** Second argument of `createMachine` and argument of `definition.provide()`. */
 export interface MachineImplementations<TContext extends MachineContext, TEvent extends EventObject> {

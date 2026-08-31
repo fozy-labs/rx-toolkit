@@ -4,7 +4,7 @@ import { StatechartViz } from '@fozy-labs/statechart-viz';
 import { definition as square } from './square.generated';
 
 // `square.generated.ts` is produced from `square.mmd` by the converter
-// (`npm run statechart:generate`). The definition carries the source text, so
+// (`pnpm run statechart:generate`). The definition carries the source text, so
 // the viz renders the original diagram and follows the running machine:
 // click an enabled transition, or select a state and send an event with a
 // payload from the panel.

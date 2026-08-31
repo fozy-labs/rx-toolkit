@@ -1,0 +1,17 @@
+# Standalone pnpm project (not a monorepo workspace); this file only carries
+# pnpm settings.
+
+# Dependencies whose install scripts are allowed to run:
+# - esbuild: downloads/validates its platform binary
+# - @heroui/shared-utils: swaps in the build matching the installed React major
+allowBuilds:
+  '@heroui/shared-utils': true
+  esbuild: true
+
+# framer-motion is pinned to 12.23.24, but its `motion-dom` / `motion-utils`
+# caret ranges resolve to much newer releases that dropped exports it imports
+# (e.g. `activeAnimations`), crashing Vite. Pin the versions that shipped with
+# framer-motion 12.23.x.
+overrides:
+  motion-dom: 12.23.23
+  motion-utils: 12.23.6

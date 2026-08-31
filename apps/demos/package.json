@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint src/",
-    "statechart:generate": "npm run build --prefix ../converter --silent && node ../converter/dist/cli.js src/examples/statechart/square.mmd"
+    "statechart:generate": "pnpm --dir ../converter --silent run build && node ../converter/dist/cli.js src/examples/statechart/square.mmd"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
-    "@fozy-labs/rx-toolkit": "file:../..",
+    "@fozy-labs/rx-toolkit": "link:../..",
     "@fozy-labs/statechart-viz": "0.1.0",
     "@heroui/react": "2.8.5",
     "@mdx-js/react": "3.1.1",

@@ -209,10 +209,7 @@ const rxToolkitLibrary: Library = {
 export const libraries = { xstate: xstateLibrary, rxToolkit: rxToolkitLibrary } as const;
 
 type ClassifiedStep =
-    | { kind: "send"; event: ScenarioEvent }
-    | { kind: "advance"; ms: number }
-    | { kind: "stop" }
-    | { kind: "start" };
+    { kind: "send"; event: ScenarioEvent } | { kind: "advance"; ms: number } | { kind: "stop" } | { kind: "start" };
 
 /** An event is anything with a string `type`; the other step shapes are control steps. */
 function classifyStep(step: ScenarioStep): ClassifiedStep {

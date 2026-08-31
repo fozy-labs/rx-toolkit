@@ -38,8 +38,7 @@ export interface BuiltinCallable<TContext extends MachineContext, TExpressionEve
 
 /** Static params or a function computing them from `{ context, event }`. */
 export type DynamicParams<TContext extends MachineContext, TExpressionEvent extends EventObject, TParams> =
-    | TParams
-    | ((args: ActionArgs<TContext, TExpressionEvent>) => TParams);
+    TParams | ((args: ActionArgs<TContext, TExpressionEvent>) => TParams);
 
 /** `{ type: "name", params?: ... }` reference to an action of the implementation table. */
 export interface ActionObject<TContext extends MachineContext, TExpressionEvent extends EventObject> {
@@ -60,8 +59,7 @@ export type PropertyAssigner<
     TParams = unknown,
 > = {
     [K in keyof TContext]?:
-        | TContext[K]
-        | ((args: ActionArgs<TContext, TExpressionEvent>, params: TParams) => TContext[K]);
+        TContext[K] | ((args: ActionArgs<TContext, TExpressionEvent>, params: TParams) => TContext[K]);
 };
 
 /** Produced by `assign()`. Applied by the interpreter core (shallow merge, XState semantics). */
@@ -73,8 +71,7 @@ export interface AssignAction<
     readonly [BUILTIN]: "assign";
     readonly type: "xstate.assign";
     readonly assignment:
-        | Assigner<TContext, TExpressionEvent, TParams>
-        | PropertyAssigner<TContext, TExpressionEvent, TParams>;
+        Assigner<TContext, TExpressionEvent, TParams> | PropertyAssigner<TContext, TExpressionEvent, TParams>;
 }
 
 export type SendExpr<

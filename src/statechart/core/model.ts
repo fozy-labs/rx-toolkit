@@ -39,8 +39,7 @@ export type ModelGuard<TContext extends MachineContext, TEvent extends EventObje
 
 /** `output` of a final state or of the root: a mapper or a static value. */
 export type OutputResolver<TContext extends MachineContext> =
-    | Mapper<TContext, ModelEvent<EventObject> | DoneStateEvent, NonReducibleUnknown>
-    | NonReducibleUnknown;
+    Mapper<TContext, ModelEvent<EventObject> | DoneStateEvent, NonReducibleUnknown> | NonReducibleUnknown;
 
 export interface Transition<TContext extends MachineContext, TEvent extends EventObject> {
     readonly source: StateNode<TContext, TEvent>;

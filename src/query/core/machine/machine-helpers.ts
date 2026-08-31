@@ -11,9 +11,7 @@ import { processAllSettledPatches, processPatchState, replayPatchEntries } from 
 
 // States that carry data and support patching
 export type TDataState<TArgs, TData> =
-    | TSuccessState<TArgs, TData>
-    | TRefreshingState<TArgs, TData>
-    | TRefreshErrorState<TArgs, TData>;
+    TSuccessState<TArgs, TData> | TRefreshingState<TArgs, TData> | TRefreshErrorState<TArgs, TData>;
 
 export function hasData<TArgs, TData>(state: TMachineState<TArgs, TData>): state is TDataState<TArgs, TData> {
     return state.status === "success" || state.status === "refreshing" || state.status === "refresh-error";

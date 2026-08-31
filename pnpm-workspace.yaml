@@ -1,0 +1,8 @@
+# Single-package project (not a monorepo workspace); this file only carries
+# pnpm settings.
+
+# Prettier resolves plugin names from the project root, so plugins pulled in
+# transitively by `@fozy-labs/js-configs` (e.g. @ianvs/prettier-plugin-sort-imports)
+# must be hoisted into the root node_modules to stay resolvable.
+publicHoistPattern:
+  - '*prettier-plugin*'

@@ -4,10 +4,11 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
+  "packageManager": "pnpm@11.1.2",
   "prettier": "@fozy-labs/js-configs/prettier",
   "scripts": {
     "build": "rimraf ./dist && tsc && tsc-alias --resolve-full-paths",
-    "build:watch": "npm run build && (concurrently \"tsc -w\" \"tsc-alias -w --resolve-full-paths\")",
+    "build:watch": "pnpm run build && (concurrently \"tsc -w\" \"tsc-alias -w --resolve-full-paths\")",
     "ts-check": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:watch": "vitest",
@@ -17,8 +18,8 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "check:all": "npm run ts-check && npm run test && npm run lint && npm run format:check",
-    "demos": "npm run dev --prefix apps/demos"
+    "check:all": "pnpm run ts-check && pnpm run test && pnpm run lint && pnpm run format:check",
+    "demos": "pnpm --dir apps/demos run dev"
   },
   "devDependencies": {
     "@fozy-labs/js-configs": "^0.1.3",
@@ -33,6 +34,7 @@
     "jiti": "^2.4.0",
     "jsdom": "^28.1.0",
     "prettier": "^3.5.0",
+    "react-dom": "^19.2.0",
     "rimraf": "6.1.2",
     "tsc-alias": "^1.8.16",
     "tsconfig-paths": "4.2.0",

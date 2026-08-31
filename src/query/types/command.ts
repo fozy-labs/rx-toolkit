@@ -61,8 +61,7 @@ export interface TPackedCommand<TArgs, TData, TError = unknown> {
  * the concrete resource/command shape.
  */
 export type TPacked<TArgs, TData, TError = unknown> =
-    | TPackedResource<TArgs, TData, TError>
-    | TPackedCommand<TArgs, TData, TError>;
+    TPackedResource<TArgs, TData, TError> | TPackedCommand<TArgs, TData, TError>;
 
 // ==================== Trigger Result Envelope ====================
 
@@ -73,8 +72,7 @@ export type TPacked<TArgs, TData, TError = unknown> =
  * `result.status === "error"` and `if (result.error)` work equally well.
  */
 export type TTriggerResult<TData, TError = unknown> =
-    | { status: "success"; data: TData; error?: undefined }
-    | { status: "error"; data?: undefined; error: TError };
+    { status: "success"; data: TData; error?: undefined } | { status: "error"; data?: undefined; error: TError };
 
 /**
  * Promise returned by agent/hook-level `trigger`.

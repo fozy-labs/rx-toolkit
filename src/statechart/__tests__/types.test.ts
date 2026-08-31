@@ -33,10 +33,7 @@ interface Ctx {
 }
 
 type Ev =
-    | { type: "INC"; by: number }
-    | { type: "RESET" }
-    | { type: "user.login"; name: string }
-    | { type: "user.logout" };
+    { type: "INC"; by: number } | { type: "RESET" } | { type: "user.login"; name: string } | { type: "user.logout" };
 
 describe("statechart types", () => {
     it("MachineConfig<Ctx, Ev> is assignable to xstate's MachineConfig<Ctx, Ev>", () => {

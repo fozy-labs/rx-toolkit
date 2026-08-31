@@ -22,9 +22,8 @@ function defer<T>() {
 function setup(options?: { version?: () => string }) {
     const api = createApi();
     const version = options?.version ?? (() => "v1");
-    const queryFn = vi.fn(
-        async (args: TBatchQueryArgs): Promise<TUser[]> =>
-            args.userIds.map((id) => ({ id, name: `user-${id}-${version()}` })),
+    const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+        args.userIds.map((id) => ({ id, name: `user-${id}-${version()}` })),
     );
     const userResource = api.createResource({ queryFn });
     const projection = api.unstable_createProjectionResource({
@@ -150,9 +149,8 @@ describe("ProjectionResource", () => {
     describe("errors", () => {
         it("fails the id-set entry with ProjectionItemMissingError when the response misses a requested id", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
             const projection = api.unstable_createProjectionResource({
@@ -208,9 +206,8 @@ describe("ProjectionResource", () => {
                 }
             }
             const api = createApi({ mapError: (error) => new MappedError(error) });
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
             const projection = api.unstable_createProjectionResource({
@@ -278,9 +275,8 @@ describe("ProjectionResource", () => {
         it("fails a refresh with ProjectionItemMissingError when the response no longer covers an id", async () => {
             const api = createApi();
             let deletedId: number | null = null;
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.filter((id) => id !== deletedId).map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.filter((id) => id !== deletedId).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
             const projection = api.unstable_createProjectionResource({
@@ -500,9 +496,8 @@ describe("ProjectionResource", () => {
     describe("lifecycle hooks", () => {
         it("fires user onCacheEntryAdded per id-set entry and keeps item eviction intact", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
 
@@ -542,9 +537,8 @@ describe("ProjectionResource", () => {
 
         it("fires user onQueryStarted per run, including cache-only runs", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
 
@@ -575,9 +569,8 @@ describe("ProjectionResource", () => {
 
         it("a throwing user hook does not break the runtime bookkeeping", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
             const projection = api.unstable_createProjectionResource({
@@ -604,9 +597,8 @@ describe("ProjectionResource", () => {
     describe("snapshots", () => {
         it("excludes id-set entries from getSnapshot — the wrapped resource owns the data", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ key: "users", queryFn });
             const projection = api.unstable_createProjectionResource({
@@ -686,9 +678,8 @@ describe("ProjectionResource", () => {
     describe("custom args and ids", () => {
         it("supports custom args via parseArgs", async () => {
             const api = createApi();
-            const queryFn = vi.fn(
-                async (args: TBatchQueryArgs): Promise<TUser[]> =>
-                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
             const projection = api.unstable_createProjectionResource({
