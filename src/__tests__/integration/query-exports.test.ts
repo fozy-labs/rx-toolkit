@@ -5,6 +5,12 @@ describe("Query module exports (@/index)", () => {
             expect(mod.createApi).toBeDefined();
             expect(typeof mod.createApi).toBe("function");
         });
+
+        it("exports composeHooks", async () => {
+            const mod = await import("@/index");
+            expect(mod.composeHooks).toBeDefined();
+            expect(typeof mod.composeHooks).toBe("function");
+        });
     });
 
     describe("constants re-exports", () => {

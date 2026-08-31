@@ -19,8 +19,8 @@ import { Resource } from "../resource/Resource";
 import { Snapshoter } from "../snapshoter";
 import { Syncer } from "../syncer";
 
+import { composeHooks } from "./composeHooks";
 import { DEFAULT_COMMAND_RETENTION_TIME, DEFAULT_RESOURCE_RETENTION_TIME } from "./constants";
-import { mergeHooks } from "./mergeHooks";
 import { normalizeLinks } from "./normalizeLinks";
 
 /**
@@ -104,8 +104,8 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + resource-level
-        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         // Snapshot hydration: build initialEntries if snapshot has matching resource data
         const initialEntries = this.snapshoter.hydrateResource(opts.key, opts.snapshotValidTime);
@@ -185,8 +185,8 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + command-level
-        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         const config: ICommandConfig<TArgs, TData> = {
             queryFn: opts.queryFn,

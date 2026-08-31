@@ -12,6 +12,3 @@ export function createApi<const TPlugins extends readonly IPlugin[] = readonly I
     // onto every resource/command state through this cast plus the plugin HKT machinery.
     return new Api(options) as unknown as IApi<TPlugins, TError>;
 }
-
-/** @internal — re-exported for unit testing only */
-export { mergeHooks } from "../core/api";

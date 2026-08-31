@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
-import { createApi, mergeHooks } from "@/query/api/createApi";
+import { createApi } from "@/query/api/createApi";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/constants";
+import { composeHooks } from "@/query/core/api";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { IPlugin, ISyncDriver, ISyncMessage, TApiSnapshot, TCreateApiOptions } from "@/query/types";
 
@@ -673,84 +674,98 @@ describe("createApi — snapshot hydration", () => {
     });
 });
 
-// ==================== Lifecycle Hooks (mergeHooks) ====================
+// ==================== Lifecycle Hooks (composeHooks) ====================
 
-describe("mergeHooks", () => {
-    it("both undefined → returns undefined", () => {
-        expect(mergeHooks(undefined, undefined)).toBeUndefined();
+describe("composeHooks", () => {
+    it("no hooks → returns undefined", () => {
+        expect(composeHooks()).toBeUndefined();
     });
 
-    it("only API hook → returns API hook", () => {
+    it("all undefined → returns undefined", () => {
+        expect(composeHooks(undefined, undefined, undefined)).toBeUndefined();
+    });
+
+    it("single present hook → returned as-is", () => {
         const hook = vi.fn();
-        expect(mergeHooks(hook, undefined)).toBe(hook);
+        expect(composeHooks(hook, undefined)).toBe(hook);
+        expect(composeHooks(undefined, hook)).toBe(hook);
+        expect(composeHooks(undefined, hook, undefined)).toBe(hook);
     });
 
-    it("only local hook → returns local hook", () => {
-        const hook = vi.fn();
-        expect(mergeHooks(undefined, hook)).toBe(hook);
-    });
-
-    it("both present → returns merged function that calls both", async () => {
+    it("two present → returns composed function that calls both", async () => {
         const apiHook = vi.fn();
         const localHook = vi.fn();
-        const merged = mergeHooks(apiHook, localHook)!;
+        const composed = composeHooks(apiHook, localHook)!;
 
-        expect(merged).toBeTypeOf("function");
-        await merged("arg1", "arg2");
+        expect(composed).toBeTypeOf("function");
+        await composed("arg1", "arg2");
 
         expect(apiHook).toHaveBeenCalledWith("arg1", "arg2");
         expect(localHook).toHaveBeenCalledWith("arg1", "arg2");
     });
 
-    it("both present — API hook error does not prevent local hook call", async () => {
+    it("three present → all called with the same args", async () => {
+        const hookA = vi.fn();
+        const hookB = vi.fn();
+        const hookC = vi.fn();
+        const composed = composeHooks(hookA, undefined, hookB, hookC)!;
+
+        await composed("arg", "ctx");
+
+        expect(hookA).toHaveBeenCalledWith("arg", "ctx");
+        expect(hookB).toHaveBeenCalledWith("arg", "ctx");
+        expect(hookC).toHaveBeenCalledWith("arg", "ctx");
+    });
+
+    it("a hook error does not prevent the other hooks from running", async () => {
         const apiHook = vi.fn(() => {
             throw new Error("api-error");
         });
         const localHook = vi.fn();
-        const merged = mergeHooks(apiHook, localHook)!;
+        const composed = composeHooks(apiHook, localHook)!;
 
         // Should not throw
-        await merged("a");
-        expect(localHook).toHaveBeenCalledWith("a");
+        await composed("a", "ctx");
+        expect(localHook).toHaveBeenCalledWith("a", "ctx");
     });
 
-    it("both present — local hook error does not cause unhandled rejection", async () => {
+    it("a hook error does not cause unhandled rejection", async () => {
         const apiHook = vi.fn();
         const localHook = vi.fn(() => {
             throw new Error("local-error");
         });
-        const merged = mergeHooks(apiHook, localHook)!;
+        const composed = composeHooks(apiHook, localHook)!;
 
-        await expect(merged("a")).resolves.toBeUndefined();
+        await expect(composed("a", "ctx")).resolves.toBeUndefined();
         expect(apiHook).toHaveBeenCalled();
     });
 
-    it("both present — async hooks that reject", async () => {
+    it("async hooks that reject → composed promise still resolves", async () => {
         const apiHook = vi.fn(async () => {
             throw new Error("async-api");
         });
         const localHook = vi.fn(async () => {
             throw new Error("async-local");
         });
-        const merged = mergeHooks(apiHook, localHook)!;
+        const composed = composeHooks(apiHook, localHook)!;
 
-        await expect(merged()).resolves.toBeUndefined();
+        await expect(composed("a", "ctx")).resolves.toBeUndefined();
         expect(apiHook).toHaveBeenCalled();
         expect(localHook).toHaveBeenCalled();
     });
 
-    it("local hook is not blocked by a long-lived API hook", async () => {
+    it("a hook is not blocked by a long-lived preceding hook", async () => {
         // Documented lifecycle pattern: a hook may await $cacheEntryRemoved and
-        // stay pending for the entry's whole lifetime. The local hook must not
-        // wait for the API hook to settle.
+        // stay pending for the entry's whole lifetime. The other hooks must not
+        // wait for it to settle.
         const apiHook = vi.fn(() => new Promise<void>(() => {}));
         const localHook = vi.fn();
-        const merged = mergeHooks(apiHook, localHook)!;
+        const composed = composeHooks(apiHook, localHook)!;
 
-        void merged("a");
+        void composed("a", "ctx");
         await flushMicrotasks();
 
-        expect(localHook).toHaveBeenCalledWith("a");
+        expect(localHook).toHaveBeenCalledWith("a", "ctx");
     });
 });
 

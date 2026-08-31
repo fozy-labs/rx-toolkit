@@ -8,6 +8,9 @@ export * from "./types";
 // BatchItemMissingError likewise reaches consumers through a batch entry's
 // error state when a batch response does not cover every requested id.
 export { BatchItemMissingError, CacheEntryRemovedError } from "./core/errors";
+// Public utility to stack several lifecycle hooks (onQueryStarted /
+// onCacheEntryAdded) into a single option value.
+export { composeHooks } from "./core/api";
 export {
     Machine,
     MachineBase,
