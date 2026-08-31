@@ -48,7 +48,7 @@ export class MachineBase<TArgs, TData> {
         return new MachineBase<TArgs, TData>(state);
     }
 
-    /** pending → error, refreshing → refresh-error */
+    /** pending → error, refreshing → refresh-error, success → refresh-error */
     fail(error: unknown): MachineBase<TArgs, TData> {
         if (this.state.status === "pending") {
             const state: TErrorState<TArgs> = {
@@ -57,6 +57,21 @@ export class MachineBase<TArgs, TData> {
                 data: null,
                 error,
                 updatedAt: null,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        // A streaming query can fail after it already delivered data: the entry
+        // sits in `success` when the stream errors. Data is kept, like a failed
+        // background refresh.
+        if (this.state.status === "success") {
+            const state: TRefreshErrorState<TArgs, TData> = {
+                status: "refresh-error",
+                args: this.state.args,
+                data: this.state.data,
+                error,
+                updatedAt: this.state.updatedAt,
+                patchState: this.state.patchState,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -119,6 +134,33 @@ export class MachineBase<TArgs, TData> {
             updatedAt: null,
         };
         return new MachineBase<TArgs, TData>(state);
+    }
+
+    /** success → success (subsequent stream emission; replays patches on new data) */
+    next(data: TData): MachineBase<TArgs, TData> {
+        if (this.state.status !== "success") {
+            throw new MachineTransitionError("next", this.state.status);
+        }
+
+        const patchState = this.state.patchState;
+
+        // No patches → fresh success with the new base
+        if (!patchState) {
+            const state: TSuccessState<TArgs, TData> = {
+                status: "success",
+                args: this.state.args,
+                data,
+                error: null,
+                updatedAt: Date.now(),
+                patchState: null,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        // Replay pending patches on new base
+        return new MachineBase<TArgs, TData>(
+            replayPatches(this.state, "success", data, patchState.patches, Date.now()),
+        );
     }
 
     /** refreshing → success (replays patches on new data) */

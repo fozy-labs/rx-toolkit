@@ -163,8 +163,18 @@ describe("Machine", () => {
             }
         });
 
-        it("throws MachineTransitionError from success state", () => {
-            expect(() => makeSuccess().fail(new Error())).toThrow(MachineTransitionError);
+        it("success → refresh-error (stream failure after data): preserves data and patchState", () => {
+            const err = new Error("stream oops");
+            const { machine: patched } = makeSuccess().createPatch((d) => {
+                d.count = 99;
+            });
+            const m = patched.fail(err);
+            expect(m.state.status).toBe("refresh-error");
+            expect(m.state.data).toEqual({ ...DATA, count: 99 });
+            expect(m.state.error).toBe(err);
+            if (m.state.status === "refresh-error") {
+                expect(m.state.patchState).not.toBeNull();
+            }
         });
 
         it("throws MachineTransitionError from error state", () => {
@@ -173,6 +183,42 @@ describe("Machine", () => {
 
         it("throws MachineTransitionError from refresh-error state", () => {
             expect(() => makeRefreshError().fail(new Error())).toThrow(MachineTransitionError);
+        });
+    });
+
+    // ── FSM Transition: next() ─────────────────────────────────────
+
+    describe("next()", () => {
+        it("success → success (no patches): uses new data, bumps updatedAt", () => {
+            const m1 = makeSuccess();
+            vi.setSystemTime(2000);
+            const m2 = m1.next(DATA2);
+            expect(m2.state.status).toBe("success");
+            expect(m2.state.data).toBe(DATA2);
+            expect(m2.state.updatedAt).toBe(2000);
+            if (m2.state.status === "success") {
+                expect(m2.state.patchState).toBeNull();
+            }
+        });
+
+        it("success → success (with patches): replays pending patches on new base", () => {
+            const { machine: patched } = makeSuccess().createPatch((d) => {
+                d.count = 99;
+            });
+            const m = patched.next(DATA2);
+            expect(m.state.status).toBe("success");
+            expect(m.state.data).toEqual({ ...DATA2, count: 99 });
+            if (m.state.status === "success") {
+                expect(m.state.patchState).not.toBeNull();
+            }
+        });
+
+        it("throws MachineTransitionError from pending state", () => {
+            expect(() => (makePending() as any).next(DATA)).toThrow(MachineTransitionError);
+        });
+
+        it("throws MachineTransitionError from refreshing state", () => {
+            expect(() => (makeRefreshing() as any).next(DATA2)).toThrow(MachineTransitionError);
         });
     });
 
@@ -602,13 +648,15 @@ describe("Machine", () => {
     // ── Full Transition Matrix ─────────────────────────────────────
 
     describe("transition matrix — invalid transitions throw", () => {
-        const methods = ["success", "fail", "refresh", "retry", "rebase"] as const;
+        const methods = ["success", "fail", "refresh", "retry", "rebase", "next"] as const;
 
         // Map of valid transitions: [fromState, method]
         const validTransitions = new Set([
             "pending:success",
             "pending:fail",
             "success:refresh",
+            "success:fail",
+            "success:next",
             "error:retry",
             "refreshing:fail",
             "refreshing:rebase",
@@ -629,6 +677,7 @@ describe("Machine", () => {
             refresh: [],
             retry: [],
             rebase: [DATA2],
+            next: [DATA2],
         };
 
         for (const [stateName, factory] of Object.entries(states)) {
