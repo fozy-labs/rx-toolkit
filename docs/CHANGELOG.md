@@ -3,12 +3,15 @@
 
 ## [Unreleased]
 
+
+## [0.12.0] - 2026-08-31
+
 ### Added
 - **Стриминговые запросы** — поддержка `Observable<TData>` в ответе `queryFn` ресурса. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
 - **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесканальной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
 - **`snapshotable`** — опция ресурса для исключения его из снапшота.
 - **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
-- **Statechart (experimental)** — стейт-машины на собственном рантайме поверх сигналов, без внешних зависимостей. Точки входа: `unstable_createMachine`, `unstable_MachineSignal`, `unstable_Statechart`. См. [docs/statechart](./statechart/README.md).
+- **`unstable_MachineSignal` (experimental)** — стейт-машина на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
 
 ### Fixed
 - Исправлены относительные импорты в `dist` приводившие к ошибке "ERR_UNSUPPORTED_DIR_IMPORT" в Nodejs.
@@ -366,7 +369,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...develop
+[0.12.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.1
 [0.10.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.1...v0.10.2
