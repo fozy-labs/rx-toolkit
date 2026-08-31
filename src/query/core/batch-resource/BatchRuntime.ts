@@ -44,6 +44,9 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     /** Serialized id → the in-flight batch fetch covering it. */
     private readonly _inFlight = new Map<string, Promise<void>>();
 
+    /** One warning per batch resource about set-local patch semantics. */
+    private _didWarnSetLocalPatch = false;
+
     constructor(options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>) {
         this._wrapped = options.resource;
         this._parseData = options.parseData;
@@ -154,6 +157,17 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             this._refCounts.set(sid, (this._refCounts.get(sid) ?? 0) + 1);
         }
 
+        // Patches on an id-set entry are legitimate but set-local (the shared
+        // item cache and overlapping sets do not see them), which diverges
+        // from plain-resource expectations — surface that once, on the first
+        // patch, covering both direct createPatch calls and command links.
+        const entry = ctx.entry;
+        const originalCreatePatch = entry.createPatch.bind(entry);
+        entry.createPatch = (patchFn) => {
+            this._warnSetLocalPatch();
+            return originalCreatePatch(patchFn);
+        };
+
         // Subscribed directly (instead of awaiting $cacheEntryRemoved) so the
         // release is synchronous with the entry's completion: a fetch issued in
         // the same tick as a reset must not see the already-evicted items. The
@@ -172,6 +186,16 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     };
 
     // ==================== Private ====================
+
+    private _warnSetLocalPatch(): void {
+        if (this._didWarnSetLocalPatch) return;
+        this._didWarnSetLocalPatch = true;
+        console.warn(
+            "[rx-toolkit] A patch on a batch resource is set-local: the shared item cache and " +
+                "overlapping id-set entries do not see it and stay as-is until their next refresh. " +
+                "See docs/query/usage/batch-resource.md.",
+        );
+    }
 
     /** Fetch one batch of ids through the wrapped resource and register it as in-flight for each id. */
     private _fetchBatch(ids: TId[], sids: string[]): Promise<void> {

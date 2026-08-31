@@ -363,6 +363,43 @@ describe("BatchResource", () => {
         });
     });
 
+    // ==================== Patches ====================
+
+    describe("patches", () => {
+        it("applies a set-local patch and warns exactly once per batch resource", async () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            try {
+                const { batch } = setup();
+
+                await batch.fetch([1, 2]);
+                await batch.fetch([2, 3]);
+
+                const firstEntry = batch.getEntry([1, 2])!;
+                // Patch the shared item (id 2) to probe cross-set isolation.
+                const handle = firstEntry.createPatch((data) => {
+                    data[1].name = "patched";
+                });
+
+                expect(handle).not.toBeNull();
+                // The patch is applied to this entry's projection...
+                expect(batch.getState([1, 2]).data?.[1].name).toBe("patched");
+                // ...but is set-local: the overlapping entry keeps the base item 2.
+                expect(batch.getState([2, 3]).data?.[0].name).not.toBe("patched");
+
+                expect(warnSpy).toHaveBeenCalledTimes(1);
+                expect(warnSpy.mock.calls[0][0]).toContain("set-local");
+
+                // Further patches (same or another entry) do not warn again.
+                batch.getEntry([2, 3])!.createPatch((data) => {
+                    data[0].name = "patched-2";
+                });
+                expect(warnSpy).toHaveBeenCalledTimes(1);
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+    });
+
     // ==================== Custom args & ids ====================
 
     describe("custom args and ids", () => {
