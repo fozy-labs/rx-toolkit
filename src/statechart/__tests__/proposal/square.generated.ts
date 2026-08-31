@@ -3,7 +3,7 @@
 // Typed by hand from the proposal (section «Пример: возведение в квадрат»),
 // following the shape of `trafficLight.generated.ts`; the only change is the
 // import path (`@/index` is this repository's `@fozy-labs/rx-toolkit`).
-import { createMachine, mutate, type ActionArgs, type GuardArgs } from "@/index";
+import { unstable_createMachine as createMachine, mutate, type ActionArgs, type GuardArgs } from "@/index";
 
 export type Context = { result: number | null; error: string | null };
 

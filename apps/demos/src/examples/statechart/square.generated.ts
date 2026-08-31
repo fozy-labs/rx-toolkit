@@ -1,5 +1,5 @@
 // AUTO-GENERATED from square.mmd — do not edit
-import { createMachine, mutate, type ActionArgs, type GuardArgs } from "@fozy-labs/rx-toolkit";
+import { mutate, unstable_createMachine as createMachine, type ActionArgs, type GuardArgs } from "@fozy-labs/rx-toolkit";
 
 export type Context = { result: number | null; error: string | null };
 

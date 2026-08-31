@@ -1,7 +1,7 @@
 import { sendTo, assign as xstateAssign, stateIn as xstateStateIn } from "xstate";
 
 import { MachineConfigError } from "./core/MachineConfigError";
-import { createMachine } from "./createMachine";
+import { unstable_createMachine as createMachine } from "./createMachine";
 import { getMachineModel, MachineDefinition } from "./MachineDefinition";
 
 describe("createMachine", () => {

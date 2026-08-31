@@ -4,7 +4,7 @@
  * возведение в квадрат») compile against the library types as written and
  * behave as the proposal documents.
  */
-import { MachineSignal, Signal, type MachineClock } from "@/index";
+import { unstable_MachineSignal as MachineSignal, Signal, type MachineClock } from "@/index";
 
 import { definition as square, type StateId as SquareStateId } from "./square.generated";
 import { source, definition as trafficLight, type StateId as TrafficLightStateId } from "./trafficLight.generated";

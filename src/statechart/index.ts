@@ -1,8 +1,8 @@
 export * from "./types";
-export { createMachine } from "./createMachine";
+export { unstable_createMachine } from "./createMachine";
 export { MachineDefinition } from "./MachineDefinition";
-export { MachineSignal } from "./MachineSignal";
-export { Statechart } from "./Statechart";
+export { unstable_MachineSignal } from "./MachineSignal";
+export { unstable_Statechart } from "./Statechart";
 export { assign, cancel, log, mutate, raise } from "./actions";
 export { and, not, or, stateIn } from "./guards";
 export { MachineConfigError } from "./core/MachineConfigError";

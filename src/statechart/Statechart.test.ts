@@ -7,8 +7,8 @@ import { Signal } from "@/signals/signals/Signal";
 
 import { assign, cancel, log, raise } from "./actions";
 import { MachineConfigError } from "./core/MachineConfigError";
-import { createMachine } from "./createMachine";
-import { Statechart } from "./Statechart";
+import { unstable_createMachine as createMachine } from "./createMachine";
+import { unstable_Statechart as Statechart } from "./Statechart";
 import type { MachineClock, MachineContext, MachineSnapshot } from "./types";
 
 // --- helpers ---------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { createMachine } from "../createMachine";
+import { unstable_createMachine as createMachine } from "../createMachine";
 import { getMachineModel } from "../MachineDefinition";
 import type { AnyEventObject, MachineContext } from "../types";
 

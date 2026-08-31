@@ -32,7 +32,18 @@ import {
     stateIn as xStateIn,
 } from "xstate";
 
-import { and, assign, cancel, createMachine, log, not, or, raise, Statechart, stateIn } from "@/statechart";
+import {
+    and,
+    assign,
+    cancel,
+    unstable_createMachine as createMachine,
+    log,
+    not,
+    or,
+    raise,
+    unstable_Statechart as Statechart,
+    stateIn,
+} from "@/statechart";
 import type { StateValue } from "@/statechart";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

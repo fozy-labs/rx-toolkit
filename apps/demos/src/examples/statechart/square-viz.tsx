@@ -1,5 +1,5 @@
 import React from 'react';
-import { MachineSignal } from '@fozy-labs/rx-toolkit';
+import { unstable_MachineSignal as MachineSignal } from '@fozy-labs/rx-toolkit';
 import { StatechartViz } from '@fozy-labs/statechart-viz';
 import { definition as square } from './square.generated';
 

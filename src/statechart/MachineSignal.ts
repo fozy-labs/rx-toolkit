@@ -1,7 +1,7 @@
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
 
 import type { MachineDefinition } from "./MachineDefinition";
-import { Statechart } from "./Statechart";
+import { unstable_Statechart as Statechart } from "./Statechart";
 import type {
     EventObject,
     MachineContext,
@@ -16,7 +16,7 @@ import type {
  * callable read-only signal of the snapshot enriched with the machine API,
  * delegating to a `Statechart` engine.
  */
-export class MachineSignal {
+export class unstable_MachineSignal {
     static state<TContext extends MachineContext, TEvent extends EventObject, TOutput = unknown>(
         definition: MachineDefinition<TContext, TEvent, TOutput>,
         options?: StatechartOptionsOrKey,

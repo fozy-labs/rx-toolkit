@@ -2,6 +2,12 @@
 
 Модуль Statechart — конечные автоматы (стейтчарты) поверх [сигналов][signals]: вложенные, параллельные, финальные и history-состояния, `entry` / `exit`, `always`, `after`, `onDone`, гварды и действия. Собственный рантайм, без внешних зависимостей.
 
+> **Нестабильный API.** Точки входа экспортируются с префиксом `unstable_`:
+> `unstable_createMachine`, `unstable_MachineSignal`, `unstable_Statechart` — контракт может
+> меняться без мажорной версии. В примерах ниже импорты алиасятся
+> (`import { unstable_createMachine as createMachine }`); алиас также сохраняет работу
+> экстрактора Stately Studio, который матчит вызовы по имени `createMachine`.
+
 Что даёт модуль:
 
 - **Декларативное описание** — машина это чистые данные (конфиг) плюс таблица реализаций по именам. Конфиг сериализуем, поэтому его можно показать, экспортировать и разобрать обратно.
@@ -75,7 +81,7 @@ flowchart LR
 ## Быстрый старт
 
 ```typescript
-import { assign, createMachine, MachineSignal } from "@fozy-labs/rx-toolkit";
+import { assign, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 
 interface LightContext {
     ready: boolean;
@@ -200,7 +206,7 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 Ключи `on`: точный тип события (`"TIMER"`), частичный wildcard (`"user.*"`) и catch-all `"*"`.
 
 ```typescript
-import { createMachine } from "@fozy-labs/rx-toolkit";
+import { unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 type PlayerEvent =
     | { type: "PLAY" }
@@ -243,7 +249,7 @@ export const player = createMachine({
 ### Параллельные и финальные состояния, `onDone`, `output`
 
 ```typescript
-import { createMachine } from "@fozy-labs/rx-toolkit";
+import { unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 type WizardEvent = { type: "NEXT" } | { type: "TOGGLE" } | { type: "RESET" };
 
@@ -295,7 +301,7 @@ export const wizard = createMachine({
 | Ключи и креаторы чужих диалектов | перечислены в [совместимости][xstate] |
 
 ```typescript
-import { createMachine, MachineConfigError } from "@fozy-labs/rx-toolkit";
+import { MachineConfigError, unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 try {
     createMachine({
@@ -345,7 +351,7 @@ interface MachineImplementations<TContext, TEvent> {
 Инлайн-функции удобны в прототипах, но в диаграмме и в devtools они видны только по имени функции (анонимные — как `anonymous`). Для машин, которые вы собираетесь смотреть глазами, предпочитайте имена из таблицы.
 
 ```typescript
-import { createMachine } from "@fozy-labs/rx-toolkit";
+import { unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 interface CounterContext {
     count: number;
@@ -400,7 +406,7 @@ export const counter = createMachine(
 | `log(value? \| ({ context, event }) => value, label?)` | пишет в `logger` инстанса (по умолчанию `console.log`); без аргументов — `{ context, event }` |
 
 ```typescript
-import { assign, cancel, createMachine, log, raise } from "@fozy-labs/rx-toolkit";
+import { assign, cancel, log, raise, unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 interface SearchContext {
     query: string;
@@ -453,7 +459,7 @@ export const search = createMachine(
 Аргументы комбинаторов — те же формы гвардов: имена, `{ type, params }`, инлайн-предикаты, другие builtin'ы. Builtin-гвард можно положить и в таблицу `guards` под именем; именованные гварды не должны ссылаться друг на друга по кругу — это проверяется при создании инстанса.
 
 ```typescript
-import { and, createMachine, not, or, stateIn } from "@fozy-labs/rx-toolkit";
+import { and, not, or, stateIn, unstable_createMachine as createMachine } from "@fozy-labs/rx-toolkit";
 
 interface DoorContext {
     locked: boolean;
@@ -565,7 +571,7 @@ type MachineSnapshot<TContext, TOutput> = {
 ### matches и can
 
 ```typescript
-import { MachineSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 
 const player$ = MachineSignal.state(player);
 player$.send({ type: "PLAY" });
@@ -620,7 +626,7 @@ stateDiagram-v2
 После ошибки машину можно перезапустить: `start()` переинициализирует её с нуля — в том числе из `onError` или из `Signal.effect`, реагирующего на снапшот со `status: "error"` (перезапуск из эффекта выполняется после `onError`; без `onError` ошибка бросается из `send()`, а перезапуск отбрасывается).
 
 ```typescript
-import { MachineSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 
 const counter$ = MachineSignal.state(counter, {
     key: "counter",
@@ -637,7 +643,7 @@ if (counter$().status === "error") {
 `MachineSignal.state()` — тонкий фасад над движком `Statechart`; тот экспортируется для продвинутой композиции (например, когда движок нужно хранить как поле класса). Это те же опции и те же методы, но снапшот лежит в поле `state: ReadonlySignal<MachineSnapshot>`, а не в самом объекте; дополнительно есть `getSnapshot()` (алиас `state.peek()`) и `sessionId` (id сессии инспектора).
 
 ```typescript
-import { Statechart } from "@fozy-labs/rx-toolkit";
+import { unstable_Statechart as Statechart } from "@fozy-labs/rx-toolkit";
 
 const engine = new Statechart(trafficLight, { key: "trafficLight/engine" });
 
@@ -821,7 +827,7 @@ npm install @fozy-labs/statechart-viz
 ```
 
 ```tsx
-import { MachineSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 import { StatechartViz } from "@fozy-labs/statechart-viz";
 import { definition as square } from "./square.generated";
 
@@ -839,7 +845,7 @@ const square$ = MachineSignal.state(square);
 `definition.provide({ actions?, guards?, delays? })` возвращает **новое** описание с объединёнными таблицами (новые значения побеждают). Форма реализаций проверяется сразу, соответствие именам из конфига — при создании инстанса. Это позволяет описывать машину с пустой таблицей и заполнять её в тестах, либо подменять побочные эффекты.
 
 ```typescript
-import { MachineSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 
 it("switches to red only when ready", () => {
     const warn = vi.fn();
@@ -862,7 +868,7 @@ it("switches to red only when ready", () => {
 Для детерминированных тестов `after` / отложенных `raise` либо используйте `vi.useFakeTimers()` до создания инстанса, либо передайте собственный `clock`:
 
 ```typescript
-import { MachineSignal, type MachineClock } from "@fozy-labs/rx-toolkit";
+import { unstable_MachineSignal as MachineSignal, type MachineClock } from "@fozy-labs/rx-toolkit";
 
 it("goes yellow after the delay", () => {
     vi.useFakeTimers();

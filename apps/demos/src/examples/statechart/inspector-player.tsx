@@ -1,5 +1,5 @@
 import React from 'react';
-import { createMachine, DefaultOptions, log, MachineSignal, statelyInspector, useSignal } from '@fozy-labs/rx-toolkit';
+import { DefaultOptions, log, statelyInspector, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal, useSignal } from '@fozy-labs/rx-toolkit';
 import type { MachineContext, MachineStateSignal, StatelyInspector } from '@fozy-labs/rx-toolkit';
 import { Button, Card, CardBody, CardFooter, CardHeader, Chip, Divider } from '@heroui/react';
 

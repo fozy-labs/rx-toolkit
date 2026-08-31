@@ -125,9 +125,9 @@ describe("Root module exports (@/index)", () => {
     });
 
     describe("statechart re-exports", () => {
-        it("exports createMachine", async () => {
+        it("exports unstable_createMachine", async () => {
             const mod = await import("@/index");
-            expect(mod.createMachine).toBeDefined();
+            expect(mod.unstable_createMachine).toBeDefined();
         });
 
         it("exports MachineDefinition", async () => {
@@ -135,15 +135,15 @@ describe("Root module exports (@/index)", () => {
             expect(mod.MachineDefinition).toBeDefined();
         });
 
-        it("exports MachineSignal", async () => {
+        it("exports unstable_MachineSignal", async () => {
             const mod = await import("@/index");
-            expect(mod.MachineSignal).toBeDefined();
-            expect(typeof mod.MachineSignal.state).toBe("function");
+            expect(mod.unstable_MachineSignal).toBeDefined();
+            expect(typeof mod.unstable_MachineSignal.state).toBe("function");
         });
 
-        it("exports Statechart", async () => {
+        it("exports unstable_Statechart", async () => {
             const mod = await import("@/index");
-            expect(mod.Statechart).toBeDefined();
+            expect(mod.unstable_Statechart).toBeDefined();
         });
 
         it("exports the builtin action creators", async () => {

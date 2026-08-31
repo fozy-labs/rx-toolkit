@@ -142,10 +142,10 @@ interface FinalizationTarget {
  * Inspector wiring and error handling. The pure step algorithm lives in
  * `core/interpreter.ts`; this class only sequences it. Spec: section 4.
  *
- * Prefer the facade `MachineSignal.state(definition, options)`; use this class
- * directly for advanced composition.
+ * Prefer the facade `unstable_MachineSignal.state(definition, options)`; use
+ * this class directly for advanced composition.
  */
-export class Statechart<
+export class unstable_Statechart<
     TContext extends MachineContext = MachineContext,
     TEvent extends EventObject = EventObject,
     TOutput = unknown,
@@ -219,12 +219,12 @@ export class Statechart<
             base: DEVTOOLS_BASE,
             isDisabled: this._options.isDisabled,
         });
-        this.state = Statechart._createReadonlySignal(this._state$);
+        this.state = unstable_Statechart._createReadonlySignal(this._state$);
 
         this._actorHandle = this._createActorHandle();
         if (this._actorHandle !== null || this._keySlot !== null) {
             const target: FinalizationTarget = { actorHandle: this._actorHandle, keySlot: this._keySlot };
-            Statechart._finalizationRegistry.register(this, target, this);
+            unstable_Statechart._finalizationRegistry.register(this, target, this);
         }
 
         // Nobody can call `dispose()` on an instance whose constructor threw:
@@ -566,7 +566,7 @@ export class Statechart<
         this._queue.length = 0;
         this._deferred.length = 0;
         this._status = "disposed";
-        Statechart._finalizationRegistry.unregister(this);
+        unstable_Statechart._finalizationRegistry.unregister(this);
         this._state$.dispose();
         if (this._keySlot !== null) releaseDefaultKeySlot(this._keySlot);
         this._notifyInspector((handle) => handle.stop());

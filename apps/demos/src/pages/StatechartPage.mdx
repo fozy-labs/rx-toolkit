@@ -5,7 +5,9 @@ import { Statecharts } from "../examples";
 
 # Стейт-машины (statechart)
 
-Машина описывается в формате XState v5 через `createMachine(config, implementations)` и исполняется
+API стейт-машин нестабилен и экспортируется с префиксом `unstable_`; в примерах импорты
+алиасятся (`import { unstable_createMachine as createMachine }`). Машина описывается в формате
+XState v5 через `createMachine(config, implementations)` и исполняется
 собственным рантаймом библиотеки: `MachineSignal.state(definition)` возвращает сигнал снапшота
 (`value`, `context`, `status`, `tags`) с методами `send`, `matches`, `can`, `start`, `stop`, `dispose`.
 Зависимости от `xstate` нет, при этом описание совместимо с инструментами Stately

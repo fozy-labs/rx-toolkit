@@ -17,7 +17,7 @@ import {
 } from "xstate";
 
 import { assign, cancel, log, mutate, raise } from "../actions";
-import { createMachine } from "../createMachine";
+import { unstable_createMachine as createMachine } from "../createMachine";
 import { and, not, or, stateIn } from "../guards";
 import { getMachineModel, type MachineDefinition } from "../MachineDefinition";
 import type { AnyEventObject, EventObject, MachineContext, MachineEvent, MachineSnapshot, StateValue } from "../types";

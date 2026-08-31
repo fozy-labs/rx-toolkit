@@ -8,7 +8,7 @@
 - **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесканальной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
 - **`snapshotable`** — опция ресурса для исключения его из снапшота.
 - **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
-- **Statechart** — стейт-машины на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
+- **Statechart (experimental)** — стейт-машины на собственном рантайме поверх сигналов, без внешних зависимостей. Точки входа: `unstable_createMachine`, `unstable_MachineSignal`, `unstable_Statechart`. См. [docs/statechart](./statechart/README.md).
 
 ### Fixed
 - Исправлены относительные импорты в `dist` приводившие к ошибке "ERR_UNSUPPORTED_DIR_IMPORT" в Nodejs.

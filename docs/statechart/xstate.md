@@ -206,7 +206,7 @@ statelyInspector({
 Опция `inspector` у `MachineSignal.state()` / `new Statechart()` переопределяет глобальную настройку: свой адаптер или `null`, чтобы отключить инспектор для конкретной машины.
 
 ```typescript
-import { MachineSignal, statelyInspector } from "@fozy-labs/rx-toolkit";
+import { statelyInspector, unstable_MachineSignal as MachineSignal } from "@fozy-labs/rx-toolkit";
 
 // Отдельный инспектор в iframe только для этой машины
 const light$ = MachineSignal.state(trafficLight, {

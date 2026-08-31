@@ -3,8 +3,8 @@ import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
 import { Signal } from "@/signals/signals/Signal";
 
 import { assign } from "./actions";
-import { createMachine } from "./createMachine";
-import { MachineSignal } from "./MachineSignal";
+import { unstable_createMachine as createMachine } from "./createMachine";
+import { unstable_MachineSignal as MachineSignal } from "./MachineSignal";
 import type { MachineStateSignal } from "./types";
 
 function trafficLight() {

@@ -6,7 +6,7 @@
  */
 import { createActor, createMachine as createXStateMachine } from "xstate";
 
-import { createMachine, Statechart } from "@/statechart";
+import { unstable_createMachine as createMachine, unstable_Statechart as Statechart } from "@/statechart";
 
 import { describeScenarios, libraries, runScenario, type Scenario } from "./harness";
 

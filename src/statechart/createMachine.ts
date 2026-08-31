@@ -6,9 +6,10 @@ import type { AnyEventObject, EventObject, MachineConfig, MachineContext, Machin
 /**
  * Creates a machine definition from an XState v5 config.
  *
- * The name `createMachine` is a functional requirement: Stately's extractor
- * matches call expressions by callee name only. Keep the config inline or in a
- * variable of the same file, never behind `satisfies`.
+ * Stately's extractor matches call expressions by the callee name
+ * `createMachine` only, so import with an alias when that flow matters:
+ * `import { unstable_createMachine as createMachine }`. Keep the config inline
+ * or in a variable of the same file, never behind `satisfies`.
  *
  * Validates strictly (throws `MachineConfigError`) and only then deep-freezes
  * `config` in place — except the initial `context` object, which stays mutable
@@ -18,7 +19,7 @@ import type { AnyEventObject, EventObject, MachineConfig, MachineContext, Machin
  * action/guard/delay *names* are checked later, by `new Statechart()`, so that
  * `definition.provide()` can supply them.
  */
-export function createMachine<
+export function unstable_createMachine<
     TContext extends MachineContext,
     TEvent extends EventObject = AnyEventObject,
     TOutput = unknown,

@@ -10,7 +10,7 @@ import { expectTypeOf } from "vitest";
 import type { MachineConfig as XStateMachineConfig } from "xstate";
 
 import { assign, cancel, log, mutate, raise } from "../actions";
-import { createMachine } from "../createMachine";
+import { unstable_createMachine as createMachine } from "../createMachine";
 import { and, not, or, stateIn } from "../guards";
 import type { MachineDefinition } from "../MachineDefinition";
 import type {

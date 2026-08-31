@@ -2,17 +2,17 @@ import {
     and,
     assign,
     cancel,
-    createMachine,
     log,
     MachineConfigError,
     MachineDefinition,
-    MachineSignal,
     mutate,
     not,
     or,
     raise,
-    Statechart,
     stateIn,
+    unstable_createMachine,
+    unstable_MachineSignal,
+    unstable_Statechart,
 } from "@/statechart";
 import type {
     AnyEventObject,
@@ -32,15 +32,15 @@ import type {
 
 describe("Statechart module exports", () => {
     describe("definition", () => {
-        it("exports createMachine", () => {
-            expect(createMachine).toBeDefined();
-            expect(typeof createMachine).toBe("function");
+        it("exports unstable_createMachine", () => {
+            expect(unstable_createMachine).toBeDefined();
+            expect(typeof unstable_createMachine).toBe("function");
         });
 
-        it("exports MachineDefinition (class, constructed only via createMachine)", () => {
+        it("exports MachineDefinition (class, constructed only via unstable_createMachine)", () => {
             expect(MachineDefinition).toBeDefined();
             expect(typeof MachineDefinition).toBe("function");
-            const definition = createMachine({ id: "m", initial: "a", states: { a: {} } });
+            const definition = unstable_createMachine({ id: "m", initial: "a", states: { a: {} } });
             expect(definition).toBeInstanceOf(MachineDefinition);
             expect(typeof definition.provide).toBe("function");
             expect(typeof definition.toXStateSource).toBe("function");
@@ -55,23 +55,23 @@ describe("Statechart module exports", () => {
     });
 
     describe("runtime", () => {
-        it("exports MachineSignal with the static state() factory", () => {
-            expect(MachineSignal).toBeDefined();
-            expect(typeof MachineSignal.state).toBe("function");
+        it("exports unstable_MachineSignal with the static state() factory", () => {
+            expect(unstable_MachineSignal).toBeDefined();
+            expect(typeof unstable_MachineSignal.state).toBe("function");
         });
 
-        it("exports Statechart (class)", () => {
-            expect(Statechart).toBeDefined();
-            expect(typeof Statechart).toBe("function");
+        it("exports unstable_Statechart (class)", () => {
+            expect(unstable_Statechart).toBeDefined();
+            expect(typeof unstable_Statechart).toBe("function");
         });
 
-        it("MachineSignal.state() wires a running machine end to end", () => {
-            const definition = createMachine({
+        it("unstable_MachineSignal.state() wires a running machine end to end", () => {
+            const definition = unstable_createMachine({
                 id: "m",
                 initial: "a",
                 states: { a: { on: { GO: "b" } }, b: {} },
             });
-            const machine$ = MachineSignal.state(definition);
+            const machine$ = unstable_MachineSignal.state(definition);
             expect(machine$().value).toBe("a");
             machine$.send({ type: "GO" });
             expect(machine$().value).toBe("b");
@@ -115,8 +115,8 @@ describe("Statechart module exports", () => {
             const mermaidOptions: ToMermaidOptions = { direction: "LR" };
             const sourceOptions: ToXStateSourceOptions = { includeImport: false };
 
-            const definition = createMachine(config, implementations);
-            const machine$: MachineStateSignal<{ n: number }, { type: "GO" }> = MachineSignal.state(
+            const definition = unstable_createMachine(config, implementations);
+            const machine$: MachineStateSignal<{ n: number }, { type: "GO" }> = unstable_MachineSignal.state(
                 definition,
                 options,
             );

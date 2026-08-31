@@ -1,7 +1,7 @@
 import { assign, raise } from "./actions";
 import { MachineConfigError } from "./core/MachineConfigError";
 import * as normalizeModule from "./core/normalize";
-import { createMachine } from "./createMachine";
+import { unstable_createMachine as createMachine } from "./createMachine";
 import { and, not, or, stateIn } from "./guards";
 import { assertImplementations, getMachineModel, MachineDefinition } from "./MachineDefinition";
 
