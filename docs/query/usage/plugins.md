@@ -46,6 +46,10 @@ interface IPlugin {
     command: ICommand<TArgs, TData>,
     options: TCommandOptions<TArgs, TData>,
   ): Record<string, unknown>;
+  augmentBatchResource?<TArgs, TId, TItem, TResArgs, TResData>(
+    resource: IResource<TArgs, TItem[]>,
+    options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+  ): Record<string, unknown>;
 }
 ```
 
@@ -53,6 +57,7 @@ interface IPlugin {
 - `install(context)` — вызывается один раз при `createApi()`. Получает `IPluginContext` с метаинформацией об API.
 - `augmentResource(resource, options)` — вызывается при каждом `createResource()`. Возвращает объект с методами, которые будут добавлены к ресурсу.
 - `augmentCommand(command, options)` — аналогично, вызывается при каждом `createCommand()`. Возвращает объект с методами для команды.
+- `augmentBatchResource(resource, options)` — **дополнительная** аугментация только для [batch-ресурсов](./batch-resource.md), поверх обычного прохода `augmentResource` (batch-ресурс проходит и его). Так `reactHooksPlugin()` добавляет `useInfiniteResource` только батчам.
 
 ```typescript
 const loggingPlugin: IPlugin = {
@@ -72,18 +77,27 @@ const loggingPlugin: IPlugin = {
 
 ## Типизация вкладов плагина
 
-Чтобы TypeScript знал о методах, добавленных плагином, используется паттерн условных типов через `PluginResourceContributions`:
+Форма добавляемых методов описывается HKT-протоколом: плагин объявляет интерфейс, расширяющий `PluginHKT`, и «прикрепляет» его фантомным полем `_hkt` (существует только на уровне типов):
 
 ```typescript
-type PluginResourceContributions<TPlugin, TArgs, TData> =
-  TPlugin extends { name: 'ReactHooksPlugin' }
-    ? IReactHooksPluginContributions<TArgs, TData>
-    : Record<string, never>;
+import type { IPlugin, PluginHKT } from '@fozy-labs/rx-toolkit';
+
+interface LoggingPluginHKT extends PluginHKT {
+  // this['_TArgs'] / this['_TData'] / this['_TError'] подставляются
+  // конкретными типами в точке применения (createResource и т.д.)
+  readonly resourceType: { logState: (args: this['_TArgs']) => void };
+  // опциональные слоты: commandType, batchResourceType
+}
+
+class LoggingPlugin implements IPlugin {
+  readonly name = 'LoggingPlugin';
+  declare readonly _hkt: LoggingPluginHKT;
+  install() {}
+  augmentResource(resource) { /* ...реализация logState... */ }
+}
 ```
 
-Тип `PluginAugmentations` объединяет вклады всех плагинов в массиве и добавляет их к возвращаемому типу `createResource()`. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`.
-
-Для собственного плагина добавьте новую ветку в `PluginResourceContributions`, аналогичную ветке `ReactHooksPlugin`.
+`createResource()` / `createCommand()` / `createBatchResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `CombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `batchResourceType` описывает вклад `augmentBatchResource` и применяется только к batch-ресурсам.
 
 
 ## См. также

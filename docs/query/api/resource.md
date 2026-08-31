@@ -73,6 +73,7 @@ const usersResource = api.createResource({
 |----------------|------------------------------------------------|-------------------------|--------------------------------------------------------------------------------|
 | `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceAgentState<TArgs, TData, TError>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
 | `useSuspenseResource` | `args: ArgsOrVoid<TArgs>` | `TSuspenseResourceState<TArgs, TData, TError>` | React-хук с Suspense: первичная загрузка бросает промис, первичная ошибка без fallback-данных — в Error Boundary; `data` всегда не `null`. `SKIP` не поддерживается. |
+| `useInfiniteResource` | `initialArgs: ArgsOrVoidOrSkip<TArgs>` | `TInfiniteResourceState<TArgs, TData, TError>` | React-хук бесконечной подгрузки. **Только на [batch-ресурсах][usage-batch]** (обычным ресурсам не добавляется). Требует `reactHooksPlugin()`. |
 
 
 ## Что запускает запрос
