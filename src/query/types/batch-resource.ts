@@ -1,3 +1,4 @@
+import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { IResource } from "./resource";
 
 // ==================== Batch Resource Types ====================
@@ -37,6 +38,19 @@ export interface TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData> {
     parseArgs?: (args: TArgs) => readonly TId[];
     /** Serializes an id into the item-cache key. Defaults to `stableStringify`. */
     serializeId?: (id: TId) => string;
+    /**
+     * Lifecycle hook over the id-set entries (args = the batch resource's own
+     * args, data = the assembled `TItem[]`). Composed with the runtime's
+     * internal bookkeeping hook. To observe the actual network runs, hook the
+     * wrapped resource instead.
+     */
+    onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TItem[]>) => void;
+    /**
+     * Lifecycle hook fired per id-set query run — including runs served
+     * entirely from the item cache without a network request. To observe the
+     * actual network runs, hook the wrapped resource instead.
+     */
+    onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TItem[]>) => void | Promise<void>;
     /** Retention for the per-id-set cache entries; falls back to the api default. */
     retentionTime?: number | false;
     /** Serializes the batch resource's own args into a cache key. */

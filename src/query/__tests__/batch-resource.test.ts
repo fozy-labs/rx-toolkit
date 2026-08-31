@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import { BatchItemMissingError } from "@/query/core/errors";
 
@@ -255,6 +256,110 @@ describe("BatchResource", () => {
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [1, 2] });
             expect(data.map((user) => user.id)).toEqual([1, 2]);
+        });
+    });
+
+    // ==================== Lifecycle hooks ====================
+
+    describe("lifecycle hooks", () => {
+        it("fires user onCacheEntryAdded per id-set entry and keeps item eviction intact", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+
+            const addedArgs: number[][] = [];
+            const removals: Promise<void>[] = [];
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+                onCacheEntryAdded: (args, ctx) => {
+                    addedArgs.push(args);
+                    removals.push(ctx.$cacheEntryRemoved);
+                },
+            });
+
+            await batch.fetch([1, 2]);
+            await batch.fetch([1, 3]);
+
+            expect(addedArgs).toEqual([
+                [1, 2],
+                [1, 3],
+            ]);
+
+            // The runtime's refcounting hook still runs alongside the user hook:
+            // a reset must evict the items and force a refetch.
+            api.resetAll();
+            await Promise.all(removals);
+            await batch.fetch([1, 2]);
+
+            expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
+                { userIds: [1, 2] },
+                { userIds: [3] },
+                { userIds: [1, 2] },
+            ]);
+        });
+
+        it("fires user onQueryStarted per run, including cache-only runs", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+
+            const runs: Array<{ args: number[]; data: TUser[] }> = [];
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+                onQueryStarted: async (args, ctx) => {
+                    const { data } = await ctx.$queryFulfilled;
+                    runs.push({ args, data });
+                },
+            });
+
+            await batch.fetch([1, 2]);
+            // Served entirely from the item cache — no network, but still a run.
+            await batch.fetch([1]);
+            // The async hook lands its push one microtask after fetch resolves.
+            await flushMicrotasks();
+
+            expect(queryFn).toHaveBeenCalledTimes(1);
+            expect(runs).toEqual([
+                { args: [1, 2], data: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 2 })] },
+                { args: [1], data: [expect.objectContaining({ id: 1 })] },
+            ]);
+        });
+
+        it("a throwing user hook does not break the runtime bookkeeping", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+                onCacheEntryAdded: () => {
+                    throw new Error("consumer hook failure");
+                },
+            });
+
+            await batch.fetch([1, 2]);
+            const data = await batch.fetch([1, 2, 3]);
+
+            // Refcounting survived the throwing hook: only id 3 was fetched.
+            expect(queryFn.mock.calls.map((call) => call[0])).toEqual([{ userIds: [1, 2] }, { userIds: [3] }]);
+            expect(data.map((user) => user.id)).toEqual([1, 2, 3]);
         });
     });
 

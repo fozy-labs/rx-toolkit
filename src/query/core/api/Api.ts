@@ -169,7 +169,10 @@ export class Api implements IApi {
             key: opts.key,
             retentionTime: opts.retentionTime,
             serializeArgs: opts.serializeArgs,
-            onCacheEntryAdded: runtime.onCacheEntryAdded,
+            // Runtime bookkeeping first: its synchronous item refcounting must
+            // be in place before any consumer hook observes the entry.
+            onCacheEntryAdded: composeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
+            onQueryStarted: opts.onQueryStarted,
             sync: false,
         });
 
