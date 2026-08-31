@@ -3,6 +3,11 @@
 
 ## [Unreleased]
 
+
+## [0.12.0-rc.2] - 2026-08-31
+
+Заменяет `0.12.0-rc.1`.
+
 ### Added
 - **Стриминговые запросы** — `queryFn` ресурса может вернуть `Observable<TData>`: первая эмиссия завершает загрузку, каждая следующая обновляет данные записи на месте (с ребейзом активных оптимистичных патчей); ошибка после данных → `refresh-error` с сохранением данных, завершение без эмиссий → ошибка `EmptyStreamError` (экспортируется публично). `refresh`/`retry` переподписываются, вытеснение записи отписывается от продюсера. Дополнено: опция ресурса `allowStreamPatches` (подавляет предупреждение о патчах при открытом стриме) и вехи `$queryStream.firstReceived` / `$queryStream.allReceived` в контексте `onQueryStarted`. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
 - **`api.createBatchResource`** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов. Кэш элементов реактивен, а каждая запись набора — открытая стрим-проекция над ним: рефреш одного набора автоматически переизлучает пересекающиеся записи с новыми элементами (включая записи с активными патчами — через ребейз). См. [docs/query/usage/batch-resource](./query/usage/batch-resource.md).
@@ -373,7 +378,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0-rc.1...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0-rc.2...develop
+[0.12.0-rc.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0-rc.1...v0.12.0-rc.2
 [0.12.0-rc.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0-rc.1
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.1
