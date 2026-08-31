@@ -30,6 +30,13 @@ export interface PluginHKT {
     /** Override in subinterfaces to declare command augmentation shape. */
     // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
     readonly commandType: {};
+    /**
+     * Override in subinterfaces to declare *additional* augmentation for batch
+     * resources (on top of `resourceType`, which batch resources receive too).
+     * `_TData` is the batch item array type (`TItem[]`).
+     */
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
+    readonly batchResourceType: {};
 }
 
 // ==================== HKT Application ====================
@@ -53,6 +60,12 @@ type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
     readonly _TError: TError;
 })["commandType"];
 
+type ApplyPluginBatchResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
+    readonly _TArgs: TArgs;
+    readonly _TData: TData;
+    readonly _TError: TError;
+})["batchResourceType"];
+
 // ==================== Plugin Augment Extraction ====================
 
 /**
@@ -68,6 +81,11 @@ type ExtractResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt
 
 type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
     ? ApplyPluginCommandHKT<H, TArgs, TData, TError>
+    : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+      {};
+
+type ExtractBatchResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+    ? ApplyPluginBatchResourceHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
@@ -97,12 +115,26 @@ export type CombinePluginCommandAugments<
     TError = unknown,
 > = UnionToIntersection<ExtractCommandAugment<TPlugins[number], TArgs, TData, TError>>;
 
+/**
+ * Combine the *batch-specific* augmentations from all plugins in the tuple.
+ * Applied on top of {@link CombinePluginResourceAugments} for batch resources;
+ * `TData` is the batch item array type (`TItem[]`).
+ */
+export type CombinePluginBatchResourceAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = UnionToIntersection<ExtractBatchResourceAugment<TPlugins[number], TArgs, TData, TError>>;
+
 // ==================== Exports ====================
 
 export type {
     ApplyPluginResourceHKT,
     ApplyPluginCommandHKT,
+    ApplyPluginBatchResourceHKT,
     ExtractResourceAugment,
     ExtractCommandAugment,
+    ExtractBatchResourceAugment,
     UnionToIntersection,
 };

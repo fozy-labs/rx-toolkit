@@ -1,5 +1,7 @@
 // ==================== Hook State Types (for React consumers) ====================
 
+import type { Args } from "./common";
+
 // Agent states are discriminated unions: `status` is the primary discriminant,
 // and every boolean flag is a literal per variant, so narrowing works through
 // either — `state.isError` implies `state.error: TError`, `state.isSuccess`
@@ -137,6 +139,46 @@ export type TSuspenseResourceState<TArgs, TData, TError = unknown> =
     | TResourceAgentRefreshingState<TArgs, TData>
     | TResourceAgentRefreshErrorState<TArgs, TData, TError>
     | TSuspenseResourceErrorState<TArgs, TData, TError>;
+
+/**
+ * State returned by the infinite batch-resource hook (`useInfiniteResource`).
+ *
+ * The feed is a list of *pages*: every page is an ordinary cache entry of the
+ * batch resource with its own fixed args (an id-set), observed through its own
+ * agent. `TData` is the page data type — the batch item array (`TItem[]`) —
+ * and `data` flattens the pages' items in page order.
+ */
+export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
+    /**
+     * Items of every page that has data, flattened in page order; `null` until
+     * the first page delivers data.
+     */
+    data: TData | null;
+    /** Per-page agent states, in load order. Empty while the feed is idle. */
+    pages: TResourceAgentState<TArgs, TData, TError>[];
+    /** No pages observed — the initial args are `SKIP`. */
+    isIdle: boolean;
+    /** The first page's initial load is in flight and there is nothing to show yet. */
+    isInitialLoading: boolean;
+    /** Some page is loading (initial load or background refresh). */
+    isLoading: boolean;
+    /** A page beyond the first is doing its initial load. */
+    isFetchingNext: boolean;
+    /** `true` when some page holds an error (see {@link error}). */
+    isError: boolean;
+    /** The first error across pages, in page order. */
+    error: TError | null;
+    /**
+     * Append the next page with the given args and start loading it. Passing
+     * the args of an already-present page is a no-op (double-click safe),
+     * except when that page previously failed — then it is retried.
+     */
+    fetchNext: (args: Args<TArgs>) => void;
+    /** Re-validate the whole feed: refresh pages with data, retry failed ones. */
+    refresh: () => void;
+    /** Drop every page after the first one. */
+    reset: () => void;
+}
 
 /** Methods present on every command agent state variant. */
 interface TCommandAgentStateMethods {

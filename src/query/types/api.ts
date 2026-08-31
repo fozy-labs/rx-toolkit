@@ -1,7 +1,12 @@
 import type { TBatchResourceOptions } from "./batch-resource";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { ICommand, TCommandOptions } from "./command";
-import type { CombinePluginCommandAugments, CombinePluginResourceAugments, PluginHKT } from "./plugin-hkt";
+import type {
+    CombinePluginBatchResourceAugments,
+    CombinePluginCommandAugments,
+    CombinePluginResourceAugments,
+    PluginHKT,
+} from "./plugin-hkt";
 import type { IResource, TResourceOptions } from "./resource";
 import type { ISyncDriver, TApiSnapshot } from "./snapshot";
 
@@ -54,6 +59,15 @@ export interface IPlugin {
         command: ICommand<TArgs, TData, TError>,
         options: TCommandOptions<TArgs, TData>,
     ): Record<string, unknown>;
+    /**
+     * Additional augmentation applied only to batch resources, on top of the
+     * regular {@link augmentResource} pass (which batch resources go through
+     * as ordinary resources). Runs after the batch runtime is attached.
+     */
+    augmentBatchResource?<TArgs, TId, TItem, TResArgs, TResData, TError = unknown>(
+        resource: IResource<TArgs, TItem[], TError>,
+        options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    ): Record<string, unknown>;
 
     /**
      * Phantom type member. Plugins that provide typed augmentations should
@@ -93,7 +107,9 @@ export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[], 
     ): IResource<TArgs, TData, TError> & CombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
     createBatchResource<TResArgs, TResData, TId, TItem, TArgs = TId[]>(
         options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
-    ): IResource<TArgs, TItem[], TError> & CombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError>;
+    ): IResource<TArgs, TItem[], TError> &
+        CombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError> &
+        CombinePluginBatchResourceAugments<TPlugins, TArgs, TItem[], TError>;
     createCommand<TArgs = void, TData = unknown>(
         options: TCommandOptions<TArgs, TData>,
     ): ICommand<TArgs, TData, TError> & CombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;

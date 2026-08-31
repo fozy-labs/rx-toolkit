@@ -188,6 +188,18 @@ export class Api implements IApi {
 
         runtime.attach(resource);
 
+        // Batch-specific plugin augmentation (on top of the regular resource
+        // pass that already ran inside createResource). After attach, so an
+        // augmentation can safely exercise the resource.
+        let augmented: Record<string, unknown> = {};
+        for (const plugin of this.plugins) {
+            if (plugin.augmentBatchResource) {
+                const additions = plugin.augmentBatchResource(resource, opts);
+                augmented = { ...augmented, ...additions };
+            }
+        }
+        Object.assign(resource, augmented);
+
         return resource;
     };
 

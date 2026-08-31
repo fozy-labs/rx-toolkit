@@ -7,6 +7,7 @@ import type {
     ArgsOrVoidOrSkip,
     IPlugin,
     TCommandAgentState,
+    TInfiniteResourceState,
     TResourceAgentState,
     TSuspenseResourceState,
     TTriggerPromise,
@@ -158,6 +159,57 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
 
         assertType<IsExact<Param, ArgsOrVoidOrSkip<TBatchArgs>>>(true as const);
+    });
+
+    it("createBatchResource with reactHooksPlugin → useInfiniteResource typed over TArgs / TItem[]", () => {
+        type TUser = { id: number; name: string };
+
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const users = api.createResource({
+            queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: "x" })),
+        });
+        const batch = api.createBatchResource({
+            resource: users,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+        });
+
+        assertType<typeof batch.useInfiniteResource>(batch.useInfiniteResource);
+
+        type HookFn = typeof batch.useInfiniteResource;
+        type Param = Parameters<HookFn>[0];
+        type Ret = ReturnType<HookFn>;
+
+        assertType<IsExact<Param, ArgsOrVoidOrSkip<number[]>>>(true as const);
+        assertType<IsExact<Ret, TInfiniteResourceState<number[], TUser[]>>>(true as const);
+        // Flattened data is the item array of the batch.
+        assertType<IsExact<Ret["data"], TUser[] | null>>(true as const);
+    });
+
+    it("useInfiniteResource is batch-only: absent on plain resources", () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource({
+            queryFn: async (args: { id: number }) => ({ name: "Alice" }),
+        });
+
+        // @ts-expect-error — useInfiniteResource exists only on batch resources
+        resource.useInfiniteResource;
+    });
+
+    it("createApi without plugins → createBatchResource does NOT return useInfiniteResource", () => {
+        const api = createApi();
+        const users = api.createResource({
+            queryFn: async (args: { userIds: number[] }) => args.userIds.map((id) => ({ id })),
+        });
+        const batch = api.createBatchResource({
+            resource: users,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+        });
+
+        // @ts-expect-error — useInfiniteResource should not exist without the plugin
+        batch.useInfiniteResource;
     });
 
     it("createApi without plugins → createBatchResource does NOT return useResource", () => {
