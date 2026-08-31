@@ -168,7 +168,10 @@ export class Api implements IApi {
         // the network traffic underneath. Cross-tab sync is disabled: it would
         // fill id-set entries bypassing the per-id item cache. Snapshots are
         // disabled too: the id-set entries are derived projections — the
-        // wrapped resource owns the data that goes into SSR snapshots.
+        // wrapped resource owns the data that goes into SSR snapshots. The
+        // generic stream-patch warning is suppressed: batch runs are always
+        // open streams (live item-cache projections), and the runtime raises
+        // its own, more precise set-local patch warning instead.
         const resource = this.createResource<TArgs, TItem[]>({
             queryFn: runtime.queryFn,
             key: opts.key,
@@ -180,6 +183,7 @@ export class Api implements IApi {
             onQueryStarted: opts.onQueryStarted,
             snapshotable: false,
             sync: false,
+            allowStreamPatches: true,
         });
 
         runtime.attach(resource);

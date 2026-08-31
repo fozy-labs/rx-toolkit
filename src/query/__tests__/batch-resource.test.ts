@@ -240,6 +240,104 @@ describe("BatchResource", () => {
         });
     });
 
+    // ==================== Reactive propagation ====================
+
+    describe("reactive propagation", () => {
+        it("an overlapping entry with an active patch receives refreshed items with the patch rebased", async () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            try {
+                let currentVersion = "v1";
+                const { batch } = setup({ version: () => currentVersion });
+
+                await batch.fetch([1, 2, 3]);
+                await batch.fetch([1, 2, 4]);
+
+                const patched = batch.getEntry([1, 2, 4])!;
+                patched.createPatch((data) => {
+                    data[0].name = "patched";
+                });
+
+                currentVersion = "v2";
+                batch.refresh([1, 2, 3]);
+                await batch.fetch([1, 2, 3]);
+
+                const state = batch.getState([1, 2, 4]);
+                expect(state.status).toBe("success");
+                // Fresh items came through the live projection; the pending
+                // patch was replayed on top (Immer replace at [0].name wins).
+                expect(state.data?.map((user) => user.name)).toEqual(["patched", "user-2-v2", "user-4-v1"]);
+                const machine = patched.machine$.peek();
+                expect(machine.status === "success" && machine.state.patchState).not.toBeNull();
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
+        it("a refresh run does not emit stale cached items before the refetch lands", async () => {
+            const api = createApi();
+            const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
+            const queryFn = vi.fn((args: TBatchQueryArgs): Promise<TUser[]> => {
+                const { promise, resolve } = defer<TUser[]>();
+                deferred.push({ args, resolve });
+                return promise;
+            });
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            const initial = batch.fetch([1, 2]);
+            deferred[0].resolve([
+                { id: 1, name: "user-1-v1" },
+                { id: 2, name: "user-2-v1" },
+            ]);
+            await initial;
+
+            batch.refresh([1, 2]);
+            await flushMicrotasks();
+
+            // The stale items are still cached, but the refresh run is gated
+            // behind its refetch — the entry must not settle prematurely.
+            expect(batch.getState([1, 2]).status).toBe("refreshing");
+            expect(batch.getState([1, 2]).data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
+
+            deferred[1].resolve([
+                { id: 1, name: "user-1-v2" },
+                { id: 2, name: "user-2-v2" },
+            ]);
+            const data = await batch.fetch([1, 2]);
+            expect(data.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2"]);
+        });
+
+        it("one batch response produces a single emission on an overlapping entry", async () => {
+            let currentVersion = "v1";
+            const { batch } = setup({ version: () => currentVersion });
+
+            await batch.fetch([1, 2, 3]);
+            await batch.fetch([1, 2, 4]);
+
+            const overlapping = batch.getEntry([1, 2, 4])!;
+            let transitions = 0;
+            const sub = overlapping.machine$.obs.subscribe(() => {
+                transitions += 1;
+            });
+            const baseline = transitions;
+
+            currentVersion = "v2";
+            batch.refresh([1, 2, 3]);
+            await batch.fetch([1, 2, 3]);
+            await flushMicrotasks();
+
+            // Items 1 and 2 changed in one distributed response — the
+            // projection coalesces them into one stream emission.
+            expect(transitions - baseline).toBe(1);
+            sub.unsubscribe();
+        });
+    });
+
     // ==================== Item eviction ====================
 
     describe("item eviction", () => {

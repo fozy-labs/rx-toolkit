@@ -1,8 +1,10 @@
+import { Observable } from "rxjs";
+
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { ArgsOrVoid, IResource, TBatchResourceOptions, TCacheEntryAddedContext } from "@/query/types";
+import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
 
 import { BatchItemMissingError } from "../errors";
-import { Machine } from "../machine/Machine";
 
 // ==================== BatchRuntime ====================
 
@@ -12,7 +14,14 @@ import { Machine } from "../machine/Machine";
  * The batch resource itself is an ordinary {@link IResource} caching one entry
  * per id-set, so agents, React hooks, SWR and plugin augmentation work
  * unchanged. This runtime plugs into that resource (as its `queryFn` +
- * `onCacheEntryAdded`) and deduplicates the traffic underneath:
+ * `onCacheEntryAdded`) and deduplicates the traffic underneath.
+ *
+ * The item cache is reactive (a keyed signal of per-id boxes) and the outer
+ * queryFn returns a *stream*: once the initial fetches land, the run projects
+ * the watched ids over the item cache and keeps emitting for as long as the
+ * entry lives. Cross-set consistency falls out of that projection — when one
+ * set's refresh distributes fresh items, every overlapping live entry re-emits
+ * with them (rebasing its active optimistic patches), with no write-back pass.
  *
  * - a shared per-id item cache is consulted first — only the ids that are
  *   neither cached nor already in flight reach the wrapped resource
@@ -22,8 +31,6 @@ import { Machine } from "../machine/Machine";
  * - a refresh run bypasses the item cache and refetches every requested id
  *   (detected via the entry's machine, which `_execute` moves to `refreshing`
  *   before calling `queryFn`);
- * - refreshed items are propagated into other overlapping `success` entries,
- *   so every id-set observes the same item instance;
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
  */
@@ -37,8 +44,12 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     /** The outer resource; late-bound because it is created around this runtime. */
     private _resource: IResource<TArgs, TItem[]> | null = null;
 
-    /** Item cache: serialized id → boxed item (the box distinguishes a cached `undefined`-ish item from absence). */
-    private readonly _items = new Map<string, { item: TItem }>();
+    /**
+     * Reactive item cache: serialized id → boxed item. The box distinguishes a
+     * cached `undefined`-ish item from absence; the keyed signal gives each
+     * open run's projection fine-grained per-id reactivity.
+     */
+    private readonly _items = unstable_KeyedSignal.state<{ item: TItem }>();
     /** How many live outer entries reference each serialized id. */
     private readonly _refCounts = new Map<string, number>();
     /** Serialized id → the in-flight batch fetch covering it. */
@@ -61,74 +72,123 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     }
 
     /**
-     * The outer resource's queryFn: resolve every requested id from the item
-     * cache, fetching only the missing ones through the wrapped resource.
+     * The outer resource's queryFn — a stream per run:
+     *
+     * 1. On subscribe, the ids missing from the item cache are fetched through
+     *    the wrapped resource (all requested ids on a refresh run); ids already
+     *    in flight are awaited instead of re-requested.
+     * 2. Once the initial fetches land, the run emits the assembled `TItem[]`
+     *    and stays subscribed to the watched ids: whenever another run
+     *    distributes a fresh instance of one of them, the projection re-emits.
+     *    The stream never completes — it is torn down with the run
+     *    (refresh/retry resubscribe, entry eviction unsubscribes).
+     * 3. A failed fetch errors the stream; so does a response that did not
+     *    cover every requested id ({@link BatchItemMissingError}).
      *
      * The abort signal is intentionally ignored: a batch fetch may be shared by
      * several id-set entries, so one entry's teardown must not cancel it — the
-     * outer machinery already discards results delivered after an abort.
+     * torn-down run simply unsubscribes and ignores the late result.
      */
-    queryFn = async (args: TArgs, _abortSignal: AbortSignal): Promise<TItem[]> => {
-        const requestedIds = this._parseArgs(args);
-        const requestedSids = requestedIds.map((id) => this._serializeId(id));
+    queryFn = (args: TArgs, _abortSignal: AbortSignal): Observable<TItem[]> => {
+        return new Observable<TItem[]>((subscriber) => {
+            let requestedSids: string[];
+            let idBySid: Map<string, TId>;
+            try {
+                const requestedIds = this._parseArgs(args);
+                requestedSids = requestedIds.map((id) => this._serializeId(id));
 
-        // Deduplicate while preserving first-seen order.
-        const idBySid = new Map<string, TId>();
-        requestedIds.forEach((id, index) => {
-            const sid = requestedSids[index];
-            if (!idBySid.has(sid)) idBySid.set(sid, id);
+                // Deduplicate while preserving first-seen order.
+                idBySid = new Map<string, TId>();
+                requestedIds.forEach((id, index) => {
+                    const sid = requestedSids[index];
+                    if (!idBySid.has(sid)) idBySid.set(sid, id);
+                });
+            } catch (error) {
+                subscriber.error(error);
+                return;
+            }
+
+            // `_execute` moves the machine to `refreshing` before subscribing,
+            // so a refresh run is observable here: it must bypass the item
+            // cache and refetch every requested id instead of only the missing
+            // ones. On the very first run the entry is not registered yet —
+            // that run can only be an initial (pending) load, so `false` is
+            // always correct.
+            const entry = this._resource?.getEntry(args as unknown as ArgsOrVoid<TArgs>) ?? null;
+            const isRefreshRun = entry !== null && entry.machine$.peek().status === "refreshing";
+
+            const waits = new Set<Promise<void>>();
+            const idsToFetch: TId[] = [];
+            const sidsToFetch: string[] = [];
+
+            for (const [sid, id] of idBySid) {
+                const inFlight = this._inFlight.get(sid);
+                if (inFlight) {
+                    // Join the in-flight batch covering this id instead of duplicating it.
+                    waits.add(inFlight);
+                    continue;
+                }
+                if (!isRefreshRun && this._items.has(sid)) continue;
+                idsToFetch.push(id);
+                sidsToFetch.push(sid);
+            }
+
+            if (idsToFetch.length > 0) {
+                waits.add(this._fetchBatch(idsToFetch, sidsToFetch));
+            }
+
+            let projectionSub: { unsubscribe(): void } | null = null;
+            let isClosed = false;
+
+            // Live phase is gated behind the initial fetches: on a refresh run
+            // the stale items are still cached, and emitting them right away
+            // would complete the refresh with old data.
+            void Promise.all(waits).then(
+                () => {
+                    if (isClosed) return;
+
+                    // The response(s) may not have covered every requested id.
+                    const missingIds: TId[] = [];
+                    const missingSids: string[] = [];
+                    for (const [sid, id] of idBySid) {
+                        if (!this._items.has(sid)) {
+                            missingIds.push(id);
+                            missingSids.push(sid);
+                        }
+                    }
+                    if (missingSids.length > 0) {
+                        subscriber.error(new BatchItemMissingError(missingIds, missingSids));
+                        return;
+                    }
+
+                    // One item per requested position (duplicates included).
+                    // `null` (an id evicted mid-recompute) is transient and not
+                    // emitted; refcounting guarantees this run's own ids stay
+                    // cached for as long as its entry lives.
+                    const projection = Signal.compute(() => {
+                        const items: TItem[] = [];
+                        for (const sid of requestedSids) {
+                            const slot = this._items.get$(sid);
+                            if (slot === undefined) return null;
+                            items.push(slot.item);
+                        }
+                        return items;
+                    });
+
+                    projectionSub = projection.obs.subscribe((items) => {
+                        if (items !== null) subscriber.next(items);
+                    });
+                },
+                (error: unknown) => {
+                    if (!isClosed) subscriber.error(error);
+                },
+            );
+
+            return () => {
+                isClosed = true;
+                projectionSub?.unsubscribe();
+            };
         });
-
-        // `_execute` moves the machine to `refreshing` before calling queryFn,
-        // so a refresh run is observable here: it must bypass the item cache
-        // and refetch every requested id instead of only the missing ones.
-        // On the very first run the entry is not registered yet — that run can
-        // only be an initial (pending) load, so `false` is always correct.
-        const entry = this._resource?.getEntry(args as unknown as ArgsOrVoid<TArgs>) ?? null;
-        const isRefreshRun = entry !== null && entry.machine$.peek().status === "refreshing";
-
-        const waits = new Set<Promise<void>>();
-        const idsToFetch: TId[] = [];
-        const sidsToFetch: string[] = [];
-
-        for (const [sid, id] of idBySid) {
-            const inFlight = this._inFlight.get(sid);
-            if (inFlight) {
-                // Join the in-flight batch covering this id instead of duplicating it.
-                waits.add(inFlight);
-                continue;
-            }
-            if (!isRefreshRun && this._items.has(sid)) continue;
-            idsToFetch.push(id);
-            sidsToFetch.push(sid);
-        }
-
-        if (idsToFetch.length > 0) {
-            waits.add(this._fetchBatch(idsToFetch, sidsToFetch));
-        }
-        if (waits.size > 0) {
-            await Promise.all(waits);
-        }
-
-        // Assemble one item per requested position (duplicates included).
-        const result: TItem[] = [];
-        const missingIds: TId[] = [];
-        const missingSids: string[] = [];
-        for (let index = 0; index < requestedIds.length; index++) {
-            const sid = requestedSids[index];
-            const slot = this._items.get(sid);
-            if (slot) {
-                result.push(slot.item);
-            } else if (!missingSids.includes(sid)) {
-                missingIds.push(requestedIds[index]);
-                missingSids.push(sid);
-            }
-        }
-
-        if (missingSids.length > 0) {
-            throw new BatchItemMissingError(missingIds, missingSids);
-        }
-        return result;
     };
 
     /**
@@ -173,15 +233,17 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         // the same tick as a reset must not see the already-evicted items. The
         // subscription cleans itself up — completed$ completes after firing.
         ctx.entry.completed$.subscribe(() => {
-            for (const sid of sids) {
-                const next = (this._refCounts.get(sid) ?? 1) - 1;
-                if (next <= 0) {
-                    this._refCounts.delete(sid);
-                    this._items.delete(sid);
-                } else {
-                    this._refCounts.set(sid, next);
+            Batcher.run(() => {
+                for (const sid of sids) {
+                    const next = (this._refCounts.get(sid) ?? 1) - 1;
+                    if (next <= 0) {
+                        this._refCounts.delete(sid);
+                        this._items.delete(sid);
+                    } else {
+                        this._refCounts.set(sid, next);
+                    }
                 }
-            }
+            });
         });
     };
 
@@ -192,7 +254,8 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         this._didWarnSetLocalPatch = true;
         console.warn(
             "[rx-toolkit] A patch on a batch resource is set-local: the shared item cache and " +
-                "overlapping id-set entries do not see it and stay as-is until their next refresh. " +
+                "overlapping id-set entries do not see it. This entry keeps receiving item updates — " +
+                "they rebase over the patch until it settles. " +
                 "See docs/query/usage/batch-resource.md.",
         );
     }
@@ -214,72 +277,29 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         return promise;
     }
 
-    /** Spread a batch response over the item cache and sync overlapping entries. */
+    /**
+     * Spread a batch response over the reactive item cache. Live projections
+     * watching the touched ids re-emit on their own; the writes are batched so
+     * one response produces a single emission per affected entry.
+     */
     private _distribute(data: TResData): void {
         const parsed = this._parseData(data);
-        const changedSids = new Set<string>();
 
-        for (const { id, item } of parsed) {
-            const sid = this._serializeId(id);
-            // Only ids referenced by a live outer entry are cached: this both
-            // skips unsolicited extras and prevents writes after the requesting
-            // entries were reset/GC'd mid-flight.
-            if ((this._refCounts.get(sid) ?? 0) <= 0) continue;
+        Batcher.run(() => {
+            for (const { id, item } of parsed) {
+                const sid = this._serializeId(id);
+                // Only ids referenced by a live outer entry are cached: this both
+                // skips unsolicited extras and prevents writes after the requesting
+                // entries were reset/GC'd mid-flight.
+                if ((this._refCounts.get(sid) ?? 0) <= 0) continue;
 
-            const previous = this._items.get(sid);
-            this._items.set(sid, { item });
+                // Keep the box stable for an identical instance — no wake-ups
+                // for consumers when nothing actually changed.
+                const previous = this._items.get(sid);
+                if (previous && Object.is(previous.item, item)) continue;
 
-            if (previous && !Object.is(previous.item, item)) {
-                changedSids.add(sid);
+                this._items.set(sid, { item });
             }
-        }
-
-        if (changedSids.size > 0) {
-            this._syncEntries(changedSids);
-        }
-    }
-
-    /**
-     * Propagate refreshed items into the other id-set entries that hold them,
-     * so every consumer observes the same item instance. Only clean `success`
-     * entries are rewritten: pending/refreshing runs assemble from the item
-     * cache themselves, and entries carrying optimistic patches must not lose
-     * their patch state.
-     */
-    private _syncEntries(changedSids: Set<string>): void {
-        if (!this._resource) return;
-
-        for (const entry of this._resource.getEntries()) {
-            const machine = entry.machine$.peek();
-            if (machine.status !== "success" || machine.state.patchState) continue;
-
-            let sids: string[];
-            try {
-                sids = this._parseArgs(entry.keyedArgs.value).map((id) => this._serializeId(id));
-            } catch {
-                continue;
-            }
-            if (!sids.some((sid) => changedSids.has(sid))) continue;
-
-            const data: TItem[] = [];
-            let isComplete = true;
-            for (const sid of sids) {
-                const slot = this._items.get(sid);
-                if (!slot) {
-                    isComplete = false;
-                    break;
-                }
-                data.push(slot.item);
-            }
-            if (!isComplete) continue;
-
-            entry.set(
-                Machine.fromSnapshot<TArgs, TItem[]>(
-                    { args: entry.keyedArgs.value, data, updatedAt: Date.now() },
-                    false,
-                ),
-                "batch-sync",
-            );
-        }
+        });
     }
 }
