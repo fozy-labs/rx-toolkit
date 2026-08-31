@@ -17,7 +17,8 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "check:all": "npm run ts-check && npm run test && npm run lint && npm run format:check"
+    "check:all": "npm run ts-check && npm run test && npm run lint && npm run format:check",
+    "demos": "npm run dev --prefix apps/demos"
   },
   "devDependencies": {
     "@fozy-labs/js-configs": "^0.1.3",

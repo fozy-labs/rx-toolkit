@@ -14,10 +14,10 @@ npm run test:watch      # vitest watch mode
 npm run lint / lint:fix # ESLint over src/
 npm run format / format:check   # Prettier over src/
 npm run check:all       # ts-check + test + lint + format:check
-npm run build           # rimraf dist && tsc && tsc-alias
+npm run build           # rimraf dist && tsc && tsc-alias --resolve-full-paths
 ```
 
-The demo app is separate: `cd apps/demos && npm install && npm run dev` (own ESLint config).
+The demo app is separate (own deps and ESLint config): `npm run demos` from the root starts its dev server (`npm install` inside `apps/demos` first).
 
 ## Architecture
 
@@ -25,7 +25,7 @@ The demo app is separate: `cd apps/demos && npm install && npm run dev` (own ESL
 - `src/index.ts` is the single public API entry.
 - Each module has its own `index.ts` barrel.
 
-Three modules:
+Four modules:
 
 - **`src/signals/`** — reactive primitives. 
   - `base/` holds the engine: `SourceSignal`, `DependencyTracker` (auto-tracking for computeds/effects), `Batcher` (update batching), `ComputeCache`, `SyncObservable` (sync bridge to RxJS).
@@ -37,15 +37,22 @@ Three modules:
     - `machine/` (state machine driving query lifecycle), 
     - `cache/` (cache entries, lifetimes, stale-while-revalidate),
     - `resource/` and `command/` (+ their Agents — per-args instances), 
+    - `batch-resource/` (batching of per-item requests into one call),
     - `patcher/` (optimistic updates via Immer patches with rebase on server response),
     - `snapshoter/` (SSR snapshots/hydration), 
-    - `syncer/` (cross-tab sync via BroadcastChannel).
+    - `syncer/` (cross-tab sync via BroadcastChannel),
+    - `api/` (Api container, hook composition), `errors/` (typed error classes).
   - `api/createApi.ts` is the entry point; 
   - plugins (e.g. `react/ReactHooksPlugin.ts` adding `useResource`/`useCommand`/`useSuspenseResource`) extend resources/commands via HKT-based types in `types/plugin-hkt.ts`.
+- **`src/statechart/`** — statecharts on top of signals (nested/parallel/final/history states, `entry`/`exit`, `always`, `after`, guards, actions). Own runtime, no external deps.
+  - Two layers: `createMachine()` → `MachineDefinition` (stateless config + implementations table) and `MachineSignal.state(definition)` (instance as a callable signal snapshot).
+  - `core/` is the interpreter; `export/` — `toMermaid()` / `toXStateSource()`.
+  - `__tests__/differential/` runs differential tests against `xstate` (devDependency only, not shipped).
 - **`src/common/`** — shared utils, Redux DevTools integration, global default options, shared React helpers.
 - `.tmp` - temporary files (gitignore)
+- `benchmarks/` — comparative signals benchmarks vs alien-signals/preact/reatom (gitignored workspace, runs against built `dist`)
 
-Docs for query concepts (`docs/query/concepts/`: machine → cache → agent) are the best deep-dive into `src/query/core/`.
+Docs for query concepts (`docs/query/concepts/`: machine → cache → agent) are the best deep-dive into `src/query/core/`; `docs/statechart/README.md` — into `src/statechart/`.
 
 ## Conventions
 
