@@ -7,17 +7,17 @@
 ## Commands
 
 ```bash
-npm run ts-check        # typecheck (tsc --noEmit)
-npm run test            # typecheck tests (tsconfig.test.json) + vitest run
-npx vitest run src/signals/signals/State.test.ts   # single test file
-npm run test:watch      # vitest watch mode
-npm run lint / lint:fix # ESLint over src/
-npm run format / format:check   # Prettier over src/
-npm run check:all       # ts-check + test + lint + format:check
-npm run build           # rimraf dist && tsc && tsc-alias --resolve-full-paths
+pnpm run ts-check        # typecheck (tsc --noEmit)
+pnpm run test            # typecheck tests (tsconfig.test.json) + vitest run
+pnpm vitest run src/signals/signals/State.test.ts   # single test file
+pnpm run test:watch      # vitest watch mode
+pnpm run lint / lint:fix # ESLint over src/
+pnpm run format / format:check   # Prettier over src/
+pnpm run check:all       # ts-check + test + lint + format:check
+pnpm run build           # rimraf dist && tsc && tsc-alias --resolve-full-paths
 ```
 
-The demo app is separate (own deps and ESLint config): `npm run demos` from the root starts its dev server (`npm install` inside `apps/demos` first).
+The demo app is separate (own deps and ESLint config): `pnpm run demos` from the root starts its dev server (`pnpm install` inside `apps/demos` first).
 
 ## Architecture
 
@@ -37,7 +37,7 @@ Four modules:
     - `machine/` (state machine driving query lifecycle), 
     - `cache/` (cache entries, lifetimes, stale-while-revalidate),
     - `resource/` and `command/` (+ their Agents — per-args instances), 
-    - `batch-resource/` (batching of per-item requests into one call),
+    - `projection-resource/` (per-item projections over a batched request; `api.unstable_createProjectionResource`),
     - `patcher/` (optimistic updates via Immer patches with rebase on server response),
     - `snapshoter/` (SSR snapshots/hydration), 
     - `syncer/` (cross-tab sync via BroadcastChannel),
@@ -45,6 +45,7 @@ Four modules:
   - `api/createApi.ts` is the entry point; 
   - plugins (e.g. `react/ReactHooksPlugin.ts` adding `useResource`/`useCommand`/`useSuspenseResource`) extend resources/commands via HKT-based types in `types/plugin-hkt.ts`.
 - **`src/statechart/`** — statecharts on top of signals (nested/parallel/final/history states, `entry`/`exit`, `always`, `after`, guards, actions). Own runtime, no external deps.
+  - `unstable_createMachine`, `unstable_MachineSignal`, `unstable_Statechart`.
   - Two layers: `createMachine()` → `MachineDefinition` (stateless config + implementations table) and `MachineSignal.state(definition)` (instance as a callable signal snapshot).
   - `core/` is the interpreter; `export/` — `toMermaid()` / `toXStateSource()`.
   - `__tests__/differential/` runs differential tests against `xstate` (devDependency only, not shipped).
