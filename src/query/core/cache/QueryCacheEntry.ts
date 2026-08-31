@@ -1,4 +1,4 @@
-import type { Observable, Subscription } from "rxjs";
+import { isObservable, type Observable, type Subscription } from "rxjs";
 
 import type {
     IPatchHandle,
@@ -12,7 +12,7 @@ import type {
 import type { ReadonlySignal } from "@/signals/types";
 
 import { abortReason } from "../../lib/abortReason";
-import { CacheEntryRemovedError } from "../errors";
+import { CacheEntryRemovedError, EmptyStreamError } from "../errors";
 import { Machine } from "../machine/Machine";
 import { hasData } from "../machine/machine-helpers";
 
@@ -30,12 +30,16 @@ export class QueryCacheEntry<TArgs, TData>
     readonly keyedArgs: Keyed<TArgs>;
     readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
 
-    private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData>;
+    private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
     private _abortController: AbortController | null = null;
+
+    /** True while the current run's query stream has an active, non-terminated subscription. */
+    private _isStreamOpen = false;
 
     private readonly _mapError: TMapError;
     private readonly _errorSource: "query" | "command";
     private readonly _resourceKey: string | undefined;
+    private readonly _onStreamPatch: (() => void) | undefined;
 
     /** First data ever seen (survives error+retry); rejected only if the entry is removed first. */
     private readonly _firstLoaded: Promise<TData>;
@@ -58,6 +62,7 @@ export class QueryCacheEntry<TArgs, TData>
         this._mapError = options.mapError ?? ((error) => error);
         this._errorSource = options.errorSource ?? "query";
         this._resourceKey = options.resourceKey;
+        this._onStreamPatch = options.onStreamPatch;
         this.machine$ = this.state$;
 
         // The raw stream replays the current state, so hydrated entries settle
@@ -132,6 +137,10 @@ export class QueryCacheEntry<TArgs, TData>
         const { machine: newMachine, handle } = machine.createPatch(patchFn, onSettle);
 
         this.set(newMachine, "patch");
+
+        // While a query stream is open, incoming emissions rebase over the patch
+        // — let the owner surface that (e.g. the resource's one-time warning).
+        if (this._isStreamOpen) this._onStreamPatch?.();
 
         return handle;
     }
@@ -301,7 +310,8 @@ export class QueryCacheEntry<TArgs, TData>
 
     /** @internal Called by Resource when beforeQuery intercept needs to trigger the query. */
     _execute(): void {
-        // Abort any in-flight request
+        // Abort any in-flight request (also tears down a previous run's stream
+        // subscription via its abort listener).
         this._abortController?.abort();
 
         const controller = new AbortController();
@@ -322,7 +332,14 @@ export class QueryCacheEntry<TArgs, TData>
                 console.warn(`[QueryCacheEntry] executed in unexpected state: ${(machine as any).status}`);
         }
 
-        this._queryFn(this.keyedArgs, controller.signal)
+        const result = this._queryFn(this.keyedArgs, controller.signal);
+
+        if (isObservable(result)) {
+            this._subscribeStream(result, controller);
+            return;
+        }
+
+        result
             .then((data) => {
                 if (controller.signal.aborted) return;
 
@@ -370,5 +387,117 @@ export class QueryCacheEntry<TArgs, TData>
 
                 this.set(machine.fail(mappedError), failedAction);
             });
+    }
+
+    /**
+     * Run a stream-returning queryFn: the first emission settles the run
+     * (pending → success / refreshing → rebase), each subsequent emission
+     * updates the data through the patch-rebase machinery (success → success),
+     * a stream error after data lands in refresh-error (data kept), and a
+     * completion without a single emission fails the run with
+     * {@link EmptyStreamError}. Completion after data leaves the entry as-is.
+     *
+     * The subscription is tied to the run's abort controller: a newer
+     * `_execute` (refresh / retry) or entry completion aborts it, which
+     * unsubscribes and thereby triggers the producer's teardown.
+     */
+    private _subscribeStream(stream: Observable<TData>, controller: AbortController): void {
+        let hasEmitted = false;
+        this._isStreamOpen = true;
+
+        // Only the run that owns the current controller may declare the stream
+        // closed — a stale run's teardown must not clobber a newer run's flag.
+        const markClosed = (): void => {
+            if (this._abortController === controller) {
+                this._isStreamOpen = false;
+            }
+        };
+
+        const subscription = stream.subscribe({
+            next: (data) => {
+                if (controller.signal.aborted) return;
+                hasEmitted = true;
+                this._applyStreamData(data);
+            },
+            error: (error: unknown) => {
+                markClosed();
+                if (controller.signal.aborted) return;
+                this._failStreamRun(error);
+            },
+            complete: () => {
+                markClosed();
+                if (controller.signal.aborted) return;
+                if (!hasEmitted) {
+                    this._failStreamRun(new EmptyStreamError());
+                }
+                // With data delivered, completion simply ends the live phase —
+                // the entry keeps the last emission like an ordinary success.
+            },
+        });
+
+        // A synchronous emission may have triggered a consistency-violation
+        // refresh (re-execute → abort) while `subscribe` was still running —
+        // in that case the listener below was never attached, release now.
+        if (controller.signal.aborted) {
+            subscription.unsubscribe();
+            return;
+        }
+
+        controller.signal.addEventListener(
+            "abort",
+            () => {
+                subscription.unsubscribe();
+                markClosed();
+            },
+            { once: true },
+        );
+    }
+
+    /** Apply a stream emission to the machine (see {@link _subscribeStream}). */
+    private _applyStreamData(data: TData): void {
+        const machine = this.machine$.peek();
+
+        switch (machine.status) {
+            case "pending":
+                this.set(machine.success(data), "success");
+                break;
+            case "refreshing": {
+                const rebased = machine.rebase(data);
+                this.set(rebased, "rebase");
+
+                if (rebased.patchState?.isConsistencyViolation) {
+                    this.refresh();
+                }
+                break;
+            }
+            case "success": {
+                const next = machine.next(data);
+                this.set(next, "stream-next");
+
+                if (next.patchState?.isConsistencyViolation) {
+                    this.refresh();
+                }
+                break;
+            }
+            default:
+                console.warn(`[QueryCacheEntry] received stream data in unexpected state: ${machine.status}`);
+        }
+    }
+
+    /** Fail the current stream run; unlike the promise path, `success` is a valid failure origin. */
+    private _failStreamRun(error: unknown): void {
+        const machine = this.machine$.peek();
+
+        if (machine.status !== "pending" && machine.status !== "refreshing" && machine.status !== "success") {
+            console.warn(`[QueryCacheEntry] received stream error in unexpected state: ${machine.status}`);
+            return;
+        }
+
+        // Same single normalization boundary as the promise path (see _execute).
+        const mappedError = this._mapError(error, this._errorContext());
+
+        const failedAction = machine.status === "pending" ? "error" : "refresh-error";
+
+        this.set(machine.fail(mappedError), failedAction);
     }
 }

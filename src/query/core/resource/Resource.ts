@@ -11,6 +11,7 @@ import type {
     TCacheEntryAddedContext,
     TMapError,
     TPackedResource,
+    TQueryFnResult,
     TQueryStartedContext,
     TResourceFetchOptions,
     TResourcePrefetchOptions,
@@ -22,6 +23,7 @@ import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 import { Machine } from "../machine/Machine";
 
+import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
 import { ResourceAgent } from "./ResourceAgent";
 
 // ==================== Resource ====================
@@ -38,7 +40,7 @@ import { ResourceAgent } from "./ResourceAgent";
 export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs, TData, TError> {
     private readonly _cache = unstable_KeyedSignal.state<QueryCacheEntry<TArgs, TData>>();
 
-    private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
+    private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     readonly _key: string | undefined;
     /** @internal Read by Snapshoter.getSnapshot to skip non-snapshotable resources. */
     readonly _snapshotable: boolean;
@@ -48,6 +50,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
     private readonly _beforeQuery?;
+    private readonly _allowStreamPatches: boolean;
+    private _streamPatchWarned = false;
 
     constructor(config: IResourceConfig<TArgs, TData>) {
         this._queryFn = config.queryFn;
@@ -59,6 +63,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;
         this._beforeQuery = config.beforeQuery;
+        this._allowStreamPatches = config.allowStreamPatches ?? false;
 
         if (config.snapshot) {
             for (const [key, snap] of Object.entries(config.snapshot.entries)) {
@@ -463,13 +468,28 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * refreshing/pending, stranding it there. As a rejection it flows through
      * the machine (→ error / refresh-error) like any other query failure.
      */
-    private _callQueryFn(args: TArgs, signal: AbortSignal): Promise<TData> {
+    private _callQueryFn(args: TArgs, signal: AbortSignal): TQueryFnResult<TData> {
         try {
             return this._queryFn(args, signal);
         } catch (error) {
             return Promise.reject(error);
         }
     }
+
+    /**
+     * One-time warning for optimistic patches created while a query stream is
+     * open (see `allowStreamPatches`). Wired into every entry as `onStreamPatch`.
+     */
+    private _warnStreamPatch = (): void => {
+        if (this._streamPatchWarned) return;
+        this._streamPatchWarned = true;
+        console.warn(
+            `[rx-toolkit] createPatch() on resource "${this._key ?? "<unnamed>"}" while its query stream is open: ` +
+                "every emission rebases over active patches, and a committed patch dissolves into the next " +
+                "emission's data. Set `allowStreamPatches: true` on the resource to acknowledge this and " +
+                "suppress the warning.",
+        );
+    };
 
     /** Get an existing cache entry (refreshing it when `doForce`) or create a new one. */
     private _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
@@ -500,26 +520,31 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         keyed: Keyed<TArgs>,
         initialMachine?: Machine<TArgs, TData>,
     ): QueryCacheEntry<TArgs, TData> {
-        // Capture initial query promise for onQueryStarted lifecycle hook.
+        // Capture the initial run's lifecycle context for onQueryStarted.
         // During the QueryCacheEntry constructor, _execute() fires synchronously,
-        // calling wrappedQueryFn before `entry` is assigned. We save the promise
+        // calling wrappedQueryFn before `entry` is assigned. We save the context
         // in the `else` branch and fire onQueryStarted after construction.
         // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
         let entry!: QueryCacheEntry<TArgs, TData>;
-        let initialQueryPromise: Promise<TData> | null = null;
+        let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
 
-        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): Promise<TData> => {
-            const promise = this._callQueryFn(keyedArgs.value, signal);
+        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
+            const raw = this._callQueryFn(keyedArgs.value, signal);
+
+            // No hook — hand the run to the entry untouched (streams stay uninstrumented).
+            if (!this._onQueryStarted) return raw;
+
+            const { result, lifecycle } = instrumentQueryRun(raw, signal);
 
             if (entry) {
                 // Subsequent calls (refresh / retry) — entry is already assigned
-                this._fireOnQueryStarted(entry, keyedArgs.value, promise);
+                this._fireOnQueryStarted(entry, keyedArgs.value, lifecycle);
             } else {
                 // Initial call during constructor — defer
-                initialQueryPromise = promise;
+                initialRunLifecycle = lifecycle;
             }
 
-            return promise;
+            return result;
         };
 
         entry = new QueryCacheEntry<TArgs, TData>({
@@ -531,6 +556,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             errorSource: "query",
             initialMachine,
             beforeDevtoolsPush: undefined,
+            onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
         });
 
         // Register in cache
@@ -545,8 +571,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._fireOnCacheEntryAdded(entry, keyed);
 
         // Fire onQueryStarted for the initial query (deferred from constructor)
-        if (initialQueryPromise) {
-            this._fireOnQueryStarted(entry, keyed.value, initialQueryPromise);
+        if (initialRunLifecycle) {
+            this._fireOnQueryStarted(entry, keyed.value, initialRunLifecycle);
         }
 
         return entry;
@@ -554,10 +580,14 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
     /** Entry creation with beforeQuery intercept: starts in pending, asks other tabs first. */
     private _createEntryWithBeforeQuery(keyed: Keyed<TArgs>): QueryCacheEntry<TArgs, TData> {
-        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): Promise<TData> => {
-            const promise = this._callQueryFn(keyedArgs.value, signal);
-            this._fireOnQueryStarted(entry, keyedArgs.value, promise);
-            return promise;
+        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
+            const raw = this._callQueryFn(keyedArgs.value, signal);
+
+            if (!this._onQueryStarted) return raw;
+
+            const { result, lifecycle } = instrumentQueryRun(raw, signal);
+            this._fireOnQueryStarted(entry, keyedArgs.value, lifecycle);
+            return result;
         };
 
         // Create entry with an explicit pending Machine to PREVENT auto-execute
@@ -570,6 +600,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             errorSource: "query",
             initialMachine: Machine.pending<TArgs, TData>(keyed.value),
             beforeDevtoolsPush: undefined,
+            onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
         });
 
         // Register in cache immediately (UI sees pending state)
@@ -649,18 +680,17 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
     }
 
-    private _fireOnQueryStarted(entry: QueryCacheEntry<TArgs, TData>, args: TArgs, queryPromise: Promise<TData>): void {
+    private _fireOnQueryStarted(
+        entry: QueryCacheEntry<TArgs, TData>,
+        args: TArgs,
+        lifecycle: TQueryRunLifecycle<TData>,
+    ): void {
         if (!this._onQueryStarted) return;
-
-        const $queryFulfilled = queryPromise.then((data) => ({ data }));
-        // Derived promise: rejects with the query error even though the base
-        // promise is consumed by _execute. Suppress "nobody awaited" rejections
-        // (the hook may not consume it); awaiting hooks still see the rejection.
-        void $queryFulfilled.catch(() => {});
 
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,
-            $queryFulfilled,
+            $queryFulfilled: lifecycle.$queryFulfilled,
+            $queryStream: lifecycle.$queryStream,
         };
 
         try {

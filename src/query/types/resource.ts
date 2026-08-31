@@ -1,3 +1,5 @@
+import type { Observable } from "rxjs";
+
 import type { ArgsOrVoidOrSkip, TResourceSnapshot } from "@/query";
 import type { ReadonlySignal } from "@/signals/types";
 
@@ -195,8 +197,23 @@ export interface IResourceAgent<TArgs, TData, TError = unknown> {
 
 // ==================== Resource Options ====================
 
+/**
+ * What a resource's queryFn may return.
+ *
+ * - `Promise<TData>` — a one-shot query: resolves once, settles the run.
+ * - `Observable<TData>` — a streaming query: the first emission settles the
+ *   run (pending → success), every subsequent emission updates the entry's
+ *   data in place (active optimistic patches are rebased onto it), an error
+ *   after data lands in `refresh-error` with the data kept, and completion
+ *   simply ends the live phase — the entry keeps the last emission. The
+ *   subscription is torn down when the entry is evicted or the run is
+ *   superseded (refresh / retry resubscribe); completing without a single
+ *   emission fails the run with `EmptyStreamError`.
+ */
+export type TQueryFnResult<TData> = Promise<TData> | Observable<TData>;
+
 export interface TResourceOptions<TArgs, TData> {
-    queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
+    queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     key?: string;
     retentionTime?: number | false;
     serializeArgs?: (args: TArgs) => string;
@@ -211,12 +228,20 @@ export interface TResourceOptions<TArgs, TData> {
      */
     snapshotable?: boolean;
     sync?: boolean;
+    /**
+     * Suppresses the one-time warning logged when an optimistic patch is
+     * created while a query stream is open. While the stream lives, every
+     * emission rebases over active patches and a committed patch dissolves
+     * into the next emission's data — set this to `true` once that interplay
+     * is intended. Defaults to `false`.
+     */
+    allowStreamPatches?: boolean;
 }
 
 // ==================== Resource Config (internal) ====================
 
 export interface IResourceConfig<TArgs, TData> {
-    queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
+    queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     key?: string;
     retentionTime: number | false;
     serializeArgs: (args: TArgs) => string;
@@ -234,4 +259,6 @@ export interface IResourceConfig<TArgs, TData> {
     snapshotable?: boolean;
     /** Cross-tab sync hook: called before queryFn to check if another tab has cached data. */
     beforeQuery?: (resourceKey: string, entryKey: string) => Promise<{ data: TData } | null>;
+    /** See {@link TResourceOptions.allowStreamPatches}. Defaults to `false`. */
+    allowStreamPatches?: boolean;
 }

@@ -397,6 +397,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,
             $queryFulfilled,
+            // Commands are promise-only: both stream milestones coincide with
+            // the run's outcome. The base promise is safe to hand out — the
+            // entry always attaches a rejection handler to it.
+            $queryStream: { firstReceived: queryPromise, allReceived: queryPromise },
         };
 
         try {

@@ -123,6 +123,7 @@ export class Api implements IApi {
             onQueryStarted: mergedOnQueryStarted,
             snapshot: initialEntries,
             snapshotable: opts.snapshotable,
+            allowStreamPatches: opts.allowStreamPatches,
             beforeQuery: syncEnabled
                 ? (this.syncer!.beforeQuery as IResourceConfig<TArgs, TData>["beforeQuery"])
                 : undefined,
