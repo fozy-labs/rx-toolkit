@@ -4,6 +4,7 @@
 ## [Unreleased]
 
 ### Added
+- **Стриминговые запросы** — `queryFn` ресурса может вернуть `Observable<TData>`: первая эмиссия завершает загрузку, каждая следующая обновляет данные записи на месте (с ребейзом активных оптимистичных патчей); ошибка после данных → `refresh-error` с сохранением данных, завершение без эмиссий → ошибка `EmptyStreamError` (экспортируется публично). `refresh`/`retry` переподписываются, вытеснение записи отписывается от продюсера. Дополнено: опция ресурса `allowStreamPatches` (подавляет предупреждение о патчах при открытом стриме) и вехи `$queryStream.firstReceived` / `$queryStream.allReceived` в контексте `onQueryStarted`. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
 - **`api.createBatchResource`** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов. См. [docs/query/usage/batch-resource](./query/usage/batch-resource.md).
 - **`snapshotable`** — опция ресурса: при `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot`. Batch-ресурсы выставляют её автоматически — их записи являются производными проекциями, владелец данных в снимке — обёрнутый ресурс.
 - **`composeHooks`** — публичная утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один: конкурентный старт, независимое подавление ошибок. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).

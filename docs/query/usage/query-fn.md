@@ -2,6 +2,8 @@
 
 `queryFn` — единственная обязательная опция и [ресурса][resource], и [команды][command]. Это функция, которая
 выполняет реальный ввод-вывод (HTTP, WebSocket, gRPC, чтение из IndexedDB — что угодно) и возвращает промис с данными.
+У ресурса `queryFn` может вернуть и `Observable<TData>` — тогда запись становится «живой» и обновляется с каждой
+эмиссией; см. [стриминговые запросы][stream-query].
 
 
 ## Почему fetcher не встроен в API
@@ -105,11 +107,13 @@ const createUserCommand = api.createCommand({
 ## См. также
 
 - [Ресурс][resource] — чтение данных, `abortSignal`, SWR
+- [Стриминговые запросы][stream-query] — `Observable` в queryFn ресурса
 - [Команда][command] — мутации, `retry()`, request id
 - [Ключ кэша][cache] — адресация записей внутри toolkit (не путать с request id)
 - [Машина состояний][machine] — переходы между статусами запроса
 
 [resource]: ./resource.md
+[stream-query]: ./stream-query.md
 [command]: ./command.md
 [cache]: ../concepts/cache.md
 [machine]: ../concepts/machine.md

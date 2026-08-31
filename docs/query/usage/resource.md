@@ -18,6 +18,8 @@ const usersResource = api.createResource({
 
 `queryFn` — единственная обязательная опция. Принимает аргументы запроса и `AbortSignal`, возвращает промис с данными. При отмене запроса (смена аргументов, размонтирование) сигнал срабатывает автоматически.
 
+Вместо промиса `queryFn` может вернуть `Observable<TData>` — запись станет «живой» и будет обновляться с каждой эмиссией (WebSocket, SSE и т. п.). См. [стриминговые запросы][stream-query].
+
 
 ## Опции
 
@@ -241,12 +243,14 @@ agent.set(SKIP);        // idle: data: null, status: "idle"
 ## См. также
 
 - [Команда][command] — мутации (создание, обновление, удаление)
+- [Стриминговые запросы][stream-query] — `Observable` в queryFn: живые данные
 - [Машина состояний запроса][machine] — детали переходов между статусами
 - [Кэш][cache] — система кэширования записей
 - [Агент][agent] — SWR-наблюдатель, связывающий UI с записью кэша
 - [Кросс-табовая синхронизация][broadcast] — синхронизация кэша между вкладками
 
 [command]: ./command.md
+[stream-query]: ./stream-query.md
 [machine]: ../concepts/machine.md
 [api-resource]: ../api/resource.md
 [prefetch-lint]: ../api/resource.md#prefetch-и-no-floating-promises

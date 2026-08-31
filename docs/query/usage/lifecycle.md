@@ -48,7 +48,8 @@ const messagesResource = api.createResource({
 | Свойство ctx | Тип                                 | Описание                                                             |
 |---|-------------------------------------|----------------------------------------------------------------------|
 | `entry` | `CacheEntry` (ресурса или команды) | Текущая кэш-запись.                                                  |
-| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте. |
+| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте. Для [стримового][stream-query] запроса — первая эмиссия. |
+| `$queryStream` | `{ firstReceived: Promise<TData>; allReceived: Promise<TData> }` | Вехи [стримового][stream-query] запуска: `firstReceived` — первая эмиссия (≙ `$queryFulfilled`), `allReceived` — последняя эмиссия после завершения стрима. Для промис-`queryFn` оба совпадают с результатом запроса. Ошибки — сырые, до `mapError`. |
 
 ```typescript
 const userResource = api.createResource({
@@ -147,6 +148,7 @@ onCacheEntryAdded: async (id, { $cacheDataLoaded, entry }) => {
 [cache]: ../concepts/cache.md
 [resource]: ./resource.md
 [command]: ./command.md
+[stream-query]: ./stream-query.md
 [dataflows]: ../concepts/dataflows.md
 [api-resource]: ../api/resource.md
 [api-command]: ../api/command.md
