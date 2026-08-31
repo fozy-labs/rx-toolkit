@@ -4,7 +4,7 @@ import { stableStringify } from "@/query/lib/stableStringify";
 import type { ArgsOrVoid, IResource, TBatchResourceOptions, TCacheEntryAddedContext } from "@/query/types";
 import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
 
-import { BatchItemMissingError } from "../errors";
+import { BatchItemMissingError, CacheEntryRemovedError, PreMappedError } from "../errors";
 
 // ==================== BatchRuntime ====================
 
@@ -28,9 +28,10 @@ import { BatchItemMissingError } from "../errors";
  *   (`makeArgs(missingIds)`);
  * - a run whose ids are all covered by cache/in-flight batches performs no
  *   request at all;
- * - a refresh run bypasses the item cache and refetches every requested id
- *   (detected via the entry's machine, which `_execute` moves to `refreshing`
- *   before calling `queryFn`);
+ * - a refresh run bypasses the item cache and refetches every requested id,
+ *   without joining requests begun before it — they may carry pre-refresh
+ *   data (detected via the entry's machine, which `_execute` moves to
+ *   `refreshing` before calling `queryFn`);
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
  */
@@ -52,8 +53,11 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     private readonly _items = unstable_KeyedSignal.state<{ item: TItem }>();
     /** How many live outer entries reference each serialized id. */
     private readonly _refCounts = new Map<string, number>();
-    /** Serialized id → the in-flight batch fetch covering it. */
-    private readonly _inFlight = new Map<string, Promise<void>>();
+    /**
+     * Serialized id → the in-flight batch fetch covering it, resolving with
+     * the serialized ids the response actually covered.
+     */
+    private readonly _inFlight = new Map<string, Promise<ReadonlySet<string>>>();
 
     /** One warning per batch resource about set-local patch semantics. */
     private _didWarnSetLocalPatch = false;
@@ -75,8 +79,12 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      * The outer resource's queryFn — a stream per run:
      *
      * 1. On subscribe, the ids missing from the item cache are fetched through
-     *    the wrapped resource (all requested ids on a refresh run); ids already
-     *    in flight are awaited instead of re-requested.
+     *    the wrapped resource; ids already in flight are awaited instead of
+     *    re-requested. A refresh run bypasses both: it must observe the server
+     *    state as of the refresh call, so it issues a fresh request for every
+     *    requested id — joining a request begun before the refresh could
+     *    settle it with pre-refresh data. The fresh request replaces the
+     *    in-flight registrations, so runs started later join it as usual.
      * 2. Once the initial fetches land, the run emits the assembled `TItem[]`
      *    and stays subscribed to the watched ids: whenever another run
      *    distributes a fresh instance of one of them, the projection re-emits.
@@ -117,24 +125,39 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             const entry = this._resource?.getEntry(args as unknown as ArgsOrVoid<TArgs>) ?? null;
             const isRefreshRun = entry !== null && entry.machine$.peek().status === "refreshing";
 
-            const waits = new Set<Promise<void>>();
+            const waits = new Set<Promise<unknown>>();
             const idsToFetch: TId[] = [];
             const sidsToFetch: string[] = [];
 
             for (const [sid, id] of idBySid) {
-                const inFlight = this._inFlight.get(sid);
-                if (inFlight) {
-                    // Join the in-flight batch covering this id instead of duplicating it.
-                    waits.add(inFlight);
-                    continue;
+                if (!isRefreshRun) {
+                    const inFlight = this._inFlight.get(sid);
+                    if (inFlight) {
+                        // Join the in-flight batch covering this id instead of duplicating it.
+                        waits.add(inFlight);
+                        continue;
+                    }
+                    if (this._items.has(sid)) continue;
                 }
-                if (!isRefreshRun && this._items.has(sid)) continue;
+                // A refresh run neither reads the item cache nor joins requests
+                // begun before it (they may predate the refresh and carry
+                // pre-refresh data) — every requested id is refetched.
                 idsToFetch.push(id);
                 sidsToFetch.push(sid);
             }
 
+            // The ids this run's own response covered — a refresh run judges
+            // missing ids by it (its ids' stale boxes are still in the item
+            // cache, so cache membership would mask an id the server no longer
+            // returns).
+            let ownCoverage: ReadonlySet<string> | null = null;
+
             if (idsToFetch.length > 0) {
-                waits.add(this._fetchBatch(idsToFetch, sidsToFetch));
+                waits.add(
+                    this._fetchBatch(idsToFetch, sidsToFetch).then((covered) => {
+                        ownCoverage = covered;
+                    }),
+                );
             }
 
             let projectionSub: { unsubscribe(): void } | null = null;
@@ -148,10 +171,15 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                     if (isClosed) return;
 
                     // The response(s) may not have covered every requested id.
+                    // A refresh run fetched all its ids itself and is judged by
+                    // its own response's coverage; a regular run by item-cache
+                    // membership (ids served from cache were never requested,
+                    // fetched/joined ids land in the cache when covered).
                     const missingIds: TId[] = [];
                     const missingSids: string[] = [];
                     for (const [sid, id] of idBySid) {
-                        if (!this._items.has(sid)) {
+                        const isCovered = isRefreshRun ? (ownCoverage?.has(sid) ?? false) : this._items.has(sid);
+                        if (!isCovered) {
                             missingIds.push(id);
                             missingSids.push(sid);
                         }
@@ -260,11 +288,28 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         );
     }
 
-    /** Fetch one batch of ids through the wrapped resource and register it as in-flight for each id. */
-    private _fetchBatch(ids: TId[], sids: string[]): Promise<void> {
-        const promise: Promise<void> = (async () => {
-            const data = await this._wrapped.fetch(this._makeArgs(ids));
-            this._distribute(data);
+    /**
+     * Fetch one batch of ids through the wrapped resource and register it as
+     * in-flight for each id (replacing any previous registration — later runs
+     * join this request). Resolves with the serialized ids the response
+     * actually covered.
+     */
+    private _fetchBatch(ids: TId[], sids: string[]): Promise<ReadonlySet<string>> {
+        const promise: Promise<ReadonlySet<string>> = (async () => {
+            let data: TResData;
+            try {
+                data = await this._wrapped.fetch(this._makeArgs(ids));
+            } catch (error) {
+                // The wrapped resource rejects with its machine error, which
+                // already passed the api's mapError at that entry's
+                // normalization boundary — re-throw it in the PreMappedError
+                // envelope so the outer id-set entry surfaces it as-is instead
+                // of mapping it a second time. A removal rejection (the wrapped
+                // entry reset mid-flight) is raw by contract and stays raw: the
+                // outer entry maps it once, like any of its own failures.
+                throw error instanceof CacheEntryRemovedError ? error : new PreMappedError(error);
+            }
+            return this._distribute(data);
         })().finally(() => {
             for (const sid of sids) {
                 if (this._inFlight.get(sid) === promise) this._inFlight.delete(sid);
@@ -281,13 +326,19 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      * Spread a batch response over the reactive item cache. Live projections
      * watching the touched ids re-emit on their own; the writes are batched so
      * one response produces a single emission per affected entry.
+     *
+     * Returns the serialized ids the response covered — independent of whether
+     * each item was actually (re)cached (unreferenced or identical instances
+     * are skipped but still covered).
      */
-    private _distribute(data: TResData): void {
+    private _distribute(data: TResData): ReadonlySet<string> {
         const parsed = this._parseData(data);
+        const covered = new Set<string>();
 
         Batcher.run(() => {
             for (const { id, item } of parsed) {
                 const sid = this._serializeId(id);
+                covered.add(sid);
                 // Only ids referenced by a live outer entry are cached: this both
                 // skips unsolicited extras and prevents writes after the requesting
                 // entries were reset/GC'd mid-flight.
@@ -301,5 +352,7 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 this._items.set(sid, { item });
             }
         });
+
+        return covered;
     }
 }

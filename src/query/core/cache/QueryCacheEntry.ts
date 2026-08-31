@@ -12,7 +12,7 @@ import type {
 import type { ReadonlySignal } from "@/signals/types";
 
 import { abortReason } from "../../lib/abortReason";
-import { CacheEntryRemovedError, EmptyStreamError } from "../errors";
+import { CacheEntryRemovedError, EmptyStreamError, PreMappedError } from "../errors";
 import { Machine } from "../machine/Machine";
 import { hasData } from "../machine/machine-helpers";
 
@@ -33,8 +33,19 @@ export class QueryCacheEntry<TArgs, TData>
     private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
     private _abortController: AbortController | null = null;
 
+    /**
+     * Controller of the run whose query stream is currently open (has an
+     * active, non-terminated subscription); `null` when no stream is open.
+     * Owner-tracked instead of a plain boolean so a superseded run's teardown
+     * can tell whether the flag is still its own to reset (see
+     * {@link _subscribeStream}).
+     */
+    private _streamController: AbortController | null = null;
+
     /** True while the current run's query stream has an active, non-terminated subscription. */
-    private _isStreamOpen = false;
+    private get _isStreamOpen(): boolean {
+        return this._streamController !== null;
+    }
 
     private readonly _mapError: TMapError;
     private readonly _errorSource: "query" | "command";
@@ -301,6 +312,19 @@ export class QueryCacheEntry<TArgs, TData>
         };
     }
 
+    /**
+     * The single normalization boundary shared by the promise and stream
+     * failure paths: a raw rejection becomes the api's TError exactly here. An
+     * error arriving in a {@link PreMappedError} envelope already passed
+     * `mapError` at an upstream entry's boundary (a batch run re-surfacing its
+     * wrapped resource's rejection) — it is unwrapped instead of being mapped
+     * a second time.
+     */
+    private _normalizeError(error: unknown): unknown {
+        if (error instanceof PreMappedError) return error.error;
+        return this._mapError(error, this._errorContext());
+    }
+
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
     private _settleQueryOutcome(state: TMachineState<TArgs, TData>): TSettled<TData> | null {
         if (state.status === "success") return { kind: "data", data: state.data };
@@ -372,14 +396,15 @@ export class QueryCacheEntry<TArgs, TData>
                     return;
                 }
 
-                // Single normalization boundary: the raw rejection becomes the api's
-                // TError exactly here, as it enters the machine, so every reader of
-                // the machine's error — agent state, imperative-fetch rejections, the
-                // command result envelope, the Suspense throw — observes the same
-                // mapped instance. Deliberately upstream of this boundary: lifecycle
-                // hooks ($queryFulfilled) are fed from the raw queryFn promise and
-                // see the raw error. Aborted runs returned above and are never mapped.
-                const mappedError = this._mapError(error, this._errorContext());
+                // Single normalization boundary (see _normalizeError): the raw
+                // rejection becomes the api's TError exactly here, as it enters the
+                // machine, so every reader of the machine's error — agent state,
+                // imperative-fetch rejections, the command result envelope, the
+                // Suspense throw — observes the same mapped instance. Deliberately
+                // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
+                // fed from the raw queryFn promise and see the raw error. Aborted
+                // runs returned above and are never mapped.
+                const mappedError = this._normalizeError(error);
 
                 // Name the failure by the state it lands in: a failed background refresh
                 // keeps its data, a failed first load has none to keep.
@@ -403,13 +428,18 @@ export class QueryCacheEntry<TArgs, TData>
      */
     private _subscribeStream(stream: Observable<TData>, controller: AbortController): void {
         let hasEmitted = false;
-        this._isStreamOpen = true;
+        this._streamController = controller;
 
-        // Only the run that owns the current controller may declare the stream
-        // closed — a stale run's teardown must not clobber a newer run's flag.
+        // Only the run that opened the stream may declare it closed — a stale
+        // run's teardown must not clobber a newer stream run's flag. Ownership
+        // is tracked via `_streamController` rather than `_abortController`:
+        // when a sync emission triggers a re-execute mid-subscribe, the
+        // superseding run has already swapped `_abortController` (and, if it is
+        // itself a stream run, taken over `_streamController`) by the time the
+        // aborted run's teardown observes the flag.
         const markClosed = (): void => {
-            if (this._abortController === controller) {
-                this._isStreamOpen = false;
+            if (this._streamController === controller) {
+                this._streamController = null;
             }
         };
 
@@ -437,9 +467,14 @@ export class QueryCacheEntry<TArgs, TData>
 
         // A synchronous emission may have triggered a consistency-violation
         // refresh (re-execute → abort) while `subscribe` was still running —
-        // in that case the listener below was never attached, release now.
+        // in that case the listener below was never attached: release the
+        // subscription and this run's stream-open flag now. If the superseding
+        // run is itself a stream run, it already owns `_streamController` and
+        // `markClosed` is a no-op; if it is a promise run, nothing else would
+        // ever reset the flag for this aborted run.
         if (controller.signal.aborted) {
             subscription.unsubscribe();
+            markClosed();
             return;
         }
 
@@ -494,7 +529,7 @@ export class QueryCacheEntry<TArgs, TData>
         }
 
         // Same single normalization boundary as the promise path (see _execute).
-        const mappedError = this._mapError(error, this._errorContext());
+        const mappedError = this._normalizeError(error);
 
         const failedAction = machine.status === "pending" ? "error" : "refresh-error";
 

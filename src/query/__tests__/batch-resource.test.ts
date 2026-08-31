@@ -169,6 +169,63 @@ describe("BatchResource", () => {
             expect(batch.getState([1, 999]).status).toBe("error");
         });
 
+        it("maps a wrapped resource's failure through the api mapError exactly once", async () => {
+            class MappedError extends Error {
+                constructor(readonly original: unknown) {
+                    super("mapped");
+                }
+            }
+            const api = createApi({ mapError: (error) => new MappedError(error) });
+            const queryFn = vi.fn(async (_args: TBatchQueryArgs): Promise<TUser[]> => {
+                throw new Error("boom");
+            });
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            const error = await batch.fetch([1, 2]).catch((caught: unknown) => caught);
+
+            // A single mapError pass: the batch entry surfaces MappedError(Error),
+            // not MappedError(MappedError(Error)).
+            expect(error).toBeInstanceOf(MappedError);
+            expect((error as MappedError).original).toBeInstanceOf(Error);
+            expect(((error as MappedError).original as Error).message).toBe("boom");
+
+            // The entry state holds the same single-mapped instance.
+            const state = batch.getState([1, 2]);
+            expect(state.status).toBe("error");
+            expect(state.error).toBe(error);
+        });
+
+        it("maps a BatchItemMissingError through the api mapError once", async () => {
+            class MappedError extends Error {
+                constructor(readonly original: unknown) {
+                    super("mapped");
+                }
+            }
+            const api = createApi({ mapError: (error) => new MappedError(error) });
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            const error = await batch.fetch([1, 999]).catch((caught: unknown) => caught);
+
+            expect(error).toBeInstanceOf(MappedError);
+            expect((error as MappedError).original).toBeInstanceOf(BatchItemMissingError);
+        });
+
         it("propagates the wrapped resource's failure and retries only the missing ids", async () => {
             const api = createApi();
             let shouldFail = true;
@@ -216,6 +273,87 @@ describe("BatchResource", () => {
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [1, 2, 3] });
             expect(data.map((user) => user.id)).toEqual([1, 2, 3]);
+        });
+
+        it("fails a refresh with BatchItemMissingError when the response no longer covers an id", async () => {
+            const api = createApi();
+            let deletedId: number | null = null;
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.filter((id) => id !== deletedId).map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            await batch.fetch([1, 2, 3]);
+
+            // Item 3 is deleted server-side; the refresh response covers only {1, 2}.
+            deletedId = 3;
+            const error = await batch.fetch([1, 2, 3]).catch((caught: unknown) => caught);
+
+            // The stale cached box of item 3 must not mask the missing id.
+            expect(error).toBeInstanceOf(BatchItemMissingError);
+            expect((error as BatchItemMissingError).ids).toEqual([3]);
+
+            // A failed refresh keeps the stale data (regular refresh-error semantics).
+            const state = batch.getState([1, 2, 3]);
+            expect(state.status).toBe("refresh-error");
+            expect(state.data?.map((user) => user.id)).toEqual([1, 2, 3]);
+        });
+
+        it("a refresh does not join an in-flight request started before it", async () => {
+            const api = createApi();
+            let version = "v1";
+            const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
+            const queryFn = vi.fn((args: TBatchQueryArgs): Promise<TUser[]> => {
+                const capturedVersion = version;
+                const { promise, resolve } = defer<TUser[]>();
+                deferred.push({
+                    args,
+                    resolve: () => resolve(args.userIds.map((id) => ({ id, name: `user-${id}-${capturedVersion}` }))),
+                });
+                return promise;
+            });
+            const userResource = api.createResource({ queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            // E1 = [1, 2] loads; E2 = [2] is served from the item cache.
+            const initial = batch.fetch([1, 2]);
+            deferred[0].resolve([]);
+            await initial;
+            await batch.fetch([2]);
+            expect(queryFn).toHaveBeenCalledTimes(1);
+
+            // E1 refreshes — sids {1, 2} go in flight with pre-mutation data.
+            const firstRefresh = batch.fetch([1, 2]);
+            expect(queryFn).toHaveBeenCalledTimes(2);
+
+            // The server-side item 2 is mutated after E1's request was issued.
+            version = "v2";
+
+            // E2.refresh() must issue a fresh request for id 2, not join E1's
+            // pre-mutation in-flight batch.
+            const secondRefresh = batch.fetch([2]);
+            expect(queryFn).toHaveBeenCalledTimes(3);
+            expect(queryFn.mock.calls[2][0]).toEqual({ userIds: [2] });
+
+            deferred[1].resolve([]);
+            deferred[2].resolve([]);
+            await firstRefresh;
+            const data = await secondRefresh;
+
+            expect(data.map((user) => user.name)).toEqual(["user-2-v2"]);
+            expect(batch.getState([2]).data?.map((user) => user.name)).toEqual(["user-2-v2"]);
         });
 
         it("propagates refreshed items into overlapping success entries", async () => {

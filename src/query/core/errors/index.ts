@@ -3,3 +3,4 @@ export { MachineStateError } from "./MachineStateError";
 export { CacheEntryRemovedError } from "./CacheEntryRemovedError";
 export { BatchItemMissingError } from "./BatchItemMissingError";
 export { EmptyStreamError } from "./EmptyStreamError";
+export { PreMappedError } from "./PreMappedError";

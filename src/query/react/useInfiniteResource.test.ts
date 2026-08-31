@@ -252,6 +252,81 @@ describe("useInfiniteResource", () => {
         expect(c.state.data?.map((user) => user.id)).toEqual([10, 11]);
     });
 
+    it("keeps the data array identity across a success -> refreshing flip (page data refs unchanged)", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
+        const queryFn = vi.fn(
+            (args: TBatchQueryArgs) =>
+                new Promise<TUser[]>((resolve) => {
+                    deferred.push({ args, resolve });
+                }),
+        );
+        const userResource = api.createResource({ queryFn });
+        const batch = api.createBatchResource({
+            resource: userResource,
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids) => ({ userIds: ids }),
+            retentionTime: false,
+        });
+
+        const c = setup(batch.useInfiniteResource, [1, 2]);
+        await act(async () => {
+            deferred[0].resolve([1, 2].map((id) => ({ id, name: `user-${id}` })));
+            await flushMicrotasks();
+        });
+        act(() => c.state.fetchNext([3, 4]));
+        await act(async () => {
+            deferred[1].resolve([3, 4].map((id) => ({ id, name: `user-${id}` })));
+            await flushMicrotasks();
+        });
+
+        const dataBefore = c.state.data;
+        const pagesBefore = c.state.pages;
+        expect(dataBefore?.map((user) => user.id)).toEqual([1, 2, 3, 4]);
+
+        // Kick off a refresh; the queries stay in flight (deferred), so every
+        // page flips success -> refreshing while reusing its data by reference.
+        await act(async () => {
+            c.state.refresh();
+            await flushMicrotasks();
+        });
+
+        expect(c.state.pages).not.toBe(pagesBefore); // a new emission happened
+        expect(c.state.pages.map((page) => page.status)).toEqual(["refreshing", "refreshing"]);
+        // Pure status flip, no data change — the flattened array keeps identity.
+        expect(c.state.data).toBe(dataBefore);
+
+        await act(async () => {
+            deferred[2].resolve([1, 2].map((id) => ({ id, name: `user-${id}-v2` })));
+            deferred[3].resolve([3, 4].map((id) => ({ id, name: `user-${id}-v2` })));
+            await flushMicrotasks();
+        });
+
+        // Data actually changed — the identity must change too.
+        expect(c.state.data).not.toBe(dataBefore);
+        expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2", "user-3-v2", "user-4-v2"]);
+    });
+
+    it("changes the data array identity when any page's data changes", async () => {
+        let currentVersion = "v1";
+        const { batch } = createBatchSetup({ version: () => currentVersion });
+
+        const c = setup(batch.useInfiniteResource, [1, 2]);
+        await settle();
+        act(() => c.state.fetchNext([3]));
+        await settle();
+
+        const dataBefore = c.state.data;
+        expect(dataBefore?.map((user) => user.id)).toEqual([1, 2, 3]);
+
+        currentVersion = "v2";
+        act(() => c.state.refresh());
+        await settle();
+
+        expect(c.state.data).not.toBe(dataBefore);
+        expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2", "user-3-v2"]);
+    });
+
     it("item updates from an overlapping set propagate into loaded pages", async () => {
         let currentVersion = "v1";
         const { batch } = createBatchSetup({ version: () => currentVersion });

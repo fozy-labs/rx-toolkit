@@ -923,7 +923,21 @@ function linkNode<TContext extends MachineContext, TEvent extends EventObject>(
     }
 
     if (node.type === "history" && raw.target !== undefined) {
-        node.historyTarget = resolveTargets(ctx, node, [raw.target as string], joinPath(p, "target"));
+        const targetPath = joinPath(p, "target");
+        const resolved = resolveTargets(ctx, node, [raw.target as string], targetPath);
+        // A history default target must resolve directly to a regular state.
+        // Allowing another history node (itself included) would create chains
+        // whose runtime resolution can recurse forever (h1 -> h2 -> h1), so
+        // they are rejected wholesale, cyclic or not.
+        for (const target of resolved) {
+            if (target.type === "history") {
+                fail(
+                    targetPath,
+                    `'target' of a history state node must be a regular state, not the history state node '${target.id}'`,
+                );
+            }
+        }
+        node.historyTarget = resolved;
     }
 
     const frozenTransitions = new Map<string, readonly Transition<TContext, TEvent>[]>();

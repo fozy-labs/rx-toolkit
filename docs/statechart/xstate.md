@@ -192,7 +192,7 @@ statelyInspector({
 |---|---|---|---|
 | `url` | `string` | `https://stately.ai/inspect` | адрес страницы инспектора |
 | `iframe` | `HTMLIFrameElement \| null` | `null` | встроить инспектор в iframe; иначе открывается окно `window.open(url, "xstateinspector")` |
-| `window` | `Window` | `globalThis.window` | хост-окно (для тестов). Без `window` (SSR / Node) адаптер — тихий no-op |
+| `window` | `Window` | `globalThis.window` | хост-окно (для тестов). Без `window` (SSR / Node) адаптер — тихий no-op с нулевой стоимостью: `filter` / `serialize` и сериализация определения машины не вызываются вовсе |
 | `autoStart` | `boolean` | `true` | вызвать `start()` при создании |
 | `maxDeferredEvents` | `number` | `200` | размер буфера событий до хендшейка `@statelyai.connected`; буфер переигрывается при каждом (пере)подключении страницы инспектора |
 | `filter` | `(event: StatelyInspectionEvent) => boolean` | `() => true` | отсекает события до сериализации |

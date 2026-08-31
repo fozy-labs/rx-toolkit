@@ -44,6 +44,11 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     private _initialKey: string | null = null;
     private _isStarted = false;
 
+    /** Per-page `data` references of the last {@link buildState} call. */
+    private _lastPagesData: readonly (readonly TItem[] | null | undefined)[] | null = null;
+    /** Flattened feed of the last {@link buildState} call (identity cache). */
+    private _lastData: TItem[] | null = null;
+
     readonly pagesState$ = Signal.compute<TResourceAgentState<TArgs, TItem[], TError>[]>(
         () => this._pages$().map((page) => page.agent.state$()),
         { isDisabled: true },
@@ -139,21 +144,19 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
 
     /** Assemble the public state from the derived per-page states. */
     buildState(pages: TResourceAgentState<TArgs, TItem[], TError>[]): TInfiniteResourceState<TArgs, TItem[], TError> {
-        let data: TItem[] | null = null;
         let error: TError | null = null;
         let isLoading = false;
         let isFetchingNext = false;
 
         pages.forEach((page, index) => {
-            if (page.data != null) {
-                data = data === null ? [...page.data] : data.concat(page.data);
-            }
             if (error === null && page.error !== null) {
                 error = page.error;
             }
             if (page.isLoading) isLoading = true;
             if (index > 0 && page.isInitialLoading) isFetchingNext = true;
         });
+
+        const data = this._flattenData(pages);
 
         return {
             data,
@@ -168,6 +171,41 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
             refresh: this.refresh,
             reset: this.reset,
         };
+    }
+
+    /**
+     * Flatten the per-page `data` arrays into a single feed array.
+     *
+     * Identity-stable: when every page's `data` reference is unchanged since
+     * the last call (e.g. a pure status flip such as success → refreshing,
+     * which reuses `data` by reference), the previous flattened array is
+     * returned as-is — so `Object.is` gates downstream (`React.useMemo` deps,
+     * memoized/virtualized lists keyed on `state.data`) see no change.
+     * The rebuild itself is a single-pass push into one array (O(total items)),
+     * never a chained `concat`.
+     */
+    private _flattenData(pages: TResourceAgentState<TArgs, TItem[], TError>[]): TItem[] | null {
+        const prev = this._lastPagesData;
+        let unchanged = prev !== null && prev.length === pages.length;
+
+        const pagesData: (TItem[] | null | undefined)[] = new Array(pages.length);
+        for (let i = 0; i < pages.length; i++) {
+            const pageData = pages[i].data;
+            pagesData[i] = pageData;
+            if (unchanged && prev![i] !== pageData) unchanged = false;
+        }
+        this._lastPagesData = pagesData;
+
+        if (unchanged) return this._lastData;
+
+        let data: TItem[] | null = null;
+        for (const pageData of pagesData) {
+            if (pageData == null) continue;
+            if (data === null) data = [];
+            for (const item of pageData) data.push(item);
+        }
+        this._lastData = data;
+        return data;
     }
 
     private _createPage(keyed: Keyed<TArgs>): TPage<TArgs, TItem[], TError> {

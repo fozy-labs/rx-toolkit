@@ -217,31 +217,6 @@ function EditUserForm({ user }: { user: User }) {
 | `isSuccess` | `boolean`                                    | Успешно ли завершена   |
 | `isError`   | `boolean`                                    | Произошла ли ошибка    |
 
-### useResourceRef (удалён в v0.6.0)
-
-> **Удалён:** Хук `useResourceRef` был удалён в v0.6.0. Для низкоуровневых операций с кэшем используйте `resource.getEntry(args, true)` или `resource.createAgent()` напрямую.
-
-```tsx
-import { useResource } from '@fozy-labs/rx-toolkit';
-import { todoResource } from '../api/todoResource';
-
-function TodoItem({ todo }: { todo: Todo }) {
-    const todoQuery = useResource(todoResource, undefined);
-    
-    // Вместо useResourceRef — получаем entry напрямую:
-    const entry = todoResource.getEntry(undefined, true);
-    
-    const handleToggle = () => {
-        const transaction = entry.createPatch((draft) => {
-            const item = draft.items.find(i => i.id === todo.id);
-            if (item) item.completed = !item.completed;
-        });
-        // ...
-    };
-}
-```
-
-
 ---
 
 ## Паттерны использования

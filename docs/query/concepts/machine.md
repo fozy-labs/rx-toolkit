@@ -28,6 +28,8 @@ stateDiagram-v2
     pending --> error : fail(error)
 
     success --> refreshing : refresh()
+    success --> success : next(data) — эмиссия стрима
+    success --> refresh_error : fail(error) — ошибка стрима
     success --> success : createPatch() / finishPatch() / finishAllPatches()
 
     error --> pending : retry()
@@ -39,6 +41,11 @@ stateDiagram-v2
     refresh_error --> refreshing : refresh()
     refresh_error --> refresh_error : createPatch() / finishPatch() / finishAllPatches()
 ```
+
+Два перехода из `success` появились в 0.12.0 для [стриминговых запросов][stream-query]:
+
+- `next(data)` — `success → success`: очередная эмиссия стрима обновляет данные на месте (активные оптимистичные патчи переигрываются поверх новых данных). Доступен только из `success`.
+- `fail(error)` — `success → refresh-error`: стрим упал уже после доставки данных; данные сохраняются, как при проваленном фоновом рефреше. До 0.12.0 `fail()` из `success` бросал `MachineTransitionError`.
 
 ## Модель данных
 
@@ -100,6 +107,7 @@ interface TRefreshErrorState<TArgs, TData> {
 
 [cache]: cache.md
 [agent]: agent.md
+[stream-query]: ../usage/stream-query.md
 [usage-res]: ../usage/resource.md
 [usage-cmd]: ../usage/command.md
 [dataflows]: dataflows.md

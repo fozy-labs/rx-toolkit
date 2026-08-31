@@ -916,6 +916,65 @@ describe("normalize — validation", () => {
             );
         });
 
+        it("rejects a history default target that is a history node (self-target)", () => {
+            expectConfigError(
+                { initial: "a", states: { a: {}, h: { type: "history", target: "h" } } },
+                "states.h.target",
+                "'target' of a history state node must be a regular state, not the history state node",
+            );
+        });
+
+        it("rejects a history default target that is another history node (chain)", () => {
+            // Even a non-cyclic chain is rejected: default targets must resolve directly.
+            expectConfigError(
+                {
+                    initial: "a",
+                    states: {
+                        a: {},
+                        h1: { type: "history", target: "h2" },
+                        h2: { type: "history", target: "a" },
+                    },
+                },
+                "states.h1.target",
+                "'target' of a history state node must be a regular state, not the history state node",
+            );
+        });
+
+        it("rejects mutually cyclic history default targets", () => {
+            expectConfigError(
+                {
+                    initial: "a",
+                    states: {
+                        a: {},
+                        h1: { type: "history", target: "h2" },
+                        h2: { type: "history", target: "h1" },
+                    },
+                },
+                "states.h1.target",
+                "'target' of a history state node must be a regular state, not the history state node",
+            );
+        });
+
+        it("still accepts a history node with a regular default target, targeted by a transition", () => {
+            const model = build({
+                id: "m",
+                initial: "a",
+                states: {
+                    a: { on: { GO: "#m.p.h" } },
+                    p: {
+                        initial: "x",
+                        states: {
+                            x: {},
+                            y: {},
+                            h: { type: "history", target: "y" },
+                        },
+                    },
+                },
+            });
+            expect(node(model, "m.p.h").historyTarget!.map((t) => t.id)).toEqual(["m.p.y"]);
+            expect(targetIds(transitions(model, "m.a", "GO")[0]!)).toEqual(["m.p.h"]);
+        });
+
         it("rejects `onDone` on the root and on atomic / final nodes", () => {
             expectConfigError(
                 { initial: "a", onDone: { actions: "x" }, states: { a: { type: "final" } } },

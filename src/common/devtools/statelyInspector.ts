@@ -147,10 +147,17 @@ export function statelyInspector(options: StatelyInspectorOptions = {}): Stately
             transport.stop();
         },
         send(event) {
+            // SSR/Node no-op transport: skip filter/serialize entirely —
+            // serializing (a deep JSON clone of the full snapshot/context)
+            // per event just to discard the result is pure overhead.
+            if (!transport.wantsEvents) return;
             if (!filter(event)) return;
             transport.send(serialize(event));
         },
         actor(info) {
+            // Same short-circuit for the per-actor registration, which would
+            // otherwise stringify the whole machine definition per actor.
+            if (!transport.wantsEvents) return NOOP_ACTOR;
             return createActorHandle(inspector, info);
         },
     };
@@ -206,6 +213,14 @@ function createActorHandle(inspector: StatelyInspector, info: MachineDevtoolsAct
 
 interface Transport {
     readonly status: "disconnected" | "connected";
+    /**
+     * Whether the transport can ever deliver events. `false` only for the
+     * SSR/Node no-op transport; the inspector then skips the whole
+     * filter → serialize pipeline (and the actor-definition stringification)
+     * instead of producing payloads that would be thrown away. The browser
+     * transport keeps `true` even while disconnected: it buffers for replay.
+     */
+    readonly wantsEvents: boolean;
     start(): void;
     stop(): void;
     send(event: StatelyInspectionEvent): void;
@@ -238,9 +253,16 @@ function createTransport(options: StatelyInspectorOptions): Transport {
 
 const NOOP_TRANSPORT: Transport = {
     status: "disconnected",
+    wantsEvents: false,
     start() {},
     stop() {},
     send() {},
+};
+
+const NOOP_ACTOR: MachineDevtoolsActor = {
+    event() {},
+    snapshot() {},
+    stop() {},
 };
 
 function createAdapterTransport(adapter: StatelyInspectorAdapter): Transport {
@@ -250,6 +272,7 @@ function createAdapterTransport(adapter: StatelyInspectorAdapter): Transport {
         get status() {
             return status;
         },
+        wantsEvents: true,
         start() {
             status = "connected";
             adapter.start?.();
@@ -324,6 +347,7 @@ function createBrowserTransport(config: BrowserTransportConfig): Transport {
         get status() {
             return status;
         },
+        wantsEvents: true,
         start() {
             hostWindow.addEventListener("message", onMessage);
 

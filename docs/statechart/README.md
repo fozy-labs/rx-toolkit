@@ -161,7 +161,7 @@ light$.dispose(); // снять таймеры, завершить сигнал,
 | `entry` / `exit` | `Actions` | действия при входе / выходе |
 | `onDone` | `Transition` | для `compound` (достигнут финальный потомок) и `parallel` (все регионы финальны); на корне запрещён |
 | `history` | `"shallow" \| "deep" \| true` | только для history-нод; `true` = `"shallow"` |
-| `target` | `string` | таргет history-ноды по умолчанию, если история ещё не записана |
+| `target` | `string` | таргет history-ноды по умолчанию, если история ещё не записана; должен резолвиться в обычное состояние — другая history-нода в роли дефолтного таргета (в т.ч. через цепочку) отклоняется `createMachine` с `MachineConfigError` |
 | `output` | значение или `({ context, event }) => value` | только для `final` и корня |
 | `tags` | `string \| string[]` | попадают в `snapshot.tags` |
 | `description`, `meta` | `string`, plain object | данные для тулинга, в рантайме не используются |

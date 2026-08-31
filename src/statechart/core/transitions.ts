@@ -50,34 +50,26 @@ export function matchesEventDescriptor(eventType: string, descriptor: string): b
     return true;
 }
 
-const candidatesCache = new WeakMap<StateNode<any, any>, Map<string, readonly Transition<any, any>[]>>();
-
 /**
  * XState `getCandidates`: the transitions of `node` that may handle
  * `eventType` — the exact descriptor's list first, then the matching
  * wildcard descriptors from the most specific (longest) to the least, each
- * list in config order. Memoized per node and event type like XState.
+ * list in config order. Computed fresh on every call (like XState v5): the
+ * work is a small filter/sort over the node's own descriptors, and a
+ * per-(node, event type) memo would grow without bound for machines that
+ * receive dynamically named events (StateNodes live as long as the
+ * machine's model, typically a module-level singleton).
  */
 export function getCandidates<TContext extends MachineContext, TEvent extends EventObject>(
     node: StateNode<TContext, TEvent>,
     eventType: string,
 ): readonly Transition<TContext, TEvent>[] {
-    let byEvent = candidatesCache.get(node);
-    if (byEvent === undefined) {
-        byEvent = new Map();
-        candidatesCache.set(node, byEvent);
-    }
-    const cached = byEvent.get(eventType);
-    if (cached !== undefined) return cached as readonly Transition<TContext, TEvent>[];
-
     const exact = node.transitions.get(eventType) ?? [];
     const wildcard = [...node.transitions.keys()]
         .filter((descriptor) => descriptor !== eventType && matchesEventDescriptor(eventType, descriptor))
         .sort((a, b) => b.length - a.length)
         .flatMap((descriptor) => node.transitions.get(descriptor) ?? []);
-    const candidates = Object.freeze([...exact, ...wildcard]);
-    byEvent.set(eventType, candidates);
-    return candidates;
+    return Object.freeze([...exact, ...wildcard]);
 }
 
 // --- history ---------------------------------------------------------------

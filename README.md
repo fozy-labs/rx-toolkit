@@ -15,9 +15,7 @@ npm install @fozy-labs/rx-toolkit rxjs
 
 RxJS действительно мощный инструмент реактивного программирования,
 он удобен, когда мы работаем с потоком событий, но когда речь заходит о состоянии приложения,
-из-за асинхронной природы rx'а, его использование становится сложным и громоздким, не говоря уже о кешировании данных
-(хотя некоторые разработчики "продают" rxjs, как альтернативу Query библиотекам,
-на самом деле реализация подобного функционала выльется в создание отдельной библиотеки).
+его использование становится сложным и громоздким.
 
 RxToolkit решает эти проблемы, предоставляя свою реализацию сигналов и кеш-менеджера.
 
@@ -28,19 +26,15 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - ⚡ **Built on RxJS** — Наследует всю мощь RxJS.
 - 💾 **Кеш-менеджер** — Предоставляет Query реализацию для работы с данными.
 - 🧪 **Query** — Кеш-менеджер с machine states, плагинами и SSR snapshots.
-- 🤖 **Statechart** — Стейт-машины на собственном рантайме поверх сигналов: вложенные, параллельные,
-  финальные и history-состояния, таймеры, гварды и действия. Машину можно описать одним `.mmd`-файлом
-  (mermaid + директивы): конвертер в типизированный код и интерактивная визуализация — пакеты
-  репозитория [fozy-labs/statechart](https://github.com/fozy-labs/statechart).
+- 🤖 **Statechart** — Стейт-машины на собственном рантайме поверх сигналов.
 - 🔷 **TypeScript-first** — Полная типизация.
 - 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS.
   Поставляется с React-хуками из коробки.
 
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
-- [**RxQuery**](./docs/query/README.md) - кеш-менеджер для работы с данными
-- [**Statechart**](./docs/statechart/README.md) - стейт-машины поверх сигналов
-- [**Statechart: авторинг в .mmd**](./docs/statechart/README.md#авторинг-машины-в-mmd) - конвертер `.mmd` → TypeScript и viz
+- [**RxQuery**](./docs/query/README.md) - кеш-менеджер
+- [**Statechart**](./docs/statechart/README.md) - стейт-машины
 - [**React**](./docs/usage/react/README.md) - интеграция с React
 - [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
 - [**DefaultOptions**](./docs/options/README.md) - глобальные настройки
@@ -155,44 +149,4 @@ function ShoppingCart() {
         </Container>
     );
 }
-```
-
-###### Statechart (светофор)
-```typescript
-import { createMachine, MachineSignal, assign } from '@fozy-labs/rx-toolkit';
-
-// Описание — декларативный конфиг машины
-const trafficLight = createMachine(
-    {
-        id: 'trafficLight',
-        initial: 'green',
-        context: { cycles: 0 },
-        states: {
-            green: { after: { 3000: 'yellow' } },
-            yellow: { on: { TIMER: { target: 'red', guard: 'isReady' } } },
-            red: {
-                entry: assign({ cycles: ({ context }) => context.cycles + 1 }),
-                on: { TIMER: 'green' },
-            },
-        },
-    },
-    {
-        guards: { isReady: ({ context }) => context.cycles < 10 },
-    },
-);
-
-// Инстанс — callable-сигнал снапшота с методами машины
-const light$ = MachineSignal.state(trafficLight, { key: 'trafficLight' });
-
-light$().value;              // 'green'
-light$.matches('green');     // true
-light$.send({ type: 'TIMER' });
-light$.can({ type: 'TIMER' });
-
-// Реагируем как на любой сигнал: light$() — отслеживаемое чтение снапшота
-const isRed$ = Signal.compute(() => light$().value === 'red');
-const light = useSignal(light$); // React
-
-// Экспорт диаграммы — stateDiagram-v2 на диалекте конвертера
-trafficLight.toMermaid();
 ```

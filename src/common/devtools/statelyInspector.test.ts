@@ -630,6 +630,18 @@ describe("statelyInspector", () => {
     });
 
     describe("SSR", () => {
+        /** Object whose serialization (any JSON traversal) throws. */
+        function createPoison(): Record<string, unknown> {
+            const poison = {};
+            Object.defineProperty(poison, "boom", {
+                enumerable: true,
+                get(): never {
+                    throw new Error("must not be serialized");
+                },
+            });
+            return poison;
+        }
+
         it("is a silent no-op without a window", () => {
             vi.stubGlobal("window", undefined);
             const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -646,6 +658,42 @@ describe("statelyInspector", () => {
             expect(inspector.status).toBe("disconnected");
             expect(warn).not.toHaveBeenCalled();
             expect(error).not.toHaveBeenCalled();
+        });
+
+        it("never runs filter or serialize without a window (events are dropped before any work)", () => {
+            vi.stubGlobal("window", undefined);
+            const filter = vi.fn(() => true);
+            const serialize = vi.fn((event: StatelyInspectionEvent) => event);
+
+            const inspector = statelyInspector({ filter, serialize });
+            const handle = inspector.actor(actorInfo());
+            handle.event({ type: "E" });
+            handle.snapshot(snapshot, { type: "E" });
+            inspector.send({
+                type: "@xstate.event",
+                _version: STATELY_INSPECT_PROTOCOL_VERSION,
+                sessionId: "sc:1",
+                rootId: "sc:1",
+                id: null,
+                createdAt: "0",
+                event: { type: "E" },
+                sourceId: undefined,
+            });
+
+            expect(filter).not.toHaveBeenCalled();
+            expect(serialize).not.toHaveBeenCalled();
+        });
+
+        it("does not stringify the machine definition or serialize snapshots without a window (poisoned objects never throw)", () => {
+            vi.stubGlobal("window", undefined);
+            const poison = createPoison();
+            const poisonedSnapshot: MachineDevtoolsSnapshot = { status: "active", value: "a", context: poison };
+
+            const inspector = statelyInspector();
+            const handle = inspector.actor(actorInfo({ definition: poison, snapshot: poisonedSnapshot }));
+            handle.event({ type: "E" });
+            handle.snapshot(poisonedSnapshot, { type: "E" });
+            handle.stop();
         });
     });
 

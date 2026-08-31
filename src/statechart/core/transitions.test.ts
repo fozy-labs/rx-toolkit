@@ -115,10 +115,21 @@ describe("getCandidates", () => {
         expect(getCandidates(n("t.a.a1"), "NEXT").map((c) => c.eventType)).toEqual(["NEXT", "*"]);
     });
 
-    it("returns an empty frozen list for nodes without matching descriptors and memoizes the result", () => {
+    it("returns an empty frozen list for nodes without matching descriptors", () => {
         expect(getCandidates(n("t.a.a2"), "NEXT")).toEqual([]);
         expect(Object.isFrozen(getCandidates(n("t.a.a1"), "NEXT"))).toBe(true);
-        expect(getCandidates(n("t.a.a1"), "NEXT")).toBe(getCandidates(n("t.a.a1"), "NEXT"));
+    });
+
+    it("computes candidates fresh on every call instead of caching per event type", () => {
+        // Regression: getCandidates used to memoize per (node, event type) with no
+        // bound or eviction. StateNodes live as long as the MachineDefinition's
+        // model (typically a module-level singleton), so apps sending dynamically
+        // named events (e.g. "item.<id>.updated") or probing can() with arbitrary
+        // types leaked one permanent Map entry per distinct event type per node.
+        const first = getCandidates(n("t.a.a1"), "NEXT");
+        const second = getCandidates(n("t.a.a1"), "NEXT");
+        expect(second).toEqual(first);
+        expect(second).not.toBe(first);
     });
 });
 
