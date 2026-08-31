@@ -1,6 +1,7 @@
 import simpleResourceRaw from "./simple-resource.tsx?raw";
 import batchResourceRaw from "./batch-resource.tsx?raw";
 import streamQueryRaw from "./stream-query.tsx?raw";
+import infiniteFeedRaw from "./infinite-feed.tsx?raw";
 import suspenseResourceRaw from "./suspense-resource.tsx?raw";
 import prefetchOnHoverRaw from "./prefetch-on-hover.tsx?raw";
 import optimisticPatchesRaw from "./optimistic-patches.tsx?raw";
@@ -18,6 +19,7 @@ export const examples = {
     simpleResource: simpleResourceRaw,
     batchResource: batchResourceRaw,
     streamQuery: streamQueryRaw,
+    infiniteFeed: infiniteFeedRaw,
     suspenseResource: suspenseResourceRaw,
     prefetchOnHover: prefetchOnHoverRaw,
     optimisticPatches: optimisticPatchesRaw,

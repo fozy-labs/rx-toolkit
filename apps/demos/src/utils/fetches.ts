@@ -49,6 +49,14 @@ export const fetches = {
         ];
         return users.filter(user => args.userIds.includes(user.id));
     },
+    getPostsByIds: async (args: { ids: number[] }) => {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        return args.ids.map(id => ({
+            id,
+            title: `Пост №${id}`,
+            text: `Содержимое поста №${id}: немного текста, чтобы карточка не выглядела пустой.`,
+        }));
+    },
     getUserStats: async (args: { userId: number; period: string }): Promise<{ commits: number; pullRequests: number; reviews: number }> => {
         await new Promise(resolve => setTimeout(resolve, 800));
         const userStats = {
