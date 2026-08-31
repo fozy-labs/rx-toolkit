@@ -5,6 +5,7 @@
 
 ### Added
 - **`api.createBatchResource`** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов. См. [docs/query/usage/batch-resource](./query/usage/batch-resource.md).
+- **`snapshotable`** — опция ресурса: при `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot`. Batch-ресурсы выставляют её автоматически — их записи являются производными проекциями, владелец данных в снимке — обёрнутый ресурс.
 - **`composeHooks`** — публичная утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один: конкурентный старт, независимое подавление ошибок. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
 
 ## [0.12.0-rc.1] - 2026-08-29

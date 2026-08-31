@@ -363,6 +363,51 @@ describe("BatchResource", () => {
         });
     });
 
+    // ==================== Snapshots ====================
+
+    describe("snapshots", () => {
+        it("excludes id-set entries from getSnapshot — the wrapped resource owns the data", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(
+                async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                    args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ key: "users", queryFn });
+            const batch = api.createBatchResource({
+                resource: userResource,
+                key: "users-batch",
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            await batch.fetch([1, 2]);
+            const snapshot = api.getSnapshot();
+
+            expect(snapshot.resources["users-batch"]).toBeUndefined();
+            expect(snapshot.resources["users"]).toBeDefined();
+        });
+
+        it("a snapshotable: false resource does not hydrate from initialSnapshot", async () => {
+            const sourceApi = createApi();
+            const source = sourceApi.createResource({
+                key: "r",
+                queryFn: async (n: number) => `d-${n}`,
+            });
+            await source.fetch(1);
+            const snapshot = sourceApi.getSnapshot();
+
+            const api = createApi({ initialSnapshot: snapshot });
+            const hydrated = api.createResource({
+                key: "r",
+                queryFn: async (n: number) => `fresh-${n}`,
+                snapshotable: false,
+            });
+
+            expect(hydrated.getEntry(1)).toBeNull();
+        });
+    });
+
     // ==================== Patches ====================
 
     describe("patches", () => {

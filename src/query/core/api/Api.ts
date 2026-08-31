@@ -108,7 +108,8 @@ export class Api implements IApi {
         const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         // Snapshot hydration: build initialEntries if snapshot has matching resource data
-        const initialEntries = this.snapshoter.hydrateResource(opts.key, opts.snapshotValidTime);
+        const initialEntries =
+            opts.snapshotable === false ? undefined : this.snapshoter.hydrateResource(opts.key, opts.snapshotValidTime);
 
         const syncEnabled = this.syncer && this.syncer.isResourceSyncEnabled(opts);
 
@@ -121,6 +122,7 @@ export class Api implements IApi {
             onCacheEntryAdded: mergedOnCacheEntryAdded,
             onQueryStarted: mergedOnQueryStarted,
             snapshot: initialEntries,
+            snapshotable: opts.snapshotable,
             beforeQuery: syncEnabled
                 ? (this.syncer!.beforeQuery as IResourceConfig<TArgs, TData>["beforeQuery"])
                 : undefined,
@@ -163,7 +165,9 @@ export class Api implements IApi {
         // An ordinary resource caching one entry per id-set, so agents, hooks,
         // SWR and plugin augmentation work unchanged; the runtime deduplicates
         // the network traffic underneath. Cross-tab sync is disabled: it would
-        // fill id-set entries bypassing the per-id item cache.
+        // fill id-set entries bypassing the per-id item cache. Snapshots are
+        // disabled too: the id-set entries are derived projections — the
+        // wrapped resource owns the data that goes into SSR snapshots.
         const resource = this.createResource<TArgs, TItem[]>({
             queryFn: runtime.queryFn,
             key: opts.key,
@@ -173,6 +177,7 @@ export class Api implements IApi {
             // be in place before any consumer hook observes the entry.
             onCacheEntryAdded: composeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
             onQueryStarted: opts.onQueryStarted,
+            snapshotable: false,
             sync: false,
         });
 

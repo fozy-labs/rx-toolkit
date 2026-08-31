@@ -27,6 +27,7 @@ const usersResource = api.createResource({
 | `onCacheEntryAdded`  | `(args, ctx) => void`                                       | —                 | Вызывается при создании кэш-записи. См. [lifecycle hooks][usage-lifecycle]. |
 | `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                      | —                 | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
 | `snapshotValidTime`  | `number \| false`                                           | наследуется от API | Время (мс) валидности гидрированных из снимка данных (в [API][api-readme] по умолчанию `false`). См. [снимок][usage-snapshot]. |
+| `snapshotable`       | `boolean`                                                   | `true`            | При `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot` (даже с заданным `key`). Для производных ресурсов, чьи данные принадлежат другому ресурсу; [batch-ресурсы][usage-batch] выставляют это автоматически. |
 | `sync`               | `boolean`                                                   | `false`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
 
 
@@ -223,5 +224,6 @@ void usersResource.prefetch({ page: 1 });
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md
 [usage-snapshot]: ../usage/snapshot.md
+[usage-batch]: ../usage/batch-resource.md
 [keyed]: ../concepts/keyed.md
 [no-floating-promises]: https://typescript-eslint.io/rules/no-floating-promises/

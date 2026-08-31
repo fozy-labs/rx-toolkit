@@ -73,6 +73,7 @@ export class Snapshoter {
         for (const resource of resources) {
             const resourceKey = resource._key;
             if (!resourceKey) continue;
+            if (!resource._snapshotable) continue;
 
             const entries: Record<string, TResourceSnapshotEntry> = {};
             let hasEntries = false;

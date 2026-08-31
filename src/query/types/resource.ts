@@ -203,6 +203,13 @@ export interface TResourceOptions<TArgs, TData> {
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
     snapshotValidTime?: number | false;
+    /**
+     * When `false`, the resource neither contributes entries to `getSnapshot()`
+     * nor hydrates from `initialSnapshot`, regardless of its `key`. For derived
+     * resources whose data is owned elsewhere (batch resources set this
+     * automatically). Defaults to `true`.
+     */
+    snapshotable?: boolean;
     sync?: boolean;
 }
 
@@ -223,6 +230,8 @@ export interface IResourceConfig<TArgs, TData> {
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
     /** Pre-populated entries from snapshot hydration (key → snapshot meta). */
     snapshot?: TResourceSnapshot;
+    /** When `false`, the resource is skipped by `Snapshoter.getSnapshot`. Defaults to `true`. */
+    snapshotable?: boolean;
     /** Cross-tab sync hook: called before queryFn to check if another tab has cached data. */
     beforeQuery?: (resourceKey: string, entryKey: string) => Promise<{ data: TData } | null>;
 }

@@ -40,6 +40,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
     private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => Promise<TData>;
     readonly _key: string | undefined;
+    /** @internal Read by Snapshoter.getSnapshot to skip non-snapshotable resources. */
+    readonly _snapshotable: boolean;
     private readonly _retentionTime: number | false;
     private readonly _serializeArgs: (args: TArgs) => string;
     private readonly _mapError: TMapError;
@@ -50,6 +52,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     constructor(config: IResourceConfig<TArgs, TData>) {
         this._queryFn = config.queryFn;
         this._key = config.key;
+        this._snapshotable = config.snapshotable ?? true;
         this._retentionTime = config.retentionTime;
         this._serializeArgs = config.serializeArgs;
         this._mapError = config.mapError ?? ((error) => error);
