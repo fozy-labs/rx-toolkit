@@ -31,12 +31,12 @@ export interface PluginHKT {
     // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
     readonly commandType: {};
     /**
-     * Override in subinterfaces to declare *additional* augmentation for batch
-     * resources (on top of `resourceType`, which batch resources receive too).
-     * `_TData` is the batch item array type (`TItem[]`).
+     * Override in subinterfaces to declare *additional* augmentation for projection
+     * resources (on top of `resourceType`, which projection resources receive too).
+     * `_TData` is the projection item array type (`TItem[]`).
      */
     // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
-    readonly batchResourceType: {};
+    readonly projectionResourceType: {};
 }
 
 // ==================== HKT Application ====================
@@ -60,11 +60,11 @@ type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
     readonly _TError: TError;
 })["commandType"];
 
-type ApplyPluginBatchResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
+type ApplyPluginProjectionResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
     readonly _TError: TError;
-})["batchResourceType"];
+})["projectionResourceType"];
 
 // ==================== Plugin Augment Extraction ====================
 
@@ -84,8 +84,8 @@ type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt:
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
-type ExtractBatchResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
-    ? ApplyPluginBatchResourceHKT<H, TArgs, TData, TError>
+type ExtractProjectionResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+    ? ApplyPluginProjectionResourceHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
@@ -116,25 +116,25 @@ export type CombinePluginCommandAugments<
 > = UnionToIntersection<ExtractCommandAugment<TPlugins[number], TArgs, TData, TError>>;
 
 /**
- * Combine the *batch-specific* augmentations from all plugins in the tuple.
- * Applied on top of {@link CombinePluginResourceAugments} for batch resources;
- * `TData` is the batch item array type (`TItem[]`).
+ * Combine the *projection-specific* augmentations from all plugins in the tuple.
+ * Applied on top of {@link CombinePluginResourceAugments} for projection resources;
+ * `TData` is the projection item array type (`TItem[]`).
  */
-export type CombinePluginBatchResourceAugments<
+export type CombinePluginProjectionResourceAugments<
     TPlugins extends readonly IPlugin[],
     TArgs,
     TData,
     TError = unknown,
-> = UnionToIntersection<ExtractBatchResourceAugment<TPlugins[number], TArgs, TData, TError>>;
+> = UnionToIntersection<ExtractProjectionResourceAugment<TPlugins[number], TArgs, TData, TError>>;
 
 // ==================== Exports ====================
 
 export type {
     ApplyPluginResourceHKT,
     ApplyPluginCommandHKT,
-    ApplyPluginBatchResourceHKT,
+    ApplyPluginProjectionResourceHKT,
     ExtractResourceAugment,
     ExtractCommandAugment,
-    ExtractBatchResourceAugment,
+    ExtractProjectionResourceAugment,
     UnionToIntersection,
 };

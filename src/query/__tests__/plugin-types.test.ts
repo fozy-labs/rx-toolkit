@@ -112,9 +112,9 @@ describe("Plugin HKT type-level tests", () => {
         resource.useSuspenseResource;
     });
 
-    // ---------- Batch resource gets the same augmentation as a resource ----------
+    // ---------- Projection resource gets the same augmentation as a resource ----------
 
-    it("createApi with reactHooksPlugin → createBatchResource returns useResource typed over TId[] / TItem[]", () => {
+    it("createApi with reactHooksPlugin → unstable_createProjectionResource returns useResource typed over TId[] / TItem[]", () => {
         type TUser = { id: number; name: string };
 
         const api = createApi({ plugins: [reactHooksPlugin()] });
@@ -122,16 +122,16 @@ describe("Plugin HKT type-level tests", () => {
             queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
                 args.userIds.map((id) => ({ id, name: "x" })),
         });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: users,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
         });
 
-        assertType<typeof batch.useResource>(batch.useResource);
+        assertType<typeof projection.useResource>(projection.useResource);
 
-        // Without parseArgs the batch args default to the id list.
-        type HookFn = typeof batch.useResource;
+        // Without parseArgs the projection args default to the id list.
+        type HookFn = typeof projection.useResource;
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
@@ -139,29 +139,29 @@ describe("Plugin HKT type-level tests", () => {
         assertType<IsExact<Ret, TResourceAgentState<number[], TUser[]>>>(true as const);
     });
 
-    it("createBatchResource with parseArgs → useResource typed over the custom args", () => {
+    it("unstable_createProjectionResource with parseArgs → useResource typed over the custom args", () => {
         type TUser = { id: number; name: string };
-        type TBatchArgs = { ids: number[]; tag?: string };
+        type TProjectionArgs = { ids: number[]; tag?: string };
 
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const users = api.createResource({
             queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
                 args.userIds.map((id) => ({ id, name: "x" })),
         });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: users,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
-            parseArgs: (args: TBatchArgs) => args.ids,
+            parseArgs: (args: TProjectionArgs) => args.ids,
         });
 
-        type HookFn = typeof batch.useResource;
+        type HookFn = typeof projection.useResource;
         type Param = Parameters<HookFn>[0];
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<TBatchArgs>>>(true as const);
+        assertType<IsExact<Param, ArgsOrVoidOrSkip<TProjectionArgs>>>(true as const);
     });
 
-    it("createBatchResource with reactHooksPlugin → useInfiniteResource typed over TArgs / TItem[]", () => {
+    it("unstable_createProjectionResource with reactHooksPlugin → useInfiniteResource typed over TArgs / TItem[]", () => {
         type TUser = { id: number; name: string };
 
         const api = createApi({ plugins: [reactHooksPlugin()] });
@@ -169,62 +169,62 @@ describe("Plugin HKT type-level tests", () => {
             queryFn: async (args: { userIds: number[] }): Promise<TUser[]> =>
                 args.userIds.map((id) => ({ id, name: "x" })),
         });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: users,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
         });
 
-        assertType<typeof batch.useInfiniteResource>(batch.useInfiniteResource);
+        assertType<typeof projection.useInfiniteResource>(projection.useInfiniteResource);
 
-        type HookFn = typeof batch.useInfiniteResource;
+        type HookFn = typeof projection.useInfiniteResource;
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
         assertType<IsExact<Param, ArgsOrVoidOrSkip<number[]>>>(true as const);
         assertType<IsExact<Ret, TInfiniteResourceState<number[], TUser[]>>>(true as const);
-        // Flattened data is the item array of the batch.
+        // Flattened data is the item array of the projection.
         assertType<IsExact<Ret["data"], TUser[] | null>>(true as const);
     });
 
-    it("useInfiniteResource is batch-only: absent on plain resources", () => {
+    it("useInfiniteResource is projection-only: absent on plain resources", () => {
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const resource = api.createResource({
             queryFn: async (args: { id: number }) => ({ name: "Alice" }),
         });
 
-        // @ts-expect-error — useInfiniteResource exists only on batch resources
+        // @ts-expect-error — useInfiniteResource exists only on projection resources
         resource.useInfiniteResource;
     });
 
-    it("createApi without plugins → createBatchResource does NOT return useInfiniteResource", () => {
+    it("createApi without plugins → unstable_createProjectionResource does NOT return useInfiniteResource", () => {
         const api = createApi();
         const users = api.createResource({
             queryFn: async (args: { userIds: number[] }) => args.userIds.map((id) => ({ id })),
         });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: users,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
         });
 
         // @ts-expect-error — useInfiniteResource should not exist without the plugin
-        batch.useInfiniteResource;
+        projection.useInfiniteResource;
     });
 
-    it("createApi without plugins → createBatchResource does NOT return useResource", () => {
+    it("createApi without plugins → unstable_createProjectionResource does NOT return useResource", () => {
         const api = createApi();
         const users = api.createResource({
             queryFn: async (args: { userIds: number[] }) => args.userIds.map((id) => ({ id })),
         });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: users,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
         });
 
         // @ts-expect-error — useResource should not exist without the plugin
-        batch.useResource;
+        projection.useResource;
     });
 
     // ---------- Command with ReactHooksPlugin includes useCommand ----------

@@ -1,5 +1,5 @@
 export * from "./api";
-export * from "./batch-resource";
+export * from "./projection-resource";
 export * from "./errors";
 export * from "./resource";
 export * from "./command";

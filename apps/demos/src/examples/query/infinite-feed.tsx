@@ -12,11 +12,11 @@ const postsResource = api.createResource({
     queryFn: async (args: { ids: number[] }) => fetches.getPostsByIds(args),
 });
 
-// useInfiniteResource доступен только на batch-ресурсах: страницы ленты —
-// обычные записи батча, элементы разделяются через общий кэш
-const postsBatch = api.createBatchResource({
+// useInfiniteResource доступен только на проекционных ресурсах: страницы ленты —
+// обычные записи проекции, элементы разделяются через общий кэш
+const postsProjection = api.unstable_createProjectionResource({
     resource: postsResource,
-    key: 'feed-posts-batch',
+    key: 'feed-posts-projection',
     parseData: (posts) => posts.map((item) => ({ id: item.id, item })),
     makeArgs: (ids) => ({ ids }),
 });
@@ -35,7 +35,7 @@ function pageIds(page: number): number[] {
 
 export function Base() {
     const firstPage = React.useMemo(() => pageIds(0), []);
-    const feed = postsBatch.useInfiniteResource(firstPage);
+    const feed = postsProjection.useInfiniteResource(firstPage);
 
     const loadedCount = feed.data?.length ?? 0;
     const hasNext = loadedCount < TOTAL_POSTS;
@@ -84,7 +84,7 @@ export function Base() {
                 </div>
 
                 <p className="text-xs text-default-400">
-                    Каждая страница — отдельная кэш-запись batch-ресурса: догрузка хвоста
+                    Каждая страница — отдельная кэш-запись проекционного ресурса: догрузка хвоста
                     не перерисовывает загруженные страницы, id следующей страницы передаёт
                     вызывающий код. «Обновить» перевалидирует все страницы разом.
                 </p>

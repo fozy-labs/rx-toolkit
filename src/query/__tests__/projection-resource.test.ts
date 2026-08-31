@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
-import { BatchItemMissingError } from "@/query/core/errors";
+import { ProjectionItemMissingError } from "@/query/core/errors";
 
 type TUser = { id: number; name: string };
 
@@ -27,24 +27,24 @@ function setup(options?: { version?: () => string }) {
             args.userIds.map((id) => ({ id, name: `user-${id}-${version()}` })),
     );
     const userResource = api.createResource({ queryFn });
-    const batch = api.createBatchResource({
+    const projection = api.unstable_createProjectionResource({
         resource: userResource,
-        key: "users-batch",
+        key: "users-projection",
         parseData: (data) => data.map((item) => ({ id: item.id, item })),
         makeArgs: (ids) => ({ userIds: ids }),
         retentionTime: false,
     });
-    return { api, queryFn, userResource, batch };
+    return { api, queryFn, userResource, projection };
 }
 
-describe("BatchResource", () => {
+describe("ProjectionResource", () => {
     // ==================== Basic fetching ====================
 
     describe("basic fetching", () => {
         it("fetches all ids on the first request and returns items in requested order", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            const data = await batch.fetch([1, 2, 3]);
+            const data = await projection.fetch([1, 2, 3]);
 
             expect(queryFn).toHaveBeenCalledTimes(1);
             expect(queryFn.mock.calls[0][0]).toEqual({ userIds: [1, 2, 3] });
@@ -52,10 +52,10 @@ describe("BatchResource", () => {
         });
 
         it("serves a subset entirely from the item cache without a request", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            const first = await batch.fetch([1, 2, 3]);
-            const second = await batch.fetch([1, 2]);
+            const first = await projection.fetch([1, 2, 3]);
+            const second = await projection.fetch([1, 2]);
 
             expect(queryFn).toHaveBeenCalledTimes(1);
             expect(second.map((user) => user.id)).toEqual([1, 2]);
@@ -65,10 +65,10 @@ describe("BatchResource", () => {
         });
 
         it("fetches only the ids missing from the item cache", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            await batch.fetch([1, 2, 3]);
-            const data = await batch.fetch([1, 2, 4]);
+            await projection.fetch([1, 2, 3]);
+            const data = await projection.fetch([1, 2, 4]);
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [4] });
@@ -76,19 +76,19 @@ describe("BatchResource", () => {
         });
 
         it("does not re-request an already cached id-set", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            await batch.fetch([1, 2, 3]);
-            const data = await batch.ensure([1, 2, 3]);
+            await projection.fetch([1, 2, 3]);
+            const data = await projection.ensure([1, 2, 3]);
 
             expect(queryFn).toHaveBeenCalledTimes(1);
             expect(data.map((user) => user.id)).toEqual([1, 2, 3]);
         });
 
         it("deduplicates ids within a single request but keeps requested positions", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            const data = await batch.fetch([1, 1, 2]);
+            const data = await projection.fetch([1, 1, 2]);
 
             expect(queryFn).toHaveBeenCalledTimes(1);
             expect(queryFn.mock.calls[0][0]).toEqual({ userIds: [1, 2] });
@@ -97,9 +97,9 @@ describe("BatchResource", () => {
         });
 
         it("resolves an empty id list without any request", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            const data = await batch.fetch([]);
+            const data = await projection.fetch([]);
 
             expect(queryFn).not.toHaveBeenCalled();
             expect(data).toEqual([]);
@@ -118,15 +118,15 @@ describe("BatchResource", () => {
                 return promise;
             });
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            const firstPromise = batch.fetch([1, 2]);
-            const secondPromise = batch.fetch([2, 3]);
+            const firstPromise = projection.fetch([1, 2]);
+            const secondPromise = projection.fetch([2, 3]);
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[0][0]).toEqual({ userIds: [1, 2] });
@@ -148,25 +148,25 @@ describe("BatchResource", () => {
     // ==================== Errors ====================
 
     describe("errors", () => {
-        it("fails the id-set entry with BatchItemMissingError when the response misses a requested id", async () => {
+        it("fails the id-set entry with ProjectionItemMissingError when the response misses a requested id", async () => {
             const api = createApi();
             const queryFn = vi.fn(
                 async (args: TBatchQueryArgs): Promise<TUser[]> =>
                     args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            const error = await batch.fetch([1, 999]).catch((caught: unknown) => caught);
+            const error = await projection.fetch([1, 999]).catch((caught: unknown) => caught);
 
-            expect(error).toBeInstanceOf(BatchItemMissingError);
-            expect((error as BatchItemMissingError).ids).toEqual([999]);
-            expect(batch.getState([1, 999]).status).toBe("error");
+            expect(error).toBeInstanceOf(ProjectionItemMissingError);
+            expect((error as ProjectionItemMissingError).ids).toEqual([999]);
+            expect(projection.getState([1, 999]).status).toBe("error");
         });
 
         it("maps a wrapped resource's failure through the api mapError exactly once", async () => {
@@ -180,14 +180,14 @@ describe("BatchResource", () => {
                 throw new Error("boom");
             });
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            const error = await batch.fetch([1, 2]).catch((caught: unknown) => caught);
+            const error = await projection.fetch([1, 2]).catch((caught: unknown) => caught);
 
             // A single mapError pass: the batch entry surfaces MappedError(Error),
             // not MappedError(MappedError(Error)).
@@ -196,12 +196,12 @@ describe("BatchResource", () => {
             expect(((error as MappedError).original as Error).message).toBe("boom");
 
             // The entry state holds the same single-mapped instance.
-            const state = batch.getState([1, 2]);
+            const state = projection.getState([1, 2]);
             expect(state.status).toBe("error");
             expect(state.error).toBe(error);
         });
 
-        it("maps a BatchItemMissingError through the api mapError once", async () => {
+        it("maps a ProjectionItemMissingError through the api mapError once", async () => {
             class MappedError extends Error {
                 constructor(readonly original: unknown) {
                     super("mapped");
@@ -213,17 +213,17 @@ describe("BatchResource", () => {
                     args.userIds.filter((id) => id < 100).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            const error = await batch.fetch([1, 999]).catch((caught: unknown) => caught);
+            const error = await projection.fetch([1, 999]).catch((caught: unknown) => caught);
 
             expect(error).toBeInstanceOf(MappedError);
-            expect((error as MappedError).original).toBeInstanceOf(BatchItemMissingError);
+            expect((error as MappedError).original).toBeInstanceOf(ProjectionItemMissingError);
         });
 
         it("propagates the wrapped resource's failure and retries only the missing ids", async () => {
@@ -236,20 +236,20 @@ describe("BatchResource", () => {
                 return args.userIds.map((id) => ({ id, name: `user-${id}` }));
             });
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            await batch.fetch([1, 2]);
-            await expect(batch.fetch([1, 4])).rejects.toThrow("network down");
-            expect(batch.getState([1, 4]).status).toBe("error");
+            await projection.fetch([1, 2]);
+            await expect(projection.fetch([1, 4])).rejects.toThrow("network down");
+            expect(projection.getState([1, 4]).status).toBe("error");
 
             shouldFail = false;
             // ensure() retries a failed entry; ids 1 and 2 are still cached.
-            const data = await batch.ensure([1, 4]);
+            const data = await projection.ensure([1, 4]);
 
             expect(data.map((user) => user.id)).toEqual([1, 4]);
             expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
@@ -264,18 +264,18 @@ describe("BatchResource", () => {
 
     describe("refresh", () => {
         it("refetches every id of the entry on refresh, bypassing the item cache", async () => {
-            const { batch, queryFn } = setup();
+            const { projection, queryFn } = setup();
 
-            await batch.fetch([1, 2, 3]);
-            batch.refresh([1, 2, 3]);
-            const data = await batch.fetch([1, 2, 3]);
+            await projection.fetch([1, 2, 3]);
+            projection.refresh([1, 2, 3]);
+            const data = await projection.fetch([1, 2, 3]);
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [1, 2, 3] });
             expect(data.map((user) => user.id)).toEqual([1, 2, 3]);
         });
 
-        it("fails a refresh with BatchItemMissingError when the response no longer covers an id", async () => {
+        it("fails a refresh with ProjectionItemMissingError when the response no longer covers an id", async () => {
             const api = createApi();
             let deletedId: number | null = null;
             const queryFn = vi.fn(
@@ -283,25 +283,25 @@ describe("BatchResource", () => {
                     args.userIds.filter((id) => id !== deletedId).map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            await batch.fetch([1, 2, 3]);
+            await projection.fetch([1, 2, 3]);
 
             // Item 3 is deleted server-side; the refresh response covers only {1, 2}.
             deletedId = 3;
-            const error = await batch.fetch([1, 2, 3]).catch((caught: unknown) => caught);
+            const error = await projection.fetch([1, 2, 3]).catch((caught: unknown) => caught);
 
             // The stale cached box of item 3 must not mask the missing id.
-            expect(error).toBeInstanceOf(BatchItemMissingError);
-            expect((error as BatchItemMissingError).ids).toEqual([3]);
+            expect(error).toBeInstanceOf(ProjectionItemMissingError);
+            expect((error as ProjectionItemMissingError).ids).toEqual([3]);
 
             // A failed refresh keeps the stale data (regular refresh-error semantics).
-            const state = batch.getState([1, 2, 3]);
+            const state = projection.getState([1, 2, 3]);
             expect(state.status).toBe("refresh-error");
             expect(state.data?.map((user) => user.id)).toEqual([1, 2, 3]);
         });
@@ -320,7 +320,7 @@ describe("BatchResource", () => {
                 return promise;
             });
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
@@ -328,22 +328,22 @@ describe("BatchResource", () => {
             });
 
             // E1 = [1, 2] loads; E2 = [2] is served from the item cache.
-            const initial = batch.fetch([1, 2]);
+            const initial = projection.fetch([1, 2]);
             deferred[0].resolve([]);
             await initial;
-            await batch.fetch([2]);
+            await projection.fetch([2]);
             expect(queryFn).toHaveBeenCalledTimes(1);
 
             // E1 refreshes — sids {1, 2} go in flight with pre-mutation data.
-            const firstRefresh = batch.fetch([1, 2]);
+            const firstRefresh = projection.fetch([1, 2]);
             expect(queryFn).toHaveBeenCalledTimes(2);
 
             // The server-side item 2 is mutated after E1's request was issued.
             version = "v2";
 
             // E2.refresh() must issue a fresh request for id 2, not join E1's
-            // pre-mutation in-flight batch.
-            const secondRefresh = batch.fetch([2]);
+            // pre-mutation in-flight projection.
+            const secondRefresh = projection.fetch([2]);
             expect(queryFn).toHaveBeenCalledTimes(3);
             expect(queryFn.mock.calls[2][0]).toEqual({ userIds: [2] });
 
@@ -353,21 +353,21 @@ describe("BatchResource", () => {
             const data = await secondRefresh;
 
             expect(data.map((user) => user.name)).toEqual(["user-2-v2"]);
-            expect(batch.getState([2]).data?.map((user) => user.name)).toEqual(["user-2-v2"]);
+            expect(projection.getState([2]).data?.map((user) => user.name)).toEqual(["user-2-v2"]);
         });
 
         it("propagates refreshed items into overlapping success entries", async () => {
             let currentVersion = "v1";
-            const { batch } = setup({ version: () => currentVersion });
+            const { projection } = setup({ version: () => currentVersion });
 
-            await batch.fetch([1, 2, 3]);
-            await batch.fetch([1, 2, 4]);
+            await projection.fetch([1, 2, 3]);
+            await projection.fetch([1, 2, 4]);
 
             currentVersion = "v2";
-            batch.refresh([1, 2, 3]);
-            await batch.fetch([1, 2, 3]);
+            projection.refresh([1, 2, 3]);
+            await projection.fetch([1, 2, 3]);
 
-            const overlapping = batch.getState([1, 2, 4]);
+            const overlapping = projection.getState([1, 2, 4]);
             expect(overlapping.status).toBe("success");
             expect(overlapping.data?.map((user) => user.name)).toEqual([
                 "user-1-v2",
@@ -385,21 +385,21 @@ describe("BatchResource", () => {
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
             try {
                 let currentVersion = "v1";
-                const { batch } = setup({ version: () => currentVersion });
+                const { projection } = setup({ version: () => currentVersion });
 
-                await batch.fetch([1, 2, 3]);
-                await batch.fetch([1, 2, 4]);
+                await projection.fetch([1, 2, 3]);
+                await projection.fetch([1, 2, 4]);
 
-                const patched = batch.getEntry([1, 2, 4])!;
+                const patched = projection.getEntry([1, 2, 4])!;
                 patched.createPatch((data) => {
                     data[0].name = "patched";
                 });
 
                 currentVersion = "v2";
-                batch.refresh([1, 2, 3]);
-                await batch.fetch([1, 2, 3]);
+                projection.refresh([1, 2, 3]);
+                await projection.fetch([1, 2, 3]);
 
-                const state = batch.getState([1, 2, 4]);
+                const state = projection.getState([1, 2, 4]);
                 expect(state.status).toBe("success");
                 // Fresh items came through the live projection; the pending
                 // patch was replayed on top (Immer replace at [0].name wins).
@@ -420,44 +420,44 @@ describe("BatchResource", () => {
                 return promise;
             });
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            const initial = batch.fetch([1, 2]);
+            const initial = projection.fetch([1, 2]);
             deferred[0].resolve([
                 { id: 1, name: "user-1-v1" },
                 { id: 2, name: "user-2-v1" },
             ]);
             await initial;
 
-            batch.refresh([1, 2]);
+            projection.refresh([1, 2]);
             await flushMicrotasks();
 
             // The stale items are still cached, but the refresh run is gated
             // behind its refetch — the entry must not settle prematurely.
-            expect(batch.getState([1, 2]).status).toBe("refreshing");
-            expect(batch.getState([1, 2]).data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
+            expect(projection.getState([1, 2]).status).toBe("refreshing");
+            expect(projection.getState([1, 2]).data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
 
             deferred[1].resolve([
                 { id: 1, name: "user-1-v2" },
                 { id: 2, name: "user-2-v2" },
             ]);
-            const data = await batch.fetch([1, 2]);
+            const data = await projection.fetch([1, 2]);
             expect(data.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2"]);
         });
 
         it("one batch response produces a single emission on an overlapping entry", async () => {
             let currentVersion = "v1";
-            const { batch } = setup({ version: () => currentVersion });
+            const { projection } = setup({ version: () => currentVersion });
 
-            await batch.fetch([1, 2, 3]);
-            await batch.fetch([1, 2, 4]);
+            await projection.fetch([1, 2, 3]);
+            await projection.fetch([1, 2, 4]);
 
-            const overlapping = batch.getEntry([1, 2, 4])!;
+            const overlapping = projection.getEntry([1, 2, 4])!;
             let transitions = 0;
             const sub = overlapping.machine$.obs.subscribe(() => {
                 transitions += 1;
@@ -465,8 +465,8 @@ describe("BatchResource", () => {
             const baseline = transitions;
 
             currentVersion = "v2";
-            batch.refresh([1, 2, 3]);
-            await batch.fetch([1, 2, 3]);
+            projection.refresh([1, 2, 3]);
+            await projection.fetch([1, 2, 3]);
             await flushMicrotasks();
 
             // Items 1 and 2 changed in one distributed response — the
@@ -480,14 +480,14 @@ describe("BatchResource", () => {
 
     describe("item eviction", () => {
         it("evicts items once the referencing entries are removed (resetAll)", async () => {
-            const { api, batch, queryFn } = setup();
+            const { api, projection, queryFn } = setup();
 
-            await batch.fetch([1, 2]);
+            await projection.fetch([1, 2]);
             api.resetAll();
 
             // The eviction is synchronous with the reset — a fetch issued in the
             // same tick must already miss the item cache.
-            const data = await batch.fetch([1, 2]);
+            const data = await projection.fetch([1, 2]);
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [1, 2] });
@@ -508,7 +508,7 @@ describe("BatchResource", () => {
 
             const addedArgs: number[][] = [];
             const removals: Promise<void>[] = [];
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
@@ -519,8 +519,8 @@ describe("BatchResource", () => {
                 },
             });
 
-            await batch.fetch([1, 2]);
-            await batch.fetch([1, 3]);
+            await projection.fetch([1, 2]);
+            await projection.fetch([1, 3]);
 
             expect(addedArgs).toEqual([
                 [1, 2],
@@ -531,7 +531,7 @@ describe("BatchResource", () => {
             // a reset must evict the items and force a refetch.
             api.resetAll();
             await Promise.all(removals);
-            await batch.fetch([1, 2]);
+            await projection.fetch([1, 2]);
 
             expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
                 { userIds: [1, 2] },
@@ -549,7 +549,7 @@ describe("BatchResource", () => {
             const userResource = api.createResource({ queryFn });
 
             const runs: Array<{ args: number[]; data: TUser[] }> = [];
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
@@ -560,9 +560,9 @@ describe("BatchResource", () => {
                 },
             });
 
-            await batch.fetch([1, 2]);
+            await projection.fetch([1, 2]);
             // Served entirely from the item cache — no network, but still a run.
-            await batch.fetch([1]);
+            await projection.fetch([1]);
             // The async hook lands its push one microtask after fetch resolves.
             await flushMicrotasks();
 
@@ -580,7 +580,7 @@ describe("BatchResource", () => {
                     args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
@@ -590,8 +590,8 @@ describe("BatchResource", () => {
                 },
             });
 
-            await batch.fetch([1, 2]);
-            const data = await batch.fetch([1, 2, 3]);
+            await projection.fetch([1, 2]);
+            const data = await projection.fetch([1, 2, 3]);
 
             // Refcounting survived the throwing hook: only id 3 was fetched.
             expect(queryFn.mock.calls.map((call) => call[0])).toEqual([{ userIds: [1, 2] }, { userIds: [3] }]);
@@ -609,18 +609,18 @@ describe("BatchResource", () => {
                     args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ key: "users", queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
-                key: "users-batch",
+                key: "users-projection",
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
                 retentionTime: false,
             });
 
-            await batch.fetch([1, 2]);
+            await projection.fetch([1, 2]);
             const snapshot = api.getSnapshot();
 
-            expect(snapshot.resources["users-batch"]).toBeUndefined();
+            expect(snapshot.resources["users-projection"]).toBeUndefined();
             expect(snapshot.resources["users"]).toBeDefined();
         });
 
@@ -647,15 +647,15 @@ describe("BatchResource", () => {
     // ==================== Patches ====================
 
     describe("patches", () => {
-        it("applies a set-local patch and warns exactly once per batch resource", async () => {
+        it("applies a set-local patch and warns exactly once per projection resource", async () => {
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
             try {
-                const { batch } = setup();
+                const { projection } = setup();
 
-                await batch.fetch([1, 2]);
-                await batch.fetch([2, 3]);
+                await projection.fetch([1, 2]);
+                await projection.fetch([2, 3]);
 
-                const firstEntry = batch.getEntry([1, 2])!;
+                const firstEntry = projection.getEntry([1, 2])!;
                 // Patch the shared item (id 2) to probe cross-set isolation.
                 const handle = firstEntry.createPatch((data) => {
                     data[1].name = "patched";
@@ -663,15 +663,15 @@ describe("BatchResource", () => {
 
                 expect(handle).not.toBeNull();
                 // The patch is applied to this entry's projection...
-                expect(batch.getState([1, 2]).data?.[1].name).toBe("patched");
+                expect(projection.getState([1, 2]).data?.[1].name).toBe("patched");
                 // ...but is set-local: the overlapping entry keeps the base item 2.
-                expect(batch.getState([2, 3]).data?.[0].name).not.toBe("patched");
+                expect(projection.getState([2, 3]).data?.[0].name).not.toBe("patched");
 
                 expect(warnSpy).toHaveBeenCalledTimes(1);
                 expect(warnSpy.mock.calls[0][0]).toContain("set-local");
 
                 // Further patches (same or another entry) do not warn again.
-                batch.getEntry([2, 3])!.createPatch((data) => {
+                projection.getEntry([2, 3])!.createPatch((data) => {
                     data[0].name = "patched-2";
                 });
                 expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -691,7 +691,7 @@ describe("BatchResource", () => {
                     args.userIds.map((id) => ({ id, name: `user-${id}` })),
             );
             const userResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: userResource,
                 parseData: (data) => data.map((item) => ({ id: item.id, item })),
                 makeArgs: (ids) => ({ userIds: ids }),
@@ -699,8 +699,8 @@ describe("BatchResource", () => {
                 retentionTime: false,
             });
 
-            await batch.fetch({ ids: [1, 2] });
-            const data = await batch.fetch({ ids: [2, 3], tag: "x" });
+            await projection.fetch({ ids: [1, 2] });
+            const data = await projection.fetch({ ids: [2, 3], tag: "x" });
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[0][0]).toEqual({ userIds: [1, 2] });
@@ -715,17 +715,17 @@ describe("BatchResource", () => {
                 args.keys.map((key) => ({ key, name: `user-${key.tenant}-${key.id}` })),
             );
             const itemResource = api.createResource({ queryFn });
-            const batch = api.createBatchResource({
+            const projection = api.unstable_createProjectionResource({
                 resource: itemResource,
                 parseData: (data) => data.map((item) => ({ id: item.key, item })),
                 makeArgs: (ids) => ({ keys: ids }),
                 retentionTime: false,
             });
 
-            await batch.fetch([{ tenant: "a", id: 1 }]);
+            await projection.fetch([{ tenant: "a", id: 1 }]);
             // The same id spelled with a different property order must hit the
             // item cache — only the second id is requested.
-            await batch.fetch([
+            await projection.fetch([
                 { id: 1, tenant: "a" },
                 { tenant: "a", id: 2 },
             ]);

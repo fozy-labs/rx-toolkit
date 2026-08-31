@@ -316,7 +316,7 @@ export class QueryCacheEntry<TArgs, TData>
      * The single normalization boundary shared by the promise and stream
      * failure paths: a raw rejection becomes the api's TError exactly here. An
      * error arriving in a {@link PreMappedError} envelope already passed
-     * `mapError` at an upstream entry's boundary (a batch run re-surfacing its
+     * `mapError` at an upstream entry's boundary (a projection run re-surfacing its
      * wrapped resource's rejection) — it is unwrapped instead of being mapped
      * a second time.
      */

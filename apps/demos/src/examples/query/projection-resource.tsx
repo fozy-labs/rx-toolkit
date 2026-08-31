@@ -18,11 +18,11 @@ const usersResource = api.createResource({
     },
 });
 
-// Batch-обёртка: кэширует каждого пользователя отдельно
+// Проекция: кэширует каждого пользователя отдельно
 // и догружает через usersResource только недостающие id
-const usersBatch = api.createBatchResource({
+const usersProjection = api.unstable_createProjectionResource({
     resource: usersResource,
-    key: 'users-batch',
+    key: 'users-projection',
     parseData: (users) => users.map((item) => ({ id: item.id, item })),
     makeArgs: (ids) => ({ userIds: ids }),
 });
@@ -39,14 +39,14 @@ export function Base() {
     const [selected, setSelected] = React.useState<number[]>([1, 2, 3]);
     const ids = React.useMemo(() => [...selected].sort((a, b) => a - b), [selected]);
 
-    const state = usersBatch.useResource(ids);
+    const state = usersProjection.useResource(ids);
     const log = useSignal(requestLog$);
 
     const toggle = (id: number, isOn: boolean) => {
         setSelected((prev) => (isOn ? [...prev, id] : prev.filter((x) => x !== id)));
     };
 
-    const handleRefresh = () => usersBatch.refresh(ids);
+    const handleRefresh = () => usersProjection.refresh(ids);
 
     const handleReset = () => {
         api.resetAll();
@@ -56,7 +56,7 @@ export function Base() {
     return (
         <Card>
             <CardHeader className="text-xl font-bold">
-                👥 Профили команды (batch-ресурс)
+                👥 Профили команды (проекционный ресурс)
             </CardHeader>
             <Divider />
             <CardBody className="space-y-4">

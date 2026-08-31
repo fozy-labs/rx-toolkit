@@ -1,5 +1,5 @@
 import simpleResourceRaw from "./simple-resource.tsx?raw";
-import batchResourceRaw from "./batch-resource.tsx?raw";
+import projectionResourceRaw from "./projection-resource.tsx?raw";
 import streamQueryRaw from "./stream-query.tsx?raw";
 import infiniteFeedRaw from "./infinite-feed.tsx?raw";
 import suspenseResourceRaw from "./suspense-resource.tsx?raw";
@@ -17,7 +17,7 @@ import typedErrorsRaw from "./typed-errors.tsx?raw";
 
 export const examples = {
     simpleResource: simpleResourceRaw,
-    batchResource: batchResourceRaw,
+    projectionResource: projectionResourceRaw,
     streamQuery: streamQueryRaw,
     infiniteFeed: infiniteFeedRaw,
     suspenseResource: suspenseResourceRaw,

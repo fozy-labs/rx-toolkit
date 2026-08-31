@@ -223,7 +223,7 @@ export interface TResourceOptions<TArgs, TData> {
     /**
      * When `false`, the resource neither contributes entries to `getSnapshot()`
      * nor hydrates from `initialSnapshot`, regardless of its `key`. For derived
-     * resources whose data is owned elsewhere (batch resources set this
+     * resources whose data is owned elsewhere (projection resources set this
      * automatically). Defaults to `true`.
      */
     snapshotable?: boolean;

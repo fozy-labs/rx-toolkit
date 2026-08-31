@@ -29,7 +29,7 @@ function UsersList({ page }: { page: number }) {
 ## Возможности
 
 - **Кеширование** — автоматическое по аргументам, с настраиваемым временем жизни
-- **Batch-ресурсы** — загрузка коллекций по id с кэшем на уровне отдельных элементов: догружаются только недостающие id
+- **Проекционные ресурсы** — загрузка коллекций по id с кэшем на уровне отдельных элементов: догружаются только недостающие id
 - **Стриминговые запросы** — `queryFn` ресурса может вернуть `Observable`: запись обновляется с каждой эмиссией (WebSocket, SSE, live-данные)
 - **Stale-While-Revalidate** — показ устаревших данных во время фонового обновления
 - **Оптимистичные обновления** — Immer-патчи с автоматическим ребейсом при ответе сервера
@@ -43,7 +43,7 @@ function UsersList({ page }: { page: number }) {
 | Цель | Рекомендуемый порядок |
 |------|-----------------------|
 | **Быстрый старт** | [usage/resource.md][resource] → [usage/command.md][command] |
-| **Коллекции по id** | [usage/batch-resource.md][batch-resource] — кэш на уровне элементов |
+| **Коллекции по id** | [usage/projection-resource.md][projection-resource] — кэш на уровне элементов |
 | **Написание queryFn** | [usage/query-fn.md][query-fn] — fetcher, отличия ресурса и команды, request id |
 | **Живые данные (WebSocket, SSE)** | [usage/stream-query.md][stream-query] — `Observable` в queryFn ресурса |
 | **Понять внутреннее устройство** | [concepts/machine.md][machine] → [concepts/cache.md][cache] → [concepts/agent.md][agent] |
@@ -56,7 +56,7 @@ function UsersList({ page }: { page: number }) {
 
 [signals]: ../signals/README.md
 [resource]: usage/resource.md
-[batch-resource]: usage/batch-resource.md
+[projection-resource]: usage/projection-resource.md
 [stream-query]: usage/stream-query.md
 [command]: usage/command.md
 [query-fn]: usage/query-fn.md

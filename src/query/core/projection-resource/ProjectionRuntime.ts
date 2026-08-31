@@ -1,17 +1,17 @@
 import { Observable } from "rxjs";
 
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { ArgsOrVoid, IResource, TBatchResourceOptions, TCacheEntryAddedContext } from "@/query/types";
+import type { ArgsOrVoid, IResource, TCacheEntryAddedContext, TProjectionResourceOptions } from "@/query/types";
 import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
 
-import { BatchItemMissingError, CacheEntryRemovedError, PreMappedError } from "../errors";
+import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } from "../errors";
 
-// ==================== BatchRuntime ====================
+// ==================== ProjectionRuntime ====================
 
 /**
- * Engine behind `api.createBatchResource`.
+ * Engine behind `api.unstable_createProjectionResource`.
  *
- * The batch resource itself is an ordinary {@link IResource} caching one entry
+ * The projection resource itself is an ordinary {@link IResource} caching one entry
  * per id-set, so agents, React hooks, SWR and plugin augmentation work
  * unchanged. This runtime plugs into that resource (as its `queryFn` +
  * `onCacheEntryAdded`) and deduplicates the traffic underneath.
@@ -35,10 +35,10 @@ import { BatchItemMissingError, CacheEntryRemovedError, PreMappedError } from ".
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
  */
-export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
+export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     private readonly _wrapped: IResource<TResArgs, TResData>;
-    private readonly _parseData: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>["parseData"];
-    private readonly _makeArgs: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>["makeArgs"];
+    private readonly _parseData: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>["parseData"];
+    private readonly _makeArgs: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>["makeArgs"];
     private readonly _parseArgs: (args: TArgs) => readonly TId[];
     private readonly _serializeId: (id: TId) => string;
 
@@ -59,10 +59,10 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      */
     private readonly _inFlight = new Map<string, Promise<ReadonlySet<string>>>();
 
-    /** One warning per batch resource about set-local patch semantics. */
+    /** One warning per projection resource about set-local patch semantics. */
     private _didWarnSetLocalPatch = false;
 
-    constructor(options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>) {
+    constructor(options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>) {
         this._wrapped = options.resource;
         this._parseData = options.parseData;
         this._makeArgs = options.makeArgs;
@@ -91,7 +91,7 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      *    The stream never completes — it is torn down with the run
      *    (refresh/retry resubscribe, entry eviction unsubscribes).
      * 3. A failed fetch errors the stream; so does a response that did not
-     *    cover every requested id ({@link BatchItemMissingError}).
+     *    cover every requested id ({@link ProjectionItemMissingError}).
      *
      * The abort signal is intentionally ignored: a batch fetch may be shared by
      * several id-set entries, so one entry's teardown must not cancel it — the
@@ -185,7 +185,7 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                         }
                     }
                     if (missingSids.length > 0) {
-                        subscriber.error(new BatchItemMissingError(missingIds, missingSids));
+                        subscriber.error(new ProjectionItemMissingError(missingIds, missingSids));
                         return;
                     }
 
@@ -281,10 +281,10 @@ export class BatchRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         if (this._didWarnSetLocalPatch) return;
         this._didWarnSetLocalPatch = true;
         console.warn(
-            "[rx-toolkit] A patch on a batch resource is set-local: the shared item cache and " +
+            "[rx-toolkit] A patch on a projection resource is set-local: the shared item cache and " +
                 "overlapping id-set entries do not see it. This entry keeps receiving item updates — " +
                 "they rebase over the patch until it settles. " +
-                "See docs/query/usage/batch-resource.md.",
+                "See docs/query/usage/projection-resource.md.",
         );
     }
 

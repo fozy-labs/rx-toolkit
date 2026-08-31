@@ -39,7 +39,7 @@ const api = createApi({
 | Метод            | Опции                                      | Возвращаемое значение                  | Описание                                                        |
 |------------------|--------------------------------------------|-----------------------------------------|-----------------------------------------------------------------|
 | `createResource` | `options: TResourceOptions<TArgs, TData>`  | `IApiResource<TPlugins, TArgs, TData>`  | Создаёт новый [ресурс].                                        |
-| `createBatchResource` | `options: TBatchResourceOptions<...>` | `IApiResource<TPlugins, TArgs, TItem[]>` | Создаёт [batch-ресурс][batch-ресурс] — обёртку над ресурсом с кэшем на уровне элементов. |
+| `unstable_createProjectionResource` | `options: TProjectionResourceOptions<...>` | `IApiResource<TPlugins, TArgs, TItem[]>` | Создаёт [проекционный ресурс][проекционный ресурс] — обёртку над ресурсом с кэшем на уровне элементов. |
 | `createCommand`  | `options: TCommandOptions<TArgs, TData>`   | `IApiCommand<TPlugins, TArgs, TData>`   | Создаёт новую [команду][команда].                               |
 | `getSnapshot()`  | -                                          | `TApiSnapshot`                          | Получает текущий [снимок] состояния всех [ресурсов][ресурс].    |
 | `resetAll()`     | -                                          | `void`                                  | Сбрасывает все ресурсы и очищает сохранённый снимок.            |
@@ -98,7 +98,7 @@ if (error && NetError.is(error)) {
 ## См. также
 
 - [Ресурс](../usage/resource.md)
-- [Batch-ресурс](../usage/batch-resource.md)
+- [Проекционный ресурс](../usage/projection-resource.md)
 - [Команда](../usage/command.md)
 - [Снимок (SSR / гидрация)](../usage/snapshot.md)
 - [Синхронизация между вкладками](../usage/broadcast.md)
@@ -109,5 +109,5 @@ if (error && NetError.is(error)) {
 [синхронизация]: ../usage/broadcast.md
 [lifecycle]: ../usage/lifecycle.md
 [ресурс]: ../usage/resource.md
-[batch-ресурс]: ../usage/batch-resource.md
+[проекционный ресурс]: ../usage/projection-resource.md
 [команда]: ../usage/command.md

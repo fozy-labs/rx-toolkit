@@ -96,14 +96,14 @@ const feed = api.createResource({
 ## См. также
 
 - [Ресурс][resource] — базовые механики кэширования и SWR
-- [Batch-ресурс][batch-resource] — построен на стримах: записи наборов — живые проекции кэша элементов
+- [Проекционный ресурс][projection-resource] — построен на стримах: записи наборов — живые проекции кэша элементов
 - [queryFn][query-fn] — как писать функцию запроса
 - [Хуки жизненного цикла][lifecycle] — `onQueryStarted`, `$queryFulfilled`
 - [Оптимистичные обновления][patching] — механика патчей и ребейза
 - [Машина состояний][machine] — все переходы статусов
 
 [resource]: ./resource.md
-[batch-resource]: ./batch-resource.md
+[projection-resource]: ./projection-resource.md
 [query-fn]: ./query-fn.md
 [lifecycle]: ./lifecycle.md
 [patching]: ../concepts/patching.md

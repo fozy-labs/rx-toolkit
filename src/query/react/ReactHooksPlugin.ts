@@ -6,10 +6,10 @@ import type {
     IPluginContext,
     IResource,
     PluginHKT,
-    TBatchResourceOptions,
     TCommandAgentState,
     TCommandOptions,
     TInfiniteResourceState,
+    TProjectionResourceOptions,
     TResourceAgentState,
     TResourceOptions,
     TSuspenseResourceState,
@@ -27,8 +27,8 @@ type ReactHooksResourceShape<TArgs, TData, TError> = {
     useSuspenseResource: (args: ArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData, TError>;
 };
 
-/** Additional augmentation for batch resources (on top of the resource shape). */
-type ReactHooksBatchResourceShape<TArgs, TData, TError> = {
+/** Additional augmentation for projection resources (on top of the resource shape). */
+type ReactHooksProjectionResourceShape<TArgs, TData, TError> = {
     useInfiniteResource: (initialArgs: ArgsOrVoidOrSkip<TArgs>) => TInfiniteResourceState<TArgs, TData, TError>;
 };
 
@@ -47,7 +47,7 @@ type ReactHooksCommandShape<TArgs, TData, TError> = {
 export interface ReactHooksPluginHKT extends PluginHKT {
     readonly resourceType: ReactHooksResourceShape<this["_TArgs"], this["_TData"], this["_TError"]>;
     readonly commandType: ReactHooksCommandShape<this["_TArgs"], this["_TData"], this["_TError"]>;
-    readonly batchResourceType: ReactHooksBatchResourceShape<this["_TArgs"], this["_TData"], this["_TError"]>;
+    readonly projectionResourceType: ReactHooksProjectionResourceShape<this["_TArgs"], this["_TData"], this["_TError"]>;
 }
 
 export class ReactHooksPlugin implements IPlugin {
@@ -78,10 +78,10 @@ export class ReactHooksPlugin implements IPlugin {
         };
     }
 
-    augmentBatchResource<TArgs, TId, TItem, TResArgs, TResData, TError = unknown>(
+    augmentProjectionResource<TArgs, TId, TItem, TResArgs, TResData, TError = unknown>(
         resource: IResource<TArgs, TItem[], TError>,
-        _options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
-    ): ReactHooksBatchResourceShape<TArgs, TItem[], TError> {
+        _options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    ): ReactHooksProjectionResourceShape<TArgs, TItem[], TError> {
         return {
             useInfiniteResource: (initialArgs: ArgsOrVoidOrSkip<TArgs>) => useInfiniteResource(resource, initialArgs),
         };

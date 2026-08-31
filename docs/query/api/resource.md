@@ -27,7 +27,7 @@ const usersResource = api.createResource({
 | `onCacheEntryAdded`  | `(args, ctx) => void`                                       | —                 | Вызывается при создании кэш-записи. См. [lifecycle hooks][usage-lifecycle]. |
 | `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                      | —                 | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
 | `snapshotValidTime`  | `number \| false`                                           | наследуется от API | Время (мс) валидности гидрированных из снимка данных (в [API][api-readme] по умолчанию `false`). См. [снимок][usage-snapshot]. |
-| `snapshotable`       | `boolean`                                                   | `true`            | При `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot` (даже с заданным `key`). Для производных ресурсов, чьи данные принадлежат другому ресурсу; [batch-ресурсы][usage-batch] выставляют это автоматически. |
+| `snapshotable`       | `boolean`                                                   | `true`            | При `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot` (даже с заданным `key`). Для производных ресурсов, чьи данные принадлежат другому ресурсу; [проекционные ресурсы][usage-projection] выставляют это автоматически. |
 | `sync`               | `boolean`                                                   | `false`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
 | `allowStreamPatches` | `boolean`                                                   | `false`           | Подавляет однократное предупреждение при `createPatch` на записи с открытым [стримом][usage-stream] (эмиссии ребейзят активные патчи, закоммиченный патч растворяется в следующей эмиссии). |
 
@@ -73,7 +73,7 @@ const usersResource = api.createResource({
 |----------------|------------------------------------------------|-------------------------|--------------------------------------------------------------------------------|
 | `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceAgentState<TArgs, TData, TError>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
 | `useSuspenseResource` | `args: ArgsOrVoid<TArgs>` | `TSuspenseResourceState<TArgs, TData, TError>` | React-хук с Suspense: первичная загрузка бросает промис, первичная ошибка без fallback-данных — в Error Boundary; `data` всегда не `null`. `SKIP` не поддерживается. |
-| `useInfiniteResource` | `initialArgs: ArgsOrVoidOrSkip<TArgs>` | `TInfiniteResourceState<TArgs, TData, TError>` | React-хук бесконечной подгрузки. **Только на [batch-ресурсах][usage-batch]** (обычным ресурсам не добавляется). Требует `reactHooksPlugin()`. |
+| `useInfiniteResource` | `initialArgs: ArgsOrVoidOrSkip<TArgs>` | `TInfiniteResourceState<TArgs, TData, TError>` | React-хук бесконечной подгрузки. **Только на [проекционных ресурсах][usage-projection]** (обычным ресурсам не добавляется). Требует `reactHooksPlugin()`. |
 
 
 ## Что запускает запрос
@@ -227,6 +227,6 @@ void usersResource.prefetch({ page: 1 });
 [usage-broadcast]: ../usage/broadcast.md
 [usage-snapshot]: ../usage/snapshot.md
 [usage-stream]: ../usage/stream-query.md
-[usage-batch]: ../usage/batch-resource.md
+[usage-projection]: ../usage/projection-resource.md
 [keyed]: ../concepts/keyed.md
 [no-floating-promises]: https://typescript-eslint.io/rules/no-floating-promises/

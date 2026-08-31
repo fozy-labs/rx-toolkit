@@ -1,7 +1,7 @@
 /**
  * Transport envelope for an error that already passed the api's `mapError` at
  * an upstream entry's normalization boundary. A queryFn that re-surfaces
- * another entry's failure (e.g. a batch run propagating its wrapped resource's
+ * another entry's failure (e.g. a projection run propagating its wrapped resource's
  * rejection) wraps it in this envelope; the receiving entry's normalization
  * boundary then unwraps it instead of mapping it a second time.
  *

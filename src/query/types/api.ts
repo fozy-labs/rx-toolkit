@@ -1,12 +1,12 @@
-import type { TBatchResourceOptions } from "./batch-resource";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { ICommand, TCommandOptions } from "./command";
 import type {
-    CombinePluginBatchResourceAugments,
     CombinePluginCommandAugments,
+    CombinePluginProjectionResourceAugments,
     CombinePluginResourceAugments,
     PluginHKT,
 } from "./plugin-hkt";
+import type { TProjectionResourceOptions } from "./projection-resource";
 import type { IResource, TResourceOptions } from "./resource";
 import type { ISyncDriver, TApiSnapshot } from "./snapshot";
 
@@ -60,13 +60,13 @@ export interface IPlugin {
         options: TCommandOptions<TArgs, TData>,
     ): Record<string, unknown>;
     /**
-     * Additional augmentation applied only to batch resources, on top of the
-     * regular {@link augmentResource} pass (which batch resources go through
-     * as ordinary resources). Runs after the batch runtime is attached.
+     * Additional augmentation applied only to projection resources, on top of the
+     * regular {@link augmentResource} pass (which projection resources go through
+     * as ordinary resources). Runs after the projection runtime is attached.
      */
-    augmentBatchResource?<TArgs, TId, TItem, TResArgs, TResData, TError = unknown>(
+    augmentProjectionResource?<TArgs, TId, TItem, TResArgs, TResData, TError = unknown>(
         resource: IResource<TArgs, TItem[], TError>,
-        options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+        options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): Record<string, unknown>;
 
     /**
@@ -105,11 +105,11 @@ export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[], 
     createResource<TArgs = void, TData = unknown>(
         options: TResourceOptions<TArgs, TData>,
     ): IResource<TArgs, TData, TError> & CombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
-    createBatchResource<TResArgs, TResData, TId, TItem, TArgs = TId[]>(
-        options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    unstable_createProjectionResource<TResArgs, TResData, TId, TItem, TArgs = TId[]>(
+        options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): IResource<TArgs, TItem[], TError> &
         CombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError> &
-        CombinePluginBatchResourceAugments<TPlugins, TArgs, TItem[], TError>;
+        CombinePluginProjectionResourceAugments<TPlugins, TArgs, TItem[], TError>;
     createCommand<TArgs = void, TData = unknown>(
         options: TCommandOptions<TArgs, TData>,
     ): ICommand<TArgs, TData, TError> & CombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;

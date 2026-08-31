@@ -6,15 +6,15 @@ import type {
     IResource,
     IResourceConfig,
     TApiSnapshot,
-    TBatchResourceOptions,
     TCommandOptions,
     TCreateApiOptions,
     TMapError,
+    TProjectionResourceOptions,
     TResourceOptions,
 } from "@/query/types";
 
-import { BatchRuntime } from "../batch-resource/BatchRuntime";
 import { Command } from "../command/Command";
+import { ProjectionRuntime } from "../projection-resource/ProjectionRuntime";
 import { Resource } from "../resource/Resource";
 import { Snapshoter } from "../snapshoter";
 import { Syncer } from "../syncer";
@@ -154,14 +154,14 @@ export class Api implements IApi {
     };
 
     /**
-     * Create a batch resource: a wrapper over an existing resource that fetches
+     * Create a projection resource: a wrapper over an existing resource that fetches
      * collections of items by ids with per-item cache granularity — only the
      * ids missing from the shared item cache reach the wrapped resource.
      */
-    createBatchResource = <TResArgs, TResData, TId, TItem, TArgs = TId[]>(
-        opts: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    unstable_createProjectionResource = <TResArgs, TResData, TId, TItem, TArgs = TId[]>(
+        opts: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): IResource<TArgs, TItem[]> => {
-        const runtime = new BatchRuntime<TArgs, TId, TItem, TResArgs, TResData>(opts);
+        const runtime = new ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData>(opts);
 
         // An ordinary resource caching one entry per id-set, so agents, hooks,
         // SWR and plugin augmentation work unchanged; the runtime deduplicates
@@ -169,7 +169,7 @@ export class Api implements IApi {
         // fill id-set entries bypassing the per-id item cache. Snapshots are
         // disabled too: the id-set entries are derived projections — the
         // wrapped resource owns the data that goes into SSR snapshots. The
-        // generic stream-patch warning is suppressed: batch runs are always
+        // generic stream-patch warning is suppressed: projection runs are always
         // open streams (live item-cache projections), and the runtime raises
         // its own, more precise set-local patch warning instead.
         const resource = this.createResource<TArgs, TItem[]>({
@@ -188,13 +188,13 @@ export class Api implements IApi {
 
         runtime.attach(resource);
 
-        // Batch-specific plugin augmentation (on top of the regular resource
+        // Projection-specific plugin augmentation (on top of the regular resource
         // pass that already ran inside createResource). After attach, so an
         // augmentation can safely exercise the resource.
         let augmented: Record<string, unknown> = {};
         for (const plugin of this.plugins) {
-            if (plugin.augmentBatchResource) {
-                const additions = plugin.augmentBatchResource(resource, opts);
+            if (plugin.augmentProjectionResource) {
+                const additions = plugin.augmentProjectionResource(resource, opts);
                 augmented = { ...augmented, ...additions };
             }
         }

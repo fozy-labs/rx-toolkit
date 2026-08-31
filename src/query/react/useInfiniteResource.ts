@@ -219,10 +219,10 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
 // ==================== Hook ====================
 
 /**
- * Infinite loading over a batch resource: an ordered feed of *pages*, each
- * page an ordinary cache entry (id-set) of the batch resource. Loaded pages
+ * Infinite loading over a projection resource: an ordered feed of *pages*, each
+ * page an ordinary cache entry (id-set) of the projection resource. Loaded pages
  * never re-render on tail growth (their entries are untouched), items shared
- * between pages are deduplicated by the batch item cache, and item updates
+ * between pages are deduplicated by the projection item cache, and item updates
  * (e.g. an overlapping set's refresh) propagate into every live page through
  * the batch's stream projections.
  *

@@ -141,11 +141,11 @@ export type TSuspenseResourceState<TArgs, TData, TError = unknown> =
     | TSuspenseResourceErrorState<TArgs, TData, TError>;
 
 /**
- * State returned by the infinite batch-resource hook (`useInfiniteResource`).
+ * State returned by the infinite projection-resource hook (`useInfiniteResource`).
  *
  * The feed is a list of *pages*: every page is an ordinary cache entry of the
- * batch resource with its own fixed args (an id-set), observed through its own
- * agent. `TData` is the page data type — the batch item array (`TItem[]`) —
+ * projection resource with its own fixed args (an id-set), observed through its own
+ * agent. `TData` is the page data type — the projection item array (`TItem[]`) —
  * and `data` flattens the pages' items in page order.
  */
 export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {

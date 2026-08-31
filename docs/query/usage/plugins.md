@@ -46,9 +46,9 @@ interface IPlugin {
     command: ICommand<TArgs, TData>,
     options: TCommandOptions<TArgs, TData>,
   ): Record<string, unknown>;
-  augmentBatchResource?<TArgs, TId, TItem, TResArgs, TResData>(
+  augmentProjectionResource?<TArgs, TId, TItem, TResArgs, TResData>(
     resource: IResource<TArgs, TItem[]>,
-    options: TBatchResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
+    options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
   ): Record<string, unknown>;
 }
 ```
@@ -57,7 +57,7 @@ interface IPlugin {
 - `install(context)` — вызывается один раз при `createApi()`. Получает `IPluginContext` с метаинформацией об API.
 - `augmentResource(resource, options)` — вызывается при каждом `createResource()`. Возвращает объект с методами, которые будут добавлены к ресурсу.
 - `augmentCommand(command, options)` — аналогично, вызывается при каждом `createCommand()`. Возвращает объект с методами для команды.
-- `augmentBatchResource(resource, options)` — **дополнительная** аугментация только для [batch-ресурсов](./batch-resource.md), поверх обычного прохода `augmentResource` (batch-ресурс проходит и его). Так `reactHooksPlugin()` добавляет `useInfiniteResource` только батчам.
+- `augmentProjectionResource(resource, options)` — **дополнительная** аугментация только для [проекционных ресурсов](./projection-resource.md), поверх обычного прохода `augmentResource` (проекционный ресурс проходит и его). Так `reactHooksPlugin()` добавляет `useInfiniteResource` только проекциям.
 
 ```typescript
 const loggingPlugin: IPlugin = {
@@ -86,7 +86,7 @@ interface LoggingPluginHKT extends PluginHKT {
   // this['_TArgs'] / this['_TData'] / this['_TError'] подставляются
   // конкретными типами в точке применения (createResource и т.д.)
   readonly resourceType: { logState: (args: this['_TArgs']) => void };
-  // опциональные слоты: commandType, batchResourceType
+  // опциональные слоты: commandType, projectionResourceType
 }
 
 class LoggingPlugin implements IPlugin {
@@ -97,7 +97,7 @@ class LoggingPlugin implements IPlugin {
 }
 ```
 
-`createResource()` / `createCommand()` / `createBatchResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `CombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `batchResourceType` описывает вклад `augmentBatchResource` и применяется только к batch-ресурсам.
+`createResource()` / `createCommand()` / `unstable_createProjectionResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `CombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `projectionResourceType` описывает вклад `augmentProjectionResource` и применяется только к проекционным ресурсам.
 
 
 ## См. также

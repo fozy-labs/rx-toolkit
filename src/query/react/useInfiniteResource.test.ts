@@ -15,7 +15,7 @@ const h = React.createElement;
 type TUser = { id: number; name: string };
 type TBatchQueryArgs = { userIds: number[] };
 
-function createBatchSetup(options?: { version?: () => string; failOn?: (ids: number[]) => boolean }) {
+function createProjectionSetup(options?: { version?: () => string; failOn?: (ids: number[]) => boolean }) {
     const api = createApi({ plugins: [reactHooksPlugin()] });
     const version = options?.version ?? (() => "v1");
     const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> => {
@@ -25,14 +25,14 @@ function createBatchSetup(options?: { version?: () => string; failOn?: (ids: num
         return args.userIds.map((id) => ({ id, name: `user-${id}-${version()}` }));
     });
     const userResource = api.createResource({ queryFn });
-    const batch = api.createBatchResource({
+    const projection = api.unstable_createProjectionResource({
         resource: userResource,
-        key: "users-batch",
+        key: "users-projection",
         parseData: (data) => data.map((item) => ({ id: item.id, item })),
         makeArgs: (ids) => ({ userIds: ids }),
         retentionTime: false,
     });
-    return { api, queryFn, batch };
+    return { api, queryFn, projection };
 }
 
 interface Captured {
@@ -68,9 +68,9 @@ async function settle(): Promise<void> {
 
 describe("useInfiniteResource", () => {
     it("loads the initial page and exposes its items as data", async () => {
-        const { batch } = createBatchSetup();
+        const { projection } = createProjectionSetup();
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         expect(c.state.isInitialLoading).toBe(true);
         expect(c.state.data).toBeNull();
         expect(c.state.pages).toHaveLength(1);
@@ -92,14 +92,14 @@ describe("useInfiniteResource", () => {
                 }),
         );
         const userResource = api.createResource({ queryFn });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: userResource,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
             retentionTime: false,
         });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await act(async () => {
             deferred[0].resolve([1, 2].map((id) => ({ id, name: `user-${id}` })));
             await flushMicrotasks();
@@ -125,10 +125,10 @@ describe("useInfiniteResource", () => {
         expect(queryFn.mock.calls.map((call) => call[0])).toEqual([{ userIds: [1, 2] }, { userIds: [3, 4] }]);
     });
 
-    it("pages share the batch item cache — only missing ids reach the network", async () => {
-        const { batch, queryFn } = createBatchSetup();
+    it("pages share the projection item cache — only missing ids reach the network", async () => {
+        const { projection, queryFn } = createProjectionSetup();
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
 
         act(() => c.state.fetchNext([2, 3]));
@@ -140,9 +140,9 @@ describe("useInfiniteResource", () => {
     });
 
     it("fetchNext with the args of an existing page is a no-op", async () => {
-        const { batch, queryFn } = createBatchSetup();
+        const { projection, queryFn } = createProjectionSetup();
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
 
         act(() => c.state.fetchNext([1, 2]));
@@ -154,9 +154,9 @@ describe("useInfiniteResource", () => {
 
     it("a failed next page surfaces the error, keeps loaded data, and fetchNext retries it", async () => {
         let shouldFail = true;
-        const { batch } = createBatchSetup({ failOn: (ids) => shouldFail && ids.includes(3) });
+        const { projection } = createProjectionSetup({ failOn: (ids) => shouldFail && ids.includes(3) });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
 
         act(() => c.state.fetchNext([3]));
@@ -176,9 +176,9 @@ describe("useInfiniteResource", () => {
     });
 
     it("reset() drops every page after the first", async () => {
-        const { batch } = createBatchSetup();
+        const { projection } = createProjectionSetup();
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
         act(() => c.state.fetchNext([3, 4]));
         await settle();
@@ -192,9 +192,9 @@ describe("useInfiniteResource", () => {
 
     it("refresh() re-validates every loaded page", async () => {
         let currentVersion = "v1";
-        const { batch, queryFn } = createBatchSetup({ version: () => currentVersion });
+        const { projection, queryFn } = createProjectionSetup({ version: () => currentVersion });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
         act(() => c.state.fetchNext([3]));
         await settle();
@@ -215,9 +215,9 @@ describe("useInfiniteResource", () => {
     it("SKIP keeps the feed idle; fetchNext is ignored until args arrive", async () => {
         const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
-            const { batch, queryFn } = createBatchSetup();
+            const { projection, queryFn } = createProjectionSetup();
 
-            const c = setup(batch.useInfiniteResource, SKIP);
+            const c = setup(projection.useInfiniteResource, SKIP);
             expect(c.state.isIdle).toBe(true);
             expect(c.state.pages).toHaveLength(0);
 
@@ -237,9 +237,9 @@ describe("useInfiniteResource", () => {
     });
 
     it("changing initialArgs resets the feed to the new first page", async () => {
-        const { batch } = createBatchSetup();
+        const { projection } = createProjectionSetup();
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
         act(() => c.state.fetchNext([3]));
         await settle();
@@ -262,14 +262,14 @@ describe("useInfiniteResource", () => {
                 }),
         );
         const userResource = api.createResource({ queryFn });
-        const batch = api.createBatchResource({
+        const projection = api.unstable_createProjectionResource({
             resource: userResource,
             parseData: (data) => data.map((item) => ({ id: item.id, item })),
             makeArgs: (ids) => ({ userIds: ids }),
             retentionTime: false,
         });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await act(async () => {
             deferred[0].resolve([1, 2].map((id) => ({ id, name: `user-${id}` })));
             await flushMicrotasks();
@@ -309,9 +309,9 @@ describe("useInfiniteResource", () => {
 
     it("changes the data array identity when any page's data changes", async () => {
         let currentVersion = "v1";
-        const { batch } = createBatchSetup({ version: () => currentVersion });
+        const { projection } = createProjectionSetup({ version: () => currentVersion });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
         act(() => c.state.fetchNext([3]));
         await settle();
@@ -329,24 +329,24 @@ describe("useInfiniteResource", () => {
 
     it("item updates from an overlapping set propagate into loaded pages", async () => {
         let currentVersion = "v1";
-        const { batch } = createBatchSetup({ version: () => currentVersion });
+        const { projection } = createProjectionSetup({ version: () => currentVersion });
 
-        const c = setup(batch.useInfiniteResource, [1, 2]);
+        const c = setup(projection.useInfiniteResource, [1, 2]);
         await settle();
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
 
         // A separate id-set overlapping the page refreshes outside the hook.
         await act(async () => {
-            await batch.fetch([1, 50]);
+            await projection.fetch([1, 50]);
         });
         currentVersion = "v2";
         await act(async () => {
-            batch.refresh([1, 50]);
-            await batch.fetch([1, 50]);
+            projection.refresh([1, 50]);
+            await projection.fetch([1, 50]);
         });
         await settle();
 
-        // The page re-emitted through the batch's live projection.
+        // The page re-emitted through the projection's live stream.
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v1"]);
     });
 });
