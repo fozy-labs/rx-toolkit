@@ -8,7 +8,7 @@
 
 ### Added
 - **Стриминговые запросы** — поддержка `Observable<TData>` в ответе `queryFn` ресурса. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
-- **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесканальной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
+- **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесконечной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
 - **`snapshotable`** — опция ресурса для исключения его из снапшота.
 - **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
 - **`unstable_MachineSignal` (experimental)** — стейт-машина на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
