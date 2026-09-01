@@ -17,10 +17,10 @@ importers:
         version: 5.3.0
       '@fozy-labs/rx-toolkit':
         specifier: link:../..
-        version: link:../..
+        version: 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
       '@fozy-labs/statechart-viz':
-        specifier: 0.1.0
-        version: 0.1.0(@fozy-labs/rx-toolkit@+)(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+        specifier: 0.4.0
+        version: 0.4.0(@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
       '@heroui/react':
         specifier: 2.8.5
         version: 2.8.5(@react-spectrum/provider@3.11.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@types/react@19.2.4)(framer-motion@12.23.24(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(tailwindcss@4.1.17)
@@ -411,23 +411,23 @@ packages:
   '@formatjs/intl-localematcher@0.6.2':
     resolution: {integrity: sha512-XOMO2Hupl0wdd172Y06h6kLpBz6Dv+J4okPLl4LPtzbr8f66WbIoy4ev98EBuZ6ZK4h5ydTN6XneT4QVpD7cdA==}
 
-  '@fozy-labs/rx-toolkit@0.12.0-rc.1':
-    resolution: {integrity: sha512-mLOBBhc+y91y6rv5nMtYdLybC3yI5x0ZpElTTLtptjzHYJg7mHexJDexe0vcebN+S0biTZZvx9nHfRFg7YmQdw==}
+  '@fozy-labs/rx-toolkit@0.12.0':
+    resolution: {integrity: sha512-Wt+VdZXMf5M2/ttq2JVpHVJJEUsYBDt01fmIW7A/lgB4XnHxuKo/AZACL/MwkIE8SUDau9oMqmW3m6pF7fMFOw==}
     peerDependencies:
       react: ^19.0.0
       rxjs: ^7.0.0
       zod: ^4.0.0
 
-  '@fozy-labs/statechart-converter@0.1.0':
-    resolution: {integrity: sha512-/pIeGOeah8DjurjFpnJ75n0xPcqYmEmv2KLGckFfAxOMofrvE3jwOHBRSIhH01qVUHKDOcPRjR/9mR+2cLiwOA==}
+  '@fozy-labs/statechart-converter@0.4.0':
+    resolution: {integrity: sha512-nViplpeVzNX8b9XZ6x34E39bjkSxbYv9gjywxLAO/1zs+oVy1lWzxyBr1sw+S+OjpMawJP9OzcnthDlT244PZg==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@fozy-labs/statechart-viz@0.1.0':
-    resolution: {integrity: sha512-hoMiUlSdseMYXOyfTG4e1VxdHkhBa4UR7YxHN+u+S5mmLMvsMiEZBopqvr1kb48wxyOIGiefet7z71o/U6bWOg==}
+  '@fozy-labs/statechart-viz@0.4.0':
+    resolution: {integrity: sha512-JRExnHSlhe8RYYLnjxHFy8B1TbT3q9nXCoKVLoig7/+3vFGDjVTfg/qFDEnpYOR4OzK2ImFp/ijqKX/VwK7T1w==}
     engines: {node: '>=20.19.0'}
     peerDependencies:
-      '@fozy-labs/rx-toolkit': '>=0.12.0-rc.1'
+      '@fozy-labs/rx-toolkit': '>=0.12.0'
       mermaid: ^11.0.0
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -4057,26 +4057,26 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@fozy-labs/rx-toolkit@0.12.0-rc.1(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
     dependencies:
       immer: 10.2.0
       react: 19.2.0
       rxjs: 7.8.2
       zod: 4.5.4
 
-  '@fozy-labs/statechart-converter@0.1.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/statechart-converter@0.4.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
     dependencies:
-      '@fozy-labs/rx-toolkit': 0.12.0-rc.1(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+      '@fozy-labs/rx-toolkit': 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
       typescript: 5.9.3
     transitivePeerDependencies:
       - react
       - rxjs
       - zod
 
-  '@fozy-labs/statechart-viz@0.1.0(@fozy-labs/rx-toolkit@+)(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/statechart-viz@0.4.0(@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
     dependencies:
-      '@fozy-labs/rx-toolkit': link:../..
-      '@fozy-labs/statechart-converter': 0.1.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+      '@fozy-labs/rx-toolkit': 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+      '@fozy-labs/statechart-converter': 0.4.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
       mermaid: 11.17.2
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
