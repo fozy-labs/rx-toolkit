@@ -1,8 +1,8 @@
 ---
 astp-source: fozy-labs/astp
 astp-bundle: docs
-astp-version: 1.1.0
-astp-hash: 9a50d7a5c7e06d72e7cd19a6beb2492eb6434785bc70e49f708559ba82ed8bae
+astp-version: 1.3.0
+astp-hash: 5056df7168402b7048acae2fc90205acefdb5ee1682f4889c0f3a10626a19a9e
 ---
 # Hard spec
 
@@ -23,7 +23,7 @@ What its "outside, linked" row does not carry:
   ones, and a link into a superseded answer is worse than no link — point at the turn that
   settled it, or state the outcome in the same line as the link.
 - **Moving material out removes it from the copy sweep** of
-  [Maintenance](../SKILL.md#5-maintenance) — a sweep of the document set can report an
+  [Maintenance](../SKILL.md#6-maintenance) — a sweep of the document set can report an
   outside copy, never reconcile it. Accepted knowingly, stated here rather than discovered.
 
 ## 2. What does not compress

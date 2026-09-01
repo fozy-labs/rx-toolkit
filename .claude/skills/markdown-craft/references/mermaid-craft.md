@@ -1,7 +1,7 @@
 ---
 astp-source: fozy-labs/astp
 astp-bundle: docs
-astp-version: 1.1.0
+astp-version: 1.3.0
 astp-hash: 466b73f4eacf7ffb28b561f4f59f796df5b2cac21fc805cbc5b51ff119b34587
 ---
 # Mermaid craft
