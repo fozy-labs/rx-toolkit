@@ -15,6 +15,12 @@ interface Tracking<TArgs, TData> {
     current$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
 }
 
+/** Whether the entry behind `entry$` holds data worth keeping as SWR fallback. */
+function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>): boolean {
+    const status = entry$.peek()?.machine$.peek().state.status;
+    return status === "success" || status === "refreshing" || status === "refresh-error";
+}
+
 /**
  * Reactive observer for a {@link Resource} with SWR behaviour.
  *
@@ -72,9 +78,10 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
      * the agent is started, changing the args also triggers the query for them.
      * `SKIP` clears the observation and drops the agent back to `idle`.
      *
-     * `mark` (default `false`) makes an unstarted agent report `pending` rather
-     * than `idle` while no cache entry exists yet: `useResource` sets args during
-     * render but only starts in a layout effect, and marking hides that gap.
+     * `mark` (default `false`) makes an unstarted agent report `pending` (or
+     * `refreshing` over adopted stale data) rather than `idle` while no cache
+     * entry exists yet: the React hooks create an agent during render but only
+     * start it in a layout effect, and marking hides that gap.
      */
     set(args: ArgsOrVoidOrSkip<TArgs>, mark: boolean = false): void {
         this._isMarked = mark;
@@ -111,6 +118,24 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 current$: newEntry,
             });
         });
+    }
+
+    /**
+     * Take over `source`'s data as this agent's SWR fallback, exactly as
+     * {@link set} would keep the previous entry when the args change on a
+     * single agent: `source`'s current entry if it holds settled data, else
+     * whatever `source` itself was falling back on.
+     *
+     * For consumers that *replace* the agent instead of mutating it — the
+     * React hooks create one agent per args so render stays pure, and hand the
+     * stale data over from the last committed agent to its successor.
+     */
+    adoptPrevious(source: IResourceAgent<TArgs, TData, TError>): void {
+        if (!(source instanceof ResourceAgent)) return;
+
+        const tracking = source._tracking$.peek() as Tracking<TArgs, TData> | null;
+
+        this._previous$ = tracking && hasSettledData(tracking.current$) ? tracking.current$ : source._previous$;
     }
 
     /** Retry the last failed query. Only meaningful after an error state. */
@@ -189,11 +214,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     }
                 });
 
-                return this._createPendingState(tracking.keyed.value);
+                return this._createLoadingState(tracking.keyed.value);
             }
 
             if (this._isMarked) {
-                return this._createPendingState(tracking.keyed.value);
+                return this._createLoadingState(tracking.keyed.value);
             }
 
             return this._idleState;
@@ -204,16 +229,9 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         return this._deriveNotIdleState(machine.state);
     }
 
-    private _promoteToPrevious(tracking: Tracking<TArgs, TData> | null): void {
-        if (!tracking) return;
-
-        const current$ = tracking.current$;
-
-        if (current$) {
-            const status = current$.peek()?.machine$.peek().state.status;
-            if (status === "success" || status === "refreshing" || status === "refresh-error") {
-                this._previous$ = current$;
-            }
+    private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {
+        if (hasSettledData(tracking.current$)) {
+            this._previous$ = tracking.current$;
         }
     }
 
@@ -222,27 +240,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         // the compiler verifies every field against the discriminated union.
         switch (machineState.status) {
             case "pending": {
-                // SWR: pending + previous data → refreshing
-                const prevData = this._previousData();
-
-                if (prevData != null) {
-                    return {
-                        status: "refreshing",
-                        data: prevData,
-                        error: null,
-                        args: machineState.args,
-                        isLoading: true,
-                        isInitialLoading: false,
-                        isRefreshing: true,
-                        isRefreshError: false,
-                        isSuccess: false,
-                        isError: false,
-                        retry: this.retry,
-                        refresh: this.refresh,
-                    };
-                }
-
-                return this._createPendingState(machineState.args);
+                return this._createLoadingState(machineState.args);
             }
 
             case "success": {
@@ -335,7 +333,30 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         return data != null ? data : null;
     }
 
-    private _createPendingState(args: TArgs): TResourceAgentState<TArgs, TData, TError> {
+    /**
+     * Initial-loading state for `args`: `refreshing` over the stale data of the
+     * previous entry when there is any (SWR), plain `pending` otherwise.
+     */
+    private _createLoadingState(args: TArgs): TResourceAgentState<TArgs, TData, TError> {
+        const prevData = this._previousData();
+
+        if (prevData != null) {
+            return {
+                status: "refreshing",
+                data: prevData,
+                error: null,
+                args,
+                isLoading: true,
+                isInitialLoading: false,
+                isRefreshing: true,
+                isRefreshError: false,
+                isSuccess: false,
+                isError: false,
+                retry: this.retry,
+                refresh: this.refresh,
+            };
+        }
+
         return {
             status: "pending",
             data: null,

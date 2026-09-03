@@ -1,6 +1,6 @@
 import React from "react";
 
-import { useConstant, useIsomorphicLayoutEffect } from "@/common/react";
+import { useIsomorphicLayoutEffect } from "@/common/react";
 import type {
     Args,
     ArgsOrVoidOrSkip,
@@ -10,14 +10,12 @@ import type {
     TInfiniteResourceState,
     TResourceAgentState,
 } from "@/query/types";
-import { Signal } from "@/signals";
+import { Signal, type StateSignal } from "@/signals";
 import { useSignal } from "@/signals/react";
 
 import { SKIP } from "../constants";
 
 // ==================== Internal feed store ====================
-
-const UNSET = Symbol("unset");
 
 interface TPage<TArgs, TData, TError> {
     /** Serialized page args — the page identity (deduplicates fetchNext calls). */
@@ -33,15 +31,18 @@ interface TPage<TArgs, TData, TError> {
  * and `pagesState$` derives the per-page states reactively — so the hook
  * subscribes once regardless of how many pages are loaded (the page count is
  * dynamic, which rules out calling `useResource` per page).
+ *
+ * The feed identity — the initial args — is fixed at construction; the hook
+ * creates a new store when it changes. Render never mutates a store other
+ * renders may observe (see `useResourceAgent` for why that matters), and the
+ * page list only changes from event handlers (`fetchNext` / `reset`).
  */
 class InfiniteFeedStore<TArgs, TItem, TError> {
     private readonly _resource: IResource<TArgs, TItem[], TError>;
-    private readonly _pages$ = Signal.state<TPage<TArgs, TItem[], TError>[]>([], { isDisabled: true });
+    private readonly _pages$: StateSignal<TPage<TArgs, TItem[], TError>[]>;
 
-    /** Raw initial args of the last sync — reference fast path, like useResource. */
-    private _lastInitialArgs: unknown = UNSET;
     /** Serialized initial args; `null` while the feed is idle (SKIP). */
-    private _initialKey: string | null = null;
+    private readonly _initialKey: string | null;
     private _isStarted = false;
 
     /** Per-page `data` references of the last {@link buildState} call. */
@@ -54,31 +55,23 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         { isDisabled: true },
     );
 
-    constructor(resource: IResource<TArgs, TItem[], TError>) {
-        this._resource = resource;
-    }
-
     /**
-     * Render-phase sync, idempotent: (re)build the page list when the feed
-     * identity — the initial args — changes. New pages are created with their
-     * agents set but not started; {@link start} picks them up after render.
+     * The first page is created with its agent set but not started;
+     * {@link start} picks it up after render.
      */
-    sync(initialArgs: ArgsOrVoidOrSkip<TArgs>): void {
-        if (this._lastInitialArgs === initialArgs) return;
-        this._lastInitialArgs = initialArgs;
+    constructor(resource: IResource<TArgs, TItem[], TError>, initialArgs: ArgsOrVoidOrSkip<TArgs>) {
+        this._resource = resource;
 
-        if (initialArgs === SKIP) {
-            if (this._initialKey === null) return;
-            this._initialKey = null;
-            this._pages$.set([]);
-            return;
+        let pages: TPage<TArgs, TItem[], TError>[] = [];
+        this._initialKey = null;
+
+        if (initialArgs !== SKIP) {
+            const keyed = resource.toKeyed(initialArgs as Args<TArgs>);
+            this._initialKey = keyed.key;
+            pages = [this._createPage(keyed)];
         }
 
-        const keyed = this._resource.toKeyed(initialArgs as Args<TArgs>);
-        if (this._initialKey === keyed.key) return;
-
-        this._initialKey = keyed.key;
-        this._pages$.set([this._createPage(keyed)]);
+        this._pages$ = Signal.state(pages, { isDisabled: true });
     }
 
     /** Start every not-yet-started page. Runs in a layout effect after each render. */
@@ -236,15 +229,19 @@ export function useInfiniteResource<TArgs, TItem, TError = unknown>(
     resource: IResource<TArgs, TItem[], TError>,
     initialArgs: ArgsOrVoidOrSkip<TArgs>,
 ): TInfiniteResourceState<TArgs, TItem[], TError> {
-    const store = useConstant(() => new InfiniteFeedStore<TArgs, TItem, TError>(resource), [resource]);
+    const key = initialArgs === SKIP ? SKIP : resource.serialize(initialArgs as Args<TArgs>);
 
-    store.sync(initialArgs);
+    // One store per feed identity (see the class doc). Keyed by the serialized
+    // args, not their identity: an inline literal is a new object every render.
+    const store = React.useMemo(
+        () => new InfiniteFeedStore<TArgs, TItem, TError>(resource, initialArgs),
+        // `initialArgs` is represented by `key`.
+        [resource, key],
+    );
 
-    // No dep list on purpose: pages appended during a render-phase sync (feed
-    // identity change) must start after *that* render, not only after the first.
     useIsomorphicLayoutEffect(() => {
         store.start();
-    });
+    }, [store]);
 
     const pages = useSignal(store.pagesState$);
 

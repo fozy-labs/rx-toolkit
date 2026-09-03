@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+### Added
+- **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#методы).
+
+### Fixed
+- **React-хуки в concurrent-режиме** — `useResource`, `useSuspenseResource` и `useInfiniteResource` больше не мутируют общий агент во время рендера. Смена args внутри `startTransition` (например, навигация react-router) зацикливала React между transition-веткой и закоммиченным деревом до таймаута transition. Теперь хук создаёт агент на пару «ресурс + ключ args», а SWR-данные передаются новому агенту через `adoptPrevious`. См. [docs/query/concepts/agent](./query/concepts/agent.md#swr-fallback-при-смене-аргументов).
+
 
 ## [0.12.0] - 2026-08-31
 

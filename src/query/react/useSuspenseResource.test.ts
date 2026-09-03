@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 
@@ -176,6 +177,51 @@ describe("useSuspenseResource", () => {
 
         expect(screen.queryByTestId("fallback")).toBeNull();
         expect(screen.getByTestId("name").textContent).toBe("cached");
+    });
+    it("settles an args change made inside startTransition without a render loop", async () => {
+        const d = defer<{ name: string }>();
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<{ id: number }, { name: string }>({
+            queryFn: ({ id }) => (id === 1 ? Promise.resolve({ name: "Ada" }) : d.promise),
+        });
+
+        let setId!: (id: number) => void;
+        let renders = 0;
+
+        function View({ id }: { id: number }) {
+            renders++;
+            const { data } = resource.useSuspenseResource({ id });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+
+        function App() {
+            const [id, set] = React.useState(1);
+            setId = set;
+            return h(React.Suspense, { fallback: suspenseFallback("fallback") }, withSlowSiblings(h(View, { id }), id));
+        }
+
+        render(h(App));
+        expect(await screen.findByTestId("name")).toHaveProperty("textContent", "Ada");
+
+        await outsideAct(async () => {
+            renders = 0;
+            React.startTransition(() => setId(2));
+            await sleep(100);
+
+            // Stale data stays on screen while the new args load (SWR).
+            expect(screen.getByTestId("name").textContent).toBe("Ada");
+            expect(screen.queryByTestId("fallback")).toBeNull();
+
+            d.resolve({ name: "Grace" });
+            await sleep(200);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("Grace");
+        // A render-phase mutation of a shared agent makes this ping-pong between
+        // the transition lane (id=2) and the committed tree (id=1) instead.
+        expect(renders).toBeLessThanOrEqual(4);
+
+        await act(async () => {});
     });
 });
 

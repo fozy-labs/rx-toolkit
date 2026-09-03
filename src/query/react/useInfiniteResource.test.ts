@@ -1,8 +1,9 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
+import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
 import { createApi } from "@/query/api/createApi";
 import { SKIP } from "@/query/constants";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
@@ -348,5 +349,40 @@ describe("useInfiniteResource", () => {
 
         // The page re-emitted through the projection's live stream.
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v1"]);
+    });
+    it("settles an initial-args change made inside startTransition without a render loop", async () => {
+        const { projection } = createProjectionSetup();
+
+        let setIds!: (ids: number[]) => void;
+        let renders = 0;
+
+        function View({ ids }: { ids: number[] }) {
+            renders++;
+            const state = projection.useInfiniteResource(ids);
+            return h("span", { "data-testid": "first" }, String(state.pages[0]?.args?.[0] ?? "none"));
+        }
+
+        function App() {
+            const [ids, set] = React.useState([1, 2]);
+            setIds = set;
+            return withSlowSiblings(h(View, { ids }), ids);
+        }
+
+        render(h(App));
+        await settle();
+        expect(screen.getByTestId("first").textContent).toBe("1");
+
+        await outsideAct(async () => {
+            renders = 0;
+            React.startTransition(() => setIds([3, 4]));
+            await sleep(300);
+        });
+
+        expect(screen.getByTestId("first").textContent).toBe("3");
+        // A render-phase rebuild of a shared page list makes this ping-pong between
+        // the transition lane and the committed tree instead.
+        expect(renders).toBeLessThanOrEqual(4);
+
+        await act(async () => {});
     });
 });

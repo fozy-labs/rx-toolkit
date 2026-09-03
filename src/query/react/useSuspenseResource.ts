@@ -1,6 +1,7 @@
-import { useConstant } from "@/common/react";
 import type { ArgsOrVoid, IResource, TSuspenseResourceState } from "@/query/types";
 import { useSignal } from "@/signals/react";
+
+import { useResourceAgent } from "./useResourceAgent";
 
 /**
  * Suspense-enabled variant of `useResource`.
@@ -27,22 +28,9 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
     args: ArgsOrVoid<TArgs>,
 ): TSuspenseResourceState<TArgs, TData, TError> {
-    const agent = useConstant(() => {
-        const r = resource.createAgent();
-
-        r.set(args, true);
-        // Begin fetching during render: a suspended render aborts its effects,
-        // so deferring start() to a layout effect (as useResource does) would
-        // leave the fallback hanging forever. start() is idempotent.
-        r.start();
-
-        return r;
-    }, [resource]);
-
-    if (agent.args !== args) {
-        // `_isStarted` is already true, so set() triggers the fetch for the new args.
-        agent.set(args, true);
-    }
+    // Started during render: a suspended render aborts its effects, so a
+    // deferred start would leave the fallback hanging forever.
+    const agent = useResourceAgent(resource, args, true);
 
     const state = useSignal(agent.state$);
 

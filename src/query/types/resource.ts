@@ -183,6 +183,12 @@ export interface IResourceAgent<TArgs, TData, TError = unknown> {
     state$: ReadonlySignal<TResourceAgentState<TArgs, TData, TError>>;
     start(): void;
     set(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
+    /**
+     * Take over `source`'s data as this agent's SWR fallback — what `set` keeps
+     * from the previous args on a single agent, for consumers that replace the
+     * agent instead (one agent per args). Reads `source` once; it is not kept.
+     */
+    adoptPrevious(source: IResourceAgent<TArgs, TData, TError>): void;
     retry(): void;
     refresh(): void;
     /**
