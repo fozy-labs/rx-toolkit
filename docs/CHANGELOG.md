@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+
+## [0.12.1] - 2026-09-03
+
 ### Added
 - **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#методы).
 
@@ -375,7 +378,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...develop
+[0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.10.2...v0.11.1
