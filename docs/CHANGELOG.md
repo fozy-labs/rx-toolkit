@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+
+## [0.12.3] - 2026-09-17
+
 ### Added
 - **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
 
@@ -391,7 +394,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...develop
+[0.12.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0
