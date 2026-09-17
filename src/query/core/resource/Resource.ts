@@ -22,6 +22,7 @@ import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 import { Machine } from "../machine/Machine";
+import { retryingOf } from "../machine/machine-helpers";
 
 import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
 import { ResourceAgent } from "./ResourceAgent";
@@ -360,6 +361,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isLoading: false,
                 isInitialLoading: false,
                 isRefreshing: false,
+                isRetrying: false,
                 isRefreshError: false,
                 isSuccess: false,
                 isError: false,
@@ -372,7 +374,6 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return {
                 status: "pending",
                 data: null,
-                error: null,
                 args: entry.keyedArgs.value,
                 isLoading: true,
                 isInitialLoading: true,
@@ -380,6 +381,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isRefreshError: false,
                 isSuccess: false,
                 isError: false,
+                ...retryingOf<TArgs, TData, TError>(machine.state),
             };
         }
 
@@ -392,6 +394,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isLoading: false,
                 isInitialLoading: false,
                 isRefreshing: false,
+                isRetrying: false,
                 isRefreshError: false,
                 isSuccess: true,
                 isError: false,
@@ -402,7 +405,6 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return {
                 status: "refreshing",
                 data: machine.state.data,
-                error: null,
                 args: entry.keyedArgs.value,
                 isLoading: true,
                 isInitialLoading: false,
@@ -410,6 +412,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isRefreshError: false,
                 isSuccess: false,
                 isError: false,
+                ...retryingOf<TArgs, TData, TError>(machine.state),
             };
         }
 
@@ -424,6 +427,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isLoading: false,
                 isInitialLoading: false,
                 isRefreshing: false,
+                isRetrying: false,
                 isRefreshError: true,
                 isSuccess: false,
                 isError: true,
@@ -440,6 +444,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 isLoading: false,
                 isInitialLoading: false,
                 isRefreshing: false,
+                isRetrying: false,
                 isRefreshError: false,
                 isSuccess: false,
                 isError: true,

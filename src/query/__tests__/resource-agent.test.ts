@@ -373,6 +373,138 @@ describe("ResourceAgent error + previous data", () => {
 // ==================== 6. retry() / refresh() delegation ====================
 
 describe("ResourceAgent.retry() / .refresh()", () => {
+    it("retry after error: pending with isRetrying, dropped on settle", async () => {
+        let callCount = 0;
+        let resolveRetry!: (v: string) => void;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(new Error("boom"));
+                return new Promise((r) => {
+                    resolveRetry = r;
+                });
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        expect(s.get().isRetrying).toBe(false);
+        await flushMicrotasks();
+        expect(s.get().status).toBe("error");
+        expect(s.get().isRetrying).toBe(false);
+
+        const failure = s.get().error;
+        agent.retry();
+        let st = s.get();
+        expect(st.status).toBe("pending");
+        expect(st.isInitialLoading).toBe(true);
+        expect(st.isRetrying).toBe(true);
+        expect(st.isError).toBe(false);
+        expect(st.data).toBeNull();
+        // The failure stays readable while the retry is in flight.
+        expect(st.error).toBe(failure);
+
+        resolveRetry("ok");
+        await flushMicrotasks();
+        st = s.get();
+        expect(st.status).toBe("success");
+        expect(st.isRetrying).toBe(false);
+        expect(st.error).toBeNull();
+    });
+
+    it("retry after refresh-error: refreshing with isRetrying and the stale data; refresh() is not a retry", async () => {
+        let callCount = 0;
+        const pending: Array<{ resolve: (v: string) => void; reject: (e: unknown) => void }> = [];
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.resolve("d-1");
+                return new Promise((resolve, reject) => {
+                    pending.push({ resolve, reject });
+                });
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+
+        agent.refresh();
+        pending.shift()!.reject(new Error("refresh failed"));
+        await flushMicrotasks();
+        expect(s.get().status).toBe("refresh-error");
+        expect(s.get().isRetrying).toBe(false);
+
+        const failure = s.get().error;
+        agent.retry();
+        let st = s.get();
+        expect(st.status).toBe("refreshing");
+        expect(st.isRefreshing).toBe(true);
+        expect(st.isInitialLoading).toBe(false);
+        expect(st.isRetrying).toBe(true);
+        expect(st.isSwitching).toBe(false);
+        expect(st.isError).toBe(false);
+        expect(st.data).toBe("d-1");
+        expect(st.error).toBe(failure);
+
+        pending.shift()!.reject(new Error("failed again"));
+        await flushMicrotasks();
+        expect(s.get().status).toBe("refresh-error");
+        expect(s.get().isRetrying).toBe(false);
+
+        agent.refresh();
+        st = s.get();
+        expect(st.status).toBe("refreshing");
+        expect(st.isRetrying).toBe(false);
+        expect(st.error).toBeNull();
+        expect(st.data).toBe("d-1");
+
+        pending.shift()!.resolve("d-2");
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+        expect(s.get().data).toBe("d-2");
+        expect(s.get().isRetrying).toBe(false);
+    });
+
+    it("retry after an error under SWR: switching and retrying at once", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: (_n: number) => {
+                callCount++;
+                if (callCount === 1) return Promise.resolve("data-A");
+                if (callCount === 2) return Promise.reject(new Error("B failed"));
+                return new Promise(() => {});
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+
+        agent.set(2);
+        await flushMicrotasks();
+        expect(s.get().status).toBe("error");
+        expect(s.get().data).toBe("data-A");
+
+        const failure = s.get().error;
+        agent.retry();
+        const st = s.get();
+        expect(st.status).toBe("refreshing");
+        expect(st.isSwitching).toBe(true);
+        expect(st.isRetrying).toBe(true);
+        expect(st.error).toBe(failure);
+        expect(st.data).toBe("data-A");
+        expect(st.dataArgs).toBe(1);
+        expect(st.args).toBe(2);
+    });
+
     it("retry re-executes the failed query", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
@@ -554,6 +686,7 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isSuccess).toBe(false);
         expect(st.isError).toBe(false);
         expect(st.isSwitching).toBe(false);
+        expect(st.isRetrying).toBe(false);
         expect(st.data).toBeNull();
         expect(st.error).toBeNull();
         expect(st.dataArgs).toBeNull();
@@ -578,6 +711,7 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isInitialLoading).toBe(true);
         expect(st.isRefreshing).toBe(false);
         expect(st.isSwitching).toBe(false);
+        expect(st.isRetrying).toBe(false);
         expect(st.isSuccess).toBe(false);
         expect(st.isError).toBe(false);
         expect(st.dataArgs).toBeNull();
@@ -653,6 +787,7 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isLoading).toBe(true);
         expect(st.isInitialLoading).toBe(false);
         expect(st.isSwitching).toBe(true);
+        expect(st.isRetrying).toBe(false);
         expect(st.data).toBe("d-1");
         expect(st.dataArgs).toBe(1);
 

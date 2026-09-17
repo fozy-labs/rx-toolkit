@@ -11,14 +11,28 @@ import type { Args } from "./common";
 // `data` was loaded for. They differ only under SWR across an args change,
 // when the previous entry's data is shown while the new one loads (or after it
 // failed). `isSwitching` reports that load in flight.
+//
+// `isRetrying` reports a load started by `retry()` from `error` / `refresh-error`;
+// the retried failure stays readable in `error` while it runs (`isError` is
+// still `false`). A first load or a `refresh()` reports `isRetrying: false`.
 
 /** Methods present on every resource agent state variant. */
 interface TResourceAgentStateMethods {
-    /** Re-run the last failed query. No-op outside the error states. */
+    /**
+     * Re-run the failed query: `error` → `pending`, `refresh-error` →
+     * `refreshing`, both marked `isRetrying` with the failure kept in `error`.
+     * No-op outside the error states.
+     */
     retry: () => void;
     /** Force a background refresh of the current entry (SWR). */
     refresh: () => void;
 }
+
+/**
+ * Retry bookkeeping of the loading variants: a load started by `retry()` keeps
+ * the retried failure in `error`; any other load has none.
+ */
+export type TRetrying<TError> = { isRetrying: false; error: null } | { isRetrying: true; error: TError };
 
 /** No observation: the agent was given `SKIP` or has not received arguments yet. */
 export interface TResourceAgentIdleState extends TResourceAgentStateMethods {
@@ -31,16 +45,15 @@ export interface TResourceAgentIdleState extends TResourceAgentStateMethods {
     isInitialLoading: false;
     isRefreshing: false;
     isSwitching: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: false;
     isError: false;
 }
 
-/** Initial load in flight: no data yet (nothing cached, no SWR fallback). */
-export interface TResourceAgentPendingState<TArgs> extends TResourceAgentStateMethods {
+interface TResourceAgentPendingBase<TArgs> extends TResourceAgentStateMethods {
     status: "pending";
     data: null;
-    error: null;
     args: TArgs;
     dataArgs: null;
     isLoading: true;
@@ -51,6 +64,13 @@ export interface TResourceAgentPendingState<TArgs> extends TResourceAgentStateMe
     isSuccess: false;
     isError: false;
 }
+
+/**
+ * Initial load in flight: no data yet (nothing cached, no SWR fallback). With
+ * `isRetrying`, it is a `retry()` of a failed initial load and `error` holds
+ * that failure.
+ */
+export type TResourceAgentPendingState<TArgs, TError = unknown> = TResourceAgentPendingBase<TArgs> & TRetrying<TError>;
 
 /** Query succeeded: `data` is present, no error. */
 export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgentStateMethods {
@@ -63,6 +83,7 @@ export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgent
     isInitialLoading: false;
     isRefreshing: false;
     isSwitching: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: true;
     isError: false;
@@ -83,20 +104,15 @@ export interface TResourceAgentErrorState<TArgs, TData, TError = unknown> extend
     isInitialLoading: false;
     isRefreshing: false;
     isSwitching: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: false;
     isError: true;
 }
 
-/**
- * A load is in flight behind stale `data` (SWR): either a background refresh of
- * the current entry, or — with `isSwitching` — the initial load of the new
- * arguments while the previous entry's data (`dataArgs`) is still shown.
- */
-export interface TResourceAgentRefreshingState<TArgs, TData> extends TResourceAgentStateMethods {
+interface TResourceAgentRefreshingBase<TArgs, TData> extends TResourceAgentStateMethods {
     status: "refreshing";
     data: TData;
-    error: null;
     args: TArgs;
     dataArgs: TArgs;
     isLoading: true;
@@ -107,6 +123,15 @@ export interface TResourceAgentRefreshingState<TArgs, TData> extends TResourceAg
     isSuccess: false;
     isError: false;
 }
+
+/**
+ * A load is in flight behind stale `data` (SWR): either a background refresh of
+ * the current entry, or — with `isSwitching` — the initial load of the new
+ * arguments while the previous entry's data (`dataArgs`) is still shown. With
+ * `isRetrying`, the load is a `retry()` of a failure that `error` still holds.
+ */
+export type TResourceAgentRefreshingState<TArgs, TData, TError = unknown> = TResourceAgentRefreshingBase<TArgs, TData> &
+    TRetrying<TError>;
 
 /** Background refresh failed; stale `data` is preserved. */
 export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown> extends TResourceAgentStateMethods {
@@ -119,6 +144,7 @@ export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown>
     isInitialLoading: false;
     isRefreshing: false;
     isSwitching: false;
+    isRetrying: false;
     isRefreshError: true;
     isSuccess: false;
     isError: true;
@@ -126,10 +152,10 @@ export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown>
 
 export type TResourceAgentState<TArgs, TData, TError = unknown> =
     | TResourceAgentIdleState
-    | TResourceAgentPendingState<TArgs>
+    | TResourceAgentPendingState<TArgs, TError>
     | TResourceAgentSuccessState<TArgs, TData>
     | TResourceAgentErrorState<TArgs, TData, TError>
-    | TResourceAgentRefreshingState<TArgs, TData>
+    | TResourceAgentRefreshingState<TArgs, TData, TError>
     | TResourceAgentRefreshErrorState<TArgs, TData, TError>;
 
 /**
@@ -159,7 +185,7 @@ export interface TSuspenseResourceErrorState<TArgs, TData, TError = unknown> ext
  */
 export type TSuspenseResourceState<TArgs, TData, TError = unknown> =
     | TResourceAgentSuccessState<TArgs, TData>
-    | TResourceAgentRefreshingState<TArgs, TData>
+    | TResourceAgentRefreshingState<TArgs, TData, TError>
     | TResourceAgentRefreshErrorState<TArgs, TData, TError>
     | TSuspenseResourceErrorState<TArgs, TData, TError>;
 

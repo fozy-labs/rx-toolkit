@@ -106,11 +106,15 @@ export class QueryCacheEntry<TArgs, TData>
         this._execute();
     }
 
-    /** Re-execute query after error. Valid from error state only. */
+    /**
+     * Re-execute the query after a failure. Valid from error and refresh-error.
+     * Unlike {@link refresh}, the failed error stays visible and the in-flight
+     * state is marked `isRetrying`.
+     */
     retry(): void {
         const machine = this.machine$.peek();
 
-        if (machine.status !== "error") {
+        if (machine.status !== "error" && machine.status !== "refresh-error") {
             console.warn(`[QueryCacheEntry] retry() called in invalid state: ${machine.status}`);
             return;
         }

@@ -1676,10 +1676,53 @@ describe("Error flows", () => {
 
         // refresh-error allows refresh() again
         entry.refresh();
+        expect(entry.machine$.peek().state).toMatchObject({ status: "refreshing", isRetrying: false, error: null });
         await flushMicrotasks();
 
         expect(entry.machine$.peek().state.status).toBe("success");
         expect(entry.machine$.peek().state.data).toBe("recovered");
+    });
+
+    it("retry() after refresh-error re-fetches as a retrying refresh, keeping the data", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                if (callCount === 1) return "initial";
+                if (callCount === 2) throw new Error("refresh failed");
+                return "recovered";
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        resource.refresh(1);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1)!;
+        expect(entry.machine$.peek().state.status).toBe("refresh-error");
+
+        const failure = entry.machine$.peek().state.error;
+        entry.retry();
+        expect(entry.machine$.peek().state).toMatchObject({
+            status: "refreshing",
+            data: "initial",
+            error: failure,
+            isRetrying: true,
+        });
+        expect(resource.getState(1)).toMatchObject({
+            status: "refreshing",
+            isRefreshing: true,
+            isRetrying: true,
+            isError: false,
+            error: failure,
+        });
+
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(callCount).toBe(3);
     });
 
     it("multiple sequential errors still allow retry", async () => {
@@ -3016,10 +3059,39 @@ describe("Resource.getState", () => {
             isLoading: true,
             isInitialLoading: true,
             isRefreshing: false,
+            isRetrying: false,
             isRefreshError: false,
             isSuccess: false,
             isError: false,
         });
+    });
+
+    it("pending after retry(): isRetrying", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(new Error("boom"));
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "error", isRetrying: false });
+
+        resource.getEntry(1)!.retry();
+
+        const state = resource.getState(1);
+        expect(state).toMatchObject({
+            status: "pending",
+            data: null,
+            isLoading: true,
+            isInitialLoading: true,
+            isRetrying: true,
+            isError: false,
+        });
+        expect(state.error).toBeInstanceOf(Error);
     });
 
     it("success: data available → isSuccess only", async () => {

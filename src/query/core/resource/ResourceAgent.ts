@@ -1,10 +1,19 @@
 import { first, firstValueFrom } from "rxjs";
 
-import type { Args, ArgsOrVoidOrSkip, IResourceAgent, Keyed, TMachineState, TResourceAgentState } from "@/query/types";
+import type {
+    Args,
+    ArgsOrVoidOrSkip,
+    IResourceAgent,
+    Keyed,
+    TMachineState,
+    TResourceAgentState,
+    TRetrying,
+} from "@/query/types";
 import { Batcher, Signal, type ReadonlySignal } from "@/signals";
 
 import { SKIP } from "../../constants";
 import type { QueryCacheEntry } from "../cache/QueryCacheEntry";
+import { NOT_RETRYING, retryingOf } from "../machine/machine-helpers";
 
 import type { Resource } from "./Resource";
 
@@ -214,11 +223,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     }
                 });
 
-                return this._createLoadingState(tracking.keyed.value);
+                return this._createLoadingState(tracking.keyed.value, NOT_RETRYING);
             }
 
             if (this._isMarked) {
-                return this._createLoadingState(tracking.keyed.value);
+                return this._createLoadingState(tracking.keyed.value, NOT_RETRYING);
             }
 
             return this._idleState;
@@ -240,7 +249,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         // the compiler verifies every field against the discriminated union.
         switch (machineState.status) {
             case "pending": {
-                return this._createLoadingState(machineState.args);
+                return this._createLoadingState(machineState.args, retryingOf(machineState));
             }
 
             case "success": {
@@ -257,6 +266,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isInitialLoading: false,
                     isRefreshing: false,
                     isSwitching: false,
+                    isRetrying: false,
                     isRefreshError: false,
                     isSuccess: true,
                     isError: false,
@@ -281,6 +291,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isInitialLoading: false,
                     isRefreshing: false,
                     isSwitching: false,
+                    isRetrying: false,
                     isRefreshError: false,
                     isSuccess: false,
                     isError: true,
@@ -293,7 +304,6 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 return {
                     status: "refreshing",
                     data: machineState.data,
-                    error: null,
                     args: machineState.args,
                     dataArgs: machineState.args,
                     isLoading: true,
@@ -305,6 +315,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isError: false,
                     retry: this.retry,
                     refresh: this.refresh,
+                    ...retryingOf<TArgs, TData, TError>(machineState),
                 };
             }
 
@@ -320,6 +331,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isInitialLoading: false,
                     isRefreshing: false,
                     isSwitching: false,
+                    isRetrying: false,
                     isRefreshError: true,
                     isSuccess: false,
                     isError: true,
@@ -347,16 +359,16 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     /**
      * Initial-loading state for `args`: `refreshing` (with `isSwitching`) over
      * the stale data of the previous entry when there is any (SWR), plain
-     * `pending` otherwise.
+     * `pending` otherwise. `retrying` carries the retry bookkeeping of the
+     * underlying machine state (a `retry()` of a failed initial load).
      */
-    private _createLoadingState(args: TArgs): TResourceAgentState<TArgs, TData, TError> {
+    private _createLoadingState(args: TArgs, retrying: TRetrying<TError>): TResourceAgentState<TArgs, TData, TError> {
         const previous = this._previous();
 
         if (previous) {
             return {
                 status: "refreshing",
                 data: previous.data,
-                error: null,
                 args,
                 dataArgs: previous.args,
                 isLoading: true,
@@ -368,13 +380,13 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 isError: false,
                 retry: this.retry,
                 refresh: this.refresh,
+                ...retrying,
             };
         }
 
         return {
             status: "pending",
             data: null,
-            error: null,
             args,
             dataArgs: null,
             isLoading: true,
@@ -386,6 +398,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             isError: false,
             retry: this.retry,
             refresh: this.refresh,
+            ...retrying,
         };
     }
 
@@ -399,6 +412,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         isInitialLoading: false,
         isRefreshing: false,
         isSwitching: false,
+        isRetrying: false,
         isRefreshError: false,
         isSuccess: false,
         isError: false,

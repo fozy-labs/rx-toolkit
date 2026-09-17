@@ -16,12 +16,17 @@ export type ArgsOrVoidOrSkip<TArgs> = TArgs extends void ? void | typeof SKIP : 
 
 export type TMachineStatus = "pending" | "success" | "error" | "refreshing" | "refresh-error";
 
+// `isRetrying` marks a load started by `retry()` from a failed state; the
+// failure it retries stays in `error` until the load settles. A first load or a
+// plain `refresh()` reports `isRetrying: false` with `error: null`.
+
 export interface TPendingState<TArgs> {
     status: "pending";
     args: TArgs;
     data: null;
-    error: null;
+    error: unknown;
     updatedAt: null;
+    isRetrying: boolean;
 }
 
 export interface TSuccessState<TArgs, TData> {
@@ -45,9 +50,10 @@ export interface TRefreshingState<TArgs, TData> {
     status: "refreshing";
     args: TArgs;
     data: TData;
-    error: null;
+    error: unknown;
     updatedAt: number;
     patchState: TPatchState<TData> | null;
+    isRetrying: boolean;
 }
 
 export interface TRefreshErrorState<TArgs, TData> {

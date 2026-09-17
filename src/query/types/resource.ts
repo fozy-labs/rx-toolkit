@@ -6,7 +6,7 @@ import type { ReadonlySignal } from "@/signals/types";
 import type { TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { Args, ArgsOrVoid, Keyed } from "./common";
-import type { TResourceAgentState } from "./state";
+import type { TResourceAgentState, TRetrying } from "./state";
 
 // ==================== Resource Interface ====================
 
@@ -83,7 +83,8 @@ export interface TPackedResource<TArgs, TData, TError = unknown> {
 // The lite state (returned by {@link IResource.getState}) is a discriminated
 // union like the agent state, but without SWR: it reflects a single cache
 // entry, so the `error` variant never carries stale data and there is no
-// `retry` / `refresh`.
+// `retry` / `refresh`. The loading variants share the agent's retry
+// bookkeeping ({@link TRetrying}).
 
 /** No cache entry exists for the given arguments. */
 export interface TResourceLiteIdleState {
@@ -94,16 +95,15 @@ export interface TResourceLiteIdleState {
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: false;
     isError: false;
 }
 
-/** Initial load in flight: no data yet. */
-export interface TResourceLitePendingState<TArgs> {
+interface TResourceLitePendingBase<TArgs> {
     status: "pending";
     data: null;
-    error: null;
     args: TArgs;
     isLoading: true;
     isInitialLoading: true;
@@ -112,6 +112,9 @@ export interface TResourceLitePendingState<TArgs> {
     isSuccess: false;
     isError: false;
 }
+
+/** Initial load in flight: no data yet. With `isRetrying`, `error` holds the retried failure. */
+export type TResourceLitePendingState<TArgs, TError = unknown> = TResourceLitePendingBase<TArgs> & TRetrying<TError>;
 
 /** Query succeeded: `data` is present, no error. */
 export interface TResourceLiteSuccessState<TArgs, TData> {
@@ -122,6 +125,7 @@ export interface TResourceLiteSuccessState<TArgs, TData> {
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: true;
     isError: false;
@@ -136,16 +140,15 @@ export interface TResourceLiteErrorState<TArgs, TError = unknown> {
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isRetrying: false;
     isRefreshError: false;
     isSuccess: false;
     isError: true;
 }
 
-/** Background refresh in flight; stale `data` stays available. */
-export interface TResourceLiteRefreshingState<TArgs, TData> {
+interface TResourceLiteRefreshingBase<TArgs, TData> {
     status: "refreshing";
     data: TData;
-    error: null;
     args: TArgs;
     isLoading: true;
     isInitialLoading: false;
@@ -154,6 +157,10 @@ export interface TResourceLiteRefreshingState<TArgs, TData> {
     isSuccess: false;
     isError: false;
 }
+
+/** Background refresh in flight; stale `data` stays available. With `isRetrying`, `error` holds the retried failure. */
+export type TResourceLiteRefreshingState<TArgs, TData, TError = unknown> = TResourceLiteRefreshingBase<TArgs, TData> &
+    TRetrying<TError>;
 
 /** Background refresh failed; stale `data` is preserved. */
 export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> {
@@ -164,6 +171,7 @@ export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> 
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isRetrying: false;
     isRefreshError: true;
     isSuccess: false;
     isError: true;
@@ -171,10 +179,10 @@ export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> 
 
 export type IResourceLiteState<TArgs, TData, TError = unknown> =
     | TResourceLiteIdleState
-    | TResourceLitePendingState<TArgs>
+    | TResourceLitePendingState<TArgs, TError>
     | TResourceLiteSuccessState<TArgs, TData>
     | TResourceLiteErrorState<TArgs, TError>
-    | TResourceLiteRefreshingState<TArgs, TData>
+    | TResourceLiteRefreshingState<TArgs, TData, TError>
     | TResourceLiteRefreshErrorState<TArgs, TData, TError>;
 
 // ==================== Resource Agent Interface ====================

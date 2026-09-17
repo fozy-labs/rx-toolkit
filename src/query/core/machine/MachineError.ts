@@ -11,14 +11,15 @@ export class MachineError<TArgs, TData> extends MachineBase<TArgs, TData> {
         super(state);
     }
 
-    /** error → pending */
+    /** error → pending (keeps the retried error, marks `isRetrying`) */
     retry(): MachinePending<TArgs, TData> {
         const state: TPendingState<TArgs> = {
             status: "pending",
             args: this.state.args,
             data: null,
-            error: null,
+            error: this.state.error,
             updatedAt: null,
+            isRetrying: true,
         };
         return new MachinePending<TArgs, TData>(state);
     }

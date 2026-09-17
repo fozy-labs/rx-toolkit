@@ -86,10 +86,11 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
 | `isRefreshing`     | `boolean`        | Перезагрузка (данные уже есть)        |
 | `isSwitching`      | `boolean`        | Загрузка новых аргументов поверх данных от предыдущих (SWR) |
+| `isRetrying`       | `boolean`        | Загрузка запущена через `retry()`; `error` хранит повторяемую ошибку |
 | `isRefreshError`   | `boolean`        | Ошибка при перезагрузке               |
 | `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
 | `isError`          | `boolean`        | Произошла ли ошибка                   |
-| `retry()`          | `() => void`     | Повторить последний запрос            |
+| `retry()`          | `() => void`     | Повторить запрос после `error` / `refresh-error` |
 | `refresh()`        | `() => void`     | Принудительно обновить данные         |
 
 **Особенности:**

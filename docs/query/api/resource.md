@@ -109,8 +109,8 @@ const usersResource = api.createResource({
 
 Если на руках есть `QueryCacheEntry` (из `getEntry` / `getEntries`), `queryFn` перезапускают:
 
-- `entry.refresh()` — из `success` / `refresh-error` (фоновый SWR-перезапуск);
-- `entry.retry()` — из `error` (повтор после ошибки).
+- `entry.refresh()` — из `success` / `refresh-error` (фоновый SWR-перезапуск, `error` сбрасывается);
+- `entry.retry()` — из `error` / `refresh-error` (повтор после ошибки: загрузка помечена `isRetrying`, ошибка остаётся в `error` до завершения).
 
 ### Что НЕ запускает запрос
 

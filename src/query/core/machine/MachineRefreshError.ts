@@ -25,6 +25,21 @@ export class MachineRefreshError<TArgs, TData> extends MachineWithData<TArgs, TD
             error: null,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
+            isRetrying: false,
+        };
+        return new MachineRefreshing<TArgs, TData>(state);
+    }
+
+    /** refresh-error → refreshing (keeps the retried error, marks `isRetrying`) */
+    retry(): MachineRefreshing<TArgs, TData> {
+        const state: TRefreshingState<TArgs, TData> = {
+            status: "refreshing",
+            args: this.state.args,
+            data: this.state.data,
+            error: this.state.error,
+            updatedAt: this.state.updatedAt,
+            patchState: this.state.patchState,
+            isRetrying: true,
         };
         return new MachineRefreshing<TArgs, TData>(state);
     }

@@ -4,13 +4,15 @@
 
 ## Пять состояний
 
-| Статус | Данные | Ошибка | `updatedAt` |
-|---|---|---|---|
-| `pending` | `null` | `null` | `null` |
-| `success` | `TData` | `null` | `number` |
-| `error` | `null` | `unknown` | `null` |
-| `refreshing` | `TData` (устаревшие) | `null` | `number` |
-| `refresh-error` | `TData` (устаревшие) | `unknown` | `number` |
+| Статус | Данные | Ошибка | `updatedAt` | `isRetrying` |
+|---|---|---|---|---|
+| `pending` | `null` | `null` / повторяемая¹ | `null` | `boolean` |
+| `success` | `TData` | `null` | `number` | — |
+| `error` | `null` | `unknown` | `null` | — |
+| `refreshing` | `TData` (устаревшие) | `null` / повторяемая¹ | `number` | `boolean` |
+| `refresh-error` | `TData` (устаревшие) | `unknown` | `number` | — |
+
+¹ Загрузка, запущенная через `retry()`, помечена `isRetrying: true` и сохраняет в `error` ошибку, которую повторяет; первичная загрузка и `refresh()` дают `isRetrying: false`, `error: null`.
 
 
 ## Диаграмма переходов
@@ -32,15 +34,18 @@ stateDiagram-v2
     success --> refresh_error : fail(error) — ошибка стрима
     success --> success : createPatch() / finishPatch() / finishAllPatches()
 
-    error --> pending : retry()
+    error --> pending : retry() — isRetrying, error сохраняется
 
     refreshing --> success : rebase(data)
     refreshing --> refresh_error : fail(error)
     refreshing --> refreshing : createPatch() / finishPatch() / finishAllPatches()
 
     refresh_error --> refreshing : refresh()
+    refresh_error --> refreshing : retry() — isRetrying, error сохраняется
     refresh_error --> refresh_error : createPatch() / finishPatch() / finishAllPatches()
 ```
+
+`retry()` и `refresh()` из `refresh-error` ведут в одно и то же `refreshing`, но по-разному: `refresh()` — обычное фоновое обновление (`error: null`), `retry()` — повтор после неудачи, с флагом `isRetrying` и сохранённой ошибкой. Патч-операции флаг и ошибку не сбрасывают; они очищаются, когда загрузка завершается (`rebase` / `success` / `fail`).
 
 Два перехода из `success` появились в 0.12.0 для [стриминговых запросов][stream-query]:
 
@@ -54,8 +59,9 @@ interface TPendingState<TArgs> {
   status: 'pending';
   args: TArgs;
   data: null;
-  error: null;
+  error: unknown;      // null, кроме retry()
   updatedAt: null;
+  isRetrying: boolean;
 }
 
 interface TSuccessState<TArgs, TData> {
@@ -79,9 +85,10 @@ interface TRefreshingState<TArgs, TData> {
   status: 'refreshing';
   args: TArgs;
   data: TData;
-  error: null;
+  error: unknown;      // null, кроме retry()
   updatedAt: number;
   patchState: TPatchState<TData> | null;
+  isRetrying: boolean;
 }
 
 interface TRefreshErrorState<TArgs, TData> {

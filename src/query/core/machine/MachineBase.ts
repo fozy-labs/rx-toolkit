@@ -101,6 +101,7 @@ export class MachineBase<TArgs, TData> {
                 error: null,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
+                isRetrying: false,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -113,6 +114,7 @@ export class MachineBase<TArgs, TData> {
                 error: null,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
+                isRetrying: false,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -120,20 +122,37 @@ export class MachineBase<TArgs, TData> {
         throw new MachineTransitionError("refresh", this.state.status);
     }
 
-    /** error → pending */
+    /**
+     * error → pending, refresh-error → refreshing. Unlike {@link refresh}, the
+     * retried failure stays in `error` and the target is marked `isRetrying`.
+     */
     retry(): MachineBase<TArgs, TData> {
-        if (this.state.status !== "error") {
-            throw new MachineTransitionError("retry", this.state.status);
+        if (this.state.status === "error") {
+            const state: TPendingState<TArgs> = {
+                status: "pending",
+                args: this.state.args,
+                data: null,
+                error: this.state.error,
+                updatedAt: null,
+                isRetrying: true,
+            };
+            return new MachineBase<TArgs, TData>(state);
         }
 
-        const state: TPendingState<TArgs> = {
-            status: "pending",
-            args: this.state.args,
-            data: null,
-            error: null,
-            updatedAt: null,
-        };
-        return new MachineBase<TArgs, TData>(state);
+        if (this.state.status === "refresh-error") {
+            const state: TRefreshingState<TArgs, TData> = {
+                status: "refreshing",
+                args: this.state.args,
+                data: this.state.data,
+                error: this.state.error,
+                updatedAt: this.state.updatedAt,
+                patchState: this.state.patchState,
+                isRetrying: true,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        throw new MachineTransitionError("retry", this.state.status);
     }
 
     /** success → success (subsequent stream emission; replays patches on new data) */

@@ -42,10 +42,12 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 | _(нет записи / SKIP)_ | `idle` | `null` | `null` | Запрос не выполняется |
 | `pending` | `pending` | `null` | `null` | Ожидание первого ответа |
 | `pending` + _previous_ | `refreshing` (`isSwitching`) | stale data из prev | args prev | SWR: pending маскируется в refreshing; stale данные показываются, пока новая запись загружается |
+| `pending` (`isRetrying`) | `pending` (`isRetrying`) | `null` | `null` | Повтор после `error` через `retry()`; `error` хранит повторяемую ошибку |
 | `success` | `success` | `TData` | = args | Данные получены |
 | `error` | `error` | `null` | `null` | Ошибка, данных нет |
 | `error` + _previous_ | `error` | stale data из prev | args prev | Ошибка; stale данные из prev доступны, но статус — error |
 | `refreshing` | `refreshing` | stale `TData` | = args | Фоновое обновление, показываются устаревшие данные (только ресурс) |
+| `refreshing` (`isRetrying`) | `refreshing` (`isRetrying`) | stale `TData` | = args | Повтор после `refresh-error` через `retry()`; `error` хранит повторяемую ошибку |
 | `refresh-error` | `refresh-error` | stale `TData` | = args | Обновление завершилось ошибкой, стейл данные сохраняются (только ресурс) |
 
 Подробнее о механизме слотов — в разделе [SWR-fallback при смене аргументов][swr-fallback].

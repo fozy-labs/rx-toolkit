@@ -3,6 +3,13 @@
 
 ## [Unreleased]
 
+### Added
+- **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+
+### Changed
+- **`retry()` работает из `refresh-error`** (`refresh-error → refreshing` с `isRetrying`), а не только из `error`. Раньше — no-op с предупреждением. `refresh()` из `refresh-error` не изменился.
+- **Тип `error` в `pending` / `refreshing`** — `TError | null` вместо `null` (машина: `unknown` вместо `null`); `isRetrying` сужает: `true` ⇒ `error: TError`, `false` ⇒ `error: null`. В состояния машины `TPendingState` / `TRefreshingState` добавлено поле `isRetrying`.
+
 
 ## [0.12.2] - 2026-09-17
 

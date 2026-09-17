@@ -20,8 +20,8 @@ const agent = usersResource.createAgent();
 | `start` | `() => void` | Переводит агент в «запущенное» состояние и запускает запрос для уже установленных через `set` аргументов. Аргументов не принимает; если их ещё нет — запрос стартует со следующего `set`. |
 | `set` | `(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean) => void` | Устанавливает наблюдаемые args. До `start()` запрос не инициирует; после — смена args сразу запускает запрос для новых аргументов. При передаче `SKIP` агент переходит в `idle`. Необязательный `mark` (по умолчанию `false`) заставляет ещё не запущенный агент отдавать `pending` вместо `idle`. |
 | `adoptPrevious` | `(source: IResourceAgent<TArgs, TData, TError>) => void` | Переносит SWR-fallback с другого агента: текущую запись `source`, если в ней есть данные (`success` / `refreshing` / `refresh-error`), иначе его собственный предыдущий слот. Для случаев, когда агент не мутируют через `set`, а заменяют новым — так работают React-хуки (один агент на набор args). `source` читается один раз и не удерживается. |
-| `retry` | `() => void` | Повторяет последний запрос после ошибки. |
-| `refresh` | `() => void` | Принудительно обновляет данные, при ошибке сохраняет устаревшие данные. |
+| `retry` | `() => void` | Повторяет запрос после ошибки: `error → pending`, `refresh-error → refreshing`. Загрузка помечена `isRetrying`, ошибка остаётся в `error` до завершения. Вне состояний ошибки — no-op. |
+| `refresh` | `() => void` | Принудительно обновляет данные (`success` / `refresh-error → refreshing`, `error: null`), при ошибке сохраняет устаревшие данные. |
 | `whenSettled` | `() => Promise<void>` | Промис выхода из фазы первичной загрузки. См. [ниже](#whensettled). |
 | `args` | `TArgs \| null` | Геттер: аргументы текущего наблюдения. Заполняется в `set` (до `start`), сбрасывается в `null` при `SKIP`. |
 
@@ -54,6 +54,7 @@ if (state.isSuccess) {
 | `isInitialLoading` | `boolean` | `true` только при первичной загрузке (`pending`). |
 | `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
 | `isSwitching` | `boolean` | `true`, если под `refreshing` идёт первичная загрузка новых аргументов, а `data` — от предыдущих (`dataArgs`). Отличает смену аргументов от `refresh()` той же записи. |
+| `isRetrying` | `boolean` | `true`, если загрузка (`pending` / `refreshing`) запущена через `retry()`; `error` при этом хранит повторяемую ошибку, `isError` — `false`. Первичная загрузка и `refresh()` дают `false`. |
 | `isRefreshError` | `boolean` | `true`, если фоновое обновление завершилось ошибкой. |
 | `isSuccess` | `boolean` | `true`, если данные получены успешно. |
 | `isError` | `boolean` | `true`, если запрос завершился ошибкой. |
@@ -64,24 +65,31 @@ if (state.isSuccess) {
 
 Типы вариантов экспортируются: `TResourceAgentIdleState`, `TResourceAgentPendingState`, `TResourceAgentSuccessState`, `TResourceAgentErrorState`, `TResourceAgentRefreshingState`, `TResourceAgentRefreshErrorState`.
 
-| Статус | `data` | `error` | `dataArgs` | `isLoading` | `isInitialLoading` | `isRefreshing` | `isSwitching` | `isRefreshError` | `isSuccess` | `isError` | Описание |
-|--------|:------:|:-------:|:----------:|:-----------:|:-------------------:|:--------------:|:-------------:|:-----------------:|:-----------:|:---------:|----------|
-| `idle` | `null` | `null` | `null` | — | — | — | — | — | — | — | Наблюдение не активно: аргументы ещё не заданы, передан `SKIP`, либо агент не запущен и `set` вызывался без `mark`. |
-| `pending` | `null` | `null` | `null` | ✓ | ✓ | — | — | — | — | — | Первичный запрос в процессе. |
-| `success` | `TData` | `null` | `TArgs` | — | — | — | — | — | ✓ | — | Данные получены. |
-| `error` | `TData \| null`¹ | `TError` | `TArgs \| null`¹ | — | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
-| `refreshing` | `TData` | `null` | `TArgs` | ✓ | — | ✓ | `boolean`² | — | — | — | Загрузка за устаревшими `data`: `refresh()` текущей записи либо первичная загрузка новых аргументов (SWR). |
-| `refresh-error` | `TData` | `TError` | `TArgs` | — | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
+| Статус | `data` | `error` | `dataArgs` | `isLoading` | `isInitialLoading` | `isRefreshing` | `isSwitching` | `isRetrying` | `isRefreshError` | `isSuccess` | `isError` | Описание |
+|--------|:------:|:-------:|:----------:|:-----------:|:-------------------:|:--------------:|:-------------:|:------------:|:-----------------:|:-----------:|:---------:|----------|
+| `idle` | `null` | `null` | `null` | — | — | — | — | — | — | — | — | Наблюдение не активно: аргументы ещё не заданы, передан `SKIP`, либо агент не запущен и `set` вызывался без `mark`. |
+| `pending` | `null` | `null` / `TError`³ | `null` | ✓ | ✓ | — | — | `boolean`³ | — | — | — | Первичный запрос в процессе. |
+| `success` | `TData` | `null` | `TArgs` | — | — | — | — | — | — | ✓ | — | Данные получены. |
+| `error` | `TData \| null`¹ | `TError` | `TArgs \| null`¹ | — | — | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
+| `refreshing` | `TData` | `null` / `TError`³ | `TArgs` | ✓ | — | ✓ | `boolean`² | `boolean`³ | — | — | — | Загрузка за устаревшими `data`: `refresh()` текущей записи либо первичная загрузка новых аргументов (SWR). |
+| `refresh-error` | `TData` | `TError` | `TArgs` | — | — | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
 
 ¹ Обычно `null`; при смене аргументов под SWR `data` содержит устаревшие данные предыдущей записи, а `dataArgs` — её аргументы.
 
 ² `true` при смене аргументов под SWR (`data` и `dataArgs` — от предыдущей записи, `args` — новые), `false` при `refresh()` той же записи (`dataArgs === args`).
+
+³ `isRetrying: true` — загрузка запущена через `retry()` (`error → pending`, `refresh-error → refreshing`); `error` хранит повторяемую ошибку, хотя `isError: false`. Иначе `isRetrying: false`, `error: null`. `isRetrying` и `isSwitching` независимы: `retry()` после ошибки под SWR даёт оба `true`.
 
 ```typescript
 if (state.isRefreshing) {
   state.isSwitching
     ? `Загружаем ${state.args.id}, показываем ${state.dataArgs.id}`
     : `Обновляем ${state.args.id}`;
+}
+
+// Не показывать данные, пока повторяется упавший refresh
+if (state.isError || state.isRetrying) {
+  return <ErrorPanel error={state.error} loading={state.isRetrying} />; // error: TError
 }
 ```
 

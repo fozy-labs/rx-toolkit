@@ -53,6 +53,7 @@ describe("Machine", () => {
             expect(m.state.data).toBeNull();
             expect(m.state.error).toBeNull();
             expect(m.state.updatedAt).toBeNull();
+            expect(m.state.isRetrying).toBe(false);
         });
 
         it("preserves args reference", () => {
@@ -230,12 +231,14 @@ describe("Machine", () => {
             expect(m.state.status).toBe("refreshing");
             expect(m.state.data).toEqual(DATA);
             expect(m.state.error).toBeNull();
+            expect(m.state.isRetrying).toBe(false);
         });
 
-        it("refresh-error → refreshing: preserves data and patchState", () => {
+        it("refresh-error → refreshing: preserves data and patchState, not a retry", () => {
             const m = makeRefreshError().refresh();
             expect(m.state.status).toBe("refreshing");
             expect(m.state.data).toEqual(DATA);
+            expect(m.state.isRetrying).toBe(false);
         });
 
         it("preserves patchState through refresh", () => {
@@ -265,13 +268,66 @@ describe("Machine", () => {
     // ── FSM Transition: retry() ────────────────────────────────────
 
     describe("retry()", () => {
-        it("error → pending: preserves args, resets data/error/updatedAt", () => {
-            const m = makeError().retry();
+        it("error → pending: preserves args and the error, resets data/updatedAt, marks the retry", () => {
+            const failed = makeError();
+            const m = failed.retry();
             expect(m.state.status).toBe("pending");
             expect(m.state.args).toEqual(ARGS);
             expect(m.state.data).toBeNull();
-            expect(m.state.error).toBeNull();
+            expect(m.state.error).toBe(failed.state.error);
             expect(m.state.updatedAt).toBeNull();
+            expect(m.state.isRetrying).toBe(true);
+        });
+
+        it("refresh-error → refreshing: preserves data, patchState and the error, marks the retry", () => {
+            const { machine: patched } = makeSuccess().createPatch((d) => {
+                d.count = 99;
+            });
+            const failed = patched.refresh().fail(new Error("refresh-boom"));
+            const m = failed.retry();
+
+            expect(m.state.status).toBe("refreshing");
+            expect(m.state.data).toEqual({ ...DATA, count: 99 });
+            expect(m.state.error).toBe(failed.state.error);
+            expect(m.state.updatedAt).toBe(failed.state.updatedAt);
+            if (m.state.status === "refreshing") {
+                expect(m.state.patchState).not.toBeNull();
+                expect(m.state.isRetrying).toBe(true);
+            }
+        });
+
+        it("isRetrying and the error survive patch operations on the retrying refreshing state", () => {
+            expect.assertions(4);
+            const retrying = makeRefreshError().retry();
+            const { machine: patched, handle } = retrying.createPatch((d) => {
+                d.count = 1;
+            });
+            if (patched.state.status === "refreshing") {
+                expect(patched.state.isRetrying).toBe(true);
+                expect(patched.state.error).toBe(retrying.state.error);
+            }
+
+            handle.commit();
+            const finished = patched.finishPatch();
+            if (finished.state.status === "refreshing") {
+                expect(finished.state.isRetrying).toBe(true);
+                expect(finished.state.error).toBe(retrying.state.error);
+            }
+        });
+
+        it("the retry bookkeeping is dropped once the retry settles", () => {
+            const succeeded = makeError().retry().success(DATA);
+            expect(succeeded.state).not.toHaveProperty("isRetrying");
+            expect(succeeded.state.error).toBeNull();
+
+            const rebased = makeRefreshError().retry().rebase(DATA2);
+            expect(rebased.state).not.toHaveProperty("isRetrying");
+            expect(rebased.state.error).toBeNull();
+
+            const again = new Error("again");
+            const failed = makeRefreshError().retry().fail(again);
+            expect(failed.state).not.toHaveProperty("isRetrying");
+            expect(failed.state.error).toBe(again);
         });
 
         it("throws MachineTransitionError from pending state", () => {
@@ -284,10 +340,6 @@ describe("Machine", () => {
 
         it("throws MachineTransitionError from refreshing state", () => {
             expect(() => makeRefreshing().retry()).toThrow(MachineTransitionError);
-        });
-
-        it("throws MachineTransitionError from refresh-error state", () => {
-            expect(() => makeRefreshError().retry()).toThrow(MachineTransitionError);
         });
     });
 
@@ -661,6 +713,7 @@ describe("Machine", () => {
             "refreshing:fail",
             "refreshing:rebase",
             "refresh-error:refresh",
+            "refresh-error:retry",
         ]);
 
         const states = {

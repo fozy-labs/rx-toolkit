@@ -2,8 +2,10 @@ import type {
     TMachineState,
     TPatchEntry,
     TPatchState,
+    TPendingState,
     TRefreshErrorState,
     TRefreshingState,
+    TRetrying,
     TSuccessState,
 } from "@/query/types";
 
@@ -15,6 +17,21 @@ export type TDataState<TArgs, TData> =
 
 export function hasData<TArgs, TData>(state: TMachineState<TArgs, TData>): state is TDataState<TArgs, TData> {
     return state.status === "success" || state.status === "refreshing" || state.status === "refresh-error";
+}
+
+/** No retry in flight: the shape of a first load or a plain refresh. */
+export const NOT_RETRYING: TRetrying<never> = { isRetrying: false, error: null };
+
+/**
+ * The retry bookkeeping of an in-flight machine state as the {@link TRetrying}
+ * union, for the derived (agent / lite) states. The cast is sound per the
+ * mapError contract: the machine only holds errors already normalized to
+ * `TError` at the queryFn boundary.
+ */
+export function retryingOf<TArgs, TData, TError>(
+    state: TPendingState<TArgs> | TRefreshingState<TArgs, TData>,
+): TRetrying<TError> {
+    return state.isRetrying ? { isRetrying: true, error: state.error as TError } : NOT_RETRYING;
 }
 
 export function buildDataState<TArgs, TData>(
@@ -39,13 +56,17 @@ export function buildDataState<TArgs, TData>(
             return state;
         }
         case "refreshing": {
+            // Patch operations rebuild the state in place: keep the retry
+            // bookkeeping of a retrying refresh.
+            const retrying = base.status === "refreshing" && base.isRetrying;
             const state: TRefreshingState<TArgs, TData> = {
                 status: "refreshing",
                 args: base.args,
                 data,
-                error: null,
+                error: retrying ? base.error : null,
                 updatedAt: resolvedUpdatedAt,
                 patchState,
+                isRetrying: retrying,
             };
             return state;
         }

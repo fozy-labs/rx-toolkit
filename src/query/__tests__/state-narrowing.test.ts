@@ -47,12 +47,12 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
-    it("isLoading ⇒ pending | refreshing, error: null", () => {
+    it("isLoading ⇒ pending | refreshing, error: TError | null (the retried failure)", () => {
         const state = {} as TResourceAgentState<TArgs, TData, TError>;
 
         if (state.isLoading) {
             assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
-            assertType<IsExact<typeof state.error, null>>(true as const);
+            assertType<IsExact<typeof state.error, TError | null>>(true as const);
 
             if (state.isRefreshing) {
                 assertType<IsExact<typeof state.data, TData>>(true as const);
@@ -98,6 +98,26 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
+    it("isRetrying ⇒ pending | refreshing with error: TError; otherwise loading has error: null", () => {
+        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+
+        if (state.isRetrying) {
+            assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
+            assertType<IsExact<typeof state.error, TError>>(true as const);
+            assertType<IsExact<typeof state.isError, false>>(true as const);
+        }
+
+        if (state.isLoading) {
+            assertType<IsExact<typeof state.isRetrying, boolean>>(true as const);
+
+            if (!state.isRetrying) {
+                assertType<IsExact<typeof state.error, null>>(true as const);
+            }
+        } else {
+            assertType<IsExact<typeof state.isRetrying, false>>(true as const);
+        }
+    });
+
     it("keeps the wide field types on the unnarrowed union", () => {
         type State = TResourceAgentState<TArgs, TData, TError>;
 
@@ -106,6 +126,7 @@ describe("state narrowing — resource agent state", () => {
         assertType<IsExact<State["args"], TArgs | null>>(true as const);
         assertType<IsExact<State["dataArgs"], TArgs | null>>(true as const);
         assertType<IsExact<State["isSwitching"], boolean>>(true as const);
+        assertType<IsExact<State["isRetrying"], boolean>>(true as const);
     });
 
     it("defaults TError to unknown", () => {
@@ -136,6 +157,13 @@ describe("state narrowing — resource lite state", () => {
         if (state.isRefreshError) {
             assertType<IsExact<typeof state.data, TData>>(true as const);
             assertType<IsExact<typeof state.error, TError>>(true as const);
+        }
+
+        if (state.isRetrying) {
+            assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
+            assertType<IsExact<typeof state.error, TError>>(true as const);
+        } else if (!state.isLoading) {
+            assertType<IsExact<typeof state.isRetrying, false>>(true as const);
         }
     });
 });
