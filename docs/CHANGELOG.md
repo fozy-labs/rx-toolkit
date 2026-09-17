@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+
+## [0.12.2] - 2026-09-17
+
 ### Added
 - **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
 
@@ -381,7 +384,8 @@
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...develop
+[0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.11.1...v0.11.2
