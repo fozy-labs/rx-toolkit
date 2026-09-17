@@ -157,6 +157,101 @@ describe("ResourceAgent SWR", () => {
         expect(s.get().data).toBe("data-B");
     });
 
+    it("isSwitching + dataArgs: args switch vs refresh of the same entry", async () => {
+        let resolveB!: (v: string) => void;
+        let resolveRefresh!: (v: string) => void;
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: (_n: number) => {
+                callCount++;
+                if (callCount === 1) return Promise.resolve("data-A");
+                if (callCount === 2) {
+                    return new Promise((r) => {
+                        resolveB = r;
+                    });
+                }
+                return new Promise((r) => {
+                    resolveRefresh = r;
+                });
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+        expect(s.get().isSwitching).toBe(false);
+        expect(s.get().dataArgs).toBe(1);
+
+        // Args switch: B loads behind A's data.
+        agent.set(2);
+        let st = s.get();
+        expect(st.status).toBe("refreshing");
+        expect(st.isRefreshing).toBe(true);
+        expect(st.isSwitching).toBe(true);
+        expect(st.args).toBe(2);
+        expect(st.dataArgs).toBe(1);
+        expect(st.data).toBe("data-A");
+
+        resolveB("data-B");
+        await flushMicrotasks();
+        st = s.get();
+        expect(st.status).toBe("success");
+        expect(st.isSwitching).toBe(false);
+        expect(st.dataArgs).toBe(2);
+
+        // Refresh of the same entry: still `refreshing`, but not a switch.
+        agent.refresh();
+        st = s.get();
+        expect(st.status).toBe("refreshing");
+        expect(st.isRefreshing).toBe(true);
+        expect(st.isSwitching).toBe(false);
+        expect(st.args).toBe(2);
+        expect(st.dataArgs).toBe(2);
+        expect(st.data).toBe("data-B");
+
+        resolveRefresh("data-B2");
+        await flushMicrotasks();
+        st = s.get();
+        expect(st.status).toBe("success");
+        expect(st.isSwitching).toBe(false);
+        expect(st.dataArgs).toBe(2);
+    });
+
+    it("dataArgs keeps pointing at the surviving stale entry across multiple arg changes", async () => {
+        let resolveC!: (v: string) => void;
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: (_n: number) => {
+                callCount++;
+                if (callCount === 1) return Promise.resolve("data-A");
+                if (callCount === 2) return new Promise(() => {});
+                return new Promise((r) => {
+                    resolveC = r;
+                });
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+
+        agent.set(2);
+        agent.set(3);
+        expect(s.get().isSwitching).toBe(true);
+        expect(s.get().args).toBe(3);
+        expect(s.get().dataArgs).toBe(1);
+
+        resolveC("data-C");
+        await flushMicrotasks();
+        expect(s.get().isSwitching).toBe(false);
+        expect(s.get().dataArgs).toBe(3);
+    });
+
     it("keeps stale data across multiple arg changes before the middle request settles", async () => {
         let resolveB!: (v: string) => void;
         let resolveC!: (v: string) => void;
@@ -232,6 +327,27 @@ describe("ResourceAgent error + previous data", () => {
         expect(s.get().status).toBe("error");
         expect(s.get().data).toBe("data-A");
         expect(s.get().error).toBeInstanceOf(Error);
+        // The switch is over: the flag reflects the process, not the data origin.
+        expect(s.get().isSwitching).toBe(false);
+        expect(s.get().args).toBe(2);
+        expect(s.get().dataArgs).toBe(1);
+    });
+
+    it("error without previous data: dataArgs is null", async () => {
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw new Error("fail");
+            },
+        });
+        const agent = resource.createAgent();
+        const s = observe(agent);
+
+        agent.set(1);
+        agent.start();
+        await flushMicrotasks();
+        expect(s.get().status).toBe("error");
+        expect(s.get().data).toBeNull();
+        expect(s.get().dataArgs).toBeNull();
     });
 
     it("error field tracks the most recent error", async () => {
@@ -437,8 +553,10 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isRefreshError).toBe(false);
         expect(st.isSuccess).toBe(false);
         expect(st.isError).toBe(false);
+        expect(st.isSwitching).toBe(false);
         expect(st.data).toBeNull();
         expect(st.error).toBeNull();
+        expect(st.dataArgs).toBeNull();
     });
 
     it("pending: isLoading=true, isInitialLoading=true", async () => {
@@ -459,8 +577,10 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isLoading).toBe(true);
         expect(st.isInitialLoading).toBe(true);
         expect(st.isRefreshing).toBe(false);
+        expect(st.isSwitching).toBe(false);
         expect(st.isSuccess).toBe(false);
         expect(st.isError).toBe(false);
+        expect(st.dataArgs).toBeNull();
 
         resolve("done");
         await flushMicrotasks();
@@ -532,7 +652,9 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.isRefreshing).toBe(true);
         expect(st.isLoading).toBe(true);
         expect(st.isInitialLoading).toBe(false);
+        expect(st.isSwitching).toBe(true);
         expect(st.data).toBe("d-1");
+        expect(st.dataArgs).toBe(1);
 
         resolveRefresh("d-2");
         await flushMicrotasks();

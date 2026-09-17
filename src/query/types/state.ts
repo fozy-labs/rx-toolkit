@@ -6,6 +6,11 @@ import type { Args } from "./common";
 // and every boolean flag is a literal per variant, so narrowing works through
 // either — `state.isError` implies `state.error: TError`, `state.isSuccess`
 // implies `state.data: TData`, and so on.
+//
+// `args` are the arguments the agent observes; `dataArgs` are the arguments
+// `data` was loaded for. They differ only under SWR across an args change,
+// when the previous entry's data is shown while the new one loads (or after it
+// failed). `isSwitching` reports that load in flight.
 
 /** Methods present on every resource agent state variant. */
 interface TResourceAgentStateMethods {
@@ -21,9 +26,11 @@ export interface TResourceAgentIdleState extends TResourceAgentStateMethods {
     data: null;
     error: null;
     args: null;
+    dataArgs: null;
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isSwitching: false;
     isRefreshError: false;
     isSuccess: false;
     isError: false;
@@ -35,9 +42,11 @@ export interface TResourceAgentPendingState<TArgs> extends TResourceAgentStateMe
     data: null;
     error: null;
     args: TArgs;
+    dataArgs: null;
     isLoading: true;
     isInitialLoading: true;
     isRefreshing: false;
+    isSwitching: false;
     isRefreshError: false;
     isSuccess: false;
     isError: false;
@@ -49,9 +58,11 @@ export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgent
     data: TData;
     error: null;
     args: TArgs;
+    dataArgs: TArgs;
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isSwitching: false;
     isRefreshError: false;
     isSuccess: true;
     isError: false;
@@ -59,30 +70,39 @@ export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgent
 
 /**
  * Initial query failed. `data` is usually `null`, but preserves the previous
- * entry's stale data when the arguments changed under SWR.
+ * entry's stale data when the arguments changed under SWR — `dataArgs` then
+ * holds that entry's arguments.
  */
 export interface TResourceAgentErrorState<TArgs, TData, TError = unknown> extends TResourceAgentStateMethods {
     status: "error";
     data: TData | null;
     error: TError;
     args: TArgs;
+    dataArgs: TArgs | null;
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isSwitching: false;
     isRefreshError: false;
     isSuccess: false;
     isError: true;
 }
 
-/** Background refresh in flight; stale `data` stays available (SWR). */
+/**
+ * A load is in flight behind stale `data` (SWR): either a background refresh of
+ * the current entry, or — with `isSwitching` — the initial load of the new
+ * arguments while the previous entry's data (`dataArgs`) is still shown.
+ */
 export interface TResourceAgentRefreshingState<TArgs, TData> extends TResourceAgentStateMethods {
     status: "refreshing";
     data: TData;
     error: null;
     args: TArgs;
+    dataArgs: TArgs;
     isLoading: true;
     isInitialLoading: false;
     isRefreshing: true;
+    isSwitching: boolean;
     isRefreshError: false;
     isSuccess: false;
     isError: false;
@@ -94,9 +114,11 @@ export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown>
     data: TData;
     error: TError;
     args: TArgs;
+    dataArgs: TArgs;
     isLoading: false;
     isInitialLoading: false;
     isRefreshing: false;
+    isSwitching: false;
     isRefreshError: true;
     isSuccess: false;
     isError: true;
@@ -123,6 +145,7 @@ export interface TSuspenseResourceErrorState<TArgs, TData, TError = unknown> ext
     TError
 > {
     data: TData;
+    dataArgs: TArgs;
 }
 
 /**

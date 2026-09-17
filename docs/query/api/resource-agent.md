@@ -49,9 +49,11 @@ if (state.isSuccess) {
 | `data` | `TData \| null` | Данные. При SWR-fallback содержит устаревшие данные предыдущей записи. |
 | `error` | `TError \| null` | Ошибка текущего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
 | `args` | `TArgs \| null` | Аргументы текущего наблюдения. `null` только в `idle`. |
+| `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Совпадают с `args`, кроме SWR-fallback при смене аргументов — тогда это аргументы предыдущей записи. `null`, когда `data: null`. |
 | `isLoading` | `boolean` | `true` при любой загрузке (`pending` или `refreshing`). |
 | `isInitialLoading` | `boolean` | `true` только при первичной загрузке (`pending`). |
 | `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
+| `isSwitching` | `boolean` | `true`, если под `refreshing` идёт первичная загрузка новых аргументов, а `data` — от предыдущих (`dataArgs`). Отличает смену аргументов от `refresh()` той же записи. |
 | `isRefreshError` | `boolean` | `true`, если фоновое обновление завершилось ошибкой. |
 | `isSuccess` | `boolean` | `true`, если данные получены успешно. |
 | `isError` | `boolean` | `true`, если запрос завершился ошибкой. |
@@ -62,16 +64,26 @@ if (state.isSuccess) {
 
 Типы вариантов экспортируются: `TResourceAgentIdleState`, `TResourceAgentPendingState`, `TResourceAgentSuccessState`, `TResourceAgentErrorState`, `TResourceAgentRefreshingState`, `TResourceAgentRefreshErrorState`.
 
-| Статус | `data` | `error` | `isLoading` | `isInitialLoading` | `isRefreshing` | `isRefreshError` | `isSuccess` | `isError` | Описание |
-|--------|:------:|:-------:|:-----------:|:-------------------:|:--------------:|:-----------------:|:-----------:|:---------:|----------|
-| `idle` | `null` | `null` | — | — | — | — | — | — | Наблюдение не активно: аргументы ещё не заданы, передан `SKIP`, либо агент не запущен и `set` вызывался без `mark`. |
-| `pending` | `null` | `null` | ✓ | ✓ | — | — | — | — | Первичный запрос в процессе. |
-| `success` | `TData` | `null` | — | — | — | — | ✓ | — | Данные получены. |
-| `error` | `TData \| null`¹ | `TError` | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
-| `refreshing` | `TData` | `null` | ✓ | — | ✓ | — | — | — | Фоновое обновление; устаревшие данные доступны через `data`. |
-| `refresh-error` | `TData` | `TError` | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
+| Статус | `data` | `error` | `dataArgs` | `isLoading` | `isInitialLoading` | `isRefreshing` | `isSwitching` | `isRefreshError` | `isSuccess` | `isError` | Описание |
+|--------|:------:|:-------:|:----------:|:-----------:|:-------------------:|:--------------:|:-------------:|:-----------------:|:-----------:|:---------:|----------|
+| `idle` | `null` | `null` | `null` | — | — | — | — | — | — | — | Наблюдение не активно: аргументы ещё не заданы, передан `SKIP`, либо агент не запущен и `set` вызывался без `mark`. |
+| `pending` | `null` | `null` | `null` | ✓ | ✓ | — | — | — | — | — | Первичный запрос в процессе. |
+| `success` | `TData` | `null` | `TArgs` | — | — | — | — | — | ✓ | — | Данные получены. |
+| `error` | `TData \| null`¹ | `TError` | `TArgs \| null`¹ | — | — | — | — | — | — | ✓ | Запрос завершился ошибкой. |
+| `refreshing` | `TData` | `null` | `TArgs` | ✓ | — | ✓ | `boolean`² | — | — | — | Загрузка за устаревшими `data`: `refresh()` текущей записи либо первичная загрузка новых аргументов (SWR). |
+| `refresh-error` | `TData` | `TError` | `TArgs` | — | — | — | — | ✓ | — | ✓ | Фоновое обновление завершилось ошибкой; устаревшие данные сохранены. |
 
-¹ Обычно `null`; содержит устаревшие данные предыдущей записи при смене аргументов под SWR.
+¹ Обычно `null`; при смене аргументов под SWR `data` содержит устаревшие данные предыдущей записи, а `dataArgs` — её аргументы.
+
+² `true` при смене аргументов под SWR (`data` и `dataArgs` — от предыдущей записи, `args` — новые), `false` при `refresh()` той же записи (`dataArgs === args`).
+
+```typescript
+if (state.isRefreshing) {
+  state.isSwitching
+    ? `Загружаем ${state.args.id}, показываем ${state.dataArgs.id}`
+    : `Обновляем ${state.args.id}`;
+}
+```
 
 
 ## whenSettled

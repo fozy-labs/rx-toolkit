@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+
 
 ## [0.12.1] - 2026-09-03
 

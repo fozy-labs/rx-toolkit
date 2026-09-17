@@ -252,9 +252,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     data: machineState.data,
                     error: null,
                     args: machineState.args,
+                    dataArgs: machineState.args,
                     isLoading: false,
                     isInitialLoading: false,
                     isRefreshing: false,
+                    isSwitching: false,
                     isRefreshError: false,
                     isSuccess: true,
                     isError: false,
@@ -264,17 +266,21 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             }
 
             case "error": {
+                // SWR: error + previous data → keep stale data
+                const previous = this._previous();
+
                 return {
                     status: "error",
-                    // SWR: error + previous data → keep stale data
-                    data: this._previousData(),
+                    data: previous?.data ?? null,
                     // Sound per the mapError contract: the machine only ever holds errors
                     // already normalized to TError at the queryFn boundary.
                     error: machineState.error as TError,
                     args: machineState.args,
+                    dataArgs: previous?.args ?? null,
                     isLoading: false,
                     isInitialLoading: false,
                     isRefreshing: false,
+                    isSwitching: false,
                     isRefreshError: false,
                     isSuccess: false,
                     isError: true,
@@ -289,9 +295,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     data: machineState.data,
                     error: null,
                     args: machineState.args,
+                    dataArgs: machineState.args,
                     isLoading: true,
                     isInitialLoading: false,
                     isRefreshing: true,
+                    isSwitching: false,
                     isRefreshError: false,
                     isSuccess: false,
                     isError: false,
@@ -307,9 +315,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     // Sound per the mapError contract (see the error branch above).
                     error: machineState.error as TError,
                     args: machineState.args,
+                    dataArgs: machineState.args,
                     isLoading: false,
                     isInitialLoading: false,
                     isRefreshing: false,
+                    isSwitching: false,
                     isRefreshError: true,
                     isSuccess: false,
                     isError: true,
@@ -321,34 +331,38 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     }
 
     /**
-     * Stale data from the previous entry (SWR fallback), or `null` when there is
-     * no previous entry or it holds no data. Reads the previous machine signal,
-     * subscribing the deriving computed to its changes.
+     * Stale data of the previous entry (SWR fallback) together with the args it
+     * was loaded for, or `null` when there is no previous entry or it holds no
+     * data. Reads the previous machine signal, subscribing the deriving computed
+     * to its changes.
      */
-    private _previousData(): TData | null {
+    private _previous(): { data: TData; args: TArgs } | null {
         const previousEntry = this._previous$?.();
         if (!previousEntry) return null;
 
         const data = previousEntry.machine$().state.data;
-        return data != null ? data : null;
+        return data != null ? { data, args: previousEntry.keyedArgs.value } : null;
     }
 
     /**
-     * Initial-loading state for `args`: `refreshing` over the stale data of the
-     * previous entry when there is any (SWR), plain `pending` otherwise.
+     * Initial-loading state for `args`: `refreshing` (with `isSwitching`) over
+     * the stale data of the previous entry when there is any (SWR), plain
+     * `pending` otherwise.
      */
     private _createLoadingState(args: TArgs): TResourceAgentState<TArgs, TData, TError> {
-        const prevData = this._previousData();
+        const previous = this._previous();
 
-        if (prevData != null) {
+        if (previous) {
             return {
                 status: "refreshing",
-                data: prevData,
+                data: previous.data,
                 error: null,
                 args,
+                dataArgs: previous.args,
                 isLoading: true,
                 isInitialLoading: false,
                 isRefreshing: true,
+                isSwitching: true,
                 isRefreshError: false,
                 isSuccess: false,
                 isError: false,
@@ -362,9 +376,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             data: null,
             error: null,
             args,
+            dataArgs: null,
             isLoading: true,
             isInitialLoading: true,
             isRefreshing: false,
+            isSwitching: false,
             isRefreshError: false,
             isSuccess: false,
             isError: false,
@@ -378,9 +394,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         data: null,
         error: null,
         args: null,
+        dataArgs: null,
         isLoading: false,
         isInitialLoading: false,
         isRefreshing: false,
+        isSwitching: false,
         isRefreshError: false,
         isSuccess: false,
         isError: false,

@@ -70,12 +70,42 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
+    it("isSwitching is only open on refreshing; dataArgs follows data", () => {
+        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+
+        if (state.isSwitching) {
+            assertType<IsExact<typeof state.status, "refreshing">>(true as const);
+            assertType<IsExact<typeof state.data, TData>>(true as const);
+            assertType<IsExact<typeof state.dataArgs, TArgs>>(true as const);
+        }
+
+        if (state.isRefreshing) {
+            assertType<IsExact<typeof state.isSwitching, boolean>>(true as const);
+        } else {
+            assertType<IsExact<typeof state.isSwitching, false>>(true as const);
+        }
+
+        if (state.isSuccess || state.isRefreshing || state.isRefreshError) {
+            assertType<IsExact<typeof state.dataArgs, TArgs>>(true as const);
+        }
+
+        if (state.status === "error") {
+            assertType<IsExact<typeof state.dataArgs, TArgs | null>>(true as const);
+        }
+
+        if (state.status === "idle" || state.status === "pending") {
+            assertType<IsExact<typeof state.dataArgs, null>>(true as const);
+        }
+    });
+
     it("keeps the wide field types on the unnarrowed union", () => {
         type State = TResourceAgentState<TArgs, TData, TError>;
 
         assertType<IsExact<State["error"], TError | null>>(true as const);
         assertType<IsExact<State["data"], TData | null>>(true as const);
         assertType<IsExact<State["args"], TArgs | null>>(true as const);
+        assertType<IsExact<State["dataArgs"], TArgs | null>>(true as const);
+        assertType<IsExact<State["isSwitching"], boolean>>(true as const);
     });
 
     it("defaults TError to unknown", () => {
@@ -135,6 +165,7 @@ describe("state narrowing — suspense resource state", () => {
         type State = TSuspenseResourceState<TArgs, TData, TError>;
 
         assertType<IsExact<State["data"], TData>>(true as const);
+        assertType<IsExact<State["dataArgs"], TArgs>>(true as const);
     });
 
     it("isError still narrows error to TError", () => {

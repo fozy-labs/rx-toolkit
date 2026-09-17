@@ -103,7 +103,10 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `isSuccess` | `boolean` | `true` когда данные получены. |
 | `isError` | `boolean` | `true` при ошибке. |
 | `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
+| `isSwitching` | `boolean` | `true`, если под `refreshing` грузятся новые аргументы, а `data` — от предыдущих. |
 | `isRefreshError` | `boolean` | `true` при ошибке фонового обновления. |
+| `args` | `TArgs \| null` | Аргументы текущего наблюдения. |
+| `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Отличаются от `args` только при SWR-fallback после смены аргументов. |
 
 Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей. `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` (без `| null`), `isRefreshError` — что устаревшие `data` сохранены. Полная таблица вариантов — в [API агента ресурса][api-res-agent].
 

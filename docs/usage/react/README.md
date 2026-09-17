@@ -81,9 +81,11 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `data`             | `TData \| null`  | Данные ресурса                        |
 | `error`            | `unknown`        | Объект ошибки                         |
 | `args`             | `TArgs \| null`  | Аргументы последнего запроса          |
+| `dataArgs`         | `TArgs \| null`  | Аргументы, для которых загружены `data` |
 | `isLoading`        | `boolean`        | Любая загрузка (первая или повторная) |
 | `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
 | `isRefreshing`     | `boolean`        | Перезагрузка (данные уже есть)        |
+| `isSwitching`      | `boolean`        | Загрузка новых аргументов поверх данных от предыдущих (SWR) |
 | `isRefreshError`   | `boolean`        | Ошибка при перезагрузке               |
 | `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
 | `isError`          | `boolean`        | Произошла ли ошибка                   |
