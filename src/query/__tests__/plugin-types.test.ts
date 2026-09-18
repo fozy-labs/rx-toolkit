@@ -3,16 +3,16 @@ import { assertType, describe, it } from "vitest";
 import { createApi } from "@/query/api/createApi";
 import { ReactHooksPlugin, reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type {
-    ArgsOrVoid,
-    ArgsOrVoidOrSkip,
     IPlugin,
-    TCommandAgentState,
+    TArgsOrVoid,
+    TArgsOrVoidOrSkip,
+    TCommandClutchState,
     TInfiniteResourceState,
-    TResourceAgentState,
+    TResourceClutchState,
     TSuspenseResourceState,
     TTriggerPromise,
 } from "@/query/types";
-import type { PluginHKT } from "@/query/types/plugin-hkt";
+import type { IPluginHKT } from "@/query/types/plugin-hkt";
 
 // ==================== Helpers ====================
 
@@ -47,7 +47,7 @@ describe("Plugin HKT type-level tests", () => {
 
     // ---------- useResource has correct signature ----------
 
-    it("useResource has correct signature (args: ArgsOrVoidOrSkip<TArgs>) => TResourceAgentState<TArgs, TData>", () => {
+    it("useResource has correct signature (args: TArgsOrVoidOrSkip<TArgs>) => TResourceClutchState<TArgs, TData>", () => {
         type TArgs = { id: number };
         type TData = { name: string };
 
@@ -61,8 +61,8 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<TArgs>>>(true as const);
-        assertType<IsExact<Ret, TResourceAgentState<TArgs, TData>>>(true as const);
+        assertType<IsExact<Param, TArgsOrVoidOrSkip<TArgs>>>(true as const);
+        assertType<IsExact<Ret, TResourceClutchState<TArgs, TData>>>(true as const);
     });
 
     // ---------- useResource with void args ----------
@@ -76,12 +76,12 @@ describe("Plugin HKT type-level tests", () => {
         type HookFn = typeof resource.useResource;
         type Param = Parameters<HookFn>[0];
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<void>>>(true as const);
+        assertType<IsExact<Param, TArgsOrVoidOrSkip<void>>>(true as const);
     });
 
     // ---------- useSuspenseResource has correct signature ----------
 
-    it("useSuspenseResource has signature (args: ArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData>", () => {
+    it("useSuspenseResource has signature (args: TArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData>", () => {
         type TArgs = { id: number };
         type TData = { name: string };
 
@@ -94,8 +94,8 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
-        // SKIP is intentionally NOT accepted (ArgsOrVoid, not ArgsOrVoidOrSkip).
-        assertType<IsExact<Param, ArgsOrVoid<TArgs>>>(true as const);
+        // SKIP is intentionally NOT accepted (TArgsOrVoid, not TArgsOrVoidOrSkip).
+        assertType<IsExact<Param, TArgsOrVoid<TArgs>>>(true as const);
         assertType<IsExact<Ret, TSuspenseResourceState<TArgs, TData>>>(true as const);
 
         // data is guaranteed non-null on the suspense state.
@@ -135,8 +135,8 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<number[]>>>(true as const);
-        assertType<IsExact<Ret, TResourceAgentState<number[], TUser[]>>>(true as const);
+        assertType<IsExact<Param, TArgsOrVoidOrSkip<number[]>>>(true as const);
+        assertType<IsExact<Ret, TResourceClutchState<number[], TUser[]>>>(true as const);
     });
 
     it("unstable_createProjectionResource with parseArgs → useResource typed over the custom args", () => {
@@ -158,7 +158,7 @@ describe("Plugin HKT type-level tests", () => {
         type HookFn = typeof projection.useResource;
         type Param = Parameters<HookFn>[0];
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<TProjectionArgs>>>(true as const);
+        assertType<IsExact<Param, TArgsOrVoidOrSkip<TProjectionArgs>>>(true as const);
     });
 
     it("unstable_createProjectionResource with reactHooksPlugin → useInfiniteResource typed over TArgs / TItem[]", () => {
@@ -181,7 +181,7 @@ describe("Plugin HKT type-level tests", () => {
         type Param = Parameters<HookFn>[0];
         type Ret = ReturnType<HookFn>;
 
-        assertType<IsExact<Param, ArgsOrVoidOrSkip<number[]>>>(true as const);
+        assertType<IsExact<Param, TArgsOrVoidOrSkip<number[]>>>(true as const);
         assertType<IsExact<Ret, TInfiniteResourceState<number[], TUser[]>>>(true as const);
         // Flattened data is the item array of the projection.
         assertType<IsExact<Ret["data"], TUser[] | null>>(true as const);
@@ -271,7 +271,7 @@ describe("Plugin HKT type-level tests", () => {
 
         // Return type is [trigger, state] tuple
         type ExpectedTrigger = (args: TArgs) => TTriggerPromise<TData>;
-        type ExpectedState = TCommandAgentState<TArgs, TData>;
+        type ExpectedState = TCommandClutchState<TArgs, TData>;
         type ExpectedReturn = [trigger: ExpectedTrigger, state: ExpectedState];
 
         assertType<IsExact<Ret, ExpectedReturn>>(true as const);
@@ -281,7 +281,7 @@ describe("Plugin HKT type-level tests", () => {
 
     it("multiple plugins → augmentations from all plugins are available", () => {
         // Define a second fake plugin HKT
-        interface FakeLoggerHKT extends PluginHKT {
+        interface FakeLoggerHKT extends IPluginHKT {
             readonly resourceType: { logAccess: () => void };
             readonly commandType: { logExecution: () => void };
         }

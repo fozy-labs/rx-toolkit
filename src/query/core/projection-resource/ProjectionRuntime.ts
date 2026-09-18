@@ -1,7 +1,7 @@
 import { Observable } from "rxjs";
 
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { ArgsOrVoid, IResource, TCacheEntryAddedContext, TProjectionResourceOptions } from "@/query/types";
+import type { IResource, TArgsOrVoid, TCacheEntryAddedContext, TProjectionResourceOptions } from "@/query/types";
 import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
 
 import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } from "../errors";
@@ -12,7 +12,7 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  * Engine behind `api.unstable_createProjectionResource`.
  *
  * The projection resource itself is an ordinary {@link IResource} caching one entry
- * per id-set, so agents, React hooks, SWR and plugin augmentation work
+ * per id-set, so clutches, React hooks, SWR and plugin augmentation work
  * unchanged. This runtime plugs into that resource (as its `queryFn` +
  * `onCacheEntryAdded`) and deduplicates the traffic underneath.
  *
@@ -20,7 +20,7 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  * queryFn returns a *stream*: once the initial fetches land, the run projects
  * the watched ids over the item cache and keeps emitting for as long as the
  * entry lives. Cross-set consistency falls out of that projection — when one
- * set's refresh distributes fresh items, every overlapping live entry re-emits
+ * set's invalidation distributes fresh items, every overlapping live entry re-emits
  * with them (rebasing its active optimistic patches), with no write-back pass.
  *
  * - a shared per-id item cache is consulted first — only the ids that are
@@ -28,10 +28,10 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  *   (`makeArgs(missingIds)`);
  * - a run whose ids are all covered by cache/in-flight batches performs no
  *   request at all;
- * - a refresh run bypasses the item cache and refetches every requested id,
- *   without joining requests begun before it — they may carry pre-refresh
+ * - an invalidation run bypasses the item cache and refetches every requested id,
+ *   without joining requests begun before it — they may carry pre-invalidation
  *   data (detected via the entry's machine, which `_execute` moves to
- *   `refreshing` before calling `queryFn`);
+ *   `invalidating` before calling `queryFn`);
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
  */
@@ -80,16 +80,16 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      *
      * 1. On subscribe, the ids missing from the item cache are fetched through
      *    the wrapped resource; ids already in flight are awaited instead of
-     *    re-requested. A refresh run bypasses both: it must observe the server
-     *    state as of the refresh call, so it issues a fresh request for every
-     *    requested id — joining a request begun before the refresh could
-     *    settle it with pre-refresh data. The fresh request replaces the
+     *    re-requested. An invalidation run bypasses both: it must observe the server
+     *    state as of the invalidation call, so it issues a fresh request for every
+     *    requested id — joining a request begun before the invalidation could
+     *    settle it with pre-invalidation data. The fresh request replaces the
      *    in-flight registrations, so runs started later join it as usual.
      * 2. Once the initial fetches land, the run emits the assembled `TItem[]`
      *    and stays subscribed to the watched ids: whenever another run
      *    distributes a fresh instance of one of them, the projection re-emits.
      *    The stream never completes — it is torn down with the run
-     *    (refresh/retry resubscribe, entry eviction unsubscribes).
+     *    (invalidate/retry resubscribe, entry eviction unsubscribes).
      * 3. A failed fetch errors the stream; so does a response that did not
      *    cover every requested id ({@link ProjectionItemMissingError}).
      *
@@ -116,21 +116,21 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 return;
             }
 
-            // `_execute` moves the machine to `refreshing` before subscribing,
-            // so a refresh run is observable here: it must bypass the item
+            // `_execute` moves the machine to `invalidating` before subscribing,
+            // so an invalidation run is observable here: it must bypass the item
             // cache and refetch every requested id instead of only the missing
             // ones. On the very first run the entry is not registered yet —
             // that run can only be an initial (pending) load, so `false` is
             // always correct.
-            const entry = this._resource?.getEntry(args as unknown as ArgsOrVoid<TArgs>) ?? null;
-            const isRefreshRun = entry !== null && entry.machine$.peek().status === "refreshing";
+            const entry = this._resource?.getEntry(args as unknown as TArgsOrVoid<TArgs>) ?? null;
+            const isInvalidateRun = entry !== null && entry.machine$.peek().status === "invalidating";
 
             const waits = new Set<Promise<unknown>>();
             const idsToFetch: TId[] = [];
             const sidsToFetch: string[] = [];
 
             for (const [sid, id] of idBySid) {
-                if (!isRefreshRun) {
+                if (!isInvalidateRun) {
                     const inFlight = this._inFlight.get(sid);
                     if (inFlight) {
                         // Join the in-flight batch covering this id instead of duplicating it.
@@ -139,14 +139,14 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                     }
                     if (this._items.has(sid)) continue;
                 }
-                // A refresh run neither reads the item cache nor joins requests
-                // begun before it (they may predate the refresh and carry
-                // pre-refresh data) — every requested id is refetched.
+                // An invalidation run neither reads the item cache nor joins requests
+                // begun before it (they may predate the invalidation and carry
+                // pre-invalidation data) — every requested id is refetched.
                 idsToFetch.push(id);
                 sidsToFetch.push(sid);
             }
 
-            // The ids this run's own response covered — a refresh run judges
+            // The ids this run's own response covered — an invalidation run judges
             // missing ids by it (its ids' stale boxes are still in the item
             // cache, so cache membership would mask an id the server no longer
             // returns).
@@ -163,22 +163,22 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             let projectionSub: { unsubscribe(): void } | null = null;
             let isClosed = false;
 
-            // Live phase is gated behind the initial fetches: on a refresh run
+            // Live phase is gated behind the initial fetches: on an invalidation run
             // the stale items are still cached, and emitting them right away
-            // would complete the refresh with old data.
+            // would complete the invalidation with old data.
             void Promise.all(waits).then(
                 () => {
                     if (isClosed) return;
 
                     // The response(s) may not have covered every requested id.
-                    // A refresh run fetched all its ids itself and is judged by
+                    // An invalidation run fetched all its ids itself and is judged by
                     // its own response's coverage; a regular run by item-cache
                     // membership (ids served from cache were never requested,
                     // fetched/joined ids land in the cache when covered).
                     const missingIds: TId[] = [];
                     const missingSids: string[] = [];
                     for (const [sid, id] of idBySid) {
-                        const isCovered = isRefreshRun ? (ownCoverage?.has(sid) ?? false) : this._items.has(sid);
+                        const isCovered = isInvalidateRun ? (ownCoverage?.has(sid) ?? false) : this._items.has(sid);
                         if (!isCovered) {
                             missingIds.push(id);
                             missingSids.push(sid);

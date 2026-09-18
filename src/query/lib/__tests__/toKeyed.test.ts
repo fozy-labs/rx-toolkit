@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { KEYED_BRAND } from "../../constants";
-import type { Args, Keyed } from "../../types";
+import type { TArgsOrKeyed, TKeyed } from "../../types";
 import { stableStringify } from "../stableStringify";
 import { isKeyed, toKeyed } from "../toKeyed";
 
 describe("isKeyed", () => {
-    it("returns true for a Keyed object", () => {
-        const keyed: Keyed<number> = { value: 42, key: "42", [KEYED_BRAND]: true };
+    it("returns true for a TKeyed object", () => {
+        const keyed: TKeyed<number> = { value: 42, key: "42", [KEYED_BRAND]: true };
         expect(isKeyed(keyed)).toBe(true);
     });
 
@@ -17,7 +17,7 @@ describe("isKeyed", () => {
     });
 
     it("returns false for a plain object with value and key fields", () => {
-        expect(isKeyed({ value: "something", key: "cache-key" } as unknown as Args<string>)).toBe(false);
+        expect(isKeyed({ value: "something", key: "cache-key" } as unknown as TArgsOrKeyed<string>)).toBe(false);
     });
 
     it("returns false for a raw primitive", () => {
@@ -33,11 +33,11 @@ describe("isKeyed", () => {
     });
 
     it("returns false for an object with value but no key", () => {
-        expect(isKeyed({ value: 1 } as unknown as Args<number>)).toBe(false);
+        expect(isKeyed({ value: 1 } as unknown as TArgsOrKeyed<number>)).toBe(false);
     });
 
     it("returns false for an object with key as non-string", () => {
-        expect(isKeyed({ value: 1, key: 123 } as unknown as Args<number>)).toBe(false);
+        expect(isKeyed({ value: 1, key: 123 } as unknown as TArgsOrKeyed<number>)).toBe(false);
     });
 });
 
@@ -50,7 +50,7 @@ describe("toKeyed", () => {
     });
 
     it("passes through already-keyed args", () => {
-        const keyed: Keyed<{ id: number }> = { value: { id: 1 }, key: "custom-key", [KEYED_BRAND]: true };
+        const keyed: TKeyed<{ id: number }> = { value: { id: 1 }, key: "custom-key", [KEYED_BRAND]: true };
         const result = toKeyed(keyed);
         expect(result).toBe(keyed); // same reference
     });

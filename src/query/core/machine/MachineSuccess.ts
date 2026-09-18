@@ -1,9 +1,9 @@
-import type { TRefreshErrorState, TRefreshingState, TSuccessState } from "@/query/types";
+import type { TInvalidateErrorState, TInvalidatingState, TSuccessState } from "@/query/types";
 
 import type { TDataState } from "./machine-helpers";
 import { replayPatches } from "./machine-helpers";
-import { MachineRefreshError } from "./MachineRefreshError";
-import { MachineRefreshing } from "./MachineRefreshing";
+import { MachineInvalidateError } from "./MachineInvalidateError";
+import { MachineInvalidating } from "./MachineInvalidating";
 import { MachineWithData } from "./MachineWithData";
 
 export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> {
@@ -39,23 +39,23 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
         return new MachineSuccess<TArgs, TData>(resultState as TSuccessState<TArgs, TData>);
     }
 
-    /** success → refresh-error (a streaming query failed after delivering data; data is kept) */
-    fail(error: unknown): MachineRefreshError<TArgs, TData> {
-        const state: TRefreshErrorState<TArgs, TData> = {
-            status: "refresh-error",
+    /** success → invalidate-error (a streaming query failed after delivering data; data is kept) */
+    fail(error: unknown): MachineInvalidateError<TArgs, TData> {
+        const state: TInvalidateErrorState<TArgs, TData> = {
+            status: "invalidate-error",
             args: this.state.args,
             data: this.state.data,
             error,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
         };
-        return new MachineRefreshError<TArgs, TData>(state);
+        return new MachineInvalidateError<TArgs, TData>(state);
     }
 
-    /** success → refreshing */
-    refresh(): MachineRefreshing<TArgs, TData> {
-        const state: TRefreshingState<TArgs, TData> = {
-            status: "refreshing",
+    /** success → invalidating */
+    invalidate(): MachineInvalidating<TArgs, TData> {
+        const state: TInvalidatingState<TArgs, TData> = {
+            status: "invalidating",
             args: this.state.args,
             data: this.state.data,
             error: null,
@@ -63,6 +63,6 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
             patchState: this.state.patchState,
             isRetrying: false,
         };
-        return new MachineRefreshing<TArgs, TData>(state);
+        return new MachineInvalidating<TArgs, TData>(state);
     }
 }

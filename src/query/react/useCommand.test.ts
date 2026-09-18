@@ -6,7 +6,7 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
-import type { TCommandAgentState, TTriggerPromise } from "@/query/types";
+import type { TCommandClutchState, TTriggerPromise } from "@/query/types";
 
 const h = React.createElement;
 
@@ -16,22 +16,22 @@ type Trigger<TArgs, TData> = (args: TArgs) => TTriggerPromise<TData>;
 
 interface Captured<TArgs, TData> {
     trigger: Trigger<TArgs, TData>;
-    state: TCommandAgentState<TArgs, TData>;
+    state: TCommandClutchState<TArgs, TData>;
     /** Every trigger reference seen across renders (identity check). */
     triggers: Array<Trigger<TArgs, TData>>;
-    /** Re-render the probe, optionally with a different bound key. */
-    rerender: (newKey?: string) => void;
+    /** Re-render the probe, optionally with a different bound entry key. */
+    rerender: (newEntryKey?: string) => void;
 }
 
 /** Render a probe component around useCommand and expose the live tuple. */
 function setup<TArgs, TData>(
-    useCommand: (key?: string) => [Trigger<TArgs, TData>, TCommandAgentState<TArgs, TData>],
-    key?: string,
+    useCommand: (entryKey?: string) => [Trigger<TArgs, TData>, TCommandClutchState<TArgs, TData>],
+    entryKey?: string,
 ): Captured<TArgs, TData> {
     const captured = {} as Captured<TArgs, TData>;
 
-    function Probe({ cmdKey }: { cmdKey?: string }) {
-        const [trigger, state] = useCommand(cmdKey);
+    function Probe({ cmdEntryKey }: { cmdEntryKey?: string }) {
+        const [trigger, state] = useCommand(cmdEntryKey);
         captured.trigger = trigger;
         captured.state = state;
         captured.triggers.push(trigger);
@@ -39,8 +39,8 @@ function setup<TArgs, TData>(
     }
 
     captured.triggers = [];
-    const view = render(h(Probe, { cmdKey: key }));
-    captured.rerender = (newKey?: string) => view.rerender(h(Probe, { cmdKey: newKey ?? key }));
+    const view = render(h(Probe, { cmdEntryKey: entryKey }));
+    captured.rerender = (newEntryKey?: string) => view.rerender(h(Probe, { cmdEntryKey: newEntryKey ?? entryKey }));
     return captured;
 }
 
@@ -167,7 +167,7 @@ describe("useCommand", () => {
         expect(c.triggers.every((t) => t === first)).toBe(true);
     });
 
-    it("bound key routes the mutation to that cache entry", async () => {
+    it("bound entry key routes the mutation to that cache entry", async () => {
         const keys: string[] = [];
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const command = api.createCommand<string, string>({
@@ -189,7 +189,7 @@ describe("useCommand", () => {
         expect(c.state.data).toBe("HELLO");
     });
 
-    it("re-binding the key via re-render switches the observed entry", async () => {
+    it("re-binding the entry key via re-render switches the observed entry", async () => {
         const keys: string[] = [];
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const command = api.createCommand<string, string>({
@@ -207,7 +207,7 @@ describe("useCommand", () => {
         });
         expect(c.state.data).toBe("FIRST");
 
-        // Key changes on re-render → useEffect re-binds the agent via setKey.
+        // The entry key changes on re-render → useEffect re-binds the clutch via setEntryKey.
         await act(async () => {
             c.rerender("k2");
             await flushMicrotasks();

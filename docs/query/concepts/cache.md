@@ -64,7 +64,7 @@ stateDiagram-v2
 ## См. также
 
 - Запись хранит [машину][machine] — иммутабельную машину состояний запроса.
-- [Агент][agent] наблюдает за записью и транслирует её состояние (например в UI).
+- [Сцепление][clutch] наблюдает за записью и транслирует её состояние (например в UI).
 - Оптимистичные обновления применяются через [патчи][patching] внутри записи.
 - Хук `onCacheEntryAdded` вызывается при создании записи — подробнее в [lifecycle][lifecycle].
 - Данные из другой вкладки могут быть получены через [кросс-табовую синхронизацию][broadcast] (pull-модель: `beforeQuery` отправляет REQ, другая вкладка отвечает RES; SyncDriver управляется отдельным слоем Plugin/Manager, а не картой кэша напрямую).
@@ -73,7 +73,7 @@ stateDiagram-v2
 
 [machine]: machine.md
 [broadcast]: ../usage/broadcast.md
-[agent]: agent.md
+[clutch]: clutch.md
 [patching]: patching.md
 [api]: ../api/README.md
 [api-res]: ../api/resource.md

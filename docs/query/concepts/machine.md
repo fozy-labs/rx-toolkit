@@ -9,10 +9,12 @@
 | `pending` | `null` | `null` / повторяемая¹ | `null` | `boolean` |
 | `success` | `TData` | `null` | `number` | — |
 | `error` | `null` | `unknown` | `null` | — |
-| `refreshing` | `TData` (устаревшие) | `null` / повторяемая¹ | `number` | `boolean` |
-| `refresh-error` | `TData` (устаревшие) | `unknown` | `number` | — |
+| `invalidating` | `TData` (устаревшие) | `null` / повторяемая¹ | `number` | `boolean` |
+| `invalidate-error` | `TData` (устаревшие) | `unknown` | `number` | — |
 
-¹ Загрузка, запущенная через `retry()`, помечена `isRetrying: true` и сохраняет в `error` ошибку, которую повторяет; первичная загрузка и `refresh()` дают `isRetrying: false`, `error: null`.
+¹ Загрузка, запущенная через `retry()`, помечена `isRetrying: true` и сохраняет в `error` ошибку, которую повторяет; первичная загрузка и `invalidate()` дают `isRetrying: false`, `error: null`.
+
+`invalidate-error` — провал перезапроса после инвалидации; сама инвалидация не проваливается: `invalidate()` переводит запись в `invalidating` всегда, ошибку приносит запущенный ею запрос.
 
 
 ## Диаграмма переходов
@@ -23,34 +25,34 @@ stateDiagram-v2
     
     [*] --> pending : Machine.pending(args)
     [*] --> success : Machine.fromSnapshot(state)
-    [*] --> refreshing : Machine.fromSnapshot(state) | Запись устарела
+    [*] --> invalidating : Machine.fromSnapshot(state) | Запись устарела
 
-    state "refresh-error" as refresh_error
+    state "invalidate-error" as invalidate_error
 
     pending --> error : fail(error)
 
-    success --> refreshing : refresh()
+    success --> invalidating : invalidate()
     success --> success : next(data) — эмиссия стрима
-    success --> refresh_error : fail(error) — ошибка стрима
+    success --> invalidate_error : fail(error) — ошибка стрима
     success --> success : createPatch() / finishPatch() / finishAllPatches()
 
     error --> pending : retry() — isRetrying, error сохраняется
 
-    refreshing --> success : rebase(data)
-    refreshing --> refresh_error : fail(error)
-    refreshing --> refreshing : createPatch() / finishPatch() / finishAllPatches()
+    invalidating --> success : rebase(data)
+    invalidating --> invalidate_error : fail(error)
+    invalidating --> invalidating : createPatch() / finishPatch() / finishAllPatches()
 
-    refresh_error --> refreshing : refresh()
-    refresh_error --> refreshing : retry() — isRetrying, error сохраняется
-    refresh_error --> refresh_error : createPatch() / finishPatch() / finishAllPatches()
+    invalidate_error --> invalidating : invalidate()
+    invalidate_error --> invalidating : retry() — isRetrying, error сохраняется
+    invalidate_error --> invalidate_error : createPatch() / finishPatch() / finishAllPatches()
 ```
 
-`retry()` и `refresh()` из `refresh-error` ведут в одно и то же `refreshing`, но по-разному: `refresh()` — обычное фоновое обновление (`error: null`), `retry()` — повтор после неудачи, с флагом `isRetrying` и сохранённой ошибкой. Патч-операции флаг и ошибку не сбрасывают; они очищаются, когда загрузка завершается (`rebase` / `success` / `fail`).
+`retry()` и `invalidate()` из `invalidate-error` ведут в одно и то же `invalidating`, но по-разному: `invalidate()` — обычная инвалидация с фоновым перезапросом (`error: null`), `retry()` — повтор после неудачи, с флагом `isRetrying` и сохранённой ошибкой. Патч-операции флаг и ошибку не сбрасывают; они очищаются, когда загрузка завершается (`rebase` / `success` / `fail`).
 
 Два перехода из `success` появились в 0.12.0 для [стриминговых запросов][stream-query]:
 
 - `next(data)` — `success → success`: очередная эмиссия стрима обновляет данные на месте (активные оптимистичные патчи переигрываются поверх новых данных). Доступен только из `success`.
-- `fail(error)` — `success → refresh-error`: стрим упал уже после доставки данных; данные сохраняются, как при проваленном фоновом рефреше. До 0.12.0 `fail()` из `success` бросал `MachineTransitionError`.
+- `fail(error)` — `success → invalidate-error`: стрим упал уже после доставки данных; данные сохраняются, как при проваленном фоновом перезапросе. До 0.12.0 `fail()` из `success` бросал `MachineTransitionError`.
 
 ## Модель данных
 
@@ -81,8 +83,8 @@ interface TErrorState<TArgs> {
   updatedAt: null;
 }
 
-interface TRefreshingState<TArgs, TData> {
-  status: 'refreshing';
+interface TInvalidatingState<TArgs, TData> {
+  status: 'invalidating';
   args: TArgs;
   data: TData;
   error: unknown;      // null, кроме retry()
@@ -91,8 +93,8 @@ interface TRefreshingState<TArgs, TData> {
   isRetrying: boolean;
 }
 
-interface TRefreshErrorState<TArgs, TData> {
-  status: 'refresh-error';
+interface TInvalidateErrorState<TArgs, TData> {
+  status: 'invalidate-error';
   args: TArgs;
   data: TData;
   error: unknown;
@@ -104,7 +106,7 @@ interface TRefreshErrorState<TArgs, TData> {
 ## См. также
 
 - [Кэш][cache] — хранит записи, каждая из которых содержит экземпляр машины.
-- [Агент][agent] — наблюдает за записью кэша и транслирует состояние машины в UI.
+- [Сцепление][clutch] — наблюдает за записью кэша и транслирует состояние машины в UI.
 - [Ресурс][usage-res] — использует машину для отслеживания состояния чтения данных.
 - [Команда][usage-cmd] — использует машину для отслеживания состояния мутации.
 - [Потоки данных][dataflows] — как машина участвует в потоках данных.
@@ -113,7 +115,7 @@ interface TRefreshErrorState<TArgs, TData> {
 ---
 
 [cache]: cache.md
-[agent]: agent.md
+[clutch]: clutch.md
 [stream-query]: ../usage/stream-query.md
 [usage-res]: ../usage/resource.md
 [usage-cmd]: ../usage/command.md

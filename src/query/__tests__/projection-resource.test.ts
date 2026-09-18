@@ -257,14 +257,14 @@ describe("ProjectionResource", () => {
         });
     });
 
-    // ==================== Refresh ====================
+    // ==================== Invalidate ====================
 
-    describe("refresh", () => {
-        it("refetches every id of the entry on refresh, bypassing the item cache", async () => {
+    describe("invalidate", () => {
+        it("refetches every id of the entry on invalidate, bypassing the item cache", async () => {
             const { projection, queryFn } = setup();
 
             await projection.fetch([1, 2, 3]);
-            projection.refresh([1, 2, 3]);
+            projection.invalidate([1, 2, 3]);
             const data = await projection.fetch([1, 2, 3]);
 
             expect(queryFn).toHaveBeenCalledTimes(2);
@@ -272,7 +272,7 @@ describe("ProjectionResource", () => {
             expect(data.map((user) => user.id)).toEqual([1, 2, 3]);
         });
 
-        it("fails a refresh with ProjectionItemMissingError when the response no longer covers an id", async () => {
+        it("fails an invalidation with ProjectionItemMissingError when the response no longer covers an id", async () => {
             const api = createApi();
             let deletedId: number | null = null;
             const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
@@ -288,7 +288,7 @@ describe("ProjectionResource", () => {
 
             await projection.fetch([1, 2, 3]);
 
-            // Item 3 is deleted server-side; the refresh response covers only {1, 2}.
+            // Item 3 is deleted server-side; the invalidation response covers only {1, 2}.
             deletedId = 3;
             const error = await projection.fetch([1, 2, 3]).catch((caught: unknown) => caught);
 
@@ -296,13 +296,13 @@ describe("ProjectionResource", () => {
             expect(error).toBeInstanceOf(ProjectionItemMissingError);
             expect((error as ProjectionItemMissingError).ids).toEqual([3]);
 
-            // A failed refresh keeps the stale data (regular refresh-error semantics).
+            // A failed invalidate keeps the stale data (regular invalidate-error semantics).
             const state = projection.getState([1, 2, 3]);
-            expect(state.status).toBe("refresh-error");
+            expect(state.status).toBe("invalidate-error");
             expect(state.data?.map((user) => user.id)).toEqual([1, 2, 3]);
         });
 
-        it("a refresh does not join an in-flight request started before it", async () => {
+        it("an invalidation does not join an in-flight request started before it", async () => {
             const api = createApi();
             let version = "v1";
             const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
@@ -330,29 +330,29 @@ describe("ProjectionResource", () => {
             await projection.fetch([2]);
             expect(queryFn).toHaveBeenCalledTimes(1);
 
-            // E1 refreshes — sids {1, 2} go in flight with pre-mutation data.
-            const firstRefresh = projection.fetch([1, 2]);
+            // E1 invalidates — sids {1, 2} go in flight with pre-mutation data.
+            const firstInvalidate = projection.fetch([1, 2]);
             expect(queryFn).toHaveBeenCalledTimes(2);
 
             // The server-side item 2 is mutated after E1's request was issued.
             version = "v2";
 
-            // E2.refresh() must issue a fresh request for id 2, not join E1's
+            // E2.invalidate() must issue a fresh request for id 2, not join E1's
             // pre-mutation in-flight projection.
-            const secondRefresh = projection.fetch([2]);
+            const secondInvalidate = projection.fetch([2]);
             expect(queryFn).toHaveBeenCalledTimes(3);
             expect(queryFn.mock.calls[2][0]).toEqual({ userIds: [2] });
 
             deferred[1].resolve([]);
             deferred[2].resolve([]);
-            await firstRefresh;
-            const data = await secondRefresh;
+            await firstInvalidate;
+            const data = await secondInvalidate;
 
             expect(data.map((user) => user.name)).toEqual(["user-2-v2"]);
             expect(projection.getState([2]).data?.map((user) => user.name)).toEqual(["user-2-v2"]);
         });
 
-        it("propagates refreshed items into overlapping success entries", async () => {
+        it("propagates invalidated items into overlapping success entries", async () => {
             let currentVersion = "v1";
             const { projection } = setup({ version: () => currentVersion });
 
@@ -360,7 +360,7 @@ describe("ProjectionResource", () => {
             await projection.fetch([1, 2, 4]);
 
             currentVersion = "v2";
-            projection.refresh([1, 2, 3]);
+            projection.invalidate([1, 2, 3]);
             await projection.fetch([1, 2, 3]);
 
             const overlapping = projection.getState([1, 2, 4]);
@@ -368,7 +368,7 @@ describe("ProjectionResource", () => {
             expect(overlapping.data?.map((user) => user.name)).toEqual([
                 "user-1-v2",
                 "user-2-v2",
-                // Id 4 was not part of the refreshed batch — untouched.
+                // Id 4 was not part of the invalidated batch — untouched.
                 "user-4-v1",
             ]);
         });
@@ -377,7 +377,7 @@ describe("ProjectionResource", () => {
     // ==================== Reactive propagation ====================
 
     describe("reactive propagation", () => {
-        it("an overlapping entry with an active patch receives refreshed items with the patch rebased", async () => {
+        it("an overlapping entry with an active patch receives invalidated items with the patch rebased", async () => {
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
             try {
                 let currentVersion = "v1";
@@ -392,7 +392,7 @@ describe("ProjectionResource", () => {
                 });
 
                 currentVersion = "v2";
-                projection.refresh([1, 2, 3]);
+                projection.invalidate([1, 2, 3]);
                 await projection.fetch([1, 2, 3]);
 
                 const state = projection.getState([1, 2, 4]);
@@ -407,7 +407,7 @@ describe("ProjectionResource", () => {
             }
         });
 
-        it("a refresh run does not emit stale cached items before the refetch lands", async () => {
+        it("an invalidation run does not emit stale cached items before the refetch lands", async () => {
             const api = createApi();
             const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
             const queryFn = vi.fn((args: TBatchQueryArgs): Promise<TUser[]> => {
@@ -430,12 +430,12 @@ describe("ProjectionResource", () => {
             ]);
             await initial;
 
-            projection.refresh([1, 2]);
+            projection.invalidate([1, 2]);
             await flushMicrotasks();
 
-            // The stale items are still cached, but the refresh run is gated
+            // The stale items are still cached, but the invalidation run is gated
             // behind its refetch — the entry must not settle prematurely.
-            expect(projection.getState([1, 2]).status).toBe("refreshing");
+            expect(projection.getState([1, 2]).status).toBe("invalidating");
             expect(projection.getState([1, 2]).data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
 
             deferred[1].resolve([
@@ -461,7 +461,7 @@ describe("ProjectionResource", () => {
             const baseline = transitions;
 
             currentVersion = "v2";
-            projection.refresh([1, 2, 3]);
+            projection.invalidate([1, 2, 3]);
             await projection.fetch([1, 2, 3]);
             await flushMicrotasks();
 

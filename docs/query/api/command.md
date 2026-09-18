@@ -33,8 +33,8 @@ const addTodoCommand = api.createCommand({
 | `key`                | `string`                                     | —                | Префикс для ключей кэша и devtools.                                          |
 | `links`              | `(link) => void`                             | —                | Колбэк для описания связей с ресурсами. См. [links][usage-links].                        |
 | `retentionTime`      | `number \| false`                            | `0`              | Время (мс) удержания кэш-записи после потери подписчиков. `false` — не удалять. Переопределяет `commandRetentionTime` из [API][api-readme]. |
-| `onCacheEntryAdded`  | `(args, ctx) => void`                        | —                | Вызывается при создании кэш-записи. См. [lifecycle hooks][usage-lifecycle].  |
-| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`       | —                | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `onCacheEntryAdded`  | `TLifecycleHookOption<(args, ctx) => void>`  | —                | Вызывается при создании кэш-записи. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
+| `onQueryStarted`     | `TLifecycleHookOption<(args, ctx) => void \| Promise<void>>` | —                | Вызывается при каждом запуске `queryFn`. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
 | `sync`               | `boolean`                                    | `false`          | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. По умолчанию выключена (`defaultSync: 'none'`). Для включения укажите `sync: true` на команде или `defaultSync: 'all'` на уровне API. Игнорируется, если `syncDriver` не задан в API. |
 
 
@@ -42,41 +42,41 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `execute`     | `args: Args<TArgs>, key?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `key` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][agent-api-trigger] на уровне агента/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
-| `trigger`     | `args: Args<TArgs>, key?: string` | `Promise<TData>`    | **Deprecated.** Прежнее имя `execute` — контракт идентичен. Будет удалён в одном из следующих релизов. |
-| `createAgent` | `key?: string`      | `Agent`                 | Создаёт реактивный [агент][agent] — наблюдатель за командой. Необязательный ключ привязывает к кэш-записи. |
+| `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
+| `trigger`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | **Deprecated.** Прежнее имя `execute` — контракт идентичен. Будет удалён в одном из следующих релизов. |
+| `createClutch` | `entryKey?: string` | `ICommandClutch<TArgs, TData, TError>` | Создаёт реактивное [сцепление][clutch] — наблюдатель за командой. Необязательный ключ записи привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
-| `pack`        | `args: Args<TArgs>, key?: string` | `TPackedCommand<TArgs, TData>` | Связывает команду с аргументами (и необязательным ключом) в инертный дескриптор `{ kind: "command", command, args, key }`. Ничего не запускает. См. [pack][pack]. |
+| `bind`        | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `TBoundCommand<TArgs, TData>` | Связывает команду с аргументами (и необязательным ключом записи) в инертный дескриптор `{ kind: "command", command, args, entryKey }`. Ничего не запускает. См. [bind][bind]. |
 
 
 ## Расширения
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `useCommand`  | `key?: string`      | `[trigger, TCommandAgentState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [конверт результата][agent-api-trigger] `TTriggerPromise<TData>` (не реджектится; `.unwrap()` — сырой промис). В `state` доступен `retry()` для повторного запуска упавшей мутации.|
+| `useCommand`  | `entryKey?: string` | `[trigger, TCommandClutchState]` | React-хук. Требует `reactHooksPlugin()`. Подписывается на состояние мутации. `trigger` возвращает [конверт результата][clutch-api-trigger] `TTriggerPromise<TData>` (не реджектится; `.unwrap()` — сырой промис). В `state` доступен `retry()` для повторного запуска упавшей мутации.|
 
 
-## Pack
+## Bind
 
-`pack` связывает команду с аргументами (и необязательным ключом кэш-записи) в инертный дескриптор — он ничего не запускает. Потребитель отдаёт дескриптор обратно библиотеке, не выполняя мутацию сам:
+`bind` связывает команду с аргументами (и необязательным ключом кэш-записи) в инертный дескриптор — он ничего не запускает. Потребитель отдаёт дескриптор обратно библиотеке, не выполняя мутацию сам:
 
 ```typescript
-const packed = addTodoCommand.pack({ text: "buy milk" }, "draft-1");
-// → { kind: "command", command: addTodoCommand, args: { text: "buy milk" }, key: "draft-1" }
+const bound = addTodoCommand.bind({ text: "buy milk" }, "draft-1");
+// → { kind: "command", command: addTodoCommand, args: { text: "buy milk" }, entryKey: "draft-1" }
 
 // Позже дескриптор разворачивается:
-await packed.command.execute(packed.args, packed.key);
+await bound.command.execute(bound.args, bound.entryKey);
 ```
 
-Все дескрипторы (`TPackedResource` и `TPackedCommand`) объединены в дискриминированный союз `TPacked<TArgs, TData>` с полем-дискриминатором `kind`, поэтому один обработчик может принимать и ресурсы, и команды:
+Все дескрипторы (`TBoundResource` и `TBoundCommand`) объединены в дискриминированный союз `TBound<TArgs, TData>` с полем-дискриминатором `kind`, поэтому один обработчик может принимать и ресурсы, и команды:
 
 ```typescript
-function run(packed: TPacked<unknown, unknown>) {
-    if (packed.kind === "resource") {
-        void packed.resource.prefetch(packed.args);
+function run(bound: TBound<unknown, unknown>) {
+    if (bound.kind === "resource") {
+        void bound.resource.prefetch(bound.args);
     } else {
-        void packed.command.execute(packed.args, packed.key).catch(() => {});
+        void bound.command.execute(bound.args, bound.entryKey).catch(() => {});
     }
 }
 ```
@@ -84,7 +84,7 @@ function run(packed: TPacked<unknown, unknown>) {
 
 ## Ретраи
 
-Упавшую мутацию можно перезапустить, не создавая новую кэш-запись: `retry()` доступен в состоянии [агента команды][agent-api] и в `state`, который возвращает `useCommand`. Повтор переиспользует тот же [request id][query-fn], поэтому бэкенд может дедуплицировать запрос. Подробнее о `queryFn` и request id — в [руководстве][query-fn].
+Упавшую мутацию можно перезапустить, не создавая новую кэш-запись: `retry()` доступен в состоянии [сцепления команды][clutch-api] и в `state`, который возвращает `useCommand`. Повтор переиспользует тот же [request id][query-fn], поэтому бэкенд может дедуплицировать запрос. Подробнее о `queryFn` и request id — в [руководстве][query-fn].
 
 
 ## См. также
@@ -92,21 +92,21 @@ function run(packed: TPacked<unknown, unknown>) {
 - [Использование команды][usage] — примеры, паттерны, links, lifecycle hooks
 - [Ресурс — API][resource-api] — API чтения данных
 - [Машина состояний запроса][machine] — переходы между статусами
-- [Агент][agent] — реактивный наблюдатель
-- [Агент команды — API][agent-api] — полная таблица методов и статусов агента
+- [Сцепление][clutch] — реактивный наблюдатель
+- [Сцепление команды — API][clutch-api] — полная таблица методов и статусов сцепления
 - [Система кэширования][cache] — жизненный цикл записей кэша
 
 
 [cache]: ../concepts/cache.md
-[pack]: #pack
+[bind]: #bind
 [usage]: ../usage/command.md
 [query-fn]: ../usage/query-fn.md
 [usage-links]: ../usage/links.md
 [usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md
 [machine]: ../concepts/machine.md
-[agent]: ../concepts/agent.md
-[agent-api]: ./command-agent.md
-[agent-api-trigger]: ./command-agent.md#результат-trigger
+[clutch]: ../concepts/clutch.md
+[clutch-api]: ./command-clutch.md
+[clutch-api-trigger]: ./command-clutch.md#результат-trigger
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md

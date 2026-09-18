@@ -5,5 +5,5 @@ export * from "./resource";
 export * from "./command";
 export * from "./machine";
 export * from "./cache";
-export * from "./snapshoter";
+export * from "./snapshotter";
 export * from "./syncer";

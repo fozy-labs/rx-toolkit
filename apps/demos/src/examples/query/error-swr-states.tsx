@@ -46,7 +46,7 @@ export function Base() {
     }, [state.status, isRefreshError, state.data]);
 
     const handleInvalidate = () => {
-        state.refresh();
+        state.invalidate();
     };
 
     return (
@@ -73,7 +73,7 @@ export function Base() {
                         </span>
                     </div>
 
-                    {/* SWR: ошибка при рефреше — данные остаются, error доступен */}
+                    {/* SWR: ошибка при инвалидации — данные остаются, error доступен */}
                     {isRefreshError && (
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
                             <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>

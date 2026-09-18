@@ -1,24 +1,24 @@
 # Типизация аргументов (Keyed)
 
-Все методы ресурсов и команд, принимающие аргументы, работают с типом `Args<TArgs>` — объединением сырых аргументов и обёрнутых в `Keyed`.
+Все методы ресурсов и команд, принимающие аргументы, работают с типом `TArgsOrKeyed<TArgs>` — объединением сырых аргументов и обёрнутых в `TKeyed`.
 
 
 ## Типы
 
 ```ts
-type Args<TArgs> = TArgs | Keyed<TArgs>;
+type TArgsOrKeyed<TArgs> = TArgs | TKeyed<TArgs>;
 
-type Keyed<T> = { value: T; key: string };
+type TKeyed<T> = { value: T; key: string };
 ```
 
-- **`Keyed<T>`** — аргументы, обёрнутые с предвычисленным ключом кэша. Пара `{ value, key }`, где `key` — результат сериализации.
-- **`Args<TArgs>`** — объединённый тип: сырые аргументы или `Keyed`. Все публичные методы (`prefetch`, `refresh`, `getEntry`, `getEntry$` и т.д.) принимают `Args<TArgs>`.
+- **`TKeyed<T>`** — аргументы, обёрнутые с предвычисленным ключом кэша. Пара `{ value, key }`, где `key` — результат сериализации.
+- **`TArgsOrKeyed<TArgs>`** — объединённый тип: сырые аргументы или `TKeyed`. Все публичные методы (`prefetch`, `invalidate`, `getEntry`, `getEntry$` и т.д.) принимают `TArgsOrKeyed<TArgs>`.
 
 
 ## Пайплайн аргументов
 
 ```
-args (UI / хук)  →  keyedArgs (Keyed<TArgs>)  →  key (string)
+args (UI / хук)  →  keyedArgs (TKeyed<TArgs>)  →  key (string)
 ```
 
 1. **args** — сырые аргументы, переданные пользователем.
@@ -26,12 +26,12 @@ args (UI / хук)  →  keyedArgs (Keyed<TArgs>)  →  key (string)
 3. **key** — строковый ключ кэша, используемый в карте кэша.
 
 Метод `toKeyed(args)` на ресурсе выполняет шаг 1 → 2.
-Передача `Keyed<TArgs>` напрямую позволяет избежать повторной сериализации.
+Передача `TKeyed<TArgs>` напрямую позволяет избежать повторной сериализации.
 
 
 ## См. также
 
-- [Ресурс — API][api-res] — методы ресурса, принимающие `Args<TArgs>`
+- [Ресурс — API][api-res] — методы ресурса, принимающие `TArgsOrKeyed<TArgs>`
 - [Команда — API][api-cmd] — методы команды
 - [Архитектура][architecture] — общая диаграмма компонентов
 

@@ -1,9 +1,9 @@
-import type { TPendingState, TRefreshingState, TSuccessState } from "@/query/types";
+import type { TInvalidatingState, TPendingState, TSuccessState } from "@/query/types";
 
 import { MachineError } from "./MachineError";
+import { MachineInvalidateError } from "./MachineInvalidateError";
+import { MachineInvalidating } from "./MachineInvalidating";
 import { MachinePending } from "./MachinePending";
-import { MachineRefreshError } from "./MachineRefreshError";
-import { MachineRefreshing } from "./MachineRefreshing";
 import { MachineSuccess } from "./MachineSuccess";
 
 export { MachineBase } from "./MachineBase";
@@ -18,8 +18,8 @@ export type Machine<TArgs, TData> =
     | MachinePending<TArgs, TData>
     | MachineSuccess<TArgs, TData>
     | MachineError<TArgs, TData>
-    | MachineRefreshing<TArgs, TData>
-    | MachineRefreshError<TArgs, TData>;
+    | MachineInvalidating<TArgs, TData>
+    | MachineInvalidateError<TArgs, TData>;
 
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Machine {
@@ -38,10 +38,10 @@ export namespace Machine {
     export function fromSnapshot<TArgs, TData>(
         snapshot: { args: TArgs; data: TData; updatedAt: number },
         isStale = false,
-    ): MachineSuccess<TArgs, TData> | MachineRefreshing<TArgs, TData> {
+    ): MachineSuccess<TArgs, TData> | MachineInvalidating<TArgs, TData> {
         if (isStale) {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+            const state: TInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: snapshot.args,
                 data: snapshot.data,
                 error: null,
@@ -49,7 +49,7 @@ export namespace Machine {
                 patchState: null,
                 isRetrying: false,
             };
-            return new MachineRefreshing<TArgs, TData>(state);
+            return new MachineInvalidating<TArgs, TData>(state);
         }
 
         const state: TSuccessState<TArgs, TData> = {

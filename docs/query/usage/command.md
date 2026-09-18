@@ -84,7 +84,7 @@ function AddTodoForm() {
 
 ## Результат trigger
 
-`trigger` из `useCommand` (и `agent.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
+`trigger` из `useCommand` (и `clutch.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
 
 ```tsx
 const result = await trigger({ text });
@@ -122,7 +122,7 @@ try {
 | `isError` | `boolean` | `true` при ошибке мутации. |
 | `retry` | `() => void` | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
 
-Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` и `data: null`. Полная таблица вариантов — в [API агента команды][api-cmd-agent].
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` и `data: null`. Полная таблица вариантов — в [API сцепления команды][api-cmd-clutch].
 
 
 ## Ретраи и request id
@@ -161,9 +161,9 @@ const data = await addTodoCommand.execute({ text: 'Новая задача' });
 const data = await addTodoCommand.execute({ text: 'Новая задача' }, 'my-mutation-1');
 ```
 
-Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `key` идентифицирует кэш-запись.
+Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `entryKey` идентифицирует кэш-запись.
 
-В отличие от `trigger` на уровне агента и хука, `Command.execute` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
+В отличие от `trigger` на уровне сцепления и хука, `Command.execute` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
 
 ```typescript
 import { wrapTrigger } from '@fozy-labs/rx-toolkit';
@@ -193,17 +193,17 @@ if (entry) {
 const entry$ = Signal.compute(() => addTodoCommand.getEntry$('my-mutation-1'));
 ```
 
-### createAgent
+### createClutch
 
-Создаёт агент — реактивный наблюдатель за командой. Принимает опциональный `key` для привязки к конкретной кэш-записи.
-Полная таблица методов и статусов — в [API агента команды][api-cmd-agent].
+Создаёт сцепление — реактивный наблюдатель за командой. Принимает опциональный `entryKey` для привязки к конкретной кэш-записи.
+Полная таблица методов и статусов — в [API сцепления команды][api-cmd-clutch].
 
 ```typescript
-const agent = addTodoCommand.createAgent('my-mutation-1');
+const clutch = addTodoCommand.createClutch('my-mutation-1');
 
-// trigger через агент
-agent.trigger({ text: 'New todo' });
-// agent.state$() → { status: "pending", data: null, isLoading: true, ... }
+// trigger через сцепление
+clutch.trigger({ text: 'New todo' });
+// clutch.state$() → { status: "pending", data: null, isLoading: true, ... }
 ```
 
 
@@ -228,12 +228,12 @@ const [trigger, state] = addTodoCommand.useCommand('my-mutation-1');
 await trigger({ text: 'Задача' });
 ```
 
-- **Агент** — ключ передаётся в `createAgent` и может меняться с помощью методов `trigger` или `setKey`:
+- **Сцепление** — ключ передаётся в `createClutch` и может меняться с помощью методов `trigger` или `setEntryKey`:
 
 ```typescript
-const agent = addTodoCommand.createAgent('my-mutation-1');
-agent.trigger({ text: 'Задача' }, 'my-mutation-2');
-agent.setKey('my-mutation-3');
+const clutch = addTodoCommand.createClutch('my-mutation-1');
+clutch.trigger({ text: 'Задача' }, 'my-mutation-2');
+clutch.setEntryKey('my-mutation-3');
 ```
 
 Разные потребители могут синхронизировать состояние, используя один и тот же ключ.
@@ -254,16 +254,16 @@ agent.setKey('my-mutation-3');
 - [Ресурс][resource] — чтение данных с кэшированием и SWR
 - [Машина состояний][machine] — детали переходов между статусами
 - [Система кэширования][cache] — жизненный цикл записей кэша
-- [Агент][agent] — реактивный наблюдатель, транслирующий состояние в UI
+- [Сцепление][clutch] — реактивный наблюдатель, транслирующий состояние в UI
 - [Broadcast][broadcast] — синхронизация между вкладками; команды поддерживают опцию `sync: true`
 
 [resource]: ./resource.md
 [machine]: ../concepts/machine.md
 [cache]: ../concepts/cache.md
-[agent]: ../concepts/agent.md
+[clutch]: ../concepts/clutch.md
 [broadcast]: ./broadcast.md
 [api-command]: ../api/command.md
-[api-cmd-agent]: ../api/command-agent.md
+[api-cmd-clutch]: ../api/command-clutch.md
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
 [query-fn]: ./query-fn.md

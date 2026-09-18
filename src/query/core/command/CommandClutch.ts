@@ -1,8 +1,8 @@
 import type {
-    Args,
-    ICommandAgent,
+    ICommandClutch,
     IQueryCacheEntry,
-    TCommandAgentState,
+    TArgsOrKeyed,
+    TCommandClutchState,
     TMachineState,
     TTriggerPromise,
 } from "@/query/types";
@@ -12,34 +12,34 @@ import type { ReadonlySignal } from "@/signals/types";
 import { isKeyed } from "../../lib/toKeyed";
 import { wrapTrigger } from "../../lib/wrapTrigger";
 
-// Minimal contract that CommandAgent needs from Command.
+// Minimal contract that CommandClutch needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
-export interface ICommandForAgent<TArgs, TData> {
-    execute(args: Args<TArgs>, key?: string): Promise<TData>;
-    getEntry$(key: string): IQueryCacheEntry<TArgs, TData> | null;
+export interface ICommandForClutch<TArgs, TData> {
+    execute(args: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData>;
+    getEntry$(entryKey: string): IQueryCacheEntry<TArgs, TData> | null;
 }
 
-// ==================== CommandAgent ====================
+// ==================== CommandClutch ====================
 
 interface Tracking<TArgs, TData> {
-    key: string;
+    entryKey: string;
     current$: ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
 }
 
-export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAgent<TArgs, TData, TError> {
-    private readonly _command: ICommandForAgent<TArgs, TData>;
+export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandClutch<TArgs, TData, TError> {
+    private readonly _command: ICommandForClutch<TArgs, TData>;
 
     private readonly _tracking$: ReturnType<typeof Signal.state<Tracking<TArgs, TData> | null>>;
 
-    /** Cache key the agent is bound to (via constructor/setKey), reused by trigger. */
-    private _boundKey: string | undefined;
+    /** Cache-entry key the clutch is bound to (via constructor/setEntryKey), reused by trigger. */
+    private _boundEntryKey: string | undefined;
 
-    readonly state$: ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>;
+    readonly state$: ReadonlySignal<TCommandClutchState<TArgs, TData, TError>>;
 
-    constructor(command: ICommandForAgent<TArgs, TData>, key?: string) {
+    constructor(command: ICommandForClutch<TArgs, TData>, entryKey?: string) {
         this._command = command;
         this._tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
-        this.state$ = Signal.compute<TCommandAgentState<TArgs, TData, TError>>(
+        this.state$ = Signal.compute<TCommandClutchState<TArgs, TData, TError>>(
             () => {
                 const tracking = this._tracking$();
                 if (!tracking) return this._createIdleState();
@@ -53,8 +53,8 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
             { isDisabled: true },
         );
 
-        if (key != null) {
-            this.setKey(key);
+        if (entryKey != null) {
+            this.setEntryKey(entryKey);
         }
     }
 
@@ -66,18 +66,18 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
      * failure still lands in {@link state$}); `unwrap()` hands back the raw
      * throwing promise.
      */
-    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError> {
-        const entryKey = isKeyed(args) ? args.key : (key ?? this._boundKey ?? crypto.randomUUID());
+    trigger(args: TArgsOrKeyed<TArgs>, entryKey?: string): TTriggerPromise<TData, TError> {
+        const resolvedEntryKey = isKeyed(args) ? args.key : (entryKey ?? this._boundEntryKey ?? crypto.randomUUID());
 
         // Command.execute never throws synchronously and normalizes every
         // rejection to TError itself. This guard only covers foreign
-        // ICommandForAgent implementations that may still throw — such an error
-        // reaches the envelope unmapped (best effort), since the agent has no
+        // ICommandForClutch implementations that may still throw — such an error
+        // reaches the envelope unmapped (best effort), since the clutch has no
         // access to the api's mapError.
         let result: Promise<TData>;
         try {
-            result = this._command.execute(args, entryKey);
-            this._observeKey(entryKey);
+            result = this._command.execute(args, resolvedEntryKey);
+            this._observeEntryKey(resolvedEntryKey);
         } catch (error) {
             result = Promise.reject(error);
         }
@@ -85,9 +85,15 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
         return wrapTrigger<TData, TError>(result);
     }
 
-    setKey(key: string): void {
-        this._boundKey = key;
-        this._observeKey(key);
+    /** Bind the clutch to a cache-entry key: it observes that entry's state. */
+    setEntryKey(entryKey: string): void {
+        this._boundEntryKey = entryKey;
+        this._observeEntryKey(entryKey);
+    }
+
+    /** @deprecated Renamed to {@link setEntryKey}. Will be removed in 0.14.0. */
+    setKey(entryKey: string): void {
+        this.setEntryKey(entryKey);
     }
 
     retry = (): void => {
@@ -96,28 +102,28 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
 
     // ==================== Private ====================
 
-    private _observeKey(key: string): void {
+    private _observeEntryKey(entryKey: string): void {
         const tracking = this._tracking$.peek();
-        if (tracking && tracking.key === key) return;
+        if (tracking && tracking.entryKey === entryKey) return;
 
-        const current$ = Signal.compute(() => this._command.getEntry$(key), { isDisabled: true });
+        const current$ = Signal.compute(() => this._command.getEntry$(entryKey), { isDisabled: true });
 
-        this._tracking$.set({ key, current$ });
+        this._tracking$.set({ entryKey, current$ });
     }
 
     private _deriveState(
         entry: IQueryCacheEntry<TArgs, TData>,
         machineState: TMachineState<TArgs, TData>,
-    ): TCommandAgentState<TArgs, TData, TError> {
+    ): TCommandClutchState<TArgs, TData, TError> {
         // Each machine status maps to one state variant, constructed per branch so
         // the compiler verifies every field against the discriminated union.
         switch (machineState.status) {
-            // Command agent uses a simplified status mapping: refreshing /
-            // refresh-error are not applicable to commands → remapped to pending
+            // Command clutch uses a simplified status mapping: invalidating /
+            // invalidate-error are not applicable to commands → remapped to pending
             // defensively, carrying their stale data / error through.
             case "pending":
-            case "refreshing":
-            case "refresh-error": {
+            case "invalidating":
+            case "invalidate-error": {
                 return {
                     status: "pending",
                     data: machineState.data,
@@ -161,7 +167,7 @@ export class CommandAgent<TArgs, TData, TError = unknown> implements ICommandAge
         }
     }
 
-    private _createIdleState(): TCommandAgentState<TArgs, TData, TError> {
+    private _createIdleState(): TCommandClutchState<TArgs, TData, TError> {
         return {
             status: "idle",
             data: null,

@@ -1,13 +1,13 @@
-import type { ArgsOrVoidOrSkip, IResource, TResourceAgentState } from "@/query/types";
+import type { IResource, TArgsOrVoidOrSkip, TResourceClutchState } from "@/query/types";
 import { useSignal } from "@/signals/react";
 
-import { useResourceAgent } from "./useResourceAgent";
+import { useResourceClutch } from "./useResourceClutch";
 
 export function useResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
-    args: ArgsOrVoidOrSkip<TArgs>,
-): TResourceAgentState<TArgs, TData, TError> {
-    const agent = useResourceAgent(resource, args, false);
+    args: TArgsOrVoidOrSkip<TArgs>,
+): TResourceClutchState<TArgs, TData, TError> {
+    const clutch = useResourceClutch(resource, args, false);
 
-    return useSignal(agent.state$);
+    return useSignal(clutch.state$);
 }

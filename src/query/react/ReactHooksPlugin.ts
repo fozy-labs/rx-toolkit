@@ -1,16 +1,16 @@
 import type {
-    ArgsOrVoid,
-    ArgsOrVoidOrSkip,
     ICommand,
     IPlugin,
     IPluginContext,
+    IPluginHKT,
     IResource,
-    PluginHKT,
-    TCommandAgentState,
+    TArgsOrVoid,
+    TArgsOrVoidOrSkip,
+    TCommandClutchState,
     TCommandOptions,
     TInfiniteResourceState,
     TProjectionResourceOptions,
-    TResourceAgentState,
+    TResourceClutchState,
     TResourceOptions,
     TSuspenseResourceState,
     TTriggerPromise,
@@ -23,20 +23,20 @@ import { useSuspenseResource } from "./useSuspenseResource";
 
 /** Resource augmentation shape produced by ReactHooksPlugin. */
 type ReactHooksResourceShape<TArgs, TData, TError> = {
-    useResource: (args: ArgsOrVoidOrSkip<TArgs>) => TResourceAgentState<TArgs, TData, TError>;
-    useSuspenseResource: (args: ArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData, TError>;
+    useResource: (args: TArgsOrVoidOrSkip<TArgs>) => TResourceClutchState<TArgs, TData, TError>;
+    useSuspenseResource: (args: TArgsOrVoid<TArgs>) => TSuspenseResourceState<TArgs, TData, TError>;
 };
 
 /** Additional augmentation for projection resources (on top of the resource shape). */
 type ReactHooksProjectionResourceShape<TArgs, TData, TError> = {
-    useInfiniteResource: (initialArgs: ArgsOrVoidOrSkip<TArgs>) => TInfiniteResourceState<TArgs, TData, TError>;
+    useInfiniteResource: (initialArgs: TArgsOrVoidOrSkip<TArgs>) => TInfiniteResourceState<TArgs, TData, TError>;
 };
 
 /** Command augmentation shape produced by ReactHooksPlugin. */
 type ReactHooksCommandShape<TArgs, TData, TError> = {
     useCommand: (
-        key?: string,
-    ) => [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandAgentState<TArgs, TData, TError>];
+        entryKey?: string,
+    ) => [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandClutchState<TArgs, TData, TError>];
 };
 
 /**
@@ -44,16 +44,22 @@ type ReactHooksCommandShape<TArgs, TData, TError> = {
  * Uses `this['_TArgs']`, `this['_TData']`, and `this['_TError']` which become
  * concrete when applied through `ApplyPluginResourceHKT` / `ApplyPluginCommandHKT`.
  */
-export interface ReactHooksPluginHKT extends PluginHKT {
+export interface IReactHooksPluginHKT extends IPluginHKT {
     readonly resourceType: ReactHooksResourceShape<this["_TArgs"], this["_TData"], this["_TError"]>;
     readonly commandType: ReactHooksCommandShape<this["_TArgs"], this["_TData"], this["_TError"]>;
     readonly projectionResourceType: ReactHooksProjectionResourceShape<this["_TArgs"], this["_TData"], this["_TError"]>;
 }
 
+/**
+ * @deprecated Renamed to {@link IReactHooksPluginHKT} (type-prefix convention).
+ * Will be removed in 0.14.0.
+ */
+export type ReactHooksPluginHKT = IReactHooksPluginHKT;
+
 export class ReactHooksPlugin implements IPlugin {
     readonly name = "ReactHooksPlugin";
 
-    declare readonly _hkt: ReactHooksPluginHKT;
+    declare readonly _hkt: IReactHooksPluginHKT;
 
     install(_context: IPluginContext): void {
         // no-op
@@ -64,8 +70,8 @@ export class ReactHooksPlugin implements IPlugin {
         _options: TResourceOptions<TArgs, TData>,
     ): ReactHooksResourceShape<TArgs, TData, TError> {
         return {
-            useResource: (args: ArgsOrVoidOrSkip<TArgs>) => useResource(resource, args),
-            useSuspenseResource: (args: ArgsOrVoid<TArgs>) => useSuspenseResource(resource, args),
+            useResource: (args: TArgsOrVoidOrSkip<TArgs>) => useResource(resource, args),
+            useSuspenseResource: (args: TArgsOrVoid<TArgs>) => useSuspenseResource(resource, args),
         };
     }
 
@@ -74,7 +80,7 @@ export class ReactHooksPlugin implements IPlugin {
         _options: TCommandOptions<TArgs, TData>,
     ): ReactHooksCommandShape<TArgs, TData, TError> {
         return {
-            useCommand: (key?: string) => useCommand(command, key),
+            useCommand: (entryKey?: string) => useCommand(command, entryKey),
         };
     }
 
@@ -83,7 +89,7 @@ export class ReactHooksPlugin implements IPlugin {
         _options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): ReactHooksProjectionResourceShape<TArgs, TItem[], TError> {
         return {
-            useInfiniteResource: (initialArgs: ArgsOrVoidOrSkip<TArgs>) => useInfiniteResource(resource, initialArgs),
+            useInfiniteResource: (initialArgs: TArgsOrVoidOrSkip<TArgs>) => useInfiniteResource(resource, initialArgs),
         };
     }
 }

@@ -77,12 +77,12 @@ const loggingPlugin: IPlugin = {
 
 ## Типизация вкладов плагина
 
-Форма добавляемых методов описывается HKT-протоколом: плагин объявляет интерфейс, расширяющий `PluginHKT`, и «прикрепляет» его фантомным полем `_hkt` (существует только на уровне типов):
+Форма добавляемых методов описывается HKT-протоколом: плагин объявляет интерфейс, расширяющий `IPluginHKT`, и «прикрепляет» его фантомным полем `_hkt` (существует только на уровне типов):
 
 ```typescript
-import type { IPlugin, PluginHKT } from '@fozy-labs/rx-toolkit';
+import type { IPlugin, IPluginHKT } from '@fozy-labs/rx-toolkit';
 
-interface LoggingPluginHKT extends PluginHKT {
+interface LoggingPluginHKT extends IPluginHKT {
   // this['_TArgs'] / this['_TData'] / this['_TError'] подставляются
   // конкретными типами в точке применения (createResource и т.д.)
   readonly resourceType: { logState: (args: this['_TArgs']) => void };
@@ -97,7 +97,7 @@ class LoggingPlugin implements IPlugin {
 }
 ```
 
-`createResource()` / `createCommand()` / `unstable_createProjectionResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `CombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `projectionResourceType` описывает вклад `augmentProjectionResource` и применяется только к проекционным ресурсам.
+`createResource()` / `createCommand()` / `unstable_createProjectionResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `TCombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `projectionResourceType` описывает вклад `augmentProjectionResource` и применяется только к проекционным ресурсам.
 
 
 ## См. также

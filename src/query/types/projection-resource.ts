@@ -1,3 +1,4 @@
+import type { TLifecycleHookOption } from "./api";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { IResource } from "./resource";
 
@@ -42,15 +43,18 @@ export interface TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResDat
      * Lifecycle hook over the id-set entries (args = the projection resource's own
      * args, data = the assembled `TItem[]`). Composed with the runtime's
      * internal bookkeeping hook. To observe the actual network runs, hook the
-     * wrapped resource instead.
+     * wrapped resource instead. See {@link TLifecycleHookOption} for the array form.
      */
-    onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TItem[]>) => void;
+    onCacheEntryAdded?: TLifecycleHookOption<(args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TItem[]>) => void>;
     /**
      * Lifecycle hook fired per id-set query run — including runs served
      * entirely from the item cache without a network request. To observe the
-     * actual network runs, hook the wrapped resource instead.
+     * actual network runs, hook the wrapped resource instead. See
+     * {@link TLifecycleHookOption} for the array form.
      */
-    onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TItem[]>) => void | Promise<void>;
+    onQueryStarted?: TLifecycleHookOption<
+        (args: TArgs, ctx: TQueryStartedContext<TArgs, TItem[]>) => void | Promise<void>
+    >;
     /** Retention for the per-id-set cache entries; falls back to the api default. */
     retentionTime?: number | false;
     /** Serializes the projection resource's own args into a cache key. */

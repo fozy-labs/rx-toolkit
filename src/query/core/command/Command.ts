@@ -1,13 +1,13 @@
 import type {
-    Args,
     ICommand,
-    ICommandAgent,
+    ICommandClutch,
     ICommandConfig,
     IPatchHandle,
-    Keyed,
+    TArgsOrKeyed,
+    TBoundCommand,
     TCacheEntryAddedContext,
+    TKeyed,
     TMapError,
-    TPackedCommand,
     TQueryStartedContext,
 } from "@/query/types";
 import { Signal, unstable_KeyedSignal } from "@/signals";
@@ -16,7 +16,7 @@ import { KEYED_BRAND } from "../../constants";
 import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 
-import { CommandAgent } from "./CommandAgent";
+import { CommandClutch } from "./CommandClutch";
 import { LinkManager } from "./LinkManager";
 
 // ==================== Command ====================
@@ -44,7 +44,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
 
-    private _keyCounter = 0;
+    private _entryKeyCounter = 0;
 
     constructor(config: ICommandConfig<TArgs, TData>) {
         this._queryFn = config.queryFn;
@@ -65,29 +65,30 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * Applies optimistic patches, runs `queryFn`, then commits/rolls-back
      * patches and invalidates linked resources on success/failure.
      *
-     * @param argsOrKeyed - Plain arguments or a {@link Keyed} wrapper.
-     * @param key - Optional cache-entry key. Auto-generated when omitted.
+     * @param argsOrKeyed - Plain arguments or a {@link TKeyed} wrapper.
+     * @param entryKey - Optional cache-entry key. Auto-generated when omitted.
      * @returns A promise that resolves with the mutation result. Every
      *   rejection is normalized via `mapError` — including the
      *   `CacheEntryRemovedError` produced when the entry is evicted mid-flight
-     *   (re-execute with the same key, `reset()` / `resetAll()`).
+     *   (re-execute with the same entry key, `reset()` / `resetAll()`).
      */
-    execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+    execute(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
         // execute() must never throw synchronously, and every rejection of the
-        // returned promise must be normalized to the api's TError — the agent /
+        // returned promise must be normalized to the api's TError — the clutch /
         // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
         // are mapped at the machine boundary and removals inside currentResult;
         // this guard converts anything thrown before the entry takes over
         // (argument normalization, cache bookkeeping) into a mapped rejection.
         try {
-            return this._execute(argsOrKeyed, key);
+            return this._execute(argsOrKeyed, entryKey);
         } catch (error) {
             return Promise.reject(
                 this._mapError(error, {
                     source: "command",
                     args: isKeyed(argsOrKeyed) ? argsOrKeyed.value : argsOrKeyed,
-                    // The throw may precede key generation — best effort from the input.
-                    entryKey: isKeyed(argsOrKeyed) ? argsOrKeyed.key : (key ?? ""),
+                    // The throw may precede entry-key generation — best effort from the input.
+                    entryKey: isKeyed(argsOrKeyed) ? argsOrKeyed.key : (entryKey ?? ""),
+                    // The command's own key (identifier / cache-key prefix), not the entry key.
                     key: this._key,
                 }),
             );
@@ -98,27 +99,27 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * @deprecated Renamed to {@link execute} (identical contract). Will be
      * removed in a future release.
      */
-    trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
-        return this.execute(argsOrKeyed, key);
+    trigger(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
+        return this.execute(argsOrKeyed, entryKey);
     }
 
-    private _execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
-        const keyed = this._toKeyed(argsOrKeyed, key);
+    private _execute(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
+        const keyed = this._toKeyed(argsOrKeyed, entryKey);
         const args = keyed.value;
-        const entryKey = keyed.key;
+        const resolvedEntryKey = keyed.key;
 
         const linkManager = this._linkManager;
 
         // Optimistic patches are applied inside wrappedQueryFn (first run only),
         // so a throwing optimisticUpdate enters the machine like any other
         // mutation failure — the entry exists and settles in `error`, state
-        // observers (agent / useCommand) see it, and mapError normalizes it at
+        // observers (clutch / useCommand) see it, and mapError normalizes it at
         // the single machine.fail() boundary.
         let patchHandles: IPatchHandle[] = [];
         let optimisticApplied = false;
 
-        // Clean up existing entry for the same key, if any
-        const existing = this._cache.get(entryKey);
+        // Clean up existing entry for the same entry key, if any
+        const existing = this._cache.get(resolvedEntryKey);
         if (existing) {
             existing.complete();
         }
@@ -168,7 +169,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             return pending.then((id) => this._queryFn(args, id));
         };
 
-        const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
+        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
             // A throwing optimisticUpdate, a non-async queryFn, or a sync
             // generateRequestId can all throw *before* a promise exists. Convert
             // that synchronous throw into a rejected promise here — this is the
@@ -256,13 +257,13 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         void firstResult.then(releaseKeepalive, releaseKeepalive);
 
         // Register in cache
-        this._cache.set(entryKey, entry);
+        this._cache.set(resolvedEntryKey, entry);
 
         // Cleanup: remove entry from cache when it completes
         entry.completed$.subscribe(() => {
-            // Guard: only remove if THIS entry is still the current one for the key
-            if (this._cache.get(entryKey) === entry) {
-                this._cache.delete(entryKey);
+            // Guard: only remove if THIS entry is still the current one for the entry key
+            if (this._cache.get(resolvedEntryKey) === entry) {
+                this._cache.delete(resolvedEntryKey);
             }
         });
 
@@ -278,13 +279,13 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
     }
 
     /**
-     * Synchronously retrieve a cache entry by key.
+     * Synchronously retrieve a cache entry by its entry key.
      *
-     * @param key - The cache-entry key.
+     * @param entryKey - The cache-entry key.
      * @returns The matching {@link QueryCacheEntry}, or `null` if none exists.
      */
-    getEntry(key: string): QueryCacheEntry<TArgs, TData> | null {
-        return this._cache.get(key) ?? null;
+    getEntry(entryKey: string): QueryCacheEntry<TArgs, TData> | null {
+        return this._cache.get(entryKey) ?? null;
     }
 
     /**
@@ -293,37 +294,47 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * Reads an internal signal so that callers in a reactive context
      * (e.g. `computed`, `effect`) re-evaluate when the cache changes.
      *
-     * @param key - The cache-entry key.
+     * @param entryKey - The cache-entry key.
      * @returns The matching {@link QueryCacheEntry}, or `null` if none exists.
      */
-    getEntry$(key: string): QueryCacheEntry<TArgs, TData> | null {
-        const signal$ = Signal.compute(() => this._cache.get$(key) ?? null, { isDisabled: true });
+    getEntry$(entryKey: string): QueryCacheEntry<TArgs, TData> | null {
+        const signal$ = Signal.compute(() => this._cache.get$(entryKey) ?? null, { isDisabled: true });
 
         return signal$();
     }
 
     /**
-     * Create a reactive agent that observes this command's state.
+     * Create a reactive clutch that observes this command's state.
      *
-     * @param key - Optional key to bind the agent to a specific cache entry.
-     * @returns A new {@link ICommandAgent} instance.
+     * @param entryKey - Optional cache-entry key to bind the clutch to a specific cache entry.
+     * @returns A new {@link ICommandClutch} instance.
      */
-    createAgent(key?: string): ICommandAgent<TArgs, TData, TError> {
-        return new CommandAgent<TArgs, TData, TError>(this, key);
+    createClutch(entryKey?: string): ICommandClutch<TArgs, TData, TError> {
+        return new CommandClutch<TArgs, TData, TError>(this, entryKey);
+    }
+
+    /** @deprecated Renamed to {@link createClutch}. Will be removed in 0.14.0. */
+    createAgent(entryKey?: string): ICommandClutch<TArgs, TData, TError> {
+        return this.createClutch(entryKey);
     }
 
     /**
-     * Bundle this command with arguments (and an optional cache key) into an inert
-     * {@link TPackedCommand} descriptor. Nothing is executed — the consumer hands
-     * the descriptor back to the library, which can later run it
-     * (e.g. `command.execute(args, key)`).
+     * Bundle this command with arguments (and an optional cache-entry key) into an
+     * inert {@link TBoundCommand} descriptor. Nothing is executed — the consumer
+     * hands the descriptor back to the library, which can later run it
+     * (e.g. `command.execute(args, entryKey)`).
      *
-     * @param args - Mutation arguments (or a {@link Keyed} wrapper).
-     * @param key - Optional cache-entry key, forwarded to {@link execute}.
-     * @returns A `{ kind: "command", command, args, key }` descriptor.
+     * @param args - Mutation arguments (or a {@link TKeyed} wrapper).
+     * @param entryKey - Optional cache-entry key, forwarded to {@link execute}.
+     * @returns A `{ kind: "command", command, args, entryKey }` descriptor.
      */
-    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError> {
-        return { kind: "command", command: this, args, key };
+    bind(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError> {
+        return { kind: "command", command: this, args, entryKey };
+    }
+
+    /** @deprecated Renamed to {@link bind}. Will be removed in 0.14.0. */
+    pack(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError> {
+        return this.bind(args, entryKey);
     }
 
     /** Clear all cache entries. Called by createApi.resetAll(). */
@@ -335,27 +346,27 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    // ==================== Private — Key Generation ====================
+    // ==================== Private — Entry Key Generation ====================
 
-    private _generateKey(): string {
-        return `${Date.now()}-${this._keyCounter++}`;
+    private _generateEntryKey(): string {
+        return `${Date.now()}-${this._entryKeyCounter++}`;
     }
 
-    private _toKeyed(args: Args<TArgs>, key?: string): Keyed<TArgs> {
+    private _toKeyed(args: TArgsOrKeyed<TArgs>, entryKey?: string): TKeyed<TArgs> {
         if (isKeyed(args)) {
             return args;
         }
 
         return {
             value: args,
-            key: key ?? this._generateKey(),
+            key: entryKey ?? this._generateEntryKey(),
             [KEYED_BRAND]: true,
-        } as Keyed<TArgs>;
+        } as TKeyed<TArgs>;
     }
 
     // ==================== Private — Lifecycle Hooks ====================
 
-    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: Keyed<TArgs>): void {
+    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {
         if (!this._onCacheEntryAdded) return;
 
         let resolveRemoved!: () => void;

@@ -102,7 +102,7 @@ describe("stream queryFn — machine transitions", () => {
         expect(state.error).toEqual({ mapped: boom });
     });
 
-    it("stream error after data: success → refresh-error with data kept", () => {
+    it("stream error after data: success → invalidate-error with data kept", () => {
         const subject = new Subject<string>();
         const resource = createResource({ queryFn: () => subject.asObservable() });
 
@@ -112,7 +112,7 @@ describe("stream queryFn — machine transitions", () => {
         subject.error(boom);
 
         const state = entry.machine$.peek().state;
-        expect(state.status).toBe("refresh-error");
+        expect(state.status).toBe("invalidate-error");
         expect(state.data).toBe("live-1");
         expect(state.error).toBe(boom);
     });
@@ -149,7 +149,7 @@ describe("stream queryFn — machine transitions", () => {
 // ==================== Teardown & resubscription ====================
 
 describe("stream queryFn — teardown and resubscription", () => {
-    it("refresh() unsubscribes the previous run and resubscribes; first emission rebases", () => {
+    it("invalidate() unsubscribes the previous run and resubscribes; first emission rebases", () => {
         const { stream, state } = trackedStream<string>();
         const resource = createResource({ queryFn: () => stream });
 
@@ -157,10 +157,10 @@ describe("stream queryFn — teardown and resubscription", () => {
         state.subscriber!.next("run1-value");
         expect(state.subscribeCount).toBe(1);
 
-        entry.refresh();
+        entry.invalidate();
         expect(state.teardownCount).toBe(1);
         expect(state.subscribeCount).toBe(2);
-        expect(entry.machine$.peek().state.status).toBe("refreshing");
+        expect(entry.machine$.peek().state.status).toBe("invalidating");
 
         state.subscriber!.next("run2-value");
         const machineState = entry.machine$.peek().state;
@@ -176,11 +176,11 @@ describe("stream queryFn — teardown and resubscription", () => {
         const run1 = state.subscriber!;
         run1.next("run1-value");
 
-        entry.refresh();
+        entry.invalidate();
         // The stale producer keeps pushing after unsubscribe — must not reach the machine.
         run1.next("stale-value");
 
-        expect(entry.machine$.peek().state.status).toBe("refreshing");
+        expect(entry.machine$.peek().state.status).toBe("invalidating");
         expect(entry.machine$.peek().state.data).toBe("run1-value");
     });
 
@@ -467,14 +467,14 @@ describe("stream queryFn — onQueryStarted lifecycle", () => {
         await expect(captured[0]!.$queryFulfilled).resolves.toEqual({ data: "one-shot" });
     });
 
-    it("refresh() fires the hook again for the new run", () => {
+    it("invalidate() fires the hook again for the new run", () => {
         const subject = new Subject<string>();
         const { captured, onQueryStarted } = captureContext<string>();
         const resource = createResource({ queryFn: () => subject.asObservable(), onQueryStarted });
 
         const entry = resource.getEntry(undefined, true);
         subject.next("live-1");
-        entry.refresh();
+        entry.invalidate();
 
         expect(captured).toHaveLength(2);
     });

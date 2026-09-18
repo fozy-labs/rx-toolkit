@@ -33,7 +33,7 @@ RxToolkit решает эти проблемы, предоставляя сво�
 
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
-- [**RxQuery**](./docs/query/README.md) - кеш-менеджер
+- [**Query**](./docs/query/README.md) - кеш-менеджер
 - [**Statechart**](./docs/statechart/README.md) - стейт-машины
 - [**React**](./docs/usage/react/README.md) - интеграция с React
 - [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
@@ -101,7 +101,7 @@ const sub = on10click$.subscribe(() => {
 sub.unsubscribe();
 ```
 
-###### RxQuery (Корзина покупок)
+###### Query (Корзина покупок)
 ```tsx
 import {
     createApi,

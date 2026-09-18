@@ -35,9 +35,9 @@ function makeSuccess(): TestMachine<TestArgs, TestData> {
     });
 }
 
-function makeRefreshing(): TestMachine<TestArgs, TestData> {
+function makeInvalidating(): TestMachine<TestArgs, TestData> {
     return new TestMachine({
-        status: "refreshing",
+        status: "invalidating",
         args: ARGS,
         data: DATA,
         error: null,
@@ -47,12 +47,12 @@ function makeRefreshing(): TestMachine<TestArgs, TestData> {
     });
 }
 
-function makeRefreshError(): TestMachine<TestArgs, TestData> {
+function makeInvalidateError(): TestMachine<TestArgs, TestData> {
     return new TestMachine({
-        status: "refresh-error",
+        status: "invalidate-error",
         args: ARGS,
         data: DATA,
-        error: new Error("refresh-boom"),
+        error: new Error("invalidate-boom"),
         updatedAt: 1000,
         patchState: null,
     });
@@ -122,23 +122,23 @@ describe("MachineWithData", () => {
             expect(machine.state.status).toBe("success");
         });
 
-        it("works on refreshing state", () => {
-            const m = makeRefreshing();
+        it("works on invalidating state", () => {
+            const m = makeInvalidating();
             const { machine } = m.createPatch((d) => {
                 d.count = 50;
             });
 
-            expect(machine.state.status).toBe("refreshing");
+            expect(machine.state.status).toBe("invalidating");
             expect(machine.data).toEqual({ name: "Alice", count: 50 });
         });
 
-        it("works on refresh-error state", () => {
-            const m = makeRefreshError();
+        it("works on invalidate-error state", () => {
+            const m = makeInvalidateError();
             const { machine } = m.createPatch((d) => {
                 d.name = "Bob";
             });
 
-            expect(machine.state.status).toBe("refresh-error");
+            expect(machine.state.status).toBe("invalidate-error");
             expect(machine.data).toEqual({ name: "Bob", count: 10 });
         });
 
@@ -239,13 +239,13 @@ describe("MachineWithData", () => {
         });
 
         it("preserves state status after finish", () => {
-            const m = makeRefreshing();
+            const m = makeInvalidating();
             const { machine, handle } = m.createPatch((d) => {
                 d.count = 42;
             });
             handle.commit();
             const finished = machine.finishPatch();
-            expect(finished.state.status).toBe("refreshing");
+            expect(finished.state.status).toBe("invalidating");
         });
     });
 

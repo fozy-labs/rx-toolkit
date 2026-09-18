@@ -1,12 +1,13 @@
 import { first, firstValueFrom } from "rxjs";
 
 import type {
-    Args,
-    ArgsOrVoidOrSkip,
-    IResourceAgent,
-    Keyed,
+    IResourceClutch,
+    TArgsOrKeyed,
+    TArgsOrVoidOrSkip,
+    TClutchSwitchOptions,
+    TKeyed,
     TMachineState,
-    TResourceAgentState,
+    TResourceClutchState,
     TRetrying,
 } from "@/query/types";
 import { Batcher, Signal, type ReadonlySignal } from "@/signals";
@@ -17,35 +18,36 @@ import { NOT_RETRYING, retryingOf } from "../machine/machine-helpers";
 
 import type { Resource } from "./Resource";
 
-// ==================== ResourceAgent ====================
+// ==================== ResourceClutch ====================
 
 interface Tracking<TArgs, TData> {
-    keyed: Keyed<TArgs>;
+    keyed: TKeyed<TArgs>;
     current$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
 }
 
 /** Whether the entry behind `entry$` holds data worth keeping as SWR fallback. */
 function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>): boolean {
     const status = entry$.peek()?.machine$.peek().state.status;
-    return status === "success" || status === "refreshing" || status === "refresh-error";
+    return status === "success" || status === "invalidating" || status === "invalidate-error";
 }
 
 /**
  * Reactive observer for a {@link Resource} with SWR behaviour.
  *
- * The agent tracks a single cache entry at a time, deriving a flat
- * {@link TResourceAgentState} signal. When arguments change via {@link set},
- * the previous entry's data is preserved as stale fallback (SWR).
+ * The clutch tracks a single cache entry at a time, deriving a flat
+ * {@link TResourceClutchState} signal. When arguments change via
+ * {@link ResourceClutch.switch}, the previous entry's data is preserved as
+ * stale fallback (SWR).
  *
  * @template TArgs - Query argument type.
  * @template TData - Query return data type.
  */
-export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceAgent<TArgs, TData, TError> {
+export class ResourceClutch<TArgs, TData, TError = unknown> implements IResourceClutch<TArgs, TData, TError> {
     private readonly _resource;
 
     private readonly _tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
 
-    readonly state$ = Signal.compute<TResourceAgentState<TArgs, TData, TError>>(() => this._deriveState(), {
+    readonly state$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(() => this._deriveState(), {
         isDisabled: true,
     });
 
@@ -62,13 +64,14 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         return this._tracking$.peek()?.keyed.value ?? null;
     }
 
-    // ==================== Public API (IResourceAgent) ====================
+    // ==================== Public API (IResourceClutch) ====================
 
     /**
-     * Start observing with the args previously supplied to {@link set}, and
-     * trigger the query for them. A no-op beyond flipping the started flag when
-     * no args have been set yet (or after `SKIP`); the query then starts from
-     * the next {@link set}.
+     * Start observing with the args previously supplied to
+     * {@link ResourceClutch.switch}, and trigger the query for them. A no-op
+     * beyond flipping the started flag when no args have been set yet (or after
+     * `SKIP`); the query then starts from the next
+     * {@link ResourceClutch.switch}.
      */
     start(): void {
         this._isStarted = true;
@@ -83,17 +86,18 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     }
 
     /**
-     * Set the observed args. Before {@link start} this only records them; once
-     * the agent is started, changing the args also triggers the query for them.
-     * `SKIP` clears the observation and drops the agent back to `idle`.
+     * Engage the clutch on the given args. Before {@link start} this only
+     * records them; once the clutch is started, changing the args also triggers
+     * the query for them. `SKIP` disengages the clutch: it clears the
+     * observation and drops back to `idle`.
      *
-     * `mark` (default `false`) makes an unstarted agent report `pending` (or
-     * `refreshing` over adopted stale data) rather than `idle` while no cache
-     * entry exists yet: the React hooks create an agent during render but only
-     * start it in a layout effect, and marking hides that gap.
+     * `options.markPending` (default `false`) makes an unstarted clutch report
+     * `pending` (or `invalidating` over adopted stale data) rather than `idle`
+     * while no cache entry exists yet: the React hooks create a clutch during
+     * render but only start it in a layout effect, and marking hides that gap.
      */
-    set(args: ArgsOrVoidOrSkip<TArgs>, mark: boolean = false): void {
-        this._isMarked = mark;
+    switch(args: TArgsOrVoidOrSkip<TArgs>, options?: TClutchSwitchOptions): void {
+        this._isMarked = options?.markPending ?? false;
         const tracking = this._tracking$.peek();
 
         if (args === SKIP) {
@@ -104,7 +108,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             return;
         }
 
-        const keyed = this._resource.toKeyed(args as Args<TArgs>);
+        const keyed = this._resource.toKeyed(args as TArgsOrKeyed<TArgs>);
 
         // Early return if same args
         if (tracking && tracking.keyed.key === keyed.key) {
@@ -130,17 +134,25 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     }
 
     /**
-     * Take over `source`'s data as this agent's SWR fallback, exactly as
-     * {@link set} would keep the previous entry when the args change on a
-     * single agent: `source`'s current entry if it holds settled data, else
-     * whatever `source` itself was falling back on.
-     *
-     * For consumers that *replace* the agent instead of mutating it — the
-     * React hooks create one agent per args so render stays pure, and hand the
-     * stale data over from the last committed agent to its successor.
+     * @deprecated Renamed to {@link switch}; the boolean `mark` argument became
+     * `{ markPending: true }`. Will be removed in 0.14.0.
      */
-    adoptPrevious(source: IResourceAgent<TArgs, TData, TError>): void {
-        if (!(source instanceof ResourceAgent)) return;
+    set(args: TArgsOrVoidOrSkip<TArgs>, mark: boolean = false): void {
+        this.switch(args, { markPending: mark });
+    }
+
+    /**
+     * Take over `source`'s data as this clutch's SWR fallback, exactly as
+     * {@link ResourceClutch.switch} would keep the previous entry when the args
+     * change on a single clutch: `source`'s current entry if it holds settled
+     * data, else whatever `source` itself was falling back on.
+     *
+     * For consumers that *replace* the clutch instead of mutating it — the
+     * React hooks create one clutch per args so render stays pure, and hand the
+     * stale data over from the last committed clutch to its successor.
+     */
+    adoptPrevious(source: IResourceClutch<TArgs, TData, TError>): void {
+        if (!(source instanceof ResourceClutch)) return;
 
         const tracking = source._tracking$.peek() as Tracking<TArgs, TData> | null;
 
@@ -152,14 +164,19 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         this._tracking$.peek()?.current$.peek()?.retry();
     };
 
-    /** Force a background refresh of the current entry (SWR). */
-    refresh = () => {
-        this._tracking$.peek()?.current$.peek()?.refresh();
+    /** Force a background invalidation of the current entry (SWR). */
+    invalidate = () => {
+        this._tracking$.peek()?.current$.peek()?.invalidate();
+    };
+
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
+    refresh = (): void => {
+        this.invalidate();
     };
 
     /**
-     * Promise resolving once the agent leaves the initial-loading phase (see
-     * {@link IResourceAgent.whenSettled}).
+     * Promise resolving once the clutch leaves the initial-loading phase (see
+     * {@link IResourceClutch.whenSettled}).
      *
      * Consumed by `useSuspenseResource`: a suspended render aborts its effects,
      * so this promise — created during render — is the only thing that can wake
@@ -180,7 +197,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             return Promise.resolve();
         }
 
-        // Never rejects: a settle resolves it; teardown (agent disposed before
+        // Never rejects: a settle resolves it; teardown (clutch disposed before
         // settling — the source completes → EmptyError) merely clears the cache so a
         // later loading phase can suspend again. The instance is cached so repeated
         // renders throw the same promise.
@@ -199,11 +216,11 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     // ==================== Private ====================
 
     /** Whether a derived state represents anything other than initial loading. */
-    private _isSettled(state: TResourceAgentState<TArgs, TData, TError>): boolean {
+    private _isSettled(state: TResourceClutchState<TArgs, TData, TError>): boolean {
         return state.status !== "idle" && state.status !== "pending";
     }
 
-    private _deriveState(): TResourceAgentState<TArgs, TData, TError> {
+    private _deriveState(): TResourceClutchState<TArgs, TData, TError> {
         const tracking = this._tracking$();
         if (!tracking) return this._idleState;
 
@@ -214,7 +231,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 // Entry creation has side effects (creates a cache entry + starts a
                 // fetch), so it cannot run synchronously inside this computed. Defer it —
                 // but on the microtask re-check that `tracking` is still the live one:
-                // args may have advanced, or the agent may have been stopped/cleared,
+                // args may have advanced, or the clutch may have been stopped/cleared,
                 // within the same tick. Creating the captured key then would spawn a
                 // phantom cache entry + fetch for args nobody tracks anymore.
                 queueMicrotask(() => {
@@ -244,7 +261,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         }
     }
 
-    private _deriveNotIdleState(machineState: TMachineState<TArgs, TData>): TResourceAgentState<TArgs, TData, TError> {
+    private _deriveNotIdleState(machineState: TMachineState<TArgs, TData>): TResourceClutchState<TArgs, TData, TError> {
         // Each machine status maps to one state variant, constructed per branch so
         // the compiler verifies every field against the discriminated union.
         switch (machineState.status) {
@@ -271,6 +288,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isSuccess: true,
                     isError: false,
                     retry: this.retry,
+                    invalidate: this.invalidate,
                     refresh: this.refresh,
                 };
             }
@@ -296,13 +314,14 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isSuccess: false,
                     isError: true,
                     retry: this.retry,
+                    invalidate: this.invalidate,
                     refresh: this.refresh,
                 };
             }
 
-            case "refreshing": {
+            case "invalidating": {
                 return {
-                    status: "refreshing",
+                    status: "invalidating",
                     data: machineState.data,
                     args: machineState.args,
                     dataArgs: machineState.args,
@@ -314,14 +333,15 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isSuccess: false,
                     isError: false,
                     retry: this.retry,
+                    invalidate: this.invalidate,
                     refresh: this.refresh,
                     ...retryingOf<TArgs, TData, TError>(machineState),
                 };
             }
 
-            case "refresh-error": {
+            case "invalidate-error": {
                 return {
-                    status: "refresh-error",
+                    status: "invalidate-error",
                     data: machineState.data,
                     // Sound per the mapError contract (see the error branch above).
                     error: machineState.error as TError,
@@ -336,6 +356,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                     isSuccess: false,
                     isError: true,
                     retry: this.retry,
+                    invalidate: this.invalidate,
                     refresh: this.refresh,
                 };
             }
@@ -357,17 +378,17 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
     }
 
     /**
-     * Initial-loading state for `args`: `refreshing` (with `isSwitching`) over
+     * Initial-loading state for `args`: `invalidating` (with `isSwitching`) over
      * the stale data of the previous entry when there is any (SWR), plain
      * `pending` otherwise. `retrying` carries the retry bookkeeping of the
      * underlying machine state (a `retry()` of a failed initial load).
      */
-    private _createLoadingState(args: TArgs, retrying: TRetrying<TError>): TResourceAgentState<TArgs, TData, TError> {
+    private _createLoadingState(args: TArgs, retrying: TRetrying<TError>): TResourceClutchState<TArgs, TData, TError> {
         const previous = this._previous();
 
         if (previous) {
             return {
-                status: "refreshing",
+                status: "invalidating",
                 data: previous.data,
                 args,
                 dataArgs: previous.args,
@@ -379,6 +400,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
                 isSuccess: false,
                 isError: false,
                 retry: this.retry,
+                invalidate: this.invalidate,
                 refresh: this.refresh,
                 ...retrying,
             };
@@ -397,12 +419,13 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
             isSuccess: false,
             isError: false,
             retry: this.retry,
+            invalidate: this.invalidate,
             refresh: this.refresh,
             ...retrying,
         };
     }
 
-    private _idleState: TResourceAgentState<TArgs, TData, TError> = {
+    private _idleState: TResourceClutchState<TArgs, TData, TError> = {
         status: "idle",
         data: null,
         error: null,
@@ -417,6 +440,7 @@ export class ResourceAgent<TArgs, TData, TError = unknown> implements IResourceA
         isSuccess: false,
         isError: false,
         retry: this.retry,
+        invalidate: this.invalidate,
         refresh: this.refresh,
     };
 }

@@ -9,10 +9,10 @@ import { MachineBase } from "./MachineBase";
 export type TPatchCreateResult<TMachine> = { machine: TMachine; handle: IPatchHandle };
 
 /**
- * Abstract intermediate base for data-bearing machine states (success, refreshing, refresh-error).
+ * Abstract intermediate base for data-bearing machine states (success, invalidating, invalidate-error).
  *
  * Carries `data`, `updatedAt`, `patchState` and all patch methods.
- * Concrete subtypes (MachineSuccess, MachineRefreshing, MachineRefreshError)
+ * Concrete subtypes (MachineSuccess, MachineInvalidating, MachineInvalidateError)
  * extend this and implement `withState` to preserve their identity on transitions.
  */
 export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, TData> {

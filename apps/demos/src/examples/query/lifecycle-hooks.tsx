@@ -118,7 +118,7 @@ export function Base() {
 
     const handleInvalidate = () => {
         logBus.push('action', 'invalidate() — запускает refetch → onQueryStarted', 'info');
-        dataResource.refresh();
+        dataResource.invalidate();
     };
 
     const handleResetAll = () => {
@@ -162,7 +162,7 @@ export function Base() {
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
                             <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                             <p className="text-xs text-warning-500 mt-1">
-                                Данные остаются доступны — ошибка произошла при рефреше (SWR-семантика).
+                                Данные остаются доступны — ошибка произошла при инвалидации (SWR-семантика).
                             </p>
                         </div>
                     )}

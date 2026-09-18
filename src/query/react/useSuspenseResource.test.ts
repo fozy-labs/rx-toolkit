@@ -113,7 +113,7 @@ describe("useSuspenseResource", () => {
         expect(await screen.findByTestId("boundary")).toBeTruthy();
     });
 
-    it("does not suspend on a background refresh (SWR keeps stale data)", async () => {
+    it("does not suspend on a background invalidation (SWR keeps stale data)", async () => {
         const deferreds = [defer<{ v: number }>(), defer<{ v: number }>()];
         let call = 0;
         const api = createApi({ plugins: [reactHooksPlugin()] });
@@ -121,11 +121,11 @@ describe("useSuspenseResource", () => {
             queryFn: () => deferreds[call++]!.promise,
         });
 
-        let latestRefresh: () => void = () => {};
+        let latestInvalidate: () => void = () => {};
 
         function View() {
             const state = resource.useSuspenseResource();
-            latestRefresh = state.refresh;
+            latestInvalidate = state.invalidate;
             return h("span", { "data-testid": "v" }, `${state.data.v}:${state.isRefreshing}`);
         }
 
@@ -138,9 +138,9 @@ describe("useSuspenseResource", () => {
 
         expect((await screen.findByTestId("v")).textContent).toBe("1:false");
 
-        // Trigger a background refresh — must NOT re-show the Suspense fallback.
+        // Trigger a background invalidation — must NOT re-show the Suspense fallback.
         await act(async () => {
-            latestRefresh();
+            latestInvalidate();
             await flushMicrotasks();
         });
 
@@ -217,7 +217,7 @@ describe("useSuspenseResource", () => {
         });
 
         expect(screen.getByTestId("name").textContent).toBe("Grace");
-        // A render-phase mutation of a shared agent makes this ping-pong between
+        // A render-phase mutation of a shared clutch makes this ping-pong between
         // the transition lane (id=2) and the committed tree (id=1) instead.
         expect(renders).toBeLessThanOrEqual(4);
 
@@ -225,18 +225,18 @@ describe("useSuspenseResource", () => {
     });
 });
 
-describe("ResourceAgent.whenSettled", () => {
+describe("ResourceClutch.whenSettled", () => {
     it("resolves once data becomes available and is reusable afterwards", async () => {
         const d = defer<number>();
         const api = createApi();
         const resource = api.createResource<void, number>({ queryFn: () => d.promise });
 
-        const agent = resource.createAgent();
-        agent.set(undefined, true);
-        agent.start();
+        const clutch = resource.createClutch();
+        clutch.switch(undefined, { markPending: true });
+        clutch.start();
 
         let settled = false;
-        void agent.whenSettled().then(() => {
+        void clutch.whenSettled().then(() => {
             settled = true;
         });
 
@@ -249,7 +249,7 @@ describe("ResourceAgent.whenSettled", () => {
 
         expect(settled).toBe(true);
         // Already settled → resolves immediately on subsequent calls.
-        await expect(agent.whenSettled()).resolves.toBeUndefined();
+        await expect(clutch.whenSettled()).resolves.toBeUndefined();
     });
 
     it("resolves (does not reject) when the query fails", async () => {
@@ -257,11 +257,11 @@ describe("ResourceAgent.whenSettled", () => {
         const api = createApi();
         const resource = api.createResource<void, number>({ queryFn: () => d.promise });
 
-        const agent = resource.createAgent();
-        agent.set(undefined, true);
-        agent.start();
+        const clutch = resource.createClutch();
+        clutch.switch(undefined, { markPending: true });
+        clutch.start();
 
-        const settled = agent.whenSettled();
+        const settled = clutch.whenSettled();
 
         d.reject(new Error("boom"));
         await flushMicrotasks();

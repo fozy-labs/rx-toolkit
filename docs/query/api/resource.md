@@ -24,8 +24,8 @@ const usersResource = api.createResource({
 | `key`                | `string`                                                    | —                 | Префикс для ключей кэша и devtools.                                 |
 | `retentionTime`      | `number \| false`                                           | `60_000`          | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
 | `serializeArgs`      | `(args: TArgs) => string`                                   | `stableStringify` | Сериализация аргументов в кэш-ключ.                                 |
-| `onCacheEntryAdded`  | `(args, ctx) => void`                                       | —                 | Вызывается при создании кэш-записи. См. [lifecycle hooks][usage-lifecycle]. |
-| `onQueryStarted`     | `(args, ctx) => void \| Promise<void>`                      | —                 | Вызывается при каждом запуске `queryFn`. См. [lifecycle hooks][usage-lifecycle]. |
+| `onCacheEntryAdded`  | `TLifecycleHookOption<(args, ctx) => void>`                 | —                 | Вызывается при создании кэш-записи. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
+| `onQueryStarted`     | `TLifecycleHookOption<(args, ctx) => void \| Promise<void>>` | —                 | Вызывается при каждом запуске `queryFn`. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
 | `snapshotValidTime`  | `number \| false`                                           | наследуется от API | Время (мс) валидности гидрированных из снимка данных (в [API][api-readme] по умолчанию `false`). См. [снимок][usage-snapshot]. |
 | `snapshotable`       | `boolean`                                                   | `true`            | При `false` ресурс не попадает в `getSnapshot()` и не гидрируется из `initialSnapshot` (даже с заданным `key`). Для производных ресурсов, чьи данные принадлежат другому ресурсу; [проекционные ресурсы][usage-projection] выставляют это автоматически. |
 | `sync`               | `boolean`                                                   | `false`           | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. Игнорируется, если `syncDriver` не задан в API. |
@@ -44,19 +44,19 @@ const usersResource = api.createResource({
 
 | Метод          | Параметры                                     | Возвращаемое значение     | Описание                                                                                                                             |
 |----------------|-----------------------------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `trigger`        | `args: Args<TArgs>, doForce = false`          | `void`                    | **Deprecated.** Используйте `prefetch`: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Будет удалён в одном из следующих релизов. |
-| `refresh`      | `args: Args<TArgs>`                           | `void`                    | Помечает запись как устаревшую и запускает фоновый перезапрос (SWR).                                                                 |
-| `getEntry`     | `args: ArgsOrVoid<TArgs>, doInitiate = false`       | `IQueryCacheEntry \| null` | Синхронно возвращает кэш-запись. При `doInitiate = true` создаёт отсутствующую, и тип сужается до `IQueryCacheEntry`.                  |
-| `getState`     | `args: ArgsOrVoid<TArgs>`                     | `IResourceLiteState<TArgs, TData, TError>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
-| `getEntry$`    | `args: ArgsOrVoid<TArgs>, doInitiate = false` | `ReadonlySignal<IQueryCacheEntry \| null>` | Реактивный аналог `getEntry`: возвращает **сигнал**, зависимость возникает при его чтении в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
+| `trigger`        | `args: TArgsOrKeyed<TArgs>, doForce = false`          | `void`                    | **Deprecated.** Используйте `prefetch`: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Будет удалён в одном из следующих релизов. |
+| `invalidate`   | `args: TArgsOrKeyed<TArgs>`                           | `void`                    | Помечает запись как устаревшую и перезапрашивает её в фоне (SWR).                                                                    |
+| `getEntry`     | `args: TArgsOrVoid<TArgs>, doInitiate = false`       | `IQueryCacheEntry \| null` | Синхронно возвращает кэш-запись. При `doInitiate = true` создаёт отсутствующую, и тип сужается до `IQueryCacheEntry`.                  |
+| `getState`     | `args: TArgsOrVoid<TArgs>`                     | `TResourceEntryState<TArgs, TData, TError>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
+| `getEntry$`    | `args: TArgsOrVoid<TArgs>, doInitiate = false` | `ReadonlySignal<IQueryCacheEntry \| null>` | Реактивный аналог `getEntry`: возвращает **сигнал**, зависимость возникает при его чтении в реактивном контексте. При `doInitiate = true` чтение сигнала создаёт и запускает запись, если её нет (лениво, при первом чтении), поэтому сигнал всегда отдаёт запись. |
 | `getEntries`   | —                                             | `IterableIterator<IQueryCacheEntry>` | Итератор по всем живым кэш-записям ресурса.                                                                     |
-| `createAgent`  | —                                             | `IResourceAgent<TArgs, TData, TError>` | Создаёт реактивный [агент][agent] — наблюдатель за ресурсом с SWR-поведением.                                                        |
-| `serialize`    | `args: Args<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
-| `toKeyed`      | `args: Args<TArgs>`                           | `Keyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
-| `pack`         | `args: Args<TArgs>`                           | `TPackedResource<TArgs, TData, TError>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [pack][pack]. |
-| `ensure`       | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Отдаёт кэшированные данные мгновенно, если они есть; иначе запускает запрос и ждёт. Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
-| `fetch`        | `args: Args<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
-| `prefetch`     | `args: Args<TArgs>, options?: { force? }`     | `Promise<void>`          | Fire-and-forget прогрев кэша: создаёт запись синхронно, переиспользует кэш (`force: true` — форсит свежие данные), никогда не реджектит, не abort-aware. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `createClutch` | —                                             | `IResourceClutch<TArgs, TData, TError>` | Создаёт реактивное [сцепление][clutch] — наблюдатель за ресурсом с SWR-поведением.                                                   |
+| `serialize`    | `args: TArgsOrKeyed<TArgs>`                           | `string`                  | Возвращает строковый ключ кэша для заданных аргументов.                                                                              |
+| `toKeyed`      | `args: TArgsOrKeyed<TArgs>`                           | `TKeyed<TArgs>`            | Оборачивает аргументы в пару `{ value, key }` — для передачи в методы, минуя повторную сериализацию.                                 |
+| `bind`         | `args: TArgsOrKeyed<TArgs>`                           | `TBoundResource<TArgs, TData, TError>` | Связывает ресурс с аргументами в инертный дескриптор `{ kind: "resource", resource, args }`. Ничего не запускает — потребитель отдаёт дескриптор обратно библиотеке. См. [bind][bind]. |
+| `ensure`       | `args: TArgsOrKeyed<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Отдаёт кэшированные данные мгновенно, если они есть; иначе запускает запрос и ждёт. Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `fetch`        | `args: TArgsOrKeyed<TArgs>, options?: { signal? }`    | `Promise<TData>`         | Всегда возвращает результат свежего запроса (перезапрашивает кэш, дедуплицирует in-flight). Реджектит на ошибке/отмене. См. [ensure / fetch / prefetch][fetch-methods]. |
+| `prefetch`     | `args: TArgsOrKeyed<TArgs>, options?: { force? }`     | `Promise<void>`          | Fire-and-forget прогрев кэша: создаёт запись синхронно, переиспользует кэш (`force: true` — форсит свежие данные), никогда не реджектит, не abort-aware. См. [ensure / fetch / prefetch][fetch-methods]. |
 
 ### Только на классе `Resource`
 
@@ -71,9 +71,9 @@ const usersResource = api.createResource({
 
 | Метод          | Параметры                                      | Возвращаемое значение   | Описание                                                                       |
 |----------------|------------------------------------------------|-------------------------|--------------------------------------------------------------------------------|
-| `useResource`  | `args: ArgsOrVoidOrSkip<TArgs>` | `TResourceAgentState<TArgs, TData, TError>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
-| `useSuspenseResource` | `args: ArgsOrVoid<TArgs>` | `TSuspenseResourceState<TArgs, TData, TError>` | React-хук с Suspense: первичная загрузка бросает промис, первичная ошибка без fallback-данных — в Error Boundary; `data` всегда не `null`. `SKIP` не поддерживается. |
-| `useInfiniteResource` | `initialArgs: ArgsOrVoidOrSkip<TArgs>` | `TInfiniteResourceState<TArgs, TData, TError>` | React-хук бесконечной подгрузки. **Только на [проекционных ресурсах][usage-projection]** (обычным ресурсам не добавляется). Требует `reactHooksPlugin()`. |
+| `useResource`  | `args: TArgsOrVoidOrSkip<TArgs>` | `TResourceClutchState<TArgs, TData, TError>` | React-хук. Требует `reactHooksPlugin()`. Подписывается на данные.              |
+| `useSuspenseResource` | `args: TArgsOrVoid<TArgs>` | `TSuspenseResourceState<TArgs, TData, TError>` | React-хук с Suspense: первичная загрузка бросает промис, первичная ошибка без fallback-данных — в Error Boundary; `data` всегда не `null`. `SKIP` не поддерживается. |
+| `useInfiniteResource` | `initialArgs: TArgsOrVoidOrSkip<TArgs>` | `TInfiniteResourceState<TArgs, TData, TError>` | React-хук бесконечной подгрузки. **Только на [проекционных ресурсах][usage-projection]** (обычным ресурсам не добавляется). Требует `reactHooksPlugin()`. |
 
 
 ## Что запускает запрос
@@ -84,24 +84,24 @@ const usersResource = api.createResource({
 
 | Метод                      | Когда запускает запрос                                                                                  | Форсит свежие?                | Возврат                   | Abort-aware | Ошибка       |
 |----------------------------|--------------------------------------------------------------------------------------------------------|-------------------------------|---------------------------|-------------|--------------|
-| `trigger(args, doForce?)` *(deprecated)* | холодная → создаёт и запускает; запись есть и `doForce = true` → фоновый `refresh`                      | только при `doForce = true`   | `void`                    | нет         | —            |
+| `trigger(args, doForce?)` *(deprecated)* | холодная → создаёт и запускает; запись есть и `doForce = true` → фоновая `invalidate`                   | только при `doForce = true`   | `void`                    | нет         | —            |
 | `ensure(args, opt?)`       | холодная → создаёт; `error` → ретрай                                                                    | нет (кэш/устаревшие отдаёт сразу) | `Promise<TData>`      | да          | реджект      |
-| `fetch(args, opt?)`        | холодная → создаёт; `success`/`refresh-error` → `refresh`; `error` → ретрай; in-flight → ждёт          | да                            | `Promise<TData>`          | да          | реджект      |
+| `fetch(args, opt?)`        | холодная → создаёт; `success`/`invalidate-error` → `invalidate`; `error` → ретрай; in-flight → ждёт    | да                            | `Promise<TData>`          | да          | реджект      |
 | `prefetch(args, opt?)`     | холодная → создаёт; `error` → ретрай; с `force: true` — как `fetch`                                     | только при `force: true`      | `Promise<void>`           | нет         | проглатывает |
 | `getEntry(args, true)`     | холодная → создаёт и запускает                                                                          | нет                           | `IQueryCacheEntry \| null` | нет         | —            |
-| `refresh(args)`            | **только** существующая (`success`/`refresh-error`) → фоновый перезапрос; холодную **не создаёт**       | да (фоновый SWR)              | `void`                    | нет         | —            |
+| `invalidate(args)`         | **только** существующая (`success`/`invalidate-error`) → фоновый перезапрос; холодную **не создаёт**    | да (фоновый SWR)              | `void`                    | нет         | —            |
 
 Тонкости, которые легко перепутать:
 
 - `prefetch(args)` без `force` **не перезапрашивает** уже закэшированные данные — лишь гарантирует, что запись существует и запущена (сценарий «запустить и забыть»). Запись при этом создаётся синхронно, до разрешения промиса.
-- `refresh(args)` ничего **не создаёт**: на отсутствующей записи это no-op (в отличие от `fetch` и `prefetch(args, { force: true })`, которые холодную создадут).
+- `invalidate(args)` ничего **не создаёт**: на отсутствующей записи это no-op (в отличие от `fetch` и `prefetch(args, { force: true })`, которые холодную создадут).
 - `getEntry(args, true)` — единственный геттер, создающий запись при отсутствии. Без флага (по умолчанию) — чистый lookup.
 
 Детали `ensure`/`fetch`/`prefetch` (отмена, окно retention) — в разделе [ensure / fetch / prefetch][fetch-methods].
 
 ### Реактивный путь
 
-`useResource(args)` и агент (`createAgent`) при подписке сами создают и запускают запись (через внутренний `_getOrCreate`), инициируя холодный запрос при монтировании. Агент дополнительно отдаёт `retry()` / `refresh()`, делегирующие в одноимённые методы записи.
+`useResource(args)` и сцепление (`createClutch`) при подписке сами создают и запускают запись (через внутренний `_getOrCreate`), инициируя холодный запрос при монтировании. Сцепление дополнительно отдаёт `retry()` / `invalidate()`, делегирующие в одноимённые методы записи.
 
 `getEntry$(args, true)` инициирует запрос **лениво при чтении сигнала**: первое чтение создаёт и запускает отсутствующую запись (и пересоздаёт её после удаления), поэтому само чтение имеет побочный эффект — стартует `queryFn` и вызывает хуки. `getEntry$(args)` / `getEntry$(args, false)` остаётся чистым наблюдателем (см. ниже).
 
@@ -109,40 +109,40 @@ const usersResource = api.createResource({
 
 Если на руках есть `QueryCacheEntry` (из `getEntry` / `getEntries`), `queryFn` перезапускают:
 
-- `entry.refresh()` — из `success` / `refresh-error` (фоновый SWR-перезапуск, `error` сбрасывается);
-- `entry.retry()` — из `error` / `refresh-error` (повтор после ошибки: загрузка помечена `isRetrying`, ошибка остаётся в `error` до завершения).
+- `entry.invalidate()` — из `success` / `invalidate-error` (фоновый SWR-перезапуск, `error` сбрасывается);
+- `entry.retry()` — из `error` / `invalidate-error` (повтор после ошибки: загрузка помечена `isRetrying`, ошибка остаётся в `error` до завершения).
 
 ### Что НЕ запускает запрос
 
 - `getState(args)` — read-only снимок состояния (внутри `getEntry(args, false)`).
 - `getEntry(args)` / `getEntry(args, false)` — lookup без создания.
 - `getEntry$(args)` / `getEntry$(args, false)` — реактивный **read-only**: чтение не меняет кэш и отдаёт `null`, пока записи нет. (`getEntry$(args, true)` — наоборот, инициирует лениво при чтении; см. «Реактивный путь».)
-- `serialize`, `toKeyed`, `getEntries`, `pack` — утилиты и упаковка (а также `reset` на классе).
-- Гидрация снапшотом (`createApi({ initialSnapshot })`) — создаёт запись и `queryFn` **не** запускает, пока данные считаются валидными. Исключение — записи, помеченные устаревшими: по `snapshotValidTime` либо со статусом `refresh-error` (такие считаются устаревшими всегда). Они гидрируются в статусе `refreshing`, и перезапрос стартует сразу.
+- `serialize`, `toKeyed`, `getEntries`, `bind` — утилиты и связывание (а также `reset` на классе).
+- Гидрация снапшотом (`createApi({ initialSnapshot })`) — создаёт запись и `queryFn` **не** запускает, пока данные считаются валидными. Исключение — записи, помеченные устаревшими: по `snapshotValidTime` либо со статусом `invalidate-error` (такие считаются устаревшими всегда). Они гидрируются в статусе `invalidating`, и перезапрос стартует сразу.
 
 
 ## getState
 
-`getState(args)` — синхронный read-only снимок `IResourceLiteState` без подписки на изменения (внутри `getEntry(args, false)`, кэш **не создаёт**). Отдаёт `status`, `data`, `error`, `args` и набор булевых флагов.
+`getState(args)` — синхронный read-only снимок `TResourceEntryState` без подписки на изменения (внутри `getEntry(args, false)`, кэш **не создаёт**). Отдаёт `status`, `data`, `error`, `args` и набор булевых флагов.
 
-Флаги совпадают с состоянием агента — семантику по каждому статусу см. в [таблице статусов агента][agent-status]. Единственное отличие: статус `idle` `getState` возвращает, когда записи в кэше ещё/уже нет (агент — при `SKIP`).
+Флаги совпадают с состоянием сцепления — семантику по каждому статусу см. в [таблице статусов сцепления][clutch-status]. Единственное отличие: статус `idle` `getState` возвращает, когда записи в кэше ещё/уже нет (сцепление — при `SKIP`).
 
-В частности, в `refresh-error` (успешная запись, чей фоновый refresh упал) флаги: `isRefreshError` и `isError` — `true`, `isLoading` — `false`; устаревшие данные остаются в `data`.
+В частности, в `invalidate-error` (успешная запись, чей фоновый перезапрос упал) флаги: `isRefreshError` и `isError` — `true`, `isLoading` — `false`; устаревшие данные остаются в `data`.
 
 
-## Pack
+## Bind
 
-`pack` связывает ресурс с аргументами в инертный дескриптор — он ничего не запускает и не трогает кэш. Это удобно, когда потребитель хочет вернуть библиотеке описание «что прочитать и с какими аргументами», не выполняя запрос сам:
+`bind` связывает ресурс с аргументами в инертный дескриптор — он ничего не запускает и не трогает кэш. Это удобно, когда потребитель хочет вернуть библиотеке описание «что прочитать и с какими аргументами», не выполняя запрос сам:
 
 ```typescript
-const packed = getUserById.pack({ userId: 1 });
+const bound = getUserById.bind({ userId: 1 });
 // → { kind: "resource", resource: getUserById, args: { userId: 1 } }
 
 // Позже библиотека/потребитель разворачивает дескриптор:
-void packed.resource.prefetch(packed.args);
+void bound.resource.prefetch(bound.args);
 ```
 
-Дескриптор дискриминируется полем `kind`, что позволяет в одном месте обрабатывать и ресурсы, и команды (см. [`TPacked`][command-pack] в API команды).
+Дескриптор дискриминируется полем `kind`, что позволяет в одном месте обрабатывать и ресурсы, и команды (см. [`TBound`][command-bind] в API команды).
 
 
 ## ensure / fetch / prefetch
@@ -208,21 +208,21 @@ void usersResource.prefetch({ page: 1 });
 - [Использование ресурса][usage] — примеры, паттерны, состояния
 - [Команда — API][command-api] — API мутаций
 - [Машина состояний запроса][machine] — переходы между статусами
-- [Агент][agent] — реактивный наблюдатель
-- [Агент ресурса — API][agent-api] — полная таблица методов и статусов агента
-- [Типизация аргументов (Keyed)][keyed] — пайплайн аргументов: Args → Keyed → key
+- [Сцепление][clutch] — реактивный наблюдатель
+- [Сцепление ресурса — API][clutch-api] — полная таблица методов и статусов сцепления
+- [Типизация аргументов (Keyed)][keyed] — пайплайн аргументов: args → keyedArgs → key
 
 
 [usage]: ../usage/resource.md
 [usage-lifecycle]: ../usage/lifecycle.md
-[pack]: #pack
+[bind]: #bind
 [fetch-methods]: #ensure--fetch--prefetch
-[command-pack]: ./command.md#pack
+[command-bind]: ./command.md#bind
 [command-api]: ./command.md
 [machine]: ../concepts/machine.md
-[agent]: ../concepts/agent.md
-[agent-api]: ./resource-agent.md
-[agent-status]: ./resource-agent.md#варианты-состояния
+[clutch]: ../concepts/clutch.md
+[clutch-api]: ./resource-clutch.md
+[clutch-status]: ./resource-clutch.md#варианты-состояния
 [api-readme]: ./README.md
 [usage-broadcast]: ../usage/broadcast.md
 [usage-snapshot]: ../usage/snapshot.md

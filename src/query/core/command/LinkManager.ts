@@ -8,7 +8,7 @@ import type { IPatchHandle, TLinkConfig } from "@/query/types";
  * Responsible for:
  * - Applying optimistic patches before the mutation runs.
  * - Applying update patches after successful mutation.
- * - Invalidating / refreshing linked resources.
+ * - Invalidating linked resources.
  *
  * @template TArgs - The argument type of the owning Command.
  * @template TData - The data type returned by the owning Command.
@@ -67,11 +67,11 @@ export class LinkManager<TArgs, TData> {
         for (const link of this._links) {
             if (!link.invalidate) continue;
 
-            // Isolated per link: one throwing forwardArgs()/refresh() must not
+            // Isolated per link: one throwing forwardArgs()/invalidate() must not
             // skip invalidation of the remaining links.
             this._runIsolated(() => {
                 const forwardedArgs = link.forwardArgs(args);
-                link.resource.refresh(forwardedArgs);
+                link.resource.invalidate(forwardedArgs);
             });
         }
     }

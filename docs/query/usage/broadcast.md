@@ -93,8 +93,8 @@ const markRead = api.createCommand({
 | `success`                   | `data`         |
 | `success` (с патчами)       | `originalData` |
 | `error`                     | —              |
-| `refreshing`                | —              |
-| `refresh-error`             | —              |
+| `invalidating`              | —              |
+| `invalidate-error`          | —              |
 
 
 ## Кастомный syncDriver

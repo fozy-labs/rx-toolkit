@@ -95,21 +95,21 @@ function UserProfile({ userId }: { userId: string | null }) {
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `status` | `TAgentStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'refreshing'` · `'refresh-error'` |
-| `data` | `TData \| null` | Данные последнего успешного ответа. Сохраняются при `refreshing`. |
+| `status` | `TClutchStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'invalidating'` · `'invalidate-error'` |
+| `data` | `TData \| null` | Данные последнего успешного ответа. Сохраняются при `invalidating`. |
 | `error` | `TError \| null` | Ошибка последнего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
 | `isLoading` | `boolean` | `true` при любом незавершённом запросе. |
 | `isInitialLoading` | `boolean` | `true` только при первой загрузке (данных ещё нет). |
 | `isSuccess` | `boolean` | `true` когда данные получены. |
 | `isError` | `boolean` | `true` при ошибке. |
-| `isRefreshing` | `boolean` | `true` при фоновом обновлении (SWR). |
-| `isSwitching` | `boolean` | `true`, если под `refreshing` грузятся новые аргументы, а `data` — от предыдущих. |
+| `isRefreshing` | `boolean` | `true` при фоновом перезапросе после инвалидации (SWR). |
+| `isSwitching` | `boolean` | `true`, если под `invalidating` грузятся новые аргументы, а `data` — от предыдущих. |
 | `isRetrying` | `boolean` | `true`, если загрузка запущена через `retry()` после ошибки; `error` при этом хранит повторяемую ошибку. |
-| `isRefreshError` | `boolean` | `true` при ошибке фонового обновления. |
+| `isRefreshError` | `boolean` | `true` при ошибке фонового перезапроса. |
 | `args` | `TArgs \| null` | Аргументы текущего наблюдения. |
 | `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Отличаются от `args` только при SWR-fallback после смены аргументов. |
 
-Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей. `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` (без `| null`), `isRefreshError` — что устаревшие `data` сохранены. Полная таблица вариантов — в [API агента ресурса][api-res-agent].
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей. `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` (без `| null`), `isRefreshError` — что устаревшие `data` сохранены. Полная таблица вариантов — в [API сцепления ресурса][api-res-clutch].
 
 ```tsx
 const state = usersResource.useResource({ page });
@@ -122,9 +122,9 @@ if (state.isSuccess) {
 }
 ```
 
-### Фоновое обновление (refresh)
+### Инвалидация (invalidate)
 
-Вызов `refresh(args)` или `prefetch(args, { force: true })` обновляет данные **без потери текущего отображения**. Пользователь продолжает видеть прежние данные, пока в фоне выполняется новый запрос. Когда ответ приходит — данные обновляются на месте; если запрос падает с ошибкой, прежние данные сохраняются, а статус переходит в `refresh-error`.
+Вызов `invalidate(args)` или `prefetch(args, { force: true })` обновляет данные **без потери текущего отображения**. Пользователь продолжает видеть прежние данные, пока в фоне выполняется новый запрос. Когда ответ приходит — данные обновляются на месте; если запрос падает с ошибкой, прежние данные сохраняются, а статус переходит в `invalidate-error`.
 
 ### Плавная смена аргументов (SWR)
 
@@ -152,13 +152,13 @@ const fresh = await usersResource.fetch({ page: 1 });
 
 Прежний метод `trigger(args, doForce?)` объявлен **deprecated**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал.
 
-### refresh
+### invalidate
 
 ```typescript
-usersResource.refresh({ page: 1 });
+usersResource.invalidate({ page: 1 });
 ```
 
-Запускает фоновый перезапрос для существующей кэш-записи — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает только из статусов `success` и `refresh-error`; на `pending` / `error` — предупреждение в консоль и no-op (после ошибки нужен `retry`). Из `refresh-error` доступны оба: `refresh()` — обычное обновление, `retry()` — повтор с `isRetrying` и сохранённой ошибкой (см. [состояния агента][api-res-agent]).
+Помечает существующую кэш-запись устаревшей и запускает фоновый перезапрос — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает только из статусов `success` и `invalidate-error`; на `pending` / `error` — предупреждение в консоль и no-op (после ошибки нужен `retry`). Из `invalidate-error` доступны оба: `invalidate()` — обычная инвалидация, `retry()` — повтор с `isRetrying` и сохранённой ошибкой (см. [состояния сцепления][api-res-clutch]).
 
 
 ### getEntry
@@ -206,31 +206,31 @@ if (state.isSuccess) {
 }
 ```
 
-### createAgent
+### createClutch
 
-Агент — реактивный наблюдатель ресурса.
-Он отслеживает текущую и при необходимости предыдущую запись кэша,
+Сцепление — реактивный наблюдатель ресурса.
+Оно отслеживает текущую и при необходимости предыдущую запись кэша,
 объединяя их в плоский вычисляемый сигнал.
-Агент является строительным блоком для React-хука `useResource` и не требует явного уничтожения — внутренние сигналы деактивируются при потере подписчиков.
-Полная таблица методов и статусов — в [API агента ресурса][api-res-agent].
+Сцепление является строительным блоком для React-хука `useResource` и не требует явного уничтожения — внутренние сигналы деактивируются при потере подписчиков.
+Полная таблица методов и статусов — в [API сцепления ресурса][api-res-clutch].
 
 ```ts
-const agent = usersResource.createAgent();
-agent.set({ page: 1 });
-agent.start();
-// agent.state$() → { status: "pending", data: null, isInitialLoading: true, ... }
+const clutch = usersResource.createClutch();
+clutch.switch({ page: 1 });
+clutch.start();
+// clutch.state$() → { status: "pending", data: null, isInitialLoading: true, ... }
 ```
 
-При смене аргументов через `set(newArgs)` агент реализует SWR-поведение:
-    если предыдущая запись **уже содержит данные** (статус `success`, `refreshing` или `refresh-error`),
-    они сохраняются в `data`, а `status` переключается на `"refreshing"` до получения нового ответа.
+При смене аргументов через `switch(newArgs)` сцепление реализует SWR-поведение:
+    если предыдущая запись **уже содержит данные** (статус `success`, `invalidating` или `invalidate-error`),
+    они сохраняются в `data`, а `status` переключается на `"invalidating"` до получения нового ответа.
 Это позволяет показывать устаревшие данные вместо пустого состояния.
-Если предыдущий запрос ещё не завершился (`pending`), переносить нечего — агент уйдёт в `pending` с `data: null`.
+Если предыдущий запрос ещё не завершился (`pending`), переносить нечего — сцепление уйдёт в `pending` с `data: null`.
 
 ```ts
 // page:1 уже загрузилась (success)
-agent.set({ page: 2 }); // SWR: data от page:1, status: "refreshing"
-agent.set(SKIP);        // idle: data: null, status: "idle"
+clutch.switch({ page: 2 }); // SWR: data от page:1, status: "invalidating"
+clutch.switch(SKIP);        // idle: data: null, status: "idle"
 ```
 
 
@@ -250,7 +250,7 @@ agent.set(SKIP);        // idle: data: null, status: "idle"
 - [Стриминговые запросы][stream-query] — `Observable` в queryFn: живые данные
 - [Машина состояний запроса][machine] — детали переходов между статусами
 - [Кэш][cache] — система кэширования записей
-- [Агент][agent] — SWR-наблюдатель, связывающий UI с записью кэша
+- [Сцепление][clutch] — SWR-наблюдатель, связывающий UI с записью кэша
 - [Кросс-табовая синхронизация][broadcast] — синхронизация кэша между вкладками
 
 [command]: ./command.md
@@ -261,6 +261,6 @@ agent.set(SKIP);        // idle: data: null, status: "idle"
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
 [cache]: ../concepts/cache.md
-[agent]: ../concepts/agent.md
-[api-res-agent]: ../api/resource-agent.md
+[clutch]: ../concepts/clutch.md
+[api-res-clutch]: ../api/resource-clutch.md
 [broadcast]: ./broadcast.md

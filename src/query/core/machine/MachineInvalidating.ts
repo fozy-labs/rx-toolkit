@@ -1,24 +1,24 @@
-import type { TRefreshErrorState, TRefreshingState, TSuccessState } from "@/query/types";
+import type { TInvalidateErrorState, TInvalidatingState, TSuccessState } from "@/query/types";
 
 import type { TDataState } from "./machine-helpers";
 import { replayPatches } from "./machine-helpers";
-import { MachineRefreshError } from "./MachineRefreshError";
+import { MachineInvalidateError } from "./MachineInvalidateError";
 import { MachineSuccess } from "./MachineSuccess";
 import { MachineWithData } from "./MachineWithData";
 
-export class MachineRefreshing<TArgs, TData> extends MachineWithData<TArgs, TData> {
-    readonly status = "refreshing" as const;
-    declare readonly state: TRefreshingState<TArgs, TData>;
+export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TData> {
+    readonly status = "invalidating" as const;
+    declare readonly state: TInvalidatingState<TArgs, TData>;
 
-    constructor(state: TRefreshingState<TArgs, TData>) {
+    constructor(state: TInvalidatingState<TArgs, TData>) {
         super(state);
     }
 
     protected withState(state: TDataState<TArgs, TData>): this {
-        return new MachineRefreshing(state as TRefreshingState<TArgs, TData>) as this;
+        return new MachineInvalidating(state as TInvalidatingState<TArgs, TData>) as this;
     }
 
-    /** refreshing → success (replays patches on new data) */
+    /** invalidating → success (replays patches on new data) */
     rebase(data: TData): MachineSuccess<TArgs, TData> {
         const patchState = this.state.patchState;
 
@@ -39,16 +39,16 @@ export class MachineRefreshing<TArgs, TData> extends MachineWithData<TArgs, TDat
         return new MachineSuccess<TArgs, TData>(resultState as TSuccessState<TArgs, TData>);
     }
 
-    /** refreshing → refresh-error */
-    fail(error: unknown): MachineRefreshError<TArgs, TData> {
-        const state: TRefreshErrorState<TArgs, TData> = {
-            status: "refresh-error",
+    /** invalidating → invalidate-error */
+    fail(error: unknown): MachineInvalidateError<TArgs, TData> {
+        const state: TInvalidateErrorState<TArgs, TData> = {
+            status: "invalidate-error",
             args: this.state.args,
             data: this.state.data,
             error,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
         };
-        return new MachineRefreshError<TArgs, TData>(state);
+        return new MachineInvalidateError<TArgs, TData>(state);
     }
 }

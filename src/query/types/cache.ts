@@ -4,7 +4,7 @@ import type { Machine } from "@/query/core/machine";
 import type { ReadonlySignal, TBeforeDevtoolsPushFn } from "@/signals/types";
 
 import type { TMapError } from "./api";
-import type { IPatchHandle, Keyed } from "./common";
+import type { IPatchHandle, TKeyed } from "./common";
 
 // ==================== Cache Interfaces ====================
 
@@ -25,9 +25,9 @@ export interface ICacheEntry<TState> {
 // ==================== QueryCacheEntry Options & Interface ====================
 
 export interface IQueryCacheEntryOptions<TArgs, TData> {
-    queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
+    queryFn: (keyedArgs: TKeyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
     retentionTime: number | false;
-    keyedArgs: Keyed<TArgs>;
+    keyedArgs: TKeyed<TArgs>;
     resourceKey?: string;
     /**
      * Normalizes a raw query rejection into the api's error type at the single
@@ -47,9 +47,11 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
 }
 
 export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArgs, TData>> {
-    readonly keyedArgs: Keyed<TArgs>;
+    readonly keyedArgs: TKeyed<TArgs>;
     // state$ is inherited from ICacheEntry<Machine<TArgs, TData>>
     readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
+    invalidate(): void;
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(): void;
     retry(): void;
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null;
@@ -75,7 +77,7 @@ export interface TCacheEntryAddedContext<TArgs, TData> {
  * result. For a stream-returning queryFn, `firstReceived` settles with the
  * first emission (≙ `$queryFulfilled`) and `allReceived` with the last
  * emission once the stream completes; both reject with the raw producer error.
- * If the run is torn down before the milestone (refresh / retry / eviction),
+ * If the run is torn down before the milestone (invalidate / retry / eviction),
  * the promise rejects with the teardown reason.
  */
 export interface TQueryStreamContext<TData> {

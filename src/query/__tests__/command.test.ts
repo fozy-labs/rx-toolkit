@@ -4,7 +4,7 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { Command } from "@/query/core/command/Command";
 import { CacheEntryRemovedError } from "@/query/core/errors";
-import { hasData } from "@/query/core/machine/machine-helpers";
+import { isDataState } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
 import { toKeyed } from "@/query/lib/toKeyed";
@@ -68,20 +68,20 @@ describe("Command.execute", () => {
         await expect(command.execute("x", "k1")).rejects.toBe(error);
     });
 
-    it("auto-generates a key when none is provided", async () => {
+    it("auto-generates an entry key when none is provided", async () => {
         const command = createCommand<string, string>({
             queryFn: async () => "ok",
         });
 
         command.execute("a");
-        // We can't predict the exact auto-key, but an entry should exist
-        // The key format is `${Date.now()}-${counter}`
+        // We can't predict the exact auto-generated entry key, but an entry should exist.
+        // The entry-key format is `${Date.now()}-${counter}`.
         // After trigger, the entry is created. We'll verify via reset (which clears entries).
         await flushMicrotasks();
-        // No assertion on key name needed — the test is that it doesn't throw
+        // No assertion on the entry key needed — the test is that it doesn't throw
     });
 
-    it("accepts explicit key parameter", async () => {
+    it("accepts an explicit entryKey parameter", async () => {
         const command = createCommand<string, string>({
             queryFn: async () => "ok",
         });
@@ -93,7 +93,7 @@ describe("Command.execute", () => {
         expect(entry).not.toBeNull();
     });
 
-    it("replaces existing cache entry for same key", async () => {
+    it("replaces existing cache entry for the same entry key", async () => {
         let callCount = 0;
         const command = createCommand<string, string>({
             queryFn: async (args) => {
@@ -115,7 +115,7 @@ describe("Command.execute", () => {
         expect(entry2!.machine$.peek().state.data).toBe("result-2");
     });
 
-    it("calls complete() on existing entry when replacing with same key", async () => {
+    it("calls complete() on existing entry when replacing with the same entry key", async () => {
         let resolveFirst!: (val: string) => void;
         const command = createCommand<string, string>({
             queryFn: async () =>
@@ -132,7 +132,7 @@ describe("Command.execute", () => {
             completed = true;
         });
 
-        // Trigger again with same key — should complete the first entry
+        // Trigger again with the same entry key — should complete the first entry
         const command2queryFn = vi.fn(async () => "second");
         // We need a new command or we just trigger again on the same
         command.execute("b", "k1");
@@ -218,7 +218,7 @@ describe("Command.trigger (deprecated alias of execute)", () => {
 // ==================== getEntry ====================
 
 describe("Command.getEntry", () => {
-    it("returns entry when key exists", async () => {
+    it("returns entry when the entry key exists", async () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
@@ -229,7 +229,7 @@ describe("Command.getEntry", () => {
         expect(command.getEntry("k1")).not.toBeNull();
     });
 
-    it("returns null when key does not exist", () => {
+    it("returns null when the entry key does not exist", () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
@@ -256,7 +256,7 @@ describe("Command.getEntry", () => {
 // ==================== getEntry$ (reactive) ====================
 
 describe("Command.getEntry$", () => {
-    it("returns entry when key exists (same as getEntry)", async () => {
+    it("returns entry when the entry key exists (same as getEntry)", async () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
@@ -267,7 +267,7 @@ describe("Command.getEntry$", () => {
         expect(command.getEntry$("k1")).not.toBeNull();
     });
 
-    it("returns null when key does not exist", () => {
+    it("returns null when the entry key does not exist", () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
@@ -420,65 +420,104 @@ describe("Command.getEntry$ — non-last entry removal (N1 regression)", () => {
     });
 });
 
-// ==================== createAgent ====================
+// ==================== createClutch ====================
 
-describe("Command.createAgent", () => {
-    it("returns a CommandAgent instance with expected methods", () => {
+describe("Command.createClutch", () => {
+    it("returns a CommandClutch instance with expected methods", () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
 
-        const agent = command.createAgent();
-        expect(agent).toBeDefined();
-        expect(typeof agent.trigger).toBe("function");
-        expect(typeof agent.state$).toBe("function");
-        expect(typeof agent.setKey).toBe("function");
+        const clutch = command.createClutch();
+        expect(clutch).toBeDefined();
+        expect(typeof clutch.trigger).toBe("function");
+        expect(typeof clutch.state$).toBe("function");
+        expect(typeof clutch.setEntryKey).toBe("function");
     });
 
-    it("accepts optional key parameter", () => {
+    it("accepts an optional entryKey parameter", () => {
         const command = createCommand<string, string>({
             queryFn: async () => "data",
         });
 
-        const agent = command.createAgent("my-key");
-        expect(agent).toBeDefined();
+        const clutch = command.createClutch("my-key");
+        expect(clutch).toBeDefined();
+    });
+
+    it("the deprecated createAgent alias forwards to createClutch", () => {
+        const command = createCommand<string, string>({
+            queryFn: async () => "data",
+        });
+
+        const createClutchSpy = vi.spyOn(command, "createClutch");
+
+        const clutch = command.createAgent("my-key");
+
+        expect(createClutchSpy).toHaveBeenCalledTimes(1);
+        expect(createClutchSpy).toHaveBeenCalledWith("my-key");
+        expect(typeof clutch.setEntryKey).toBe("function");
     });
 });
 
-// ==================== pack ====================
+// ==================== bind ====================
 
-describe("Command.pack", () => {
-    it("returns an inert { kind, command, args, key } descriptor", () => {
+describe("Command.bind", () => {
+    it("returns an inert { kind, command, args, entryKey } descriptor", () => {
         const queryFn = vi.fn(async (s: string) => `result-${s}`);
         const command = createCommand<string, string>({ queryFn });
 
-        const packed = command.pack("hello", "k1");
+        const bound = command.bind("hello", "k1");
 
-        expect(packed).toEqual({ kind: "command", command, args: "hello", key: "k1" });
-        // pack must not execute the mutation
+        expect(bound).toEqual({ kind: "command", command, args: "hello", entryKey: "k1" });
+        // bind must not execute the mutation
         expect(queryFn).not.toHaveBeenCalled();
         expect(command.getEntry("k1")).toBeNull();
     });
 
-    it("leaves key undefined when omitted", () => {
+    it("leaves entryKey undefined when omitted", () => {
         const command = createCommand<string, string>({
             queryFn: async (s) => `result-${s}`,
         });
 
-        const packed = command.pack("hello");
+        const bound = command.bind("hello");
 
-        expect(packed.key).toBeUndefined();
+        expect(bound.entryKey).toBeUndefined();
     });
 
     it("descriptor can be replayed via command.execute", async () => {
         const queryFn = vi.fn(async (s: string) => `result-${s}`);
         const command = createCommand<string, string>({ queryFn });
 
-        const packed = command.pack("world", "k2");
-        const result = await packed.command.execute(packed.args, packed.key);
+        const bound = command.bind("world", "k2");
+        const result = await bound.command.execute(bound.args, bound.entryKey);
 
         expect(result).toBe("result-world");
         expect(queryFn).toHaveBeenCalledWith("world", expect.any(String));
+    });
+
+    it("the descriptor's entryKey is the entry key the mutation runs under", async () => {
+        const command = createCommand<string, string>({
+            queryFn: async (s) => `result-${s}`,
+        });
+
+        const bound = command.bind("world", "k3");
+        await bound.command.execute(bound.args, bound.entryKey);
+
+        expect(command.getEntry("k3")).not.toBeNull();
+    });
+
+    it("the deprecated pack alias forwards to bind", () => {
+        const queryFn = vi.fn(async (s: string) => `result-${s}`);
+        const command = createCommand<string, string>({ queryFn });
+
+        const bindSpy = vi.spyOn(command, "bind");
+
+        const bound = command.pack("hello", "k1");
+
+        expect(bindSpy).toHaveBeenCalledTimes(1);
+        expect(bindSpy).toHaveBeenCalledWith("hello", "k1");
+        expect(bound).toEqual({ kind: "command", command, args: "hello", entryKey: "k1" });
+        expect(queryFn).not.toHaveBeenCalled();
     });
 });
 
@@ -592,13 +631,13 @@ describe("Link scenarios", () => {
             const entry = resource.getEntry(1)!;
             expect(entry.machine$.peek().state.status).toBe("success");
 
-            // Execute command — should trigger refresh on the linked resource
-            const refreshSpy = vi.spyOn(resource, "refresh");
+            // Execute command — should trigger invalidate on the linked resource
+            const invalidateSpy = vi.spyOn(resource, "invalidate");
 
             await command.execute("1", "k1");
             await flushMicrotasks();
 
-            expect(refreshSpy).toHaveBeenCalledWith(1);
+            expect(invalidateSpy).toHaveBeenCalledWith(1);
         });
 
         it("does not invalidate on failed mutation", async () => {
@@ -622,12 +661,12 @@ describe("Link scenarios", () => {
             resource.trigger(1);
             await flushMicrotasks();
 
-            const refreshSpy = vi.spyOn(resource, "refresh");
+            const invalidateSpy = vi.spyOn(resource, "invalidate");
 
             await command.execute("1", "k1").catch(() => {});
             await flushMicrotasks();
 
-            expect(refreshSpy).not.toHaveBeenCalled();
+            expect(invalidateSpy).not.toHaveBeenCalled();
         });
     });
 
@@ -742,7 +781,7 @@ describe("Link scenarios", () => {
             await flushMicrotasks();
 
             // The failure goes through the machine: the entry exists and holds the
-            // error, so state observers (agent / useCommand) see it too.
+            // error, so state observers (clutch / useCommand) see it too.
             const cmdEntry = command.getEntry("k1");
             expect(cmdEntry).not.toBeNull();
             const cmdState = cmdEntry!.machine$.peek().state;
@@ -754,13 +793,13 @@ describe("Link scenarios", () => {
             // data restored and no dangling pending patch left behind.
             const stateA = entryA.machine$.peek().state;
             expect(stateA.data).toEqual({ value: "original-1" });
-            if (!hasData(stateA)) throw new Error(`Resource A: expected data state, got "${stateA.status}"`);
+            if (!isDataState(stateA)) throw new Error(`Resource A: expected data state, got "${stateA.status}"`);
             expect(stateA.patchState).toBeNull();
 
             // Resource B is untouched (its patch never applied).
             const stateB = entryB.machine$.peek().state;
             expect(stateB.data).toEqual({ value: "original-1" });
-            if (!hasData(stateB)) throw new Error(`Resource B: expected data state, got "${stateB.status}"`);
+            if (!isDataState(stateB)) throw new Error(`Resource B: expected data state, got "${stateB.status}"`);
             expect(stateB.patchState).toBeNull();
 
             // The mutation itself must not have run.
@@ -852,7 +891,7 @@ describe("Link scenarios", () => {
                     await flushMicrotasks();
 
                     const patchedEntry = patched.getEntry(1)!;
-                    const refreshSpy = vi.spyOn(invalidated, "refresh");
+                    const invalidateSpy = vi.spyOn(invalidated, "invalidate");
 
                     const throwingLink: TLinkConfig<string, string, number, { value: string }> = {
                         resource: patched,
@@ -882,12 +921,12 @@ describe("Link scenarios", () => {
 
                     // 1. Optimistic patch committed — not left dangling as a pending patch.
                     const state = patchedEntry.machine$.peek().state;
-                    if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+                    if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
                     expect(state.data).toEqual({ value: "original-1-optimistic" });
                     expect(state.patchState).toBeNull();
 
                     // 2. The independent resource is still invalidated.
-                    expect(refreshSpy).toHaveBeenCalledWith(1);
+                    expect(invalidateSpy).toHaveBeenCalledWith(1);
 
                     // 3. The thrown error never escapes settle as an unhandled rejection…
                     expect(tracker.unhandled).toEqual([]);
@@ -942,7 +981,7 @@ describe("Link scenarios", () => {
 
                     // The sibling link's update ran and committed despite the earlier throw.
                     const state = appliedEntry.machine$.peek().state;
-                    if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+                    if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
                     expect(state.data).toEqual({ value: "B-1-done" });
                     expect(state.patchState).toBeNull();
 
@@ -965,7 +1004,7 @@ describe("Link scenarios", () => {
             resource.trigger(1);
             await flushMicrotasks();
 
-            const refreshSpy = vi.spyOn(resource, "refresh");
+            const invalidateSpy = vi.spyOn(resource, "invalidate");
 
             const link: TLinkConfig<string, string, number, string> = {
                 resource,
@@ -981,7 +1020,7 @@ describe("Link scenarios", () => {
             await command.execute("1", "k1");
             await flushMicrotasks();
 
-            // refresh is called but with undefined — resource.refresh(undefined) is a no-op
+            // invalidate is called but with undefined — resource.invalidate(undefined) is a no-op
             // since there's no entry for undefined key
         });
     });
@@ -1208,10 +1247,10 @@ describe("onQueryStarted lifecycle", () => {
     });
 });
 
-// ==================== Key Generation ====================
+// ==================== Entry Key Generation ====================
 
-describe("Key generation", () => {
-    it("auto-generates unique keys for sequential triggers", async () => {
+describe("Entry key generation", () => {
+    it("auto-generates unique entry keys for sequential triggers", async () => {
         const keys: string[] = [];
         const command = createCommand<string, string>({
             queryFn: async () => "data",
@@ -1240,7 +1279,7 @@ describe("Key generation", () => {
         command.execute("b");
         command.execute("c");
 
-        // Keys should end with -0, -1, -2 respectively
+        // Entry keys should end with -0, -1, -2 respectively
         expect(keys[0]).toMatch(/-0$/);
         expect(keys[1]).toMatch(/-1$/);
         expect(keys[2]).toMatch(/-2$/);
@@ -1250,7 +1289,7 @@ describe("Key generation", () => {
 // ==================== Edge Cases ====================
 
 describe("Edge cases", () => {
-    it("rapid sequential triggers with same key — only latest entry survives", async () => {
+    it("rapid sequential triggers with the same entry key — only latest entry survives", async () => {
         let callCount = 0;
         let resolvers: Array<(val: string) => void> = [];
 
@@ -1328,7 +1367,7 @@ describe("Edge cases", () => {
         command.execute("first", "k1");
         const firstEntry = command.getEntry("k1")!;
 
-        // Replace with new entry for same key
+        // Replace with new entry for the same entry key
         command.execute("second", "k1");
         await flushMicrotasks();
 
@@ -1343,7 +1382,7 @@ describe("Edge cases", () => {
         expect(command.getEntry("k1")).toBe(secondEntry);
     });
 
-    it("concurrent executions with different keys are independent", async () => {
+    it("concurrent executions with different entry keys are independent", async () => {
         let resolvers: Record<string, (val: string) => void> = {};
 
         const command = createCommand<string, string>({
@@ -1434,8 +1473,8 @@ describe("Edge cases", () => {
 
 // ==================== Edge Cases (MEDIUM priority) ====================
 
-describe("Command — execute with pre-Keyed args", () => {
-    it("uses the custom key from toKeyed wrapper", async () => {
+describe("Command — execute with pre-TKeyed args", () => {
+    it("uses the custom entry key from the toKeyed wrapper", async () => {
         const command = createCommand<{ data: string }, string>({
             queryFn: async (args) => `result-${args.data}`,
         });
@@ -1637,7 +1676,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
 
         // The optimistic patch must be rolled back: data restored, no dangling patch.
         const state = entry.machine$.peek().state;
-        if (!hasData(state)) throw new Error(`expected data state, got "${state.status}"`);
+        if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
         expect(state.data).toEqual({ value: "original-1" });
         expect(state.patchState).toBeNull();
     });
@@ -1664,7 +1703,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
 // ==================== Throwing optimisticUpdate goes through the machine ====================
 //
 // A throwing optimisticUpdate used to be handled pre-flight: trigger() rejected,
-// but no cache entry was created — state observers (agent / useCommand) never
+// but no cache entry was created — state observers (clutch / useCommand) never
 // saw the failure, contradicting the "every failure enters the machine"
 // principle. Patches are now applied inside the entry's queryFn run, so the
 // throw settles the machine in `error` like any other mutation failure.
@@ -1725,7 +1764,7 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
         // The resource was never optimistically patched — and the retry must not
         // have tried to re-apply the throwing patch either.
         const resourceState = resourceEntry.machine$.peek().state;
-        if (!hasData(resourceState)) throw new Error(`expected data state, got "${resourceState.status}"`);
+        if (!isDataState(resourceState)) throw new Error(`expected data state, got "${resourceState.status}"`);
         expect(resourceState.data).toEqual({ value: "original-1" });
         expect(resourceState.patchState).toBeNull();
     });
@@ -1802,12 +1841,12 @@ describe("Command retry", () => {
         await command.execute("1", "k1").catch(() => {});
         await flushMicrotasks();
 
-        const refreshSpy = vi.spyOn(resource, "refresh");
+        const invalidateSpy = vi.spyOn(resource, "invalidate");
 
         command.getEntry("k1")!.retry();
         await flushMicrotasks();
 
-        expect(refreshSpy).toHaveBeenCalledWith(1);
+        expect(invalidateSpy).toHaveBeenCalledWith(1);
     });
 });
 
@@ -1868,25 +1907,25 @@ describe("execute() without observers — retentionTime: 0 regression", () => {
     });
 });
 
-// ==================== Agent integration ====================
+// ==================== Clutch integration ====================
 
-describe("Command agent integration", () => {
-    it("reflects trigger state without an explicit key (no stuck idle)", async () => {
+describe("Command clutch integration", () => {
+    it("reflects trigger state without an explicit entry key (no stuck idle)", async () => {
         const command = createCommand<string, string>({ queryFn: async () => "ok" });
-        const agent = command.createAgent();
+        const clutch = command.createClutch();
 
         const statuses: string[] = [];
-        const eff = Signal.effect(() => statuses.push(agent.state$().status));
+        const eff = Signal.effect(() => statuses.push(clutch.state$().status));
 
-        agent.trigger("a");
+        clutch.trigger("a");
         await flushMicrotasks();
 
-        expect(agent.state$.peek().status).toBe("success");
+        expect(clutch.state$.peek().status).toBe("success");
         expect(statuses).toContain("pending");
         eff.unsubscribe();
     });
 
-    it("agent.retry() re-runs the tracked mutation after an error", async () => {
+    it("clutch.retry() re-runs the tracked mutation after an error", async () => {
         let attempt = 0;
         const command = createCommand<string, string>({
             queryFn: async () => {
@@ -1895,20 +1934,20 @@ describe("Command agent integration", () => {
                 return "recovered";
             },
         });
-        const agent = command.createAgent();
+        const clutch = command.createClutch();
 
-        const eff = Signal.effect(() => agent.state$());
+        const eff = Signal.effect(() => clutch.state$());
 
         // The envelope promise never rejects — no catch needed for a failing trigger.
-        await agent.trigger("a");
+        await clutch.trigger("a");
         await flushMicrotasks();
-        expect(agent.state$.peek().status).toBe("error");
+        expect(clutch.state$.peek().status).toBe("error");
 
-        agent.retry();
+        clutch.retry();
         await flushMicrotasks();
 
-        expect(agent.state$.peek().status).toBe("success");
-        expect(agent.state$.peek().data).toBe("recovered");
+        expect(clutch.state$.peek().status).toBe("success");
+        expect(clutch.state$.peek().data).toBe("recovered");
         eff.unsubscribe();
     });
 });

@@ -3,18 +3,43 @@ import type { TApiSnapshot, TResourceSnapshot, TResourceSnapshotEntry } from "@/
 import { CURRENT_SNAPSHOT_VERSION } from "../../constants";
 import type { Resource } from "../resource/Resource";
 
-export interface TSnapshoterOptions {
+export interface TSnapshotterOptions {
     initialSnapshot: TApiSnapshot | null;
     snapshotValidTime: number | false;
     keyPrefix: string | null;
 }
 
-export class Snapshoter {
+/**
+ * Machine status strings written by snapshot version 1, mapped to their current
+ * spelling. Version 2 (0.13.0) renamed the invalidation statuses; every other
+ * status string kept its name across versions.
+ */
+const LEGACY_STATUSES_V1: Readonly<Record<string, string>> = {
+    refreshing: "invalidating",
+    "refresh-error": "invalidate-error",
+};
+
+/**
+ * Translates a persisted machine status into the vocabulary of
+ * {@link CURRENT_SNAPSHOT_VERSION}.
+ *
+ * Only snapshots strictly older than the current version are translated. A snapshot
+ * whose `version` is newer than this build is read as-is: the renames it may carry
+ * are unknown here, so guessing them would be a misread. Statuses this build does not
+ * recognize simply do not hydrate — `hydrateResource` revives `success` and
+ * `invalidate-error` entries and skips everything else.
+ */
+function normalizeSnapshotStatus(status: string, snapshotVersion: number): string {
+    if (snapshotVersion >= CURRENT_SNAPSHOT_VERSION) return status;
+    return LEGACY_STATUSES_V1[status] ?? status;
+}
+
+export class Snapshotter {
     private readonly _initialSnapshot: TApiSnapshot | null;
     private readonly _snapshotValidTime: number | false;
     private readonly _keyPrefix: string | null;
 
-    constructor(options: TSnapshoterOptions) {
+    constructor(options: TSnapshotterOptions) {
         this._initialSnapshot = options.initialSnapshot;
         this._snapshotValidTime = options.snapshotValidTime;
         this._keyPrefix = options.keyPrefix;
@@ -28,24 +53,26 @@ export class Snapshoter {
         snapshotKey: string | undefined,
         resourceSnapshotValidTime?: number | false,
     ): TResourceSnapshot | undefined {
-        if (!this._initialSnapshot || !snapshotKey || !this._initialSnapshot.resources[snapshotKey]) {
+        const initialSnapshot = this._initialSnapshot;
+        if (!initialSnapshot || !snapshotKey || !initialSnapshot.resources[snapshotKey]) {
             return undefined;
         }
 
-        const resSnapshot = this._initialSnapshot.resources[snapshotKey];
+        const resSnapshot = initialSnapshot.resources[snapshotKey];
         const entries: Record<string, TResourceSnapshotEntry> = {};
         const now = Date.now();
         const effectiveSnapshotValidTime =
             resourceSnapshotValidTime !== undefined ? resourceSnapshotValidTime : this._snapshotValidTime;
 
         for (const [entryKey, snapEntry] of Object.entries(resSnapshot.entries)) {
-            if (snapEntry.status !== "success" && snapEntry.status !== "refresh-error") continue;
+            const status = normalizeSnapshotStatus(snapEntry.status, initialSnapshot.version);
+            if (status !== "success" && status !== "invalidate-error") continue;
 
-            // A refresh-error entry's data is last-known-good (a successful
-            // fetch that a later refresh failed to update). The error itself is
+            // An invalidate-error entry's data is last-known-good (a successful
+            // fetch that a later invalidation failed to update). The error itself is
             // transient and not worth reviving, so hydrate it as a stale success:
             // the data shows immediately and a refetch is forced on subscription.
-            let isStale = snapEntry.status === "refresh-error";
+            let isStale = status === "invalidate-error";
             if (!isStale && effectiveSnapshotValidTime !== false && typeof snapEntry.updatedAt === "number") {
                 isStale = snapEntry.updatedAt + effectiveSnapshotValidTime < now;
             }
@@ -80,7 +107,7 @@ export class Snapshoter {
 
             for (const entry of resource.getEntries()) {
                 const { state } = entry.peek();
-                if (state.status !== "success" && state.status !== "refresh-error") continue;
+                if (state.status !== "success" && state.status !== "invalidate-error") continue;
 
                 // A non-null patchState means unconfirmed optimistic patches are
                 // still pending; `state.data` reflects them, so persist the

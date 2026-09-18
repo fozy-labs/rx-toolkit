@@ -1,12 +1,12 @@
 import type { Observable } from "rxjs";
 
-import type { ArgsOrVoidOrSkip, TResourceSnapshot } from "@/query";
+import type { TArgsOrVoidOrSkip, TResourceSnapshot } from "@/query";
 import type { ReadonlySignal } from "@/signals/types";
 
-import type { TMapError } from "./api";
+import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { Args, ArgsOrVoid, Keyed } from "./common";
-import type { TResourceAgentState, TRetrying } from "./state";
+import type { TArgsOrKeyed, TArgsOrVoid, TKeyed } from "./common";
+import type { TResourceClutchState, TRetrying } from "./state";
 
 // ==================== Resource Interface ====================
 
@@ -20,23 +20,30 @@ export interface IResource<TArgs, TData, TError = unknown> {
      * until it settles and then restarts the entry's retention countdown.
      * Will be removed in a future release.
      */
-    trigger(args: Args<TArgs>, doForce?: boolean): void;
-    refresh(args: Args<TArgs>): void;
-    getEntry(args: ArgsOrVoid<TArgs>, doInitiate: true): IQueryCacheEntry<TArgs, TData>;
-    getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
-    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
+    trigger(args: TArgsOrKeyed<TArgs>, doForce?: boolean): void;
+    /** Mark the entry for these arguments stale and re-query it in the background. */
+    invalidate(args: TArgsOrKeyed<TArgs>): void;
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
+    refresh(args: TArgsOrKeyed<TArgs>): void;
+    getEntry(args: TArgsOrVoid<TArgs>, doInitiate: true): IQueryCacheEntry<TArgs, TData>;
+    getEntry(args: TArgsOrVoid<TArgs>, doInitiate?: boolean): IQueryCacheEntry<TArgs, TData> | null;
+    getEntry$(args: TArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<IQueryCacheEntry<TArgs, TData> | null>;
     getEntries(): IterableIterator<IQueryCacheEntry<TArgs, TData>>;
-    createAgent(): IResourceAgent<TArgs, TData, TError>;
-    serialize(args: Args<TArgs>): string;
-    toKeyed(args: Args<TArgs>): Keyed<TArgs>;
-    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData, TError>;
-    pack(args: Args<TArgs>): TPackedResource<TArgs, TData, TError>;
+    createClutch(): IResourceClutch<TArgs, TData, TError>;
+    /** @deprecated Renamed to {@link createClutch}. Will be removed in 0.14.0. */
+    createAgent(): IResourceClutch<TArgs, TData, TError>;
+    serialize(args: TArgsOrKeyed<TArgs>): string;
+    toKeyed(args: TArgsOrKeyed<TArgs>): TKeyed<TArgs>;
+    getState(args: TArgsOrVoid<TArgs>): TResourceEntryState<TArgs, TData, TError>;
+    bind(args: TArgsOrKeyed<TArgs>): TBoundResource<TArgs, TData, TError>;
+    /** @deprecated Renamed to {@link bind}. Will be removed in 0.14.0. */
+    pack(args: TArgsOrKeyed<TArgs>): TBoundResource<TArgs, TData, TError>;
     /** Resolve with cached data, loading it first when absent. Rejects on failure/abort. */
-    ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
     /** Resolve with the result of a fresh query. Rejects on failure/abort. */
-    fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    fetch(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
     /** Fire-and-forget cache warm-up; creates the entry synchronously, never rejects. */
-    prefetch(args: Args<TArgs>, options?: TResourcePrefetchOptions): Promise<void>;
+    prefetch(args: TArgsOrKeyed<TArgs>, options?: TResourcePrefetchOptions): Promise<void>;
 }
 
 // ==================== Fetch Options ====================
@@ -60,34 +67,34 @@ export interface TResourceFetchOptions {
 export interface TResourcePrefetchOptions {
     /**
      * When `true`, warms the cache with *fresh* data: an existing entry is
-     * refreshed (or retried after an error) instead of being reused as-is —
+     * invalidated (or retried after an error) instead of being reused as-is —
      * the fire-and-forget counterpart of {@link IResource.fetch}.
      */
     force?: boolean;
 }
 
-// ==================== Packed Descriptor ====================
+// ==================== Bound Descriptor ====================
 
 /**
  * Inert descriptor binding a resource to a set of arguments. Produced by
- * {@link IResource.pack} — lets a consumer hand "what to read, with which args"
+ * {@link IResource.bind} — lets a consumer hand "what to read, with which args"
  * back to the library without executing anything. Discriminated by `kind`;
- * see {@link TPacked} for the command counterpart.
+ * see {@link TBound} for the command counterpart.
  */
-export interface TPackedResource<TArgs, TData, TError = unknown> {
+export interface TBoundResource<TArgs, TData, TError = unknown> {
     kind: "resource";
     resource: IResource<TArgs, TData, TError>;
-    args: Args<TArgs>;
+    args: TArgsOrKeyed<TArgs>;
 }
 
-// The lite state (returned by {@link IResource.getState}) is a discriminated
-// union like the agent state, but without SWR: it reflects a single cache
+// The entry state (returned by {@link IResource.getState}) is a discriminated
+// union like the clutch state, but without SWR: it reflects a single cache
 // entry, so the `error` variant never carries stale data and there is no
-// `retry` / `refresh`. The loading variants share the agent's retry
+// `retry` / `invalidate`. The loading variants share the clutch's retry
 // bookkeeping ({@link TRetrying}).
 
 /** No cache entry exists for the given arguments. */
-export interface TResourceLiteIdleState {
+export interface TResourceEntryIdleState {
     status: "idle";
     data: null;
     error: null;
@@ -101,7 +108,7 @@ export interface TResourceLiteIdleState {
     isError: false;
 }
 
-interface TResourceLitePendingBase<TArgs> {
+interface TResourceEntryPendingBase<TArgs> {
     status: "pending";
     data: null;
     args: TArgs;
@@ -114,10 +121,10 @@ interface TResourceLitePendingBase<TArgs> {
 }
 
 /** Initial load in flight: no data yet. With `isRetrying`, `error` holds the retried failure. */
-export type TResourceLitePendingState<TArgs, TError = unknown> = TResourceLitePendingBase<TArgs> & TRetrying<TError>;
+export type TResourceEntryPendingState<TArgs, TError = unknown> = TResourceEntryPendingBase<TArgs> & TRetrying<TError>;
 
 /** Query succeeded: `data` is present, no error. */
-export interface TResourceLiteSuccessState<TArgs, TData> {
+export interface TResourceEntrySuccessState<TArgs, TData> {
     status: "success";
     data: TData;
     error: null;
@@ -132,7 +139,7 @@ export interface TResourceLiteSuccessState<TArgs, TData> {
 }
 
 /** Initial query failed: `error` is present, no data. */
-export interface TResourceLiteErrorState<TArgs, TError = unknown> {
+export interface TResourceEntryErrorState<TArgs, TError = unknown> {
     status: "error";
     data: null;
     error: TError;
@@ -146,8 +153,8 @@ export interface TResourceLiteErrorState<TArgs, TError = unknown> {
     isError: true;
 }
 
-interface TResourceLiteRefreshingBase<TArgs, TData> {
-    status: "refreshing";
+interface TResourceEntryInvalidatingBase<TArgs, TData> {
+    status: "invalidating";
     data: TData;
     args: TArgs;
     isLoading: true;
@@ -158,13 +165,16 @@ interface TResourceLiteRefreshingBase<TArgs, TData> {
     isError: false;
 }
 
-/** Background refresh in flight; stale `data` stays available. With `isRetrying`, `error` holds the retried failure. */
-export type TResourceLiteRefreshingState<TArgs, TData, TError = unknown> = TResourceLiteRefreshingBase<TArgs, TData> &
+/** Background invalidation in flight; stale `data` stays available. With `isRetrying`, `error` holds the retried failure. */
+export type TResourceEntryInvalidatingState<TArgs, TData, TError = unknown> = TResourceEntryInvalidatingBase<
+    TArgs,
+    TData
+> &
     TRetrying<TError>;
 
-/** Background refresh failed; stale `data` is preserved. */
-export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> {
-    status: "refresh-error";
+/** Background invalidation failed; stale `data` is preserved. */
+export interface TResourceEntryInvalidateErrorState<TArgs, TData, TError = unknown> {
+    status: "invalidate-error";
     data: TData;
     error: TError;
     args: TArgs;
@@ -177,31 +187,54 @@ export interface TResourceLiteRefreshErrorState<TArgs, TData, TError = unknown> 
     isError: true;
 }
 
-export type IResourceLiteState<TArgs, TData, TError = unknown> =
-    | TResourceLiteIdleState
-    | TResourceLitePendingState<TArgs, TError>
-    | TResourceLiteSuccessState<TArgs, TData>
-    | TResourceLiteErrorState<TArgs, TError>
-    | TResourceLiteRefreshingState<TArgs, TData, TError>
-    | TResourceLiteRefreshErrorState<TArgs, TData, TError>;
+export type TResourceEntryState<TArgs, TData, TError = unknown> =
+    | TResourceEntryIdleState
+    | TResourceEntryPendingState<TArgs, TError>
+    | TResourceEntrySuccessState<TArgs, TData>
+    | TResourceEntryErrorState<TArgs, TError>
+    | TResourceEntryInvalidatingState<TArgs, TData, TError>
+    | TResourceEntryInvalidateErrorState<TArgs, TData, TError>;
 
-// ==================== Resource Agent Interface ====================
+// ==================== Resource Clutch Interface ====================
 
-export interface IResourceAgent<TArgs, TData, TError = unknown> {
-    state$: ReadonlySignal<TResourceAgentState<TArgs, TData, TError>>;
-    start(): void;
-    set(args: ArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
+/** Options of {@link IResourceClutch.switch}. */
+export interface TClutchSwitchOptions {
     /**
-     * Take over `source`'s data as this agent's SWR fallback — what `set` keeps
-     * from the previous args on a single agent, for consumers that replace the
-     * agent instead (one agent per args). Reads `source` once; it is not kept.
+     * Report `pending` instead of `idle` while the clutch has not been started
+     * yet and no entry exists. React hooks set the args during render and start
+     * the clutch in a layout effect; marking hides that gap.
      */
-    adoptPrevious(source: IResourceAgent<TArgs, TData, TError>): void;
+    markPending?: boolean;
+}
+
+export interface IResourceClutch<TArgs, TData, TError = unknown> {
+    state$: ReadonlySignal<TResourceClutchState<TArgs, TData, TError>>;
+    start(): void;
+    /**
+     * Engage the clutch on another set of arguments (or disengage it with
+     * `SKIP`). The previous entry's data is kept as the SWR fallback while the
+     * new one loads.
+     */
+    switch(args: TArgsOrVoidOrSkip<TArgs>, options?: TClutchSwitchOptions): void;
+    /**
+     * @deprecated Renamed to {@link switch}; the boolean `mark` argument became
+     * `{ markPending: true }`. Will be removed in 0.14.0.
+     */
+    set(args: TArgsOrVoidOrSkip<TArgs>, mark?: boolean): void;
+    /**
+     * Take over `source`'s data as this clutch's SWR fallback — what `switch`
+     * keeps from the previous args on a single clutch, for consumers that
+     * replace the clutch instead (one clutch per args). Reads `source` once; it
+     * is not kept.
+     */
+    adoptPrevious(source: IResourceClutch<TArgs, TData, TError>): void;
     retry(): void;
+    invalidate(): void;
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(): void;
     /**
-     * Promise resolving once the agent leaves the initial-loading phase — data
-     * became available (success / refreshing / refresh-error / stale SWR) or the
+     * Promise resolving once the clutch leaves the initial-loading phase — data
+     * became available (success / invalidating / invalidate-error / stale SWR) or the
      * query failed with nothing to fall back on. Never rejects. Used by the
      * Suspense hook to wake React after a suspended render.
      */
@@ -218,10 +251,10 @@ export interface IResourceAgent<TArgs, TData, TError = unknown> {
  * - `Observable<TData>` — a streaming query: the first emission settles the
  *   run (pending → success), every subsequent emission updates the entry's
  *   data in place (active optimistic patches are rebased onto it), an error
- *   after data lands in `refresh-error` with the data kept, and completion
+ *   after data lands in `invalidate-error` with the data kept, and completion
  *   simply ends the live phase — the entry keeps the last emission. The
  *   subscription is torn down when the entry is evicted or the run is
- *   superseded (refresh / retry resubscribe); completing without a single
+ *   superseded (invalidate / retry resubscribe); completing without a single
  *   emission fails the run with `EmptyStreamError`.
  */
 export type TQueryFnResult<TData> = Promise<TData> | Observable<TData>;
@@ -231,8 +264,12 @@ export interface TResourceOptions<TArgs, TData> {
     key?: string;
     retentionTime?: number | false;
     serializeArgs?: (args: TArgs) => string;
-    onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
-    onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
+    /** See {@link TLifecycleHookOption} for the array form. */
+    onCacheEntryAdded?: TLifecycleHookOption<(args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void>;
+    /** See {@link TLifecycleHookOption} for the array form. */
+    onQueryStarted?: TLifecycleHookOption<
+        (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>
+    >;
     snapshotValidTime?: number | false;
     /**
      * When `false`, the resource neither contributes entries to `getSnapshot()`
@@ -269,10 +306,18 @@ export interface IResourceConfig<TArgs, TData> {
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
     /** Pre-populated entries from snapshot hydration (key → snapshot meta). */
     snapshot?: TResourceSnapshot;
-    /** When `false`, the resource is skipped by `Snapshoter.getSnapshot`. Defaults to `true`. */
+    /** When `false`, the resource is skipped by `Snapshotter.getSnapshot`. Defaults to `true`. */
     snapshotable?: boolean;
     /** Cross-tab sync hook: called before queryFn to check if another tab has cached data. */
     beforeQuery?: (resourceKey: string, entryKey: string) => Promise<{ data: TData } | null>;
     /** See {@link TResourceOptions.allowStreamPatches}. Defaults to `false`. */
     allowStreamPatches?: boolean;
 }
+
+// ==================== Deprecated Aliases ====================
+
+/** @deprecated Renamed to {@link IResourceClutch}. Will be removed in 0.14.0. */
+export type IResourceAgent<TArgs, TData, TError = unknown> = IResourceClutch<TArgs, TData, TError>;
+
+/** @deprecated Renamed to {@link TBoundResource}. Will be removed in 0.14.0. */
+export type TPackedResource<TArgs, TData, TError = unknown> = TBoundResource<TArgs, TData, TError>;

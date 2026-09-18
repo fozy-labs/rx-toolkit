@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { toKeyed } from "@/query/lib/toKeyed";
-import type { IQueryCacheEntryOptions, Keyed } from "@/query/types";
+import type { IQueryCacheEntryOptions, TKeyed } from "@/query/types";
 
 import { QueryCacheEntry } from "./QueryCacheEntry";
 
@@ -13,7 +13,7 @@ type TData = { items: { n: number }[] };
 
 function createEntry<TArgs, TData>(
     options: Pick<IQueryCacheEntryOptions<TArgs, TData>, "queryFn" | "onStreamPatch"> & {
-        keyedArgs?: Keyed<TArgs>;
+        keyedArgs?: TKeyed<TArgs>;
     },
 ): QueryCacheEntry<TArgs, TData> {
     return new QueryCacheEntry<TArgs, TData>({
@@ -45,13 +45,13 @@ function deferred<T>() {
  * Regression tests for the stream-open flag when a stream run is aborted
  * synchronously during subscribe: a sync emission rebases over a pending
  * patch, the rebase fails (consistency violation), and the entry re-executes
- * (refresh) while the aborted run's `subscribe` call is still on the stack —
+ * (invalidate) while the aborted run's `subscribe` call is still on the stack —
  * so that run's abort listener was never attached.
  *
  * Shared choreography of each test:
  *   run 1 — stream delivering `{ items: [{ n: 1 }] }` (baseline data);
  *   patch — pending optimistic patch on `items[0]` (flag closed, no signal);
- *   run 2 — refresh; the stream synchronously emits `{ items: [] }`, the
+ *   run 2 — invalidate; the stream synchronously emits `{ items: [] }`, the
  *           patch replay fails → consistency violation → nested re-execute
  *           aborts run 2 mid-subscribe;
  *   run 3 — the superseding run (shape varies per test).
@@ -81,8 +81,8 @@ describe("QueryCacheEntry — stream run aborted synchronously during subscribe"
         expect(onStreamPatch).not.toHaveBeenCalled();
 
         // Run 2: the sync `{ items: [] }` emission invalidates the patch path
-        // → consistency violation → nested refresh aborts run 2 in-subscribe.
-        entry.refresh();
+        // → consistency violation → a nested invalidate() aborts run 2 in-subscribe.
+        entry.invalidate();
         expect(call).toBe(3);
 
         return { entry, onStreamPatch };

@@ -122,16 +122,16 @@ describe("Query module exports (@/index)", () => {
             expect(typeof mod.MachineError).toBe("function");
         });
 
-        it("exports MachineRefreshing", async () => {
+        it("exports MachineInvalidating", async () => {
             const mod = await import("@/index");
-            expect(mod.MachineRefreshing).toBeDefined();
-            expect(typeof mod.MachineRefreshing).toBe("function");
+            expect(mod.MachineInvalidating).toBeDefined();
+            expect(typeof mod.MachineInvalidating).toBe("function");
         });
 
-        it("exports MachineRefreshError", async () => {
+        it("exports MachineInvalidateError", async () => {
             const mod = await import("@/index");
-            expect(mod.MachineRefreshError).toBeDefined();
-            expect(typeof mod.MachineRefreshError).toBe("function");
+            expect(mod.MachineInvalidateError).toBeDefined();
+            expect(typeof mod.MachineInvalidateError).toBe("function");
         });
     });
 });

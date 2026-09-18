@@ -4,7 +4,7 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { SKIP } from "@/query/constants";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IResourceConfig, TResourceAgentState } from "@/query/types";
+import type { IResourceConfig, TResourceClutchState } from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -24,10 +24,10 @@ function createResource<TArgs = void, TData = string>(
 // Collect state via reactive effect — tracks cleanup automatically
 const _effects: Array<{ unsubscribe: () => void }> = [];
 
-function observe<TArgs, TData>(agent: { state$: () => TResourceAgentState<TArgs, TData> }) {
-    let latest!: TResourceAgentState<TArgs, TData>;
+function observe<TArgs, TData>(clutch: { state$: () => TResourceClutchState<TArgs, TData> }) {
+    let latest!: TResourceClutchState<TArgs, TData>;
     const eff = Signal.effect(() => {
-        latest = agent.state$();
+        latest = clutch.state$();
     });
     _effects.push(eff);
     return { get: () => latest };
@@ -41,16 +41,16 @@ afterEach(() => {
 
 // ==================== 1. start(args) — state transitions ====================
 
-describe("ResourceAgent.start(args)", () => {
+describe("ResourceClutch.start(args)", () => {
     it("idle → pending → success", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
         expect(s.get().status).toBe("idle");
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         expect(s.get().status).toBe("pending");
 
         await flushMicrotasks();
@@ -60,16 +60,16 @@ describe("ResourceAgent.start(args)", () => {
     });
 });
 
-// ==================== 2. set(args) — lazy, no fetch ====================
+// ==================== 2. switch(args) — lazy, no fetch ====================
 
-describe("ResourceAgent.set(args)", () => {
+describe("ResourceClutch.switch(args)", () => {
     it("does not start a fetch (lazy)", async () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
-        const agent = resource.createAgent();
-        observe(agent);
+        const clutch = resource.createClutch();
+        observe(clutch);
 
-        agent.set(1);
+        clutch.switch(1);
         await flushMicrotasks();
         expect(queryFn).not.toHaveBeenCalled();
     });
@@ -79,10 +79,10 @@ describe("ResourceAgent.set(args)", () => {
         resource.trigger(1);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
+        clutch.switch(1);
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("d-1");
     });
@@ -90,18 +90,18 @@ describe("ResourceAgent.set(args)", () => {
 
 // ==================== 3. start(SKIP) — reset to idle ====================
 
-describe("ResourceAgent.start(SKIP)", () => {
+describe("ResourceClutch.start(SKIP)", () => {
     it("resets to idle", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
 
-        agent.set(SKIP);
+        clutch.switch(SKIP);
         expect(s.get().status).toBe("idle");
         expect(s.get().data).toBeNull();
         expect(s.get().args).toBeNull();
@@ -109,16 +109,16 @@ describe("ResourceAgent.start(SKIP)", () => {
 
     it("clears previous entry — no SWR after SKIP", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
-        agent.set(SKIP);
+        clutch.switch(SKIP);
 
-        // set(2) after SKIP should be "pending" (no stale A data)
-        agent.set(2);
+        // switch(2) after SKIP should be "pending" (no stale A data)
+        clutch.switch(2);
         expect(s.get().status).toBe("pending");
         expect(s.get().data).toBeNull();
     });
@@ -126,8 +126,8 @@ describe("ResourceAgent.start(SKIP)", () => {
 
 // ==================== 4. SWR on args change ====================
 
-describe("ResourceAgent SWR", () => {
-    it("stale data from A while B loads (refreshing status)", async () => {
+describe("ResourceClutch SWR", () => {
+    it("stale data from A while B loads (invalidating status)", async () => {
         let resolveB!: (v: string) => void;
         let callCount = 0;
         const resource = createResource<number, string>({
@@ -139,16 +139,16 @@ describe("ResourceAgent SWR", () => {
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().data).toBe("data-A");
 
-        agent.set(2);
-        expect(s.get().status).toBe("refreshing");
+        clutch.switch(2);
+        expect(s.get().status).toBe("invalidating");
         expect(s.get().data).toBe("data-A");
 
         resolveB("data-B");
@@ -157,9 +157,9 @@ describe("ResourceAgent SWR", () => {
         expect(s.get().data).toBe("data-B");
     });
 
-    it("isSwitching + dataArgs: args switch vs refresh of the same entry", async () => {
+    it("isSwitching + dataArgs: args switch vs an invalidation of the same entry", async () => {
         let resolveB!: (v: string) => void;
-        let resolveRefresh!: (v: string) => void;
+        let resolveInvalidate!: (v: string) => void;
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: (_n: number) => {
@@ -171,24 +171,24 @@ describe("ResourceAgent SWR", () => {
                     });
                 }
                 return new Promise((r) => {
-                    resolveRefresh = r;
+                    resolveInvalidate = r;
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
         expect(s.get().isSwitching).toBe(false);
         expect(s.get().dataArgs).toBe(1);
 
         // Args switch: B loads behind A's data.
-        agent.set(2);
+        clutch.switch(2);
         let st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isRefreshing).toBe(true);
         expect(st.isSwitching).toBe(true);
         expect(st.args).toBe(2);
@@ -202,17 +202,17 @@ describe("ResourceAgent SWR", () => {
         expect(st.isSwitching).toBe(false);
         expect(st.dataArgs).toBe(2);
 
-        // Refresh of the same entry: still `refreshing`, but not a switch.
-        agent.refresh();
+        // An invalidation of the same entry: still `invalidating`, but not a switch.
+        clutch.invalidate();
         st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isRefreshing).toBe(true);
         expect(st.isSwitching).toBe(false);
         expect(st.args).toBe(2);
         expect(st.dataArgs).toBe(2);
         expect(st.data).toBe("data-B");
 
-        resolveRefresh("data-B2");
+        resolveInvalidate("data-B2");
         await flushMicrotasks();
         st = s.get();
         expect(st.status).toBe("success");
@@ -233,15 +233,15 @@ describe("ResourceAgent SWR", () => {
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
 
-        agent.set(2);
-        agent.set(3);
+        clutch.switch(2);
+        clutch.switch(3);
         expect(s.get().isSwitching).toBe(true);
         expect(s.get().args).toBe(3);
         expect(s.get().dataArgs).toBe(1);
@@ -273,21 +273,21 @@ describe("ResourceAgent SWR", () => {
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("data-A");
 
-        agent.set(2);
-        expect(s.get().status).toBe("refreshing");
+        clutch.switch(2);
+        expect(s.get().status).toBe("invalidating");
         expect(s.get().data).toBe("data-A");
 
-        agent.set(3);
-        expect(s.get().status).toBe("refreshing");
+        clutch.switch(3);
+        expect(s.get().status).toBe("invalidating");
         expect(s.get().data).toBe("data-A");
 
         resolveC("data-C");
@@ -304,7 +304,7 @@ describe("ResourceAgent SWR", () => {
 
 // ==================== 5. Error + previous data ====================
 
-describe("ResourceAgent error + previous data", () => {
+describe("ResourceClutch error + previous data", () => {
     it("on error, stale data from previous entry is preserved", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
@@ -314,15 +314,15 @@ describe("ResourceAgent error + previous data", () => {
                 throw new Error("fail");
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().data).toBe("data-A");
 
-        agent.set(2);
+        clutch.switch(2);
         await flushMicrotasks();
         expect(s.get().status).toBe("error");
         expect(s.get().data).toBe("data-A");
@@ -339,11 +339,11 @@ describe("ResourceAgent error + previous data", () => {
                 throw new Error("fail");
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("error");
         expect(s.get().data).toBeNull();
@@ -359,20 +359,20 @@ describe("ResourceAgent error + previous data", () => {
                 return "ok";
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().error).toBeInstanceOf(Error);
         expect((s.get().error as Error).message).toBe("err-1");
     });
 });
 
-// ==================== 6. retry() / refresh() delegation ====================
+// ==================== 6. retry() / invalidate() delegation ====================
 
-describe("ResourceAgent.retry() / .refresh()", () => {
+describe("ResourceClutch.retry() / .invalidate()", () => {
     it("retry after error: pending with isRetrying, dropped on settle", async () => {
         let callCount = 0;
         let resolveRetry!: (v: string) => void;
@@ -385,18 +385,18 @@ describe("ResourceAgent.retry() / .refresh()", () => {
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         expect(s.get().isRetrying).toBe(false);
         await flushMicrotasks();
         expect(s.get().status).toBe("error");
         expect(s.get().isRetrying).toBe(false);
 
         const failure = s.get().error;
-        agent.retry();
+        clutch.retry();
         let st = s.get();
         expect(st.status).toBe("pending");
         expect(st.isInitialLoading).toBe(true);
@@ -414,7 +414,7 @@ describe("ResourceAgent.retry() / .refresh()", () => {
         expect(st.error).toBeNull();
     });
 
-    it("retry after refresh-error: refreshing with isRetrying and the stale data; refresh() is not a retry", async () => {
+    it("retry after invalidate-error: invalidating with isRetrying and the stale data; invalidate() is not a retry", async () => {
         let callCount = 0;
         const pending: Array<{ resolve: (v: string) => void; reject: (e: unknown) => void }> = [];
         const resource = createResource<number, string>({
@@ -426,24 +426,24 @@ describe("ResourceAgent.retry() / .refresh()", () => {
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
 
-        agent.refresh();
-        pending.shift()!.reject(new Error("refresh failed"));
+        clutch.invalidate();
+        pending.shift()!.reject(new Error("invalidation failed"));
         await flushMicrotasks();
-        expect(s.get().status).toBe("refresh-error");
+        expect(s.get().status).toBe("invalidate-error");
         expect(s.get().isRetrying).toBe(false);
 
         const failure = s.get().error;
-        agent.retry();
+        clutch.retry();
         let st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isRefreshing).toBe(true);
         expect(st.isInitialLoading).toBe(false);
         expect(st.isRetrying).toBe(true);
@@ -454,12 +454,12 @@ describe("ResourceAgent.retry() / .refresh()", () => {
 
         pending.shift()!.reject(new Error("failed again"));
         await flushMicrotasks();
-        expect(s.get().status).toBe("refresh-error");
+        expect(s.get().status).toBe("invalidate-error");
         expect(s.get().isRetrying).toBe(false);
 
-        agent.refresh();
+        clutch.invalidate();
         st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isRetrying).toBe(false);
         expect(st.error).toBeNull();
         expect(st.data).toBe("d-1");
@@ -481,22 +481,22 @@ describe("ResourceAgent.retry() / .refresh()", () => {
                 return new Promise(() => {});
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
 
-        agent.set(2);
+        clutch.switch(2);
         await flushMicrotasks();
         expect(s.get().status).toBe("error");
         expect(s.get().data).toBe("data-A");
 
         const failure = s.get().error;
-        agent.retry();
+        clutch.retry();
         const st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isSwitching).toBe(true);
         expect(st.isRetrying).toBe(true);
         expect(st.error).toBe(failure);
@@ -514,21 +514,21 @@ describe("ResourceAgent.retry() / .refresh()", () => {
                 return "recovered";
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("error");
 
-        agent.retry();
+        clutch.retry();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("recovered");
     });
 
-    it("refresh triggers background refetch", async () => {
+    it("invalidate() triggers a background refetch", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: async () => {
@@ -536,58 +536,58 @@ describe("ResourceAgent.retry() / .refresh()", () => {
                 return `d-${callCount}`;
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().data).toBe("d-1");
 
-        agent.refresh();
-        expect(s.get().status).toBe("refreshing");
+        clutch.invalidate();
+        expect(s.get().status).toBe("invalidating");
 
         await flushMicrotasks();
         expect(s.get().data).toBe("d-2");
     });
 
-    it("retry/refresh are no-ops on idle agent", () => {
+    it("retry/invalidate are no-ops on idle clutch", () => {
         const resource = createResource<number, string>({ queryFn: async () => "data" });
-        const agent = resource.createAgent();
-        expect(() => agent.retry()).not.toThrow();
-        expect(() => agent.refresh()).not.toThrow();
+        const clutch = resource.createClutch();
+        expect(() => clutch.retry()).not.toThrow();
+        expect(() => clutch.invalidate()).not.toThrow();
     });
 });
 
 // ==================== 7. dispose (effect cleanup) ====================
 
-describe("ResourceAgent dispose", () => {
+describe("ResourceClutch dispose", () => {
     it("stops tracking after effect is unsubscribed", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
-        const agent = resource.createAgent();
+        const clutch = resource.createClutch();
         const statuses: string[] = [];
         const eff = Signal.effect(() => {
-            statuses.push(agent.state$().status);
+            statuses.push(clutch.state$().status);
         });
         _effects.push(eff); // still pushed for afterEach safety
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         const countBefore = statuses.length;
 
         eff.unsubscribe();
 
-        agent.set(2);
+        clutch.switch(2);
         await flushMicrotasks();
         expect(statuses.length).toBe(countBefore);
     });
 });
 
-// ==================== 8. resetAll on active agent ====================
+// ==================== 8. resetAll on active clutch ====================
 
-describe("ResourceAgent reset() on active agent (regression)", () => {
-    it("resource.reset() while agent is subscribed does not cause infinite loop", async () => {
+describe("ResourceClutch reset() on active clutch (regression)", () => {
+    it("resource.reset() while clutch is subscribed does not cause infinite loop", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: async (n: number) => {
@@ -595,11 +595,11 @@ describe("ResourceAgent reset() on active agent (regression)", () => {
                 return `d-${n}`;
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
         expect(callCount).toBe(1);
@@ -609,27 +609,27 @@ describe("ResourceAgent reset() on active agent (regression)", () => {
         resource.reset();
         await flushMicrotasks();
 
-        // The agent should recover to idle or re-fetch — NOT spin forever.
+        // The clutch should recover to idle or re-fetch — NOT spin forever.
         // A bounded call-count check acts as the loop detector.
         expect(callCount).toBeLessThanOrEqual(3);
         expect(["idle", "pending", "success"]).toContain(s.get().status);
     });
 });
 
-// ==================== 9. set() then start() ====================
+// ==================== 9. switch() then start() ====================
 
-describe("ResourceAgent set() then start()", () => {
+describe("ResourceClutch switch() then start()", () => {
     it("transitions from lazy to eager (triggers the fetch)", async () => {
         const queryFn = vi.fn(async (n: number) => `d-${n}`);
         const resource = createResource<number, string>({ queryFn });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
+        clutch.switch(1);
         await flushMicrotasks();
         expect(queryFn).not.toHaveBeenCalled();
 
-        agent.start();
+        clutch.start();
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         await flushMicrotasks();
@@ -640,42 +640,42 @@ describe("ResourceAgent set() then start()", () => {
 
 // ==================== 10. Early return ====================
 
-describe("ResourceAgent early return", () => {
-    it("set() with same args is a no-op (no new fetch)", async () => {
+describe("ResourceClutch early return", () => {
+    it("switch() with same args is a no-op (no new fetch)", async () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
-        const agent = resource.createAgent();
-        observe(agent);
+        const clutch = resource.createClutch();
+        observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(queryFn).toHaveBeenCalledTimes(1);
 
-        agent.set(1);
+        clutch.switch(1);
         await flushMicrotasks();
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
 
-    it("set() with same args is a no-op", () => {
+    it("switch() with same args is a no-op", () => {
         const resource = createResource<number, string>({ queryFn: async () => "data" });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
+        clutch.switch(1);
         const st1 = s.get().status;
-        agent.set(1);
+        clutch.switch(1);
         expect(s.get().status).toBe(st1);
     });
 });
 
 // ==================== 11. state$ property flags ====================
 
-describe("ResourceAgent state$ flags", () => {
+describe("ResourceClutch state$ flags", () => {
     it("idle: all flags false, data/error null", () => {
         const resource = createResource<number, string>({ queryFn: async () => "data" });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
         const st = s.get();
         expect(st.status).toBe("idle");
@@ -700,11 +700,11 @@ describe("ResourceAgent state$ flags", () => {
                     resolve = r;
                 }),
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         const st = s.get();
         expect(st.status).toBe("pending");
         expect(st.isLoading).toBe(true);
@@ -722,11 +722,11 @@ describe("ResourceAgent state$ flags", () => {
 
     it("success: isSuccess=true, has data", async () => {
         const resource = createResource<number, string>({ queryFn: async () => "data" });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
 
         const st = s.get();
@@ -744,11 +744,11 @@ describe("ResourceAgent state$ flags", () => {
                 throw new Error("boom");
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
 
         const st = s.get();
@@ -759,30 +759,30 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.error).toBeInstanceOf(Error);
     });
 
-    it("refreshing: isRefreshing=true, isLoading=true, isInitialLoading=false", async () => {
+    it("invalidating: isRefreshing=true, isLoading=true, isInitialLoading=false", async () => {
         let callCount = 0;
-        let resolveRefresh!: (v: string) => void;
+        let resolveInvalidate!: (v: string) => void;
         const resource = createResource<number, string>({
             queryFn: (_n: number) => {
                 callCount++;
                 if (callCount === 1) return Promise.resolve("d-1");
                 return new Promise((r) => {
-                    resolveRefresh = r;
+                    resolveInvalidate = r;
                 });
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
 
         // Trigger SWR via args switch
-        agent.set(2);
+        clutch.switch(2);
         const st = s.get();
-        expect(st.status).toBe("refreshing");
+        expect(st.status).toBe("invalidating");
         expect(st.isRefreshing).toBe(true);
         expect(st.isLoading).toBe(true);
         expect(st.isInitialLoading).toBe(false);
@@ -791,11 +791,11 @@ describe("ResourceAgent state$ flags", () => {
         expect(st.data).toBe("d-1");
         expect(st.dataArgs).toBe(1);
 
-        resolveRefresh("d-2");
+        resolveInvalidate("d-2");
         await flushMicrotasks();
     });
 
-    it("state$ delegates retry() and refresh()", async () => {
+    it("state$ delegates retry() and invalidate()", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: async () => {
@@ -803,16 +803,16 @@ describe("ResourceAgent state$ flags", () => {
                 return `d-${callCount}`;
             },
         });
-        const agent = resource.createAgent();
-        const s = observe(agent);
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
 
-        agent.set(1);
-        agent.start();
+        clutch.switch(1);
+        clutch.start();
         await flushMicrotasks();
         expect(s.get().data).toBe("d-1");
 
-        // Use the state object's refresh delegate
-        s.get().refresh();
+        // Use the state object's invalidate delegate
+        s.get().invalidate();
         await flushMicrotasks();
         expect(s.get().data).toBe("d-2");
     });
@@ -820,16 +820,16 @@ describe("ResourceAgent state$ flags", () => {
 
 // ==================== 12. Non-last entry removal (N1 regression) ====================
 //
-// The agent holds its tracked entry through `current$` (a getEntry$ signal). When
-// the tracked entry is NOT the last one created and is removed while the agent is
+// The clutch holds its tracked entry through `current$` (a getEntry$ signal). When
+// the tracked entry is NOT the last one created and is removed while the clutch is
 // unmounted (state$ read only via peek — no live subscription), current$ keeps
 // yielding the completed entry. Callers that then read `entry.machine$.peek()`
-// (retry / refresh / _promoteToPrevious in _deriveState / set) hit a disposed
+// (retry / invalidate / _promoteToPrevious in _deriveState / switch) hit a disposed
 // state and throw "No value emitted". These are RED on the current code and GREEN
 // once the cache is reactive (current$.peek() becomes null → the optional chains
 // short-circuit into no-ops).
-describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
-    it("set() to new args does not throw when the tracked NON-last entry was removed (unmounted)", async () => {
+describe("ResourceClutch — non-last entry removal (N1 regression)", () => {
+    it("switch() to new args does not throw when the tracked NON-last entry was removed (unmounted)", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
         // Two live entries; key 2 created last, so key 1 is the non-last entry.
@@ -837,38 +837,38 @@ describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
         resource.trigger(2);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        agent.set(1); // track key 1 — unmounted (state$ never observed) and unstarted
+        const clutch = resource.createClutch();
+        clutch.switch(1); // track key 1 — unmounted (state$ never observed) and unstarted
 
-        // Prime the agent's internal current$ memo with the live entry 1.
-        expect(agent.state$.peek().data).toBe("d-1");
+        // Prime the clutch's internal current$ memo with the live entry 1.
+        expect(clutch.state$.peek().data).toBe("d-1");
 
         // Remove the non-last entry. current$ does not observe the removal, so
         // _promoteToPrevious later reads machine$.peek() on the disposed entry.
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
 
-        expect(() => agent.set(3)).not.toThrow();
+        expect(() => clutch.switch(3)).not.toThrow();
     });
 
-    it("retry()/refresh() are no-throw no-ops when the tracked NON-last entry was removed (unmounted)", async () => {
+    it("retry()/invalidate() are no-throw no-ops when the tracked NON-last entry was removed (unmounted)", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
         resource.trigger(1);
         resource.trigger(2);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        agent.set(1);
-        expect(agent.state$.peek().data).toBe("d-1"); // prime current$ with the live entry
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        expect(clutch.state$.peek().data).toBe("d-1"); // prime current$ with the live entry
 
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
 
-        // retry/refresh read current$.peek()?.machine$.peek(); on a stale completed
+        // retry/invalidate read current$.peek()?.machine$.peek(); on a stale completed
         // entry that peek throws. After the fix current$.peek() is null → no-op.
-        expect(() => agent.retry()).not.toThrow();
-        expect(() => agent.refresh()).not.toThrow();
+        expect(() => clutch.retry()).not.toThrow();
+        expect(() => clutch.invalidate()).not.toThrow();
     });
 
     it("reading state$ does not throw after the tracked NON-last entry is removed (unmounted)", async () => {
@@ -878,28 +878,28 @@ describe("ResourceAgent — non-last entry removal (N1 regression)", () => {
         resource.trigger(2);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        agent.set(1);
-        expect(agent.state$.peek().data).toBe("d-1"); // prime current$
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        expect(clutch.state$.peek().data).toBe("d-1"); // prime current$
 
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
 
         // _deriveState → tracking.current$() returns the stale completed entry →
-        // entry.machine$() throws. After the fix current$ yields null and the agent
+        // entry.machine$() throws. After the fix current$ yields null and the clutch
         // degrades to an idle-like state instead of throwing.
-        expect(() => agent.state$.peek()).not.toThrow();
+        expect(() => clutch.state$.peek()).not.toThrow();
     });
 });
 
 // ==================== 13. Stale re-create on rapid args change (microtask) ====================
 //
 // _deriveState schedules a deferred re-create — queueMicrotask(getEntry(tracking.keyed, true)) —
-// when the agent is started and its tracked entry is absent (evicted-while-tracked). The
+// when the clutch is started and its tracked entry is absent (evicted-while-tracked). The
 // captured `tracking` is the key at schedule time. If args advance within the SAME tick before
 // the microtask fires, the stale key must NOT be re-created: it would spawn a phantom cache entry
 // and a fetch for args nobody tracks anymore. Guarded by a live-tracking (key) re-check.
-describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", () => {
+describe("ResourceClutch — stale re-trigger on rapid args change (microtask)", () => {
     it("does not trigger the evicted-then-superseded key when args advance within one tick", async () => {
         const queryFn = vi.fn(async (n: number) => `d-${n}`);
         const resource = createResource<number, string>({ queryFn });
@@ -910,10 +910,10 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.trigger(2);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        agent.set(1);
-        agent.start(); // _isStarted = true, tracks key 1
-        expect(agent.state$.peek().status).toBe("success"); // prime current$ with live entry 1
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        clutch.start(); // _isStarted = true, tracks key 1
+        expect(clutch.state$.peek().status).toBe("success"); // prime current$ with live entry 1
 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
@@ -921,10 +921,10 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         const createSpy = vi.spyOn(resource, "getEntry");
 
         // Derive hits "entry null + started" → queues microtask(getEntry(key 1, true)).
-        expect(agent.state$.peek().status).toBe("pending");
+        expect(clutch.state$.peek().status).toBe("pending");
 
         // Args advance to 3 within the SAME tick, before the queued microtask fires.
-        agent.set(3);
+        clutch.switch(3);
 
         await flushMicrotasks();
 
@@ -943,16 +943,16 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
         resource.trigger(2);
         await flushMicrotasks();
 
-        const agent = resource.createAgent();
-        agent.set(1);
-        agent.start();
-        expect(agent.state$.peek().status).toBe("success");
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        clutch.start();
+        expect(clutch.state$.peek().status).toBe("success");
 
         resource.getEntry(1)!.complete(); // evict the tracked entry
         await flushMicrotasks();
 
         const createSpy = vi.spyOn(resource, "getEntry");
-        expect(agent.state$.peek().status).toBe("pending"); // queues microtask(getEntry(key 1, true))
+        expect(clutch.state$.peek().status).toBe("pending"); // queues microtask(getEntry(key 1, true))
         // args unchanged
         await flushMicrotasks();
 
@@ -960,5 +960,92 @@ describe("ResourceAgent — stale re-trigger on rapid args change (microtask)", 
             ([keyed, doInitiate]) => doInitiate === true && (keyed as { value: number }).value === 1,
         );
         expect(recreated).toBe(true);
+    });
+});
+
+// ==================== 13. Deprecated aliases ====================
+
+describe("ResourceClutch — deprecated aliases", () => {
+    it("set(args, mark) forwards to switch(args, { markPending: mark })", () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+        const clutch = resource.createClutch();
+        const switchSpy = vi.spyOn(clutch, "switch");
+
+        clutch.set(1, true);
+        expect(switchSpy).toHaveBeenCalledTimes(1);
+        expect(switchSpy).toHaveBeenLastCalledWith(1, { markPending: true });
+
+        clutch.set(2);
+        expect(switchSpy).toHaveBeenCalledTimes(2);
+        expect(switchSpy).toHaveBeenLastCalledWith(2, { markPending: false });
+    });
+
+    it("set(args, true) marks an unstarted clutch as pending, exactly as markPending does", () => {
+        const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
+
+        const marked = resource.createClutch();
+        const markedState = observe(marked);
+        marked.set(1, true);
+        expect(markedState.get().status).toBe("pending");
+
+        const unmarked = resource.createClutch();
+        const unmarkedState = observe(unmarked);
+        unmarked.set(1);
+        expect(unmarkedState.get().status).toBe("idle");
+    });
+
+    it("refresh() forwards to invalidate(), including through a destructured reference", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                return `d-${callCount}`;
+            },
+        });
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
+
+        clutch.switch(1);
+        clutch.start();
+        await flushMicrotasks();
+        expect(s.get().data).toBe("d-1");
+
+        const invalidateSpy = vi.spyOn(clutch, "invalidate");
+        const { refresh } = clutch;
+        refresh();
+
+        expect(invalidateSpy).toHaveBeenCalledTimes(1);
+        expect(s.get().status).toBe("invalidating");
+
+        await flushMicrotasks();
+        expect(s.get().data).toBe("d-2");
+    });
+
+    it("state$ exposes refresh as a forwarder to invalidate", async () => {
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                callCount++;
+                return `d-${callCount}`;
+            },
+        });
+        const clutch = resource.createClutch();
+        const s = observe(clutch);
+
+        // Idle state carries the alias too.
+        expect(typeof s.get().refresh).toBe("function");
+
+        clutch.switch(1);
+        clutch.start();
+        await flushMicrotasks();
+
+        const invalidateSpy = vi.spyOn(clutch, "invalidate");
+        s.get().refresh();
+
+        expect(invalidateSpy).toHaveBeenCalledTimes(1);
+        expect(s.get().status).toBe("invalidating");
+
+        await flushMicrotasks();
+        expect(s.get().data).toBe("d-2");
     });
 });

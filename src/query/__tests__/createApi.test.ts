@@ -84,7 +84,7 @@ describe("createApi — custom options propagation", () => {
 
         const snapshot = api.getSnapshot();
         // The raw snapshot key should be the un-prefixed key "users"
-        // because snapshoter uses the opts.key for snapshot lookup
+        // because snapshotter uses the opts.key for snapshot lookup
         // But the resource internal key is "app/users"
         expect(resource.serialize(undefined as void)).toBeDefined();
     });
@@ -296,10 +296,10 @@ describe("createApi.createResource", () => {
         const resource = api.createResource({ queryFn: dummyQueryFn });
 
         expect(resource.trigger).toBeTypeOf("function");
-        expect(resource.refresh).toBeTypeOf("function");
+        expect(resource.invalidate).toBeTypeOf("function");
         expect(resource.getEntry).toBeTypeOf("function");
         expect(resource.getEntries).toBeTypeOf("function");
-        expect(resource.createAgent).toBeTypeOf("function");
+        expect(resource.createClutch).toBeTypeOf("function");
         expect(resource.serialize).toBeTypeOf("function");
     });
 
@@ -349,7 +349,7 @@ describe("createApi.createCommand", () => {
         expect(command.execute).toBeTypeOf("function");
         expect(command.trigger).toBeTypeOf("function");
         expect(command.getEntry).toBeTypeOf("function");
-        expect(command.createAgent).toBeTypeOf("function");
+        expect(command.createClutch).toBeTypeOf("function");
     });
 
     it("command.execute executes queryFn", async () => {
@@ -541,7 +541,7 @@ describe("createApi — snapshot hydration", () => {
             queryFn: async () => ({ name: "Bob" }),
         });
 
-        // createApi delegates hydration to Snapshoter; resource is created without error
+        // createApi delegates hydration to Snapshotter; resource is created without error
         expect(resource).toBeDefined();
     });
 
@@ -587,7 +587,7 @@ describe("createApi — snapshot hydration", () => {
             },
         };
 
-        // snapshotValidTime is passed to Snapshoter; should not throw
+        // snapshotValidTime is passed to Snapshotter; should not throw
         const api = createApi({
             initialSnapshot,
             snapshotValidTime: 60_000,
@@ -601,7 +601,7 @@ describe("createApi — snapshot hydration", () => {
         expect(resource).toBeDefined();
     });
 
-    it("stale snapshot entry hydrates as 'refreshing'", () => {
+    it("stale snapshot entry hydrates as 'invalidating'", () => {
         const staleTimestamp = Date.now() - 120_000; // 2 minutes ago
         const initialSnapshot: TApiSnapshot = {
             version: CURRENT_SNAPSHOT_VERSION,
@@ -633,7 +633,7 @@ describe("createApi — snapshot hydration", () => {
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        expect(entries[0].machine$.peek().state.status).toBe("refreshing");
+        expect(entries[0].machine$.peek().state.status).toBe("invalidating");
         expect(entries[0].machine$.peek().state.data).toBe("old-data");
     });
 
@@ -852,6 +852,233 @@ describe("createApi — lifecycle hooks integration", () => {
 
         resolveQuery("data");
         await flushMicrotasks();
+    });
+});
+
+// ==================== Lifecycle Hook Arrays ====================
+
+describe("createApi — lifecycle hook arrays", () => {
+    it("every hook of an onQueryStarted array is called on a resource query", async () => {
+        const hookA = vi.fn();
+        const hookB = vi.fn();
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [hookA, hookB],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(hookA).toHaveBeenCalledTimes(1);
+        expect(hookB).toHaveBeenCalledTimes(1);
+    });
+
+    it("every hook of an onCacheEntryAdded array is called on a resource entry", async () => {
+        const hookA = vi.fn();
+        const hookB = vi.fn();
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onCacheEntryAdded: [hookA, hookB],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(hookA).toHaveBeenCalledTimes(1);
+        expect(hookB).toHaveBeenCalledTimes(1);
+    });
+
+    it("falsy array entries are skipped and the remaining hooks still run", async () => {
+        const hook = vi.fn();
+        const isDev = false;
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [undefined, hook, isDev && vi.fn()],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(hook).toHaveBeenCalledTimes(1);
+    });
+
+    it("an array of only falsy entries leaves the resource working", async () => {
+        const isDev = false;
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [undefined, isDev && vi.fn()],
+            onCacheEntryAdded: [undefined],
+        });
+
+        await expect(resource.fetch(undefined as void)).resolves.toBe("data");
+    });
+
+    it("a throwing hook in the array does not stop the others", async () => {
+        const throwing = vi.fn(() => {
+            throw new Error("hook-error");
+        });
+        const after = vi.fn();
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [throwing, after],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(throwing).toHaveBeenCalledTimes(1);
+        expect(after).toHaveBeenCalledTimes(1);
+        // The throw is suppressed: the query itself is unaffected.
+        await expect(resource.fetch(undefined as void)).resolves.toBe("data");
+    });
+
+    it("a rejecting async hook in the array does not stop the others", async () => {
+        const rejecting = vi.fn(async () => {
+            throw new Error("async-hook-error");
+        });
+        const after = vi.fn();
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onCacheEntryAdded: [rejecting, after],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(rejecting).toHaveBeenCalledTimes(1);
+        expect(after).toHaveBeenCalledTimes(1);
+    });
+
+    it("a long-lived hook in the array does not delay the following ones", async () => {
+        // The documented lifecycle pattern: a hook may stay pending for the
+        // entry's whole lifetime. The array order must not sequence the hooks.
+        const longLived = vi.fn(() => new Promise<void>(() => {}));
+        const after = vi.fn();
+        const api = createApi();
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onCacheEntryAdded: [longLived, after],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(after).toHaveBeenCalledTimes(1);
+    });
+
+    it("api-level and resource-level hook arrays are all merged", async () => {
+        const apiA = vi.fn();
+        const apiB = vi.fn();
+        const localA = vi.fn();
+        const localB = vi.fn();
+
+        const api = createApi({
+            onQueryStarted: [apiA, apiB],
+            onCacheEntryAdded: [apiA, undefined],
+        });
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [localA, localB],
+            onCacheEntryAdded: [localA, false],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        // onQueryStarted: apiA, apiB, localA, localB; onCacheEntryAdded: apiA, localA.
+        expect(apiA).toHaveBeenCalledTimes(2);
+        expect(apiB).toHaveBeenCalledTimes(1);
+        expect(localA).toHaveBeenCalledTimes(2);
+        expect(localB).toHaveBeenCalledTimes(1);
+    });
+
+    it("an api-level single hook merges with a resource-level array", async () => {
+        const apiHook = vi.fn();
+        const localA = vi.fn();
+        const localB = vi.fn();
+
+        const api = createApi({ onQueryStarted: apiHook });
+
+        const resource = api.createResource({
+            queryFn: async () => "data",
+            onQueryStarted: [localA, localB],
+        });
+
+        resource.trigger(undefined as void);
+        await flushMicrotasks();
+
+        expect(apiHook).toHaveBeenCalledTimes(1);
+        expect(localA).toHaveBeenCalledTimes(1);
+        expect(localB).toHaveBeenCalledTimes(1);
+    });
+
+    it("createCommand accepts hook arrays and calls every hook", async () => {
+        const apiHook = vi.fn();
+        const localA = vi.fn();
+        const localB = vi.fn();
+        const throwing = vi.fn(() => {
+            throw new Error("command-hook-error");
+        });
+
+        const api = createApi({ onQueryStarted: [apiHook] });
+
+        const command = api.createCommand({
+            queryFn: async (x: number) => x * 2,
+            onQueryStarted: [throwing, localA, undefined, false, localB],
+        });
+
+        await expect(command.execute(5)).resolves.toBe(10);
+        await flushMicrotasks();
+
+        expect(apiHook).toHaveBeenCalledTimes(1);
+        expect(throwing).toHaveBeenCalledTimes(1);
+        expect(localA).toHaveBeenCalledTimes(1);
+        expect(localB).toHaveBeenCalledTimes(1);
+    });
+
+    it("unstable_createProjectionResource accepts hook arrays without losing the runtime's own hook", async () => {
+        const localA = vi.fn();
+        const localB = vi.fn();
+        const throwing = vi.fn(() => {
+            throw new Error("projection-hook-error");
+        });
+
+        const api = createApi();
+        const items = api.createResource({
+            queryFn: async (args: { ids: number[] }) => args.ids.map((id) => ({ id })),
+        });
+
+        const projection = api.unstable_createProjectionResource({
+            resource: items,
+            key: "items-projection",
+            parseData: (data) => data.map((item) => ({ id: item.id, item })),
+            makeArgs: (ids: number[]) => ({ ids }),
+            retentionTime: false,
+            onCacheEntryAdded: [throwing, localA, undefined, localB],
+        });
+
+        // The projection still works: the runtime's internal bookkeeping hook
+        // survives the merge with the option array.
+        const data = await projection.fetch([1, 2]);
+
+        expect(data.map((item) => item.id)).toEqual([1, 2]);
+        expect(throwing).toHaveBeenCalledTimes(1);
+        expect(localA).toHaveBeenCalledTimes(1);
+        expect(localB).toHaveBeenCalledTimes(1);
     });
 });
 

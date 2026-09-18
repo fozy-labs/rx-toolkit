@@ -1,10 +1,10 @@
 import type {
+    TInvalidateErrorState,
+    TInvalidatingState,
     TMachineState,
     TPatchEntry,
     TPatchState,
     TPendingState,
-    TRefreshErrorState,
-    TRefreshingState,
     TRetrying,
     TSuccessState,
 } from "@/query/types";
@@ -13,35 +13,35 @@ import { processAllSettledPatches, processPatchState, replayPatchEntries } from 
 
 // States that carry data and support patching
 export type TDataState<TArgs, TData> =
-    TSuccessState<TArgs, TData> | TRefreshingState<TArgs, TData> | TRefreshErrorState<TArgs, TData>;
+    TSuccessState<TArgs, TData> | TInvalidatingState<TArgs, TData> | TInvalidateErrorState<TArgs, TData>;
 
-export function hasData<TArgs, TData>(state: TMachineState<TArgs, TData>): state is TDataState<TArgs, TData> {
-    return state.status === "success" || state.status === "refreshing" || state.status === "refresh-error";
+export function isDataState<TArgs, TData>(state: TMachineState<TArgs, TData>): state is TDataState<TArgs, TData> {
+    return state.status === "success" || state.status === "invalidating" || state.status === "invalidate-error";
 }
 
-/** No retry in flight: the shape of a first load or a plain refresh. */
+/** No retry in flight: the shape of a first load or a plain invalidation. */
 export const NOT_RETRYING: TRetrying<never> = { isRetrying: false, error: null };
 
 /**
  * The retry bookkeeping of an in-flight machine state as the {@link TRetrying}
- * union, for the derived (agent / lite) states. The cast is sound per the
+ * union, for the derived (clutch / entry) states. The cast is sound per the
  * mapError contract: the machine only holds errors already normalized to
  * `TError` at the queryFn boundary.
  */
 export function retryingOf<TArgs, TData, TError>(
-    state: TPendingState<TArgs> | TRefreshingState<TArgs, TData>,
+    state: TPendingState<TArgs> | TInvalidatingState<TArgs, TData>,
 ): TRetrying<TError> {
     return state.isRetrying ? { isRetrying: true, error: state.error as TError } : NOT_RETRYING;
 }
 
 export function buildDataState<TArgs, TData>(
-    status: "success" | "refreshing" | "refresh-error",
+    status: "success" | "invalidating" | "invalidate-error",
     base: TMachineState<TArgs, TData>,
     data: TData,
     patchState: TPatchState<TData> | null,
     updatedAt?: number,
 ): TDataState<TArgs, TData> {
-    const resolvedUpdatedAt = updatedAt ?? (hasData(base) ? base.updatedAt : Date.now());
+    const resolvedUpdatedAt = updatedAt ?? (isDataState(base) ? base.updatedAt : Date.now());
 
     switch (status) {
         case "success": {
@@ -55,12 +55,12 @@ export function buildDataState<TArgs, TData>(
             };
             return state;
         }
-        case "refreshing": {
+        case "invalidating": {
             // Patch operations rebuild the state in place: keep the retry
-            // bookkeeping of a retrying refresh.
-            const retrying = base.status === "refreshing" && base.isRetrying;
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+            // bookkeeping of a retrying invalidation.
+            const retrying = base.status === "invalidating" && base.isRetrying;
+            const state: TInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: base.args,
                 data,
                 error: retrying ? base.error : null,
@@ -70,12 +70,12 @@ export function buildDataState<TArgs, TData>(
             };
             return state;
         }
-        case "refresh-error": {
-            if (!hasData(base)) {
-                throw new Error("Cannot build refresh-error from non-data state");
+        case "invalidate-error": {
+            if (!isDataState(base)) {
+                throw new Error("Cannot build invalidate-error from non-data state");
             }
-            const state: TRefreshErrorState<TArgs, TData> = {
-                status: "refresh-error",
+            const state: TInvalidateErrorState<TArgs, TData> = {
+                status: "invalidate-error",
                 args: base.args,
                 data,
                 error: base.error,
@@ -92,7 +92,7 @@ export function withDataState<TArgs, TData>(
     data: TData,
     patchState: TPatchState<TData> | null,
 ): TDataState<TArgs, TData> {
-    if (!hasData(currentState)) {
+    if (!isDataState(currentState)) {
         throw new Error("withDataState called on non-data state");
     }
     return buildDataState(currentState.status, currentState, data, patchState);
@@ -101,7 +101,7 @@ export function withDataState<TArgs, TData>(
 export function consistencyViolation<TArgs, TData>(
     currentState: TMachineState<TArgs, TData>,
 ): TDataState<TArgs, TData> {
-    if (!hasData(currentState)) {
+    if (!isDataState(currentState)) {
         throw new Error("Consistency violation in non-data state");
     }
 
@@ -116,7 +116,7 @@ export function consistencyViolation<TArgs, TData>(
 
 export function replayPatches<TArgs, TData>(
     currentState: TMachineState<TArgs, TData>,
-    targetStatus: "success" | "refreshing" | "refresh-error",
+    targetStatus: "success" | "invalidating" | "invalidate-error",
     baseData: TData,
     patches: TPatchEntry[],
     updatedAt?: number,

@@ -1,7 +1,7 @@
 import React from "react";
 
 import { useConstant, useEventHandler } from "@/common/react";
-import type { ICommand, TCommandAgentState, TTriggerPromise } from "@/query/types";
+import type { ICommand, TCommandClutchState, TTriggerPromise } from "@/query/types";
 import { useSignal } from "@/signals/react";
 
 /**
@@ -13,19 +13,19 @@ import { useSignal } from "@/signals/react";
  */
 export function useCommand<TArgs, TData, TError = unknown>(
     command: ICommand<TArgs, TData, TError>,
-    key?: string,
-): [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandAgentState<TArgs, TData, TError>] {
-    const agent = useConstant(() => command.createAgent(key), [command]);
+    entryKey?: string,
+): [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandClutchState<TArgs, TData, TError>] {
+    const clutch = useConstant(() => command.createClutch(entryKey), [command]);
 
     React.useEffect(() => {
-        if (key !== undefined) {
-            agent.setKey(key);
+        if (entryKey !== undefined) {
+            clutch.setEntryKey(entryKey);
         }
-    }, [agent, key]);
+    }, [clutch, entryKey]);
 
-    const state = useSignal(agent.state$);
+    const state = useSignal(clutch.state$);
 
-    const trigger = useEventHandler((args: TArgs) => agent.trigger(args));
+    const trigger = useEventHandler((args: TArgs) => clutch.trigger(args));
 
     return [trigger, state];
 }

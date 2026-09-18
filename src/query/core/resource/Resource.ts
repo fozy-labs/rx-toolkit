@@ -1,18 +1,18 @@
 import { firstValueFrom } from "rxjs";
 
 import type {
-    Args,
-    ArgsOrVoid,
     IResource,
-    IResourceAgent,
+    IResourceClutch,
     IResourceConfig,
-    IResourceLiteState,
-    Keyed,
+    TArgsOrKeyed,
+    TArgsOrVoid,
+    TBoundResource,
     TCacheEntryAddedContext,
+    TKeyed,
     TMapError,
-    TPackedResource,
     TQueryFnResult,
     TQueryStartedContext,
+    TResourceEntryState,
     TResourceFetchOptions,
     TResourcePrefetchOptions,
 } from "@/query/types";
@@ -25,7 +25,7 @@ import { Machine } from "../machine/Machine";
 import { retryingOf } from "../machine/machine-helpers";
 
 import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
-import { ResourceAgent } from "./ResourceAgent";
+import { ResourceClutch } from "./ResourceClutch";
 
 // ==================== Resource ====================
 
@@ -43,7 +43,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
     private readonly _queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     readonly _key: string | undefined;
-    /** @internal Read by Snapshoter.getSnapshot to skip non-snapshotable resources. */
+    /** @internal Read by Snapshotter.getSnapshot to skip non-snapshotable resources. */
     readonly _snapshotable: boolean;
     private readonly _retentionTime: number | false;
     private readonly _serializeArgs: (args: TArgs) => string;
@@ -87,30 +87,38 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
      * match on an `error`-state entry: `prefetch` retries it in both modes,
      * while `trigger` left it untouched (its force path went through
-     * `refresh()`, which is a no-op from `error`). And unlike `trigger`,
+     * `invalidate()`, which is a no-op from `error`). And unlike `trigger`,
      * every `prefetch` call — cache hits included — holds a keepalive
      * subscription until it settles and then restarts the entry's retention
      * countdown. Will be removed in a future release.
      * @param args - Query arguments.
-     * @param doForce - When `true`, forces a refresh even if data is cached.
+     * @param doForce - When `true`, forces an invalidation even if data is cached.
      */
-    trigger(args: Args<TArgs>, doForce = false): void {
+    trigger(args: TArgsOrKeyed<TArgs>, doForce = false): void {
         this._getOrCreate(args, doForce);
     }
 
     /**
-     * Mark the entry as stale and trigger a background SWR refresh.
+     * Mark the entry as stale and trigger a background SWR invalidate.
      *
      * @param args - Query arguments identifying the cache entry.
      */
-    refresh(args: Args<TArgs>): void {
+    invalidate(args: TArgsOrKeyed<TArgs>): void {
         const keyed = this.toKeyed(args);
 
         const entry = this._cache.get(keyed.key);
 
         if (entry) {
-            entry.refresh();
+            entry.invalidate();
         }
+    }
+
+    /**
+     * @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0.
+     * @param args - Query arguments identifying the cache entry.
+     */
+    refresh(args: TArgsOrKeyed<TArgs>): void {
+        this.invalidate(args);
     }
 
     /**
@@ -121,11 +129,11 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      *   so the result is never `null`.
      * @returns The cache entry, or `null` if not found and `doInitiate` is `false`.
      */
-    getEntry(args: ArgsOrVoid<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
-    getEntry(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): QueryCacheEntry<TArgs, TData> | null;
-    getEntry(args: Keyed<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
-    getEntry(args: ArgsOrVoid<TArgs> | Keyed<TArgs>, doInitiate = false): QueryCacheEntry<TArgs, TData> | null {
-        const keyed = this.toKeyed(args as Args<TArgs>);
+    getEntry(args: TArgsOrVoid<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
+    getEntry(args: TArgsOrVoid<TArgs>, doInitiate?: boolean): QueryCacheEntry<TArgs, TData> | null;
+    getEntry(args: TKeyed<TArgs>, doInitiate: true): QueryCacheEntry<TArgs, TData>;
+    getEntry(args: TArgsOrVoid<TArgs> | TKeyed<TArgs>, doInitiate = false): QueryCacheEntry<TArgs, TData> | null {
+        const keyed = this.toKeyed(args as TArgsOrKeyed<TArgs>);
 
         const entry = this._cache.get(keyed.key);
 
@@ -170,14 +178,14 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      *   where a read must stay pure (e.g. inside React render).
      * @returns The cache entry, or `null` if not found and `doInitiate` is `false`.
      */
-    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate: true): ReadonlySignal<QueryCacheEntry<TArgs, TData>>;
-    getEntry$(args: ArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
-    getEntry$(args: Keyed<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
+    getEntry$(args: TArgsOrVoid<TArgs>, doInitiate: true): ReadonlySignal<QueryCacheEntry<TArgs, TData>>;
+    getEntry$(args: TArgsOrVoid<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
+    getEntry$(args: TKeyed<TArgs>, doInitiate?: boolean): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
     getEntry$(
-        args: ArgsOrVoid<TArgs> | Keyed<TArgs>,
+        args: TArgsOrVoid<TArgs> | TKeyed<TArgs>,
         doInitiate = false,
     ): ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> {
-        const keyed = this.toKeyed(args as Args<TArgs>);
+        const keyed = this.toKeyed(args as TArgsOrKeyed<TArgs>);
 
         return Signal.compute(
             () => {
@@ -198,11 +206,16 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     /**
-     * Create a reactive {@link ResourceAgent} that observes this resource
+     * Create a reactive {@link ResourceClutch} that observes this resource
      * and provides SWR-aware state transitions.
      */
-    createAgent(): IResourceAgent<TArgs, TData, TError> {
-        return new ResourceAgent<TArgs, TData, TError>(this);
+    createClutch(): IResourceClutch<TArgs, TData, TError> {
+        return new ResourceClutch<TArgs, TData, TError>(this);
+    }
+
+    /** @deprecated Renamed to {@link createClutch}. Will be removed in 0.14.0. */
+    createAgent(): IResourceClutch<TArgs, TData, TError> {
+        return this.createClutch();
     }
 
     /**
@@ -211,7 +224,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * @param args - Query arguments.
      * @returns The serialized key used for cache lookup.
      */
-    serialize(args: Args<TArgs>): string {
+    serialize(args: TArgsOrKeyed<TArgs>): string {
         return this.toKeyed(args).key;
     }
 
@@ -219,9 +232,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Wrap arguments into a `{ value, key }` pair, avoiding repeated serialization.
      *
      * @param args - Query arguments.
-     * @returns A {@link Keyed} wrapper containing the original args and their cache key.
+     * @returns A {@link TKeyed} wrapper containing the original args and their cache key.
      */
-    toKeyed(args: Args<TArgs>): Keyed<TArgs> {
+    toKeyed(args: TArgsOrKeyed<TArgs>): TKeyed<TArgs> {
         return toKeyedUtil(args, this._serializeArgs);
     }
 
@@ -231,21 +244,30 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     /**
-     * Bundle this resource with arguments into an inert {@link TPackedResource}
+     * Bundle this resource with arguments into an inert {@link TBoundResource}
      * descriptor. Nothing is executed — the consumer hands the descriptor back to
      * the library, which can later read `resource`/`args` (e.g. `resource.prefetch(args)`).
      *
-     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @returns A `{ kind: "resource", resource, args }` descriptor.
      */
-    pack(args: Args<TArgs>): TPackedResource<TArgs, TData, TError> {
+    bind(args: TArgsOrKeyed<TArgs>): TBoundResource<TArgs, TData, TError> {
         return { kind: "resource", resource: this, args };
+    }
+
+    /**
+     * @deprecated Renamed to {@link bind}. Will be removed in 0.14.0.
+     * @param args - Query arguments (or a {@link TKeyed} wrapper).
+     * @returns A `{ kind: "resource", resource, args }` descriptor.
+     */
+    pack(args: TArgsOrKeyed<TArgs>): TBoundResource<TArgs, TData, TError> {
+        return this.bind(args);
     }
 
     /**
      * Ensure data is available for the given arguments and resolve with it.
      *
-     * If an entry already holds data (including stale data being refreshed) it
+     * If an entry already holds data (including stale data being invalidated) it
      * resolves immediately without a network round-trip. A cold entry is created
      * and its first load awaited; a failed entry is retried. Rejects if the
      * awaited query fails, the entry is removed, or `options.signal` aborts.
@@ -253,10 +275,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Designed for router loaders (`ensureQueryData`-style): the consumer awaits
      * data, then a component mounts and subscribes within the retention window.
      *
-     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
-    ensure(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
+    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
         if (options?.signal?.aborted) {
             return Promise.reject(abortReason(options.signal));
         }
@@ -264,7 +286,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         // A user-supplied serializeArgs may throw synchronously; convert it into
         // a rejection so the promise contract holds (prefetch then swallows it,
         // keeping its never-rejects guarantee).
-        let keyed: Keyed<TArgs>;
+        let keyed: TKeyed<TArgs>;
         try {
             keyed = this.toKeyed(args);
         } catch (error) {
@@ -288,22 +310,22 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * Fetch fresh data for the given arguments and resolve with it.
      *
      * Unlike {@link ensure}, this always reflects the result of a fresh query: a
-     * cached entry is refreshed (or retried) and the new result awaited; an
+     * cached entry is invalidated (or retried) and the new result awaited; an
      * in-flight query is awaited rather than duplicated. Rejects if the query
      * fails, the entry is removed, or `options.signal` aborts. With cross-tab
      * sync enabled, a cold entry may be filled from another tab's cache
      * (`beforeQuery`) instead of this tab's own network round-trip.
      *
-     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
      */
-    fetch(args: Args<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
+    fetch(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
         if (options?.signal?.aborted) {
             return Promise.reject(abortReason(options.signal));
         }
 
         // See ensure: a throwing serializeArgs must reject, not throw.
-        let keyed: Keyed<TArgs>;
+        let keyed: TKeyed<TArgs>;
         try {
             keyed = this.toKeyed(args);
         } catch (error) {
@@ -316,12 +338,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
 
         const status = existing.machine$.peek().state.status;
-        if (status === "success" || status === "refresh-error") {
-            existing.refresh();
+        if (status === "success" || status === "invalidate-error") {
+            existing.invalidate();
         } else if (status === "error") {
             existing.retry();
         }
-        // pending / refreshing → a query is already in flight; await its result.
+        // pending / invalidating → a query is already in flight; await its result.
 
         return existing.whenFetched(options?.signal);
     }
@@ -333,12 +355,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * the entry synchronously, never rejects, and — unlike {@link ensure} — is
      * intentionally not abort-aware so speculative warm-ups survive navigation.
      * With `options.force` it warms with *fresh* data instead (a fire-and-forget
-     * {@link fetch}): an existing entry is refreshed, or retried after an error.
+     * {@link fetch}): an existing entry is invalidated, or retried after an error.
      *
-     * @param args - Query arguments (or a {@link Keyed} wrapper).
+     * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @param options - See {@link TResourcePrefetchOptions}.
      */
-    prefetch(args: Args<TArgs>, options?: TResourcePrefetchOptions): Promise<void> {
+    prefetch(args: TArgsOrKeyed<TArgs>, options?: TResourcePrefetchOptions): Promise<void> {
         const settled = options?.force ? this.fetch(args) : this.ensure(args);
         return settled.then(
             () => undefined,
@@ -349,7 +371,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Get a simplified state object for the given arguments.
      */
-    getState(args: ArgsOrVoid<TArgs>): IResourceLiteState<TArgs, TData, TError> {
+    getState(args: TArgsOrVoid<TArgs>): TResourceEntryState<TArgs, TData, TError> {
         const entry = this.getEntry(args, false);
 
         if (!entry) {
@@ -401,9 +423,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             };
         }
 
-        if (machine.status === "refreshing") {
+        if (machine.status === "invalidating") {
             return {
-                status: "refreshing",
+                status: "invalidating",
                 data: machine.state.data,
                 args: entry.keyedArgs.value,
                 isLoading: true,
@@ -416,9 +438,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             };
         }
 
-        if (machine.status === "refresh-error") {
+        if (machine.status === "invalidate-error") {
             return {
-                status: "refresh-error",
+                status: "invalidate-error",
                 data: machine.state.data,
                 // Sound per the mapError contract: any error the machine holds was
                 // normalized to TError at the queryFn boundary before entering it.
@@ -438,7 +460,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return {
                 status: "error",
                 data: null,
-                // Sound per the mapError contract (see refresh-error branch above).
+                // Sound per the mapError contract (see invalidate-error branch above).
                 error: machine.state.error as TError,
                 args: entry.keyedArgs.value,
                 isLoading: false,
@@ -469,9 +491,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * non-async queryFn) into a rejected promise. Without this the throw would
      * escape the QueryCacheEntry constructor on the initial run — no entry
      * created, prefetch()/ensure()/fetch() throwing synchronously — and escape
-     * `_execute` on refresh()/retry() after the machine had already moved to
-     * refreshing/pending, stranding it there. As a rejection it flows through
-     * the machine (→ error / refresh-error) like any other query failure.
+     * `_execute` on invalidate()/retry() after the machine had already moved to
+     * invalidating/pending, stranding it there. As a rejection it flows through
+     * the machine (→ error / invalidate-error) like any other query failure.
      */
     private _callQueryFn(args: TArgs, signal: AbortSignal): TQueryFnResult<TData> {
         try {
@@ -496,20 +518,20 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         );
     };
 
-    /** Get an existing cache entry (refreshing it when `doForce`) or create a new one. */
-    private _getOrCreate(args: Args<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
+    /** Get an existing cache entry (invalidating it when `doForce`) or create a new one. */
+    private _getOrCreate(args: TArgsOrKeyed<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
         const keyed = this.toKeyed(args);
         const existing = this._cache.get(keyed.key);
 
         if (existing) {
-            if (doForce) existing.refresh();
+            if (doForce) existing.invalidate();
             return existing;
         }
 
         return this._createEntry(keyed);
     }
 
-    private _createEntry(keyed: Keyed<TArgs>, initialMachine?: Machine<TArgs, TData>): QueryCacheEntry<TArgs, TData> {
+    private _createEntry(keyed: TKeyed<TArgs>, initialMachine?: Machine<TArgs, TData>): QueryCacheEntry<TArgs, TData> {
         // ── beforeQuery sync intercept ──
         // If beforeQuery is set AND there's no snapshot (initialMachine), intercept
         // to ask other tabs for data before executing queryFn.
@@ -522,7 +544,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
     /** Standard entry creation: queryFn auto-executes in constructor. */
     private _createEntryDirect(
-        keyed: Keyed<TArgs>,
+        keyed: TKeyed<TArgs>,
         initialMachine?: Machine<TArgs, TData>,
     ): QueryCacheEntry<TArgs, TData> {
         // Capture the initial run's lifecycle context for onQueryStarted.
@@ -533,7 +555,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         let entry!: QueryCacheEntry<TArgs, TData>;
         let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
 
-        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
+        const wrappedQueryFn = (keyedArgs: TKeyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
             const raw = this._callQueryFn(keyedArgs.value, signal);
 
             // No hook — hand the run to the entry untouched (streams stay uninstrumented).
@@ -542,7 +564,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             const { result, lifecycle } = instrumentQueryRun(raw, signal);
 
             if (entry) {
-                // Subsequent calls (refresh / retry) — entry is already assigned
+                // Subsequent calls (invalidate / retry) — entry is already assigned
                 this._fireOnQueryStarted(entry, keyedArgs.value, lifecycle);
             } else {
                 // Initial call during constructor — defer
@@ -584,8 +606,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     /** Entry creation with beforeQuery intercept: starts in pending, asks other tabs first. */
-    private _createEntryWithBeforeQuery(keyed: Keyed<TArgs>): QueryCacheEntry<TArgs, TData> {
-        const wrappedQueryFn = (keyedArgs: Keyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
+    private _createEntryWithBeforeQuery(keyed: TKeyed<TArgs>): QueryCacheEntry<TArgs, TData> {
+        const wrappedQueryFn = (keyedArgs: TKeyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
             const raw = this._callQueryFn(keyedArgs.value, signal);
 
             if (!this._onQueryStarted) return raw;
@@ -648,7 +670,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private _hydrateEntry(key: string, meta: { args: TArgs; data: TData; updatedAt: number; isStale: boolean }): void {
         const machine = Machine.fromSnapshot<TArgs, TData>(meta, meta.isStale);
 
-        const keyed = toKeyedUtil<TArgs>(meta.args as Args<TArgs>, this._serializeArgs);
+        const keyed = toKeyedUtil<TArgs>(meta.args as TArgsOrKeyed<TArgs>, this._serializeArgs);
 
         // Verify key matches
         if (keyed.key !== key) {
@@ -661,7 +683,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._createEntry(keyed, machine);
     }
 
-    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: Keyed<TArgs>): void {
+    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {
         if (!this._onCacheEntryAdded) return;
 
         // $cacheDataLoaded: resolves with data on first success, rejects if entry removed first

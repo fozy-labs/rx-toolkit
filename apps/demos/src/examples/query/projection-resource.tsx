@@ -46,7 +46,7 @@ export function Base() {
         setSelected((prev) => (isOn ? [...prev, id] : prev.filter((x) => x !== id)));
     };
 
-    const handleRefresh = () => usersProjection.refresh(ids);
+    const handleInvalidate = () => usersProjection.invalidate(ids);
 
     const handleReset = () => {
         api.resetAll();
@@ -98,7 +98,7 @@ export function Base() {
                     <Chip size="sm" variant="flat" color="primary">
                         Запросов в сеть: {log.length}
                     </Chip>
-                    <Button size="sm" variant="flat" onPress={handleRefresh}>
+                    <Button size="sm" variant="flat" onPress={handleInvalidate}>
                         🔄 Обновить выбранных
                     </Button>
                     <Button size="sm" variant="flat" color="warning" onPress={handleReset}>

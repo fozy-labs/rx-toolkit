@@ -6,7 +6,7 @@ import type { TTriggerPromise, TTriggerResult } from "@/query/types";
  * (`{ status: "success", data }` / `{ status: "error", error }`), while
  * `unwrap()` hands back the original throwing promise.
  *
- * Backs agent/hook-level `trigger`; also usable directly to wrap the raw
+ * Backs clutch/hook-level `trigger`; also usable directly to wrap the raw
  * `Command.execute` promise.
  */
 export function wrapTrigger<TData, TError = unknown>(promise: Promise<TData>): TTriggerPromise<TData, TError> {

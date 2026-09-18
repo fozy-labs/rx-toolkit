@@ -1,7 +1,7 @@
-import type { ArgsOrVoid, IResource, TSuspenseResourceState } from "@/query/types";
+import type { IResource, TArgsOrVoid, TSuspenseResourceState } from "@/query/types";
 import { useSignal } from "@/signals/react";
 
-import { useResourceAgent } from "./useResourceAgent";
+import { useResourceClutch } from "./useResourceClutch";
 
 /**
  * Suspense-enabled variant of `useResource`.
@@ -14,8 +14,8 @@ import { useResourceAgent } from "./useResourceAgent";
  *   → the nearest Error Boundary catches it;
  * - otherwise it returns the resolved state with `data` guaranteed non-null.
  *
- * Background refreshes (SWR) never suspend: stale data stays on screen while
- * `isRefreshing` / `isRefreshError` let the UI render inline indicators.
+ * A background invalidation (SWR) never suspends: stale data stays on screen
+ * while `isRefreshing` / `isRefreshError` let the UI render inline indicators.
  *
  * `SKIP` is intentionally unsupported — a component that may suspend must always
  * have arguments. For conditional queries use `useResource`.
@@ -26,15 +26,15 @@ import { useResourceAgent } from "./useResourceAgent";
  */
 export function useSuspenseResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
-    args: ArgsOrVoid<TArgs>,
+    args: TArgsOrVoid<TArgs>,
 ): TSuspenseResourceState<TArgs, TData, TError> {
     // Started during render: a suspended render aborts its effects, so a
     // deferred start would leave the fallback hanging forever.
-    const agent = useResourceAgent(resource, args, true);
+    const clutch = useResourceClutch(resource, args, true);
 
-    const state = useSignal(agent.state$);
+    const state = useSignal(clutch.state$);
 
-    // Data present (success / refreshing / refresh-error / stale SWR) → render it.
+    // Data present (success / invalidating / invalidate-error / stale SWR) → render it.
     if (state.isSuccess || state.isRefreshing || state.isRefreshError || state.data != null) {
         return state as TSuspenseResourceState<TArgs, TData, TError>;
     }
@@ -45,5 +45,5 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
     }
 
     // Initial loading → suspend until the query settles.
-    throw agent.whenSettled();
+    throw clutch.whenSettled();
 }

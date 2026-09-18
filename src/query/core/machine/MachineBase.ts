@@ -1,19 +1,19 @@
 import type {
     IPatchHandle,
     TErrorState,
+    TInvalidateErrorState,
+    TInvalidatingState,
     TMachineState,
     TPatchEntry,
     TPatchState,
     TPendingState,
-    TRefreshErrorState,
-    TRefreshingState,
     TSuccessState,
 } from "@/query/types";
 
 import { MachineStateError, MachineTransitionError } from "../errors";
 import { createPatches } from "../patcher";
 
-import { hasData, processAllPatches, processPatches, replayPatches } from "./machine-helpers";
+import { isDataState, processAllPatches, processPatches, replayPatches } from "./machine-helpers";
 
 /**
  * Base class for the Machine state machine.
@@ -48,7 +48,7 @@ export class MachineBase<TArgs, TData> {
         return new MachineBase<TArgs, TData>(state);
     }
 
-    /** pending → error, refreshing → refresh-error, success → refresh-error */
+    /** pending → error, invalidating → invalidate-error, success → invalidate-error */
     fail(error: unknown): MachineBase<TArgs, TData> {
         if (this.state.status === "pending") {
             const state: TErrorState<TArgs> = {
@@ -63,10 +63,10 @@ export class MachineBase<TArgs, TData> {
 
         // A streaming query can fail after it already delivered data: the entry
         // sits in `success` when the stream errors. Data is kept, like a failed
-        // background refresh.
+        // background invalidation.
         if (this.state.status === "success") {
-            const state: TRefreshErrorState<TArgs, TData> = {
-                status: "refresh-error",
+            const state: TInvalidateErrorState<TArgs, TData> = {
+                status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
                 error,
@@ -76,9 +76,9 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        if (this.state.status === "refreshing") {
-            const state: TRefreshErrorState<TArgs, TData> = {
-                status: "refresh-error",
+        if (this.state.status === "invalidating") {
+            const state: TInvalidateErrorState<TArgs, TData> = {
+                status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
                 error,
@@ -91,11 +91,11 @@ export class MachineBase<TArgs, TData> {
         throw new MachineTransitionError("fail", this.state.status);
     }
 
-    /** success → refreshing, refresh-error → refreshing */
-    refresh(): MachineBase<TArgs, TData> {
+    /** success → invalidating, invalidate-error → invalidating */
+    invalidate(): MachineBase<TArgs, TData> {
         if (this.state.status === "success") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+            const state: TInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
                 error: null,
@@ -106,9 +106,9 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        if (this.state.status === "refresh-error") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+        if (this.state.status === "invalidate-error") {
+            const state: TInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
                 error: null,
@@ -119,11 +119,11 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("refresh", this.state.status);
+        throw new MachineTransitionError("invalidate", this.state.status);
     }
 
     /**
-     * error → pending, refresh-error → refreshing. Unlike {@link refresh}, the
+     * error → pending, invalidate-error → invalidating. Unlike {@link invalidate}, the
      * retried failure stays in `error` and the target is marked `isRetrying`.
      */
     retry(): MachineBase<TArgs, TData> {
@@ -139,9 +139,9 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        if (this.state.status === "refresh-error") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+        if (this.state.status === "invalidate-error") {
+            const state: TInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
                 error: this.state.error,
@@ -182,9 +182,9 @@ export class MachineBase<TArgs, TData> {
         );
     }
 
-    /** refreshing → success (replays patches on new data) */
+    /** invalidating → success (replays patches on new data) */
     rebase(data: TData): MachineBase<TArgs, TData> {
-        if (this.state.status !== "refreshing") {
+        if (this.state.status !== "invalidating") {
             throw new MachineTransitionError("rebase", this.state.status);
         }
 
@@ -211,12 +211,12 @@ export class MachineBase<TArgs, TData> {
 
     // ==================== Patch Methods ====================
 
-    /** Create an optimistic patch (success, refreshing, refresh-error) */
+    /** Create an optimistic patch (success, invalidating, invalidate-error) */
     createPatch(
         patchFn: (data: TData) => void,
         onSettle?: () => void,
     ): { machine: MachineBase<TArgs, TData>; handle: IPatchHandle } {
-        if (!hasData(this.state)) {
+        if (!isDataState(this.state)) {
             throw new MachineStateError("createPatch", `invalid state "${this.state.status}"`);
         }
 
@@ -267,7 +267,7 @@ export class MachineBase<TArgs, TData> {
 
     /** Process all settled patches up to the first pending one */
     finishPatch(): MachineBase<TArgs, TData> {
-        if (!hasData(this.state) || !this.state.patchState) {
+        if (!isDataState(this.state) || !this.state.patchState) {
             throw new MachineStateError("finishPatch", "no active patchState");
         }
 
@@ -276,7 +276,7 @@ export class MachineBase<TArgs, TData> {
 
     /** Process all settled patches (continues past pending) */
     finishAllPatches(): MachineBase<TArgs, TData> {
-        if (!hasData(this.state) || !this.state.patchState) {
+        if (!isDataState(this.state) || !this.state.patchState) {
             throw new MachineStateError("finishAllPatches", "no active patchState");
         }
 

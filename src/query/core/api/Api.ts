@@ -16,11 +16,11 @@ import type {
 import { Command } from "../command/Command";
 import { ProjectionRuntime } from "../projection-resource/ProjectionRuntime";
 import { Resource } from "../resource/Resource";
-import { Snapshoter } from "../snapshoter";
+import { Snapshotter } from "../snapshotter";
 import { Syncer } from "../syncer";
 
-import { composeHooks } from "./composeHooks";
 import { DEFAULT_COMMAND_RETENTION_TIME, DEFAULT_RESOURCE_RETENTION_TIME } from "./constants";
+import { mergeHooks } from "./mergeHooks";
 import { normalizeLinks } from "./normalizeLinks";
 
 /**
@@ -58,7 +58,7 @@ export class Api implements IApi {
     private readonly apiSerializeArgs: (args: any) => string;
     private readonly apiResourceRetentionTime: number | false;
     private readonly apiCommandRetentionTime: number | false;
-    private readonly snapshoter: Snapshoter;
+    private readonly snapshotter: Snapshotter;
     private readonly apiOnCacheEntryAdded: TCreateApiOptions["onCacheEntryAdded"];
     private readonly apiOnQueryStarted: TCreateApiOptions["onQueryStarted"];
     private readonly apiMapError: TMapError;
@@ -70,7 +70,7 @@ export class Api implements IApi {
         this.apiSerializeArgs = options?.serializeArgs ?? stableStringify;
         this.apiResourceRetentionTime = options?.resourceRetentionTime ?? DEFAULT_RESOURCE_RETENTION_TIME;
         this.apiCommandRetentionTime = options?.commandRetentionTime ?? DEFAULT_COMMAND_RETENTION_TIME;
-        this.snapshoter = new Snapshoter({
+        this.snapshotter = new Snapshotter({
             initialSnapshot: options?.initialSnapshot ?? null,
             snapshotValidTime: options?.snapshotValidTime ?? false,
             keyPrefix: this.keyPrefix,
@@ -104,12 +104,14 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + resource-level
-        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         // Snapshot hydration: build initialEntries if snapshot has matching resource data
         const initialEntries =
-            opts.snapshotable === false ? undefined : this.snapshoter.hydrateResource(opts.key, opts.snapshotValidTime);
+            opts.snapshotable === false
+                ? undefined
+                : this.snapshotter.hydrateResource(opts.key, opts.snapshotValidTime);
 
         const syncEnabled = this.syncer && this.syncer.isResourceSyncEnabled(opts);
 
@@ -163,7 +165,7 @@ export class Api implements IApi {
     ): IResource<TArgs, TItem[]> => {
         const runtime = new ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData>(opts);
 
-        // An ordinary resource caching one entry per id-set, so agents, hooks,
+        // An ordinary resource caching one entry per id-set, so clutches, hooks,
         // SWR and plugin augmentation work unchanged; the runtime deduplicates
         // the network traffic underneath. Cross-tab sync is disabled: it would
         // fill id-set entries bypassing the per-id item cache. Snapshots are
@@ -179,7 +181,7 @@ export class Api implements IApi {
             serializeArgs: opts.serializeArgs,
             // Runtime bookkeeping first: its synchronous item refcounting must
             // be in place before any consumer hook observes the entry.
-            onCacheEntryAdded: composeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
+            onCacheEntryAdded: mergeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
             onQueryStarted: opts.onQueryStarted,
             snapshotable: false,
             sync: false,
@@ -210,8 +212,8 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + command-level
-        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         const config: ICommandConfig<TArgs, TData> = {
             queryFn: opts.queryFn,
@@ -244,7 +246,7 @@ export class Api implements IApi {
     };
 
     getSnapshot = (): TApiSnapshot => {
-        return this.snapshoter.getSnapshot(this.resources);
+        return this.snapshotter.getSnapshot(this.resources);
     };
 
     resetAll = (): void => {

@@ -3,11 +3,34 @@
 
 ## [Unreleased]
 
+### Added
+- **Массив в lifecycle-хуках** — `onQueryStarted` и `onCacheEntryAdded` у `createApi`, `createResource`, `createCommand` и `unstable_createProjectionResource` принимают `THook | Array<THook | undefined | false>`. Falsy-элементы пропускаются, так что условный хук пишется на месте: `[log, isDev && metrics]`. Семантика массива та же, что у `composeHooks`: все хуки стартуют одновременно, порядок в массиве порядок выполнения не задаёт, ошибка каждого подавляется независимо. Последовательность — один хук с `await` внутри. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md).
+
+### Changed
+- 💥 **Breaking. «Агент» стал «сцеплением» (Clutch).** Термин обещал автономию, которой у объекта нет, и конфликтовал с ИИ-агентами. Переименованы классы `ResourceAgent` / `CommandAgent` → `ResourceClutch` / `CommandClutch`, интерфейсы `IResourceAgent` / `ICommandAgent` → `IResourceClutch` / `ICommandClutch`, типы состояний `TResourceAgentState` / `TCommandAgentState` (и все их варианты) → `TResourceClutchState` / `TCommandClutchState`, `TAgentStatus` → `TClutchStatus`, методы `resource.createAgent()` / `command.createAgent(key?)` → `createClutch()` / `createClutch(entryKey?)`. См. [docs/query/concepts/clutch](./query/concepts/clutch.md).
+- 💥 **Breaking. `refresh` → `invalidate` на всех уровнях.** `resource.invalidate(args)`, `entry.invalidate()`, `clutch.invalidate()`, `useInfiniteResource(...).invalidate()`. Статусы машины `refreshing` / `refresh-error` → `invalidating` / `invalidate-error`, типы состояний машины `TRefreshingState` / `TRefreshErrorState` → `TInvalidatingState` / `TInvalidateErrorState`, классы `MachineRefreshing` / `MachineRefreshError` → `MachineInvalidating` / `MachineInvalidateError`. У публичных классов `Machine*` метод `refresh()` стал `invalidate()` — **без алиаса**: у машины меняется форма состояния, поэтому её переименования идут без слоя совместимости. `invalidate-error` — провал перезапроса после инвалидации, сама инвалидация не проваливается. Имена действий в Redux Devtools тоже переименованы: `UPDATE: refresh` / `refresh-error` → `UPDATE: invalidate` / `invalidate-error`. См. [docs/query/concepts/machine](./query/concepts/machine.md) и [docs/devtools](./devtools/README.md#имена-действий-у-ресурсов-и-команд).
+- 💥 **Breaking. `agent.set(args, mark?)` → `clutch.switch(args, options?)`.** Булев `mark` стал полем `{ markPending: true }`. `switch(SKIP)` работает как `set(SKIP)`. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#методы).
+- 💥 **Breaking. `pack` → `bind`.** `resource.bind(args)`, `command.bind(args, entryKey?)`; типы `TPackedResource` / `TPackedCommand` / `TPacked` → `TBoundResource` / `TBoundCommand` / `TBound`. Форма дескриптора и поле `kind` не изменились. См. [docs/query/api/resource](./query/api/resource.md#bind).
+- 💥 **Breaking. Ключ записи кэша у команды: `key` → `entryKey`.** `command.execute(args, entryKey?)`, `command.createClutch(entryKey?)`, `command.bind(args, entryKey?)`, `clutch.trigger(args, entryKey?)`, `clutch.setKey(key)` → `clutch.setEntryKey(entryKey)`, `useCommand(command, entryKey?)`. Поле дескриптора `TPackedCommand.key` стало `TBoundCommand.entryKey` — деструктуризация `const { key } = command.bind(...)` теперь молча даёт `undefined`. Опция команды `key` (идентификатор команды) и `requestId` не изменились. См. [docs/query/api/command-clutch](./query/api/command-clutch.md).
+- 💥 **Breaking. Состояние записи: `IResourceLiteState` → `TResourceEntryState`.** Варианты `TResourceLite*State` → `TResourceEntry*State`. Сам `resource.getState(args)`, набор полей и флагов не изменились, но два литерала `status` внутри объединения переименованы вместе со статусами машины: `refreshing` → `invalidating`, `refresh-error` → `invalidate-error`. Код, сравнивающий `status` с этими строками, нужно поправить. См. [docs/query/api/resource](./query/api/resource.md#getstate).
+- 💥 **Breaking. Префиксы типов приведены к конвенции.** `Args` → `TArgsOrKeyed`, `ArgsOrVoid` → `TArgsOrVoid`, `ArgsOrVoidOrSkip` → `TArgsOrVoidOrSkip`, `Keyed` → `TKeyed`, `PluginHKT` → `IPluginHKT`, `ReactHooksPluginHKT` → `IReactHooksPluginHKT`, `CombinePlugin*Augments` → `TCombinePlugin*Augments`.
+- 💥 **Breaking. Версия снапшота — `2`.** В снапшоте статус машины хранится строкой, а строки переименованы. Снапшот версии 1 читается: при гидрации `refreshing` / `refresh-error` трактуются как `invalidating` / `invalidate-error`. Снапшот версии 2 старой версией библиотеки не читается — записи с `invalidate-error` просто не гидрируются. См. [docs/query/usage/snapshot](./query/usage/snapshot.md).
+- Модуль называется **Query** (не «RxQuery») — в `README.md` и документации.
+- Внутренние переименования без публичного эффекта: `Snapshoter` → `Snapshotter` (папка `core/snapshoter/` → `core/snapshotter/`), хелпер машины `hasData()` → `isDataState()`.
+
+### Deprecated
+Всё ниже продолжает работать один релиз и удаляется в 0.14.0:
+- методы: `resource.createAgent()`, `command.createAgent()`, `resource.refresh()`, `entry.refresh()`, `clutch.refresh()`, `useInfiniteResource(...).refresh()`, `clutch.set()`, `resource.pack()`, `command.pack()`, `clutch.setKey()`;
+- типы: `IResourceAgent`, `ICommandAgent`, `TPackedResource`, `TPackedCommand`, `TPacked`, `TAgentStatus`, `Args`, `ArgsOrVoid`, `ArgsOrVoidOrSkip`, `Keyed`, `PluginHKT`, `ReactHooksPluginHKT`, `CombinePluginResourceAugments`, `CombinePluginCommandAugments`, `CombinePluginProjectionResourceAugments`;
+- функция `composeHooks` — вместо неё массив в опции.
+
+Без алиасов остаются типы состояний сцепления и машины: у них меняется форма, и алиас на другую форму был бы ложью.
+
 
 ## [0.12.3] - 2026-09-17
 
 ### Added
-- **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+- **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#варианты-состояния).
 
 ### Changed
 - **`retry()` работает из `refresh-error`** (`refresh-error → refreshing` с `isRetrying`), а не только из `error`. Раньше — no-op с предупреждением. `refresh()` из `refresh-error` не изменился.
@@ -17,16 +40,16 @@
 ## [0.12.2] - 2026-09-17
 
 ### Added
-- **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+- **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#варианты-состояния).
 
 
 ## [0.12.1] - 2026-09-03
 
 ### Added
-- **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#методы).
+- **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#методы).
 
 ### Fixed
-- **React-хуки в concurrent-режиме** — `useResource`, `useSuspenseResource` и `useInfiniteResource` больше не мутируют общий агент во время рендера. Смена args внутри `startTransition` (например, навигация react-router) зацикливала React между transition-веткой и закоммиченным деревом до таймаута transition. Теперь хук создаёт агент на пару «ресурс + ключ args», а SWR-данные передаются новому агенту через `adoptPrevious`. См. [docs/query/concepts/agent](./query/concepts/agent.md#swr-fallback-при-смене-аргументов).
+- **React-хуки в concurrent-режиме** — `useResource`, `useSuspenseResource` и `useInfiniteResource` больше не мутируют общий агент во время рендера. Смена args внутри `startTransition` (например, навигация react-router) зацикливала React между transition-веткой и закоммиченным деревом до таймаута transition. Теперь хук создаёт агент на пару «ресурс + ключ args», а SWR-данные передаются новому агенту через `adoptPrevious`. См. [docs/query/concepts/clutch](./query/concepts/clutch.md#swr-fallback-при-смене-аргументов).
 
 
 ## [0.12.0] - 2026-08-31
@@ -35,7 +58,7 @@
 - **Стриминговые запросы** — поддержка `Observable<TData>` в ответе `queryFn` ресурса. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
 - **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесконечной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
 - **`snapshotable`** — опция ресурса для исключения его из снапшота.
-- **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
+- **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков).
 - **`unstable_MachineSignal` (experimental)** — стейт-машина на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
 
 ### Fixed
@@ -145,7 +168,7 @@
 [Гайд по миграции с 0.9.x](./migrations/0.10.0.md)
 
 ### Changed
-- 💥 **Breaking.** `trigger` на уровне агента и хука (`CommandAgent.trigger`, `useCommand`) теперь возвращает `TTriggerPromise<TData>` — промис, который **не реджектится**, а резолвится конвертом `TTriggerResult<TData>`: `{ status: "success", data }` либо `{ status: "error", error }`. Для «бросающей» семантики (как раньше) у промиса есть метод `.unwrap(): Promise<TData>`. Обработка ошибок через `try/catch` вокруг `await trigger(...)` больше не срабатывает — используйте проверку `result.status` либо `.unwrap()`. См. [CommandAgent API](./query/api/command-agent.md#результат-trigger).
+- 💥 **Breaking.** `trigger` на уровне агента и хука (`CommandAgent.trigger`, `useCommand`) теперь возвращает `TTriggerPromise<TData>` — промис, который **не реджектится**, а резолвится конвертом `TTriggerResult<TData>`: `{ status: "success", data }` либо `{ status: "error", error }`. Для «бросающей» семантики (как раньше) у промиса есть метод `.unwrap(): Promise<TData>`. Обработка ошибок через `try/catch` вокруг `await trigger(...)` больше не срабатывает — используйте проверку `result.status` либо `.unwrap()`. См. [CommandClutch API](./query/api/command-clutch.md#результат-trigger).
 - `Command.trigger` (уровень ядра) не изменился — по-прежнему возвращает сырой `Promise<TData>`, реджектящийся ошибкой.
 
 ### Added
@@ -170,7 +193,7 @@
 ## [0.9.1] - 2026-06-27
 
 ### Added
-- Метод `pack` у ресурсов и команд — связывает ресурс/команду с аргументами в инертный дескриптор. См. [Resource API](./query/api/resource.md#pack) и [Command API](./query/api/command.md#pack).
+- Метод `pack` у ресурсов и команд — связывает ресурс/команду с аргументами в инертный дескриптор. См. [Resource API](./query/api/resource.md#bind) и [Command API](./query/api/command.md#bind).
 
 
 ## [0.9.0] - 2026-06-26

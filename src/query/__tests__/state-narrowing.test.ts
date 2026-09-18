@@ -3,9 +3,9 @@ import { assertType, describe, it } from "vitest";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type {
-    IResourceLiteState,
-    TCommandAgentState,
-    TResourceAgentState,
+    TCommandClutchState,
+    TResourceClutchState,
+    TResourceEntryState,
     TSuspenseResourceState,
 } from "@/query/types";
 
@@ -20,11 +20,11 @@ type TError = { code: number };
 // The states are discriminated unions: these tests only exercise compile-time
 // narrowing, so the `if` branches never need to run.
 
-// ==================== Resource agent state ====================
+// ==================== Resource clutch state ====================
 
-describe("state narrowing — resource agent state", () => {
+describe("state narrowing — resource clutch state", () => {
     it("isSuccess ⇒ data: TData, error: null", () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.isSuccess) {
             assertType<IsExact<typeof state.status, "success">>(true as const);
@@ -33,25 +33,25 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
-    it("isError ⇒ error: TError (error | refresh-error)", () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+    it("isError ⇒ error: TError (error | invalidate-error)", () => {
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.isError) {
-            assertType<IsExact<typeof state.status, "error" | "refresh-error">>(true as const);
+            assertType<IsExact<typeof state.status, "error" | "invalidate-error">>(true as const);
             assertType<IsExact<typeof state.error, TError>>(true as const);
 
-            // refresh-error additionally guarantees stale data.
+            // invalidate-error additionally guarantees stale data.
             if (state.isRefreshError) {
                 assertType<IsExact<typeof state.data, TData>>(true as const);
             }
         }
     });
 
-    it("isLoading ⇒ pending | refreshing, error: TError | null (the retried failure)", () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+    it("isLoading ⇒ pending | invalidating, error: TError | null (the retried failure)", () => {
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.isLoading) {
-            assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
+            assertType<IsExact<typeof state.status, "pending" | "invalidating">>(true as const);
             assertType<IsExact<typeof state.error, TError | null>>(true as const);
 
             if (state.isRefreshing) {
@@ -61,7 +61,7 @@ describe("state narrowing — resource agent state", () => {
     });
 
     it('status === "idle" ⇒ args: null; otherwise args: TArgs', () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.status === "idle") {
             assertType<IsExact<typeof state.args, null>>(true as const);
@@ -70,11 +70,11 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
-    it("isSwitching is only open on refreshing; dataArgs follows data", () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+    it("isSwitching is only open on invalidating; dataArgs follows data", () => {
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.isSwitching) {
-            assertType<IsExact<typeof state.status, "refreshing">>(true as const);
+            assertType<IsExact<typeof state.status, "invalidating">>(true as const);
             assertType<IsExact<typeof state.data, TData>>(true as const);
             assertType<IsExact<typeof state.dataArgs, TArgs>>(true as const);
         }
@@ -98,11 +98,11 @@ describe("state narrowing — resource agent state", () => {
         }
     });
 
-    it("isRetrying ⇒ pending | refreshing with error: TError; otherwise loading has error: null", () => {
-        const state = {} as TResourceAgentState<TArgs, TData, TError>;
+    it("isRetrying ⇒ pending | invalidating with error: TError; otherwise loading has error: null", () => {
+        const state = {} as TResourceClutchState<TArgs, TData, TError>;
 
         if (state.isRetrying) {
-            assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
+            assertType<IsExact<typeof state.status, "pending" | "invalidating">>(true as const);
             assertType<IsExact<typeof state.error, TError>>(true as const);
             assertType<IsExact<typeof state.isError, false>>(true as const);
         }
@@ -119,7 +119,7 @@ describe("state narrowing — resource agent state", () => {
     });
 
     it("keeps the wide field types on the unnarrowed union", () => {
-        type State = TResourceAgentState<TArgs, TData, TError>;
+        type State = TResourceClutchState<TArgs, TData, TError>;
 
         assertType<IsExact<State["error"], TError | null>>(true as const);
         assertType<IsExact<State["data"], TData | null>>(true as const);
@@ -130,7 +130,7 @@ describe("state narrowing — resource agent state", () => {
     });
 
     it("defaults TError to unknown", () => {
-        const state = {} as TResourceAgentState<TArgs, TData>;
+        const state = {} as TResourceClutchState<TArgs, TData>;
 
         if (state.isError) {
             assertType<IsExact<typeof state.error, unknown>>(true as const);
@@ -138,11 +138,11 @@ describe("state narrowing — resource agent state", () => {
     });
 });
 
-// ==================== Resource lite state (getState) ====================
+// ==================== Resource entry state (getState) ====================
 
-describe("state narrowing — resource lite state", () => {
+describe("state narrowing — resource entry state", () => {
     it("narrows data / error per status; the error variant has no stale data", () => {
-        const state = {} as IResourceLiteState<TArgs, TData, TError>;
+        const state = {} as TResourceEntryState<TArgs, TData, TError>;
 
         if (state.isSuccess) {
             assertType<IsExact<typeof state.data, TData>>(true as const);
@@ -160,7 +160,7 @@ describe("state narrowing — resource lite state", () => {
         }
 
         if (state.isRetrying) {
-            assertType<IsExact<typeof state.status, "pending" | "refreshing">>(true as const);
+            assertType<IsExact<typeof state.status, "pending" | "invalidating">>(true as const);
             assertType<IsExact<typeof state.error, TError>>(true as const);
         } else if (!state.isLoading) {
             assertType<IsExact<typeof state.isRetrying, false>>(true as const);
@@ -168,11 +168,11 @@ describe("state narrowing — resource lite state", () => {
     });
 });
 
-// ==================== Command agent state ====================
+// ==================== Command clutch state ====================
 
-describe("state narrowing — command agent state", () => {
+describe("state narrowing — command clutch state", () => {
     it("isSuccess ⇒ data: TData; isError ⇒ error: TError, data: null", () => {
-        const state = {} as TCommandAgentState<TArgs, TData, TError>;
+        const state = {} as TCommandClutchState<TArgs, TData, TError>;
 
         if (state.isSuccess) {
             assertType<IsExact<typeof state.data, TData>>(true as const);

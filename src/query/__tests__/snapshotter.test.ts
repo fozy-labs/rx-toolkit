@@ -4,9 +4,9 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/constants";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { TApiSnapshot } from "@/query/types";
+import type { TApiSnapshot, TResourceSnapshotEntry } from "@/query/types";
 
-describe("Snapshoter.getSnapshot", () => {
+describe("Snapshotter.getSnapshot", () => {
     it("returns empty resources map when API has no entries", () => {
         const api = createApi();
         const snapshot = api.getSnapshot();
@@ -170,7 +170,7 @@ describe("Snapshoter.getSnapshot", () => {
     });
 });
 
-describe("Snapshoter.getSnapshot with optimistic patches", () => {
+describe("Snapshotter.getSnapshot with optimistic patches", () => {
     it("snapshots confirmed base data, not unconfirmed optimistic data, while a patch is pending", async () => {
         const api = createApi();
         const resource = api.createResource({
@@ -268,7 +268,7 @@ describe("Snapshoter.getSnapshot with optimistic patches", () => {
         expect(value.data).toEqual({ name: "Bob", age: 30 });
     });
 
-    it("snapshots confirmed base data for a refresh-error entry with a pending patch", async () => {
+    it("snapshots confirmed base data for an invalidate-error entry with a pending patch", async () => {
         let call = 0;
         const api = createApi();
         const resource = api.createResource({
@@ -276,7 +276,7 @@ describe("Snapshoter.getSnapshot with optimistic patches", () => {
             queryFn: async () => {
                 call++;
                 if (call === 1) return { reading: 1 };
-                throw new Error("refresh failed");
+                throw new Error("invalidate failed");
             },
         });
 
@@ -284,10 +284,10 @@ describe("Snapshoter.getSnapshot with optimistic patches", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
-        entry.refresh();
+        entry.invalidate();
         await flushMicrotasks();
 
-        expect(entry.peek().state.status).toBe("refresh-error");
+        expect(entry.peek().state.status).toBe("invalidate-error");
 
         const handle = entry.createPatch((draft) => {
             draft.reading = 999;
@@ -296,13 +296,13 @@ describe("Snapshoter.getSnapshot with optimistic patches", () => {
 
         const snapshot = api.getSnapshot();
         const value = Object.values(snapshot.resources["sensor"].entries)[0];
-        expect(value.status).toBe("refresh-error");
+        expect(value.status).toBe("invalidate-error");
         expect(value.data).toEqual({ reading: 1 });
     });
 });
 
-describe("Snapshoter hydration — refresh-error entries", () => {
-    it("round-trips a refresh-error entry: persisted last-known-good data hydrates as refreshing", async () => {
+describe("Snapshotter hydration — invalidate-error entries", () => {
+    it("round-trips an invalidate-error entry: persisted last-known-good data hydrates as invalidating", async () => {
         let call = 0;
         const source = createApi();
         const resource = source.createResource({
@@ -310,7 +310,7 @@ describe("Snapshoter hydration — refresh-error entries", () => {
             queryFn: async () => {
                 call++;
                 if (call === 1) return { reading: 1 };
-                throw new Error("refresh failed");
+                throw new Error("invalidate failed");
             },
         });
 
@@ -318,14 +318,14 @@ describe("Snapshoter hydration — refresh-error entries", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
-        entry.refresh();
+        entry.invalidate();
         await flushMicrotasks();
 
-        // The entry holds last-known-good data but its latest refresh failed.
-        expect(entry.peek().state.status).toBe("refresh-error");
+        // The entry holds last-known-good data but its latest invalidate failed.
+        expect(entry.peek().state.status).toBe("invalidate-error");
 
         const snapshot = source.getSnapshot();
-        expect(Object.values(snapshot.resources["sensor"].entries)[0].status).toBe("refresh-error");
+        expect(Object.values(snapshot.resources["sensor"].entries)[0].status).toBe("invalidate-error");
 
         // Hydrate a fresh API from that snapshot.
         const hydrated = createApi({ initialSnapshot: snapshot });
@@ -337,14 +337,14 @@ describe("Snapshoter hydration — refresh-error entries", () => {
         const entries = [...hydratedResource.getEntries()];
         expect(entries).toHaveLength(1);
 
-        // The refresh-error's last-known-good data is revived...
+        // The invalidate-error's last-known-good data is revived...
         const state = entries[0].machine$.peek().state;
         expect(state.data).toEqual({ reading: 1 });
-        // ...as a stale entry (refreshing), so it shows data immediately and refetches.
-        expect(state.status).toBe("refreshing");
+        // ...as a stale entry (invalidating), so it shows data immediately and refetches.
+        expect(state.status).toBe("invalidating");
     });
 
-    it("forces a refresh-error entry stale regardless of snapshotValidTime", () => {
+    it("forces an invalidate-error entry stale regardless of snapshotValidTime", () => {
         const freshTimestamp = Date.now() - 1_000; // 1s ago — well within any valid window
         const initialSnapshot: TApiSnapshot = {
             version: CURRENT_SNAPSHOT_VERSION,
@@ -354,7 +354,7 @@ describe("Snapshoter hydration — refresh-error entries", () => {
                 items: {
                     entries: {
                         [stableStringify(undefined)]: {
-                            status: "refresh-error",
+                            status: "invalidate-error",
                             args: undefined,
                             data: "last-known-good",
                             updatedAt: freshTimestamp,
@@ -376,8 +376,161 @@ describe("Snapshoter hydration — refresh-error entries", () => {
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        // Despite the fresh timestamp, the failed-refresh entry must refetch.
-        expect(entries[0].machine$.peek().state.status).toBe("refreshing");
+        // Despite the fresh timestamp, the failed-invalidate entry must refetch.
+        expect(entries[0].machine$.peek().state.status).toBe("invalidating");
         expect(entries[0].machine$.peek().state.data).toBe("last-known-good");
+    });
+});
+
+describe("Snapshotter hydration — snapshot version migration", () => {
+    // Fresh enough that a plain "success" entry hydrates as "success" under the
+    // snapshotValidTime used below.
+    const UPDATED_AT = Date.now() - 1_000;
+
+    function makeSnapshot(version: number, entries: Record<string, TResourceSnapshotEntry>): TApiSnapshot {
+        return {
+            version,
+            keyPrefix: null,
+            timestamp: UPDATED_AT,
+            resources: { items: { entries } },
+        };
+    }
+
+    function hydrate(initialSnapshot: TApiSnapshot) {
+        const api = createApi({ initialSnapshot, snapshotValidTime: 3_600_000 });
+        const resource = api.createResource<string, string>({
+            key: "items",
+            queryFn: async () => "fresh-data",
+        });
+
+        return [...resource.getEntries()].map((entry) => ({
+            key: entry.keyedArgs.key,
+            state: entry.machine$.peek().state,
+        }));
+    }
+
+    it("reads a v1 `refresh-error` entry as `invalidate-error` and hydrates it as stale", () => {
+        const hydrated = hydrate(
+            makeSnapshot(1, {
+                [stableStringify("a")]: {
+                    status: "refresh-error",
+                    args: "a",
+                    data: "last-known-good",
+                    updatedAt: UPDATED_AT,
+                },
+            }),
+        );
+
+        expect(hydrated).toHaveLength(1);
+        expect(hydrated[0].key).toBe(stableStringify("a"));
+        expect(hydrated[0].state.data).toBe("last-known-good");
+        // invalidate-error hydrates as a stale success: data shows now, refetch on subscription.
+        expect(hydrated[0].state.status).toBe("invalidating");
+    });
+
+    it("reads a v1 `refreshing` entry as `invalidating`, which does not hydrate, and keeps its `success` sibling", () => {
+        const hydrated = hydrate(
+            makeSnapshot(1, {
+                [stableStringify("a")]: {
+                    status: "refreshing",
+                    args: "a",
+                    data: "in-flight",
+                    updatedAt: UPDATED_AT,
+                },
+                [stableStringify("b")]: {
+                    status: "success",
+                    args: "b",
+                    data: "b-data",
+                    updatedAt: UPDATED_AT,
+                },
+            }),
+        );
+
+        expect(hydrated).toHaveLength(1);
+        expect(hydrated[0].key).toBe(stableStringify("b"));
+        expect(hydrated[0].state.data).toBe("b-data");
+        expect(hydrated[0].state.status).toBe("success");
+    });
+
+    it("hydrates a v2 `invalidate-error` entry as stale and skips a v2 `invalidating` entry", () => {
+        const hydrated = hydrate(
+            makeSnapshot(CURRENT_SNAPSHOT_VERSION, {
+                [stableStringify("a")]: {
+                    status: "invalidate-error",
+                    args: "a",
+                    data: "last-known-good",
+                    updatedAt: UPDATED_AT,
+                },
+                [stableStringify("b")]: {
+                    status: "invalidating",
+                    args: "b",
+                    data: "in-flight",
+                    updatedAt: UPDATED_AT,
+                },
+            }),
+        );
+
+        expect(hydrated).toHaveLength(1);
+        expect(hydrated[0].key).toBe(stableStringify("a"));
+        expect(hydrated[0].state.data).toBe("last-known-good");
+        expect(hydrated[0].state.status).toBe("invalidating");
+    });
+
+    it("does not apply the legacy status map to a current-version snapshot", () => {
+        const hydrated = hydrate(
+            makeSnapshot(CURRENT_SNAPSHOT_VERSION, {
+                // A literal v1 spelling inside a v2 snapshot is an unknown status,
+                // not an invalidate-error: it must be skipped, not translated.
+                [stableStringify("a")]: {
+                    status: "refresh-error",
+                    args: "a",
+                    data: "last-known-good",
+                    updatedAt: UPDATED_AT,
+                },
+                [stableStringify("b")]: {
+                    status: "success",
+                    args: "b",
+                    data: "b-data",
+                    updatedAt: UPDATED_AT,
+                },
+            }),
+        );
+
+        expect(hydrated).toHaveLength(1);
+        expect(hydrated[0].key).toBe(stableStringify("b"));
+        expect(hydrated[0].state.status).toBe("success");
+    });
+
+    it("getSnapshot writes version 2 and the current status strings", async () => {
+        let sensorCall = 0;
+        const api = createApi();
+        const resource = api.createResource<string, string>({
+            key: "sensor",
+            queryFn: async (arg) => {
+                if (arg === "stable") return "stable-data";
+                sensorCall++;
+                if (sensorCall === 1) return "last-known-good";
+                throw new Error("invalidation failed");
+            },
+        });
+
+        resource.trigger("stable");
+        resource.trigger("flaky");
+        await flushMicrotasks();
+
+        const flaky = resource.getEntry("flaky")!;
+        flaky.invalidate();
+        await flushMicrotasks();
+        expect(flaky.peek().state.status).toBe("invalidate-error");
+
+        const snapshot = api.getSnapshot();
+
+        expect(CURRENT_SNAPSHOT_VERSION).toBe(2);
+        expect(snapshot.version).toBe(2);
+
+        const statuses = Object.values(snapshot.resources["sensor"].entries)
+            .map((entry) => entry.status)
+            .sort();
+        expect(statuses).toEqual(["invalidate-error", "success"]);
     });
 });

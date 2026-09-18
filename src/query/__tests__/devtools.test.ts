@@ -120,7 +120,7 @@ describe("query devtools — action names", () => {
         expect(devtools.actions()).toEqual(["error", "retry", "success"]);
     });
 
-    it('labels refresh as "refresh" and the refreshed result as "rebase"', async () => {
+    it('labels invalidate as "invalidate" and the invalidated result as "rebase"', async () => {
         const devtools = installDevtools();
         let attempt = 0;
         const resource = createResource<number, string>({
@@ -134,10 +134,10 @@ describe("query devtools — action names", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
-        resource.refresh(1);
+        resource.invalidate(1);
         await flushMicrotasks();
 
-        expect(devtools.actions()).toEqual(["success", "refresh", "rebase"]);
+        expect(devtools.actions()).toEqual(["success", "invalidate", "rebase"]);
     });
 
     it('labels optimistic patches as "patch" and their settle as "patch-settled"', async () => {
@@ -158,7 +158,7 @@ describe("query devtools — action names", () => {
         expect(devtools.actions()).toEqual(["success", "patch", "patch-settled"]);
     });
 
-    it('labels a failed background refresh as "refresh-error", not "error"', async () => {
+    it('labels a failed background invalidation as "invalidate-error", not "error"', async () => {
         const devtools = installDevtools();
         let attempt = 0;
         const resource = createResource<number, string>({
@@ -173,10 +173,10 @@ describe("query devtools — action names", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
-        resource.refresh(1);
+        resource.invalidate(1);
         await flushMicrotasks();
 
-        expect(devtools.actions()).toEqual(["success", "refresh", "refresh-error"]);
+        expect(devtools.actions()).toEqual(["success", "invalidate", "invalidate-error"]);
     });
 
     it('labels an aborted patch as "patch-settled" too', async () => {

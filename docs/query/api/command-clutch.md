@@ -1,24 +1,24 @@
-# Агент команды (CommandAgent) — API
+# Сцепление команды (CommandClutch) — API
 
-Агент команды — реактивный наблюдатель, транслирующий состояние [записи кэша][cache] команды в плоский сигнал. В отличие от [агента ресурса][resource-agent], агент команды не поддерживает SKIP и SWR-fallback — мутации запускаются явно через `trigger`. Концепция и жизненный цикл описаны в [concepts/agent.md][agent-concept].
+Сцепление команды — реактивный наблюдатель, транслирующий состояние [записи кэша][cache] команды в плоский сигнал. В отличие от [сцепления ресурса][resource-clutch], сцепление команды не поддерживает SKIP и SWR-fallback — мутации запускаются явно через `trigger`. Концепция и жизненный цикл описаны в [concepts/clutch.md][clutch-concept].
 
 
 ## Создание
 
 ```typescript
-const agent = addTodoCommand.createAgent('my-mutation-1');
+const clutch = addTodoCommand.createClutch('my-mutation-1');
 ```
 
-Метод `createAgent()` доступен у каждой [команды][api-cmd]. Принимает необязательный строковый ключ — идентификатор кэш-записи, за которой агент будет наблюдать. Без ключа каждый `trigger` генерирует новый ключ, и агент переключается на запись **последнего** вызова; постоянная привязка возможна только через `createAgent(key)` или `setKey`.
+Метод `createClutch()` доступен у каждой [команды][api-cmd]. Принимает необязательный строковый ключ записи — идентификатор кэш-записи, за которой сцепление будет наблюдать. Без ключа каждый `trigger` генерирует новый ключ, и сцепление переключается на запись **последнего** вызова; постоянная привязка возможна только через `createClutch(entryKey)` или `setEntryKey`.
 
 
 ## Методы
 
 | Метод | Сигнатура | Описание |
 |-------|-----------|----------|
-| `state$` | `ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>` | Сигнал состояния агента. |
-| `trigger` | `(args: Args<TArgs>, key?: string) => TTriggerPromise<TData, TError>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из `Keyed`-аргументов (если args обёрнуты), затем из параметра `key`, затем из привязанного ключа агента, иначе генерируется. Возвращает [конверт результата](#результат-trigger). |
-| `setKey` | `(key: string) => void` | Привязывает агент к кэш-записи по ключу (используется и для наблюдения, и последующими `trigger`). |
+| `state$` | `ReadonlySignal<TCommandClutchState<TArgs, TData, TError>>` | Сигнал состояния сцепления. |
+| `trigger` | `(args: TArgsOrKeyed<TArgs>, entryKey?: string) => TTriggerPromise<TData, TError>` | Запускает мутацию и начинает наблюдать за созданной кэш-записью. Ключ берётся из `TKeyed`-аргументов (если args обёрнуты), затем из параметра `entryKey`, затем из привязанного ключа сцепления, иначе генерируется. Возвращает [конверт результата](#результат-trigger). |
+| `setEntryKey` | `(entryKey: string) => void` | Привязывает сцепление к кэш-записи по ключу (используется и для наблюдения, и последующими `trigger`). |
 | `retry` | `() => void` | Перезапускает отслеживаемую мутацию. No-op вне состояния `error`. Повтор переиспользует тот же [request id][query-fn]. |
 
 
@@ -33,7 +33,7 @@ type TTriggerResult<TData, TError = unknown> =
 ```
 
 ```typescript
-const result = await agent.trigger({ text: 'Задача' });
+const result = await clutch.trigger({ text: 'Задача' });
 if (result.status === 'error') {
   console.error(result.error);
 } else {
@@ -44,18 +44,18 @@ if (result.status === 'error') {
 Когда нужна «бросающая» семантика (сырые данные при успехе, исключение при ошибке — как у `Command.execute`), используйте `unwrap()`:
 
 ```typescript
-const data = await agent.trigger({ text: 'Задача' }).unwrap();
+const data = await clutch.trigger({ text: 'Задача' }).unwrap();
 ```
 
 Тот же контракт — у `trigger` из хука `useCommand`.
 
 
-## Состояние (TCommandAgentState)
+## Состояние (TCommandClutchState)
 
-`TCommandAgentState` — **дискриминированное объединение** по `status`: каждый статус — отдельный вариант с литеральными булевыми флагами и точными типами `data` / `error`. Проверка `status`, `isSuccess`, `isError` сужает тип:
+`TCommandClutchState` — **дискриминированное объединение** по `status`: каждый статус — отдельный вариант с литеральными булевыми флагами и точными типами `data` / `error`. Проверка `status`, `isSuccess`, `isError` сужает тип:
 
 ```typescript
-const state = agent.state$();
+const state = clutch.state$();
 
 if (state.isError) {
   state.error; // TError — без `| null`
@@ -70,7 +70,7 @@ if (state.isSuccess) {
 
 | Поле | Тип                                           | Описание |
 |------|-----------------------------------------------|----------|
-| `status` | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус агента. |
+| `status` | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус сцепления. |
 | `data` | `TData \| null`                               | Данные результата мутации. `null` до завершения. |
 | `error` | `TError \| null`                              | Ошибка мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
 | `args` | `TArgs \| null`                               | Аргументы последнего вызова `trigger`. `null` только в `idle`. |
@@ -82,28 +82,28 @@ if (state.isSuccess) {
 
 ## Варианты состояния
 
-Типы вариантов экспортируются: `TCommandAgentIdleState`, `TCommandAgentPendingState`, `TCommandAgentSuccessState`, `TCommandAgentErrorState`.
+Типы вариантов экспортируются: `TCommandClutchIdleState`, `TCommandClutchPendingState`, `TCommandClutchSuccessState`, `TCommandClutchErrorState`.
 
 | Статус | `data` | `error` | `isLoading` | `isSuccess` | `isError` | Описание |
 |--------|:------:|:-------:|:-----------:|:-----------:|:---------:|----------|
-| `idle` | `null` | `null` | — | — | — | Мутация не запускалась или ключ не привязан. |
+| `idle` | `null` | `null` | — | — | — | Мутация не запускалась или ключ записи не привязан. |
 | `pending` | `TData \| null`¹ | `TError \| null`¹ | ✓ | — | — | Мутация выполняется. |
 | `success` | `TData` | `null` | — | ✓ | — | Мутация завершилась успешно, данные доступны в `data`. |
 | `error` | `null` | `TError` | — | — | ✓ | Мутация завершилась ошибкой. |
 
-¹ Обычно `null`; несут устаревшие значения только при защитном ремаппинге вручную обновлённой (`refresh`) кэш-записи команды в `pending`.
+¹ Обычно `null`; несут устаревшие значения только при защитном ремаппинге вручную инвалидированной (`invalidate`) кэш-записи команды в `pending`.
 
 
 ## См. также
 
-- [Концепция агента][agent-concept] — жизненный цикл, SWR-fallback (только ресурсы)
-- [Агент ресурса — API][resource-agent] — аналог для операций чтения
-- [Команда — API][api-cmd] — создание команды и метод `createAgent()`
+- [Концепция сцепления][clutch-concept] — жизненный цикл, SWR-fallback (только ресурсы)
+- [Сцепление ресурса — API][resource-clutch] — аналог для операций чтения
+- [Команда — API][api-cmd] — создание команды и метод `createClutch()`
 - [Использование команд][usage-cmd] — хук `useCommand`, примеры, паттерны
 
 
-[agent-concept]: ../concepts/agent.md
-[resource-agent]: ./resource-agent.md
+[clutch-concept]: ../concepts/clutch.md
+[resource-clutch]: ./resource-clutch.md
 [api-cmd]: ./command.md
 [usage-cmd]: ../usage/command.md
 [query-fn]: ../usage/query-fn.md

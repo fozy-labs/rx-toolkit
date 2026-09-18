@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MachineError } from "../core/machine/MachineError";
+import { MachineInvalidateError } from "../core/machine/MachineInvalidateError";
+import { MachineInvalidating } from "../core/machine/MachineInvalidating";
 import { MachinePending } from "../core/machine/MachinePending";
-import { MachineRefreshError } from "../core/machine/MachineRefreshError";
-import { MachineRefreshing } from "../core/machine/MachineRefreshing";
 import { MachineSuccess } from "../core/machine/MachineSuccess";
 import { MachineWithData } from "../core/machine/MachineWithData";
 
@@ -48,9 +48,9 @@ function makeError() {
     });
 }
 
-function makeRefreshing() {
-    return new MachineRefreshing<TestArgs, TestData>({
-        status: "refreshing",
+function makeInvalidating() {
+    return new MachineInvalidating<TestArgs, TestData>({
+        status: "invalidating",
         args: ARGS,
         data: DATA,
         error: null,
@@ -60,12 +60,12 @@ function makeRefreshing() {
     });
 }
 
-function makeRefreshError() {
-    return new MachineRefreshError<TestArgs, TestData>({
-        status: "refresh-error",
+function makeInvalidateError() {
+    return new MachineInvalidateError<TestArgs, TestData>({
+        status: "invalidate-error",
         args: ARGS,
         data: DATA,
-        error: new Error("refresh-boom"),
+        error: new Error("invalidate-boom"),
         updatedAt: 1000,
         patchState: null,
     });
@@ -147,19 +147,19 @@ describe("Machine Subtypes", () => {
             expect(m.patchState).toBeNull();
         });
 
-        it("refresh() returns MachineRefreshing", () => {
-            const m = makeSuccess().refresh();
-            expect(m).toBeInstanceOf(MachineRefreshing);
-            expect(m.status).toBe("refreshing");
+        it("invalidate() returns MachineInvalidating", () => {
+            const m = makeSuccess().invalidate();
+            expect(m).toBeInstanceOf(MachineInvalidating);
+            expect(m.status).toBe("invalidating");
             expect(m.state.data).toBe(DATA);
             expect(m.state.args).toBe(ARGS);
         });
 
-        it("retry() returns MachineRefreshing marked as retrying, keeping the error", () => {
-            const failed = makeRefreshError();
+        it("retry() returns MachineInvalidating marked as retrying, keeping the error", () => {
+            const failed = makeInvalidateError();
             const m = failed.retry();
-            expect(m).toBeInstanceOf(MachineRefreshing);
-            expect(m.status).toBe("refreshing");
+            expect(m).toBeInstanceOf(MachineInvalidating);
+            expect(m.status).toBe("invalidating");
             expect(m.state.data).toBe(DATA);
             expect(m.state.error).toBe(failed.state.error);
             expect(m.state.isRetrying).toBe(true);
@@ -225,24 +225,24 @@ describe("Machine Subtypes", () => {
         });
     });
 
-    // ── MachineRefreshing ──────────────────────────────────────────
+    // ── MachineInvalidating ──────────────────────────────────────────
 
-    describe("MachineRefreshing", () => {
-        it("has status 'refreshing' and correct state shape", () => {
-            const m = makeRefreshing();
-            expect(m.status).toBe("refreshing");
-            expect(m.state.status).toBe("refreshing");
+    describe("MachineInvalidating", () => {
+        it("has status 'invalidating' and correct state shape", () => {
+            const m = makeInvalidating();
+            expect(m.status).toBe("invalidating");
+            expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toBe(DATA);
             expect(m.state.args).toBe(ARGS);
             expect(m.state.updatedAt).toBe(1000);
         });
 
         it("extends MachineWithData", () => {
-            expect(makeRefreshing()).toBeInstanceOf(MachineWithData);
+            expect(makeInvalidating()).toBeInstanceOf(MachineWithData);
         });
 
         it("rebase() without patches returns MachineSuccess", () => {
-            const m = makeRefreshing().rebase(DATA2);
+            const m = makeInvalidating().rebase(DATA2);
             expect(m).toBeInstanceOf(MachineSuccess);
             expect(m.status).toBe("success");
             expect(m.state.data).toBe(DATA2);
@@ -250,7 +250,7 @@ describe("Machine Subtypes", () => {
         });
 
         it("rebase() with committed patches replays onto new base", () => {
-            const { machine, handle } = makeRefreshing().createPatch((d) => {
+            const { machine, handle } = makeInvalidating().createPatch((d) => {
                 d.count = 99;
             });
             handle.commit();
@@ -261,88 +261,88 @@ describe("Machine Subtypes", () => {
             expect(rebased.state.data.count).toBe(99);
         });
 
-        it("fail() returns MachineRefreshError", () => {
-            const err = new Error("refresh-fail");
-            const m = makeRefreshing().fail(err);
-            expect(m).toBeInstanceOf(MachineRefreshError);
-            expect(m.status).toBe("refresh-error");
+        it("fail() returns MachineInvalidateError", () => {
+            const err = new Error("invalidate-fail");
+            const m = makeInvalidating().fail(err);
+            expect(m).toBeInstanceOf(MachineInvalidateError);
+            expect(m.status).toBe("invalidate-error");
             expect(m.state.error).toBe(err);
             expect(m.state.data).toBe(DATA);
         });
 
-        it("createPatch() returns MachineRefreshing", () => {
-            const { machine, handle } = makeRefreshing().createPatch((d) => {
+        it("createPatch() returns MachineInvalidating", () => {
+            const { machine, handle } = makeInvalidating().createPatch((d) => {
                 d.count = 50;
             });
-            expect(machine).toBeInstanceOf(MachineRefreshing);
-            expect(machine.status).toBe("refreshing");
+            expect(machine).toBeInstanceOf(MachineInvalidating);
+            expect(machine.status).toBe("invalidating");
             expect(machine.state.data.count).toBe(50);
             handle.abort();
         });
 
-        it("finishPatch() returns MachineRefreshing", () => {
-            const { machine, handle } = makeRefreshing().createPatch((d) => {
+        it("finishPatch() returns MachineInvalidating", () => {
+            const { machine, handle } = makeInvalidating().createPatch((d) => {
                 d.count = 50;
             });
             handle.commit();
             const finished = machine.finishPatch();
-            expect(finished).toBeInstanceOf(MachineRefreshing);
-            expect(finished.status).toBe("refreshing");
+            expect(finished).toBeInstanceOf(MachineInvalidating);
+            expect(finished.status).toBe("invalidating");
         });
     });
 
-    // ── MachineRefreshError ────────────────────────────────────────
+    // ── MachineInvalidateError ────────────────────────────────────────
 
-    describe("MachineRefreshError", () => {
-        it("has status 'refresh-error' and correct state shape", () => {
-            const m = makeRefreshError();
-            expect(m.status).toBe("refresh-error");
-            expect(m.state.status).toBe("refresh-error");
+    describe("MachineInvalidateError", () => {
+        it("has status 'invalidate-error' and correct state shape", () => {
+            const m = makeInvalidateError();
+            expect(m.status).toBe("invalidate-error");
+            expect(m.state.status).toBe("invalidate-error");
             expect(m.state.data).toBe(DATA);
             expect(m.state.error).toBeInstanceOf(Error);
             expect(m.state.updatedAt).toBe(1000);
         });
 
         it("extends MachineWithData", () => {
-            expect(makeRefreshError()).toBeInstanceOf(MachineWithData);
+            expect(makeInvalidateError()).toBeInstanceOf(MachineWithData);
         });
 
-        it("refresh() returns MachineRefreshing", () => {
-            const m = makeRefreshError().refresh();
-            expect(m).toBeInstanceOf(MachineRefreshing);
-            expect(m.status).toBe("refreshing");
+        it("invalidate() returns MachineInvalidating", () => {
+            const m = makeInvalidateError().invalidate();
+            expect(m).toBeInstanceOf(MachineInvalidating);
+            expect(m.status).toBe("invalidating");
             expect(m.state.data).toBe(DATA);
             expect(m.state.error).toBeNull();
         });
 
-        it("createPatch() returns MachineRefreshError", () => {
-            const { machine, handle } = makeRefreshError().createPatch((d) => {
+        it("createPatch() returns MachineInvalidateError", () => {
+            const { machine, handle } = makeInvalidateError().createPatch((d) => {
                 d.count = 77;
             });
-            expect(machine).toBeInstanceOf(MachineRefreshError);
-            expect(machine.status).toBe("refresh-error");
+            expect(machine).toBeInstanceOf(MachineInvalidateError);
+            expect(machine.status).toBe("invalidate-error");
             expect(machine.state.data.count).toBe(77);
             handle.abort();
         });
 
-        it("finishPatch() returns MachineRefreshError", () => {
-            const { machine, handle } = makeRefreshError().createPatch((d) => {
+        it("finishPatch() returns MachineInvalidateError", () => {
+            const { machine, handle } = makeInvalidateError().createPatch((d) => {
                 d.count = 77;
             });
             handle.commit();
             const finished = machine.finishPatch();
-            expect(finished).toBeInstanceOf(MachineRefreshError);
-            expect(finished.status).toBe("refresh-error");
+            expect(finished).toBeInstanceOf(MachineInvalidateError);
+            expect(finished.status).toBe("invalidate-error");
         });
 
-        it("finishAllPatches() returns MachineRefreshError", () => {
-            const { machine, handle } = makeRefreshError().createPatch((d) => {
+        it("finishAllPatches() returns MachineInvalidateError", () => {
+            const { machine, handle } = makeInvalidateError().createPatch((d) => {
                 d.count = 77;
             });
             handle.commit();
             const finished = machine.finishAllPatches();
-            expect(finished).toBeInstanceOf(MachineRefreshError);
-            expect(finished.status).toBe("refresh-error");
+            expect(finished).toBeInstanceOf(MachineInvalidateError);
+            expect(finished.status).toBe("invalidate-error");
         });
     });
 });

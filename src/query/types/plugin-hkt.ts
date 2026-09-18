@@ -11,12 +11,12 @@ import type { IPlugin } from "./api";
  *
  * @example
  * ```ts
- * interface MyPluginHKT extends PluginHKT {
+ * interface MyPluginHKT extends IPluginHKT {
  *   readonly resourceType: { myHook: (args: this['_TArgs']) => this['_TData'] };
  * }
  * ```
  */
-export interface PluginHKT {
+export interface IPluginHKT {
     /** @phantom — substituted with the resource/command TArgs at application site */
     readonly _TArgs: unknown;
     /** @phantom — substituted with the resource/command TData at application site */
@@ -42,25 +42,25 @@ export interface PluginHKT {
 // ==================== HKT Application ====================
 
 /**
- * "Apply" a PluginHKT — substitute TArgs/TData/TError and extract the resource augmentation type.
+ * "Apply" a IPluginHKT — substitute TArgs/TData/TError and extract the resource augmentation type.
  *
  * Mechanism: intersect the HKT interface with concrete `{ _TArgs: TArgs; _TData: TData; _TError: TError }`.
  * Because `resourceType` references `this['_TArgs']`/`this['_TData']`/`this['_TError']`, and `this` in the
  * intersection resolves to the merged type, the phantom parameters become concrete.
  */
-type ApplyPluginResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
+type ApplyPluginResourceHKT<F extends IPluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
     readonly _TError: TError;
 })["resourceType"];
 
-type ApplyPluginCommandHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
+type ApplyPluginCommandHKT<F extends IPluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
     readonly _TError: TError;
 })["commandType"];
 
-type ApplyPluginProjectionResourceHKT<F extends PluginHKT, TArgs, TData, TError> = (F & {
+type ApplyPluginProjectionResourceHKT<F extends IPluginHKT, TArgs, TData, TError> = (F & {
     readonly _TArgs: TArgs;
     readonly _TData: TData;
     readonly _TError: TError;
@@ -72,19 +72,19 @@ type ApplyPluginProjectionResourceHKT<F extends PluginHKT, TArgs, TData, TError>
  * Extract and apply the resource augmentation from a single plugin type.
  * Returns `{}` if the plugin does not declare an HKT (graceful degradation).
  *
- * Uses bounded `infer H extends PluginHKT` to reject `undefined` from optional `_hkt`.
+ * Uses bounded `infer H extends IPluginHKT` to reject `undefined` from optional `_hkt`.
  */
-type ExtractResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+type ExtractResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends IPluginHKT }
     ? ApplyPluginResourceHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
-type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends IPluginHKT }
     ? ApplyPluginCommandHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
-type ExtractProjectionResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends PluginHKT }
+type ExtractProjectionResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends IPluginHKT }
     ? ApplyPluginProjectionResourceHKT<H, TArgs, TData, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
@@ -101,14 +101,14 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
  * - `readonly [ReactHooksPlugin, OtherPlugin]` → `{ useResource: ... } & { otherHook: ... }`
  * - `readonly IPlugin[]` (default) → `{}` (no augmentation)
  */
-export type CombinePluginResourceAugments<
+export type TCombinePluginResourceAugments<
     TPlugins extends readonly IPlugin[],
     TArgs,
     TData,
     TError = unknown,
 > = UnionToIntersection<ExtractResourceAugment<TPlugins[number], TArgs, TData, TError>>;
 
-export type CombinePluginCommandAugments<
+export type TCombinePluginCommandAugments<
     TPlugins extends readonly IPlugin[],
     TArgs,
     TData,
@@ -117,10 +117,10 @@ export type CombinePluginCommandAugments<
 
 /**
  * Combine the *projection-specific* augmentations from all plugins in the tuple.
- * Applied on top of {@link CombinePluginResourceAugments} for projection resources;
+ * Applied on top of {@link TCombinePluginResourceAugments} for projection resources;
  * `TData` is the projection item array type (`TItem[]`).
  */
-export type CombinePluginProjectionResourceAugments<
+export type TCombinePluginProjectionResourceAugments<
     TPlugins extends readonly IPlugin[],
     TArgs,
     TData,
@@ -138,3 +138,44 @@ export type {
     ExtractProjectionResourceAugment,
     UnionToIntersection,
 };
+
+// ==================== Deprecated Aliases ====================
+
+/**
+ * @deprecated Renamed to {@link IPluginHKT} (type-prefix convention). Will be
+ * removed in 0.14.0.
+ */
+export type PluginHKT = IPluginHKT;
+
+/**
+ * @deprecated Renamed to {@link TCombinePluginResourceAugments} (type-prefix
+ * convention). Will be removed in 0.14.0.
+ */
+export type CombinePluginResourceAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = TCombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
+
+/**
+ * @deprecated Renamed to {@link TCombinePluginCommandAugments} (type-prefix
+ * convention). Will be removed in 0.14.0.
+ */
+export type CombinePluginCommandAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = TCombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;
+
+/**
+ * @deprecated Renamed to {@link TCombinePluginProjectionResourceAugments}
+ * (type-prefix convention). Will be removed in 0.14.0.
+ */
+export type CombinePluginProjectionResourceAugments<
+    TPlugins extends readonly IPlugin[],
+    TArgs,
+    TData,
+    TError = unknown,
+> = TCombinePluginProjectionResourceAugments<TPlugins, TArgs, TData, TError>;

@@ -10,8 +10,9 @@ export * from "./types";
 // EmptyStreamError reaches consumers through an entry's error state when a
 // stream-returning queryFn completes without emitting.
 export { ProjectionItemMissingError, CacheEntryRemovedError, EmptyStreamError } from "./core/errors";
-// Public utility to stack several lifecycle hooks (onQueryStarted /
-// onCacheEntryAdded) into a single option value.
+// Deprecated utility to stack several lifecycle hooks (onQueryStarted /
+// onCacheEntryAdded) into a single option value — the options take an array
+// directly now. Removed in 0.14.0.
 export { composeHooks } from "./core/api";
 export {
     Machine,
@@ -20,6 +21,6 @@ export {
     MachinePending,
     MachineSuccess,
     MachineError,
-    MachineRefreshing,
-    MachineRefreshError,
+    MachineInvalidating,
+    MachineInvalidateError,
 } from "./core/machine";

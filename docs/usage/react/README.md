@@ -36,7 +36,7 @@ function Counter() {
 
 ---
 
-## RxQuery хуки
+## Query хуки
 
 ### useResource
 
@@ -61,7 +61,7 @@ function UserProfile({ userId }: { userId: string | null }) {
     }
     
     if (userQuery.isRefreshing) {
-        // Показываем данные + индикатор перезагрузки
+        // Показываем данные + индикатор фонового перезапроса
     }
     
     return (
@@ -73,25 +73,25 @@ function UserProfile({ userId }: { userId: string | null }) {
 }
 ```
 
-**Возвращаемое значение (TResourceAgentState):**
+**Возвращаемое значение (TResourceClutchState):**
 
 | Поле               | Тип              | Описание                              |
 |--------------------|------------------|---------------------------------------|
-| `status`           | `TAgentStatus`   | Текущий статус агента                 |
+| `status`           | `TClutchStatus`   | Текущий статус сцепления              |
 | `data`             | `TData \| null`  | Данные ресурса                        |
 | `error`            | `unknown`        | Объект ошибки                         |
 | `args`             | `TArgs \| null`  | Аргументы последнего запроса          |
 | `dataArgs`         | `TArgs \| null`  | Аргументы, для которых загружены `data` |
 | `isLoading`        | `boolean`        | Любая загрузка (первая или повторная) |
 | `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
-| `isRefreshing`     | `boolean`        | Перезагрузка (данные уже есть)        |
+| `isRefreshing`     | `boolean`        | Фоновый перезапрос (данные уже есть)  |
 | `isSwitching`      | `boolean`        | Загрузка новых аргументов поверх данных от предыдущих (SWR) |
 | `isRetrying`       | `boolean`        | Загрузка запущена через `retry()`; `error` хранит повторяемую ошибку |
-| `isRefreshError`   | `boolean`        | Ошибка при перезагрузке               |
+| `isRefreshError`   | `boolean`        | Ошибка фонового перезапроса           |
 | `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
 | `isError`          | `boolean`        | Произошла ли ошибка                   |
-| `retry()`          | `() => void`     | Повторить запрос после `error` / `refresh-error` |
-| `refresh()`        | `() => void`     | Принудительно обновить данные         |
+| `retry()`          | `() => void`     | Повторить запрос после `error` / `invalidate-error` |
+| `invalidate()`     | `() => void`     | Инвалидировать данные с фоновым перезапросом |
 
 **Особенности:**
 - Автоматическая подписка на состояние ресурса
@@ -136,7 +136,7 @@ function Page({ userId }: { userId: string }) {
 
 > Если ресурс подключён через `reactHooksPlugin`, хук доступен как метод: `userResource.useSuspenseResource(args)`. Standalone-форма `useSuspenseResource(resource, args)` тоже экспортируется.
 
-**Возвращаемое значение (`TSuspenseResourceState`):** то же, что у `useResource` (`TResourceAgentState`), но поле `data` имеет тип `TData` вместо `TData | null`.
+**Возвращаемое значение (`TSuspenseResourceState`):** то же, что у `useResource` (`TResourceClutchState`), но поле `data` имеет тип `TData` вместо `TData | null`.
 
 **Особенности и отличия от `useResource`:**
 
@@ -144,8 +144,8 @@ function Page({ userId }: { userId: string }) {
 |-----------------------------------|---------------------------------------------------------------------------|
 | Первичная загрузка                | Бросает промис → `<Suspense fallback>`                                     |
 | Первичная ошибка (нет данных)     | Бросает ошибку → `ErrorBoundary`                                           |
-| Фоновое обновление (SWR)          | **Не** приостанавливается: показывает stale-данные, `isRefreshing = true`  |
-| Ошибка при обновлении (SWR)       | **Не** приостанавливается: stale-данные остаются, `isRefreshError = true`  |
+| Фоновый перезапрос (SWR)          | **Не** приостанавливается: показывает stale-данные, `isRefreshing = true`  |
+| Ошибка фонового перезапроса (SWR) | **Не** приостанавливается: stale-данные остаются, `isRefreshError = true`  |
 | Кэш уже прогрет                   | Рендерится синхронно, без fallback                                         |
 
 - Запрос стартует **во время рендера** (а не в эффекте) — приостановленный рендер не выполняет эффекты, иначе fallback завис бы навсегда.
@@ -154,7 +154,7 @@ function Page({ userId }: { userId: string }) {
 
 ### useCommand
 
-Создает агент команды и возвращает кортеж `[trigger, state]`.
+Создаёт сцепление команды и возвращает кортеж `[trigger, state]`.
 
 ```tsx
 import { useCommand } from '@fozy-labs/rx-toolkit';
@@ -198,8 +198,8 @@ function EditUserForm({ user }: { user: User }) {
 **Возвращаемое значение:**
 ```typescript
 [
-    trigger: (args: Args) => Promise<Data>,  // Функция запуска команды
-    state: TCommandAgentState                // Текущее состояние
+    trigger: (args: TArgsOrKeyed<TArgs>) => TTriggerPromise<TData>,  // Функция запуска команды
+    state: TCommandClutchState                // Текущее состояние
 ]
 ```
 

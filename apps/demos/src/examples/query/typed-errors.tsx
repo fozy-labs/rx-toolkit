@@ -103,11 +103,11 @@ export function Base() {
 
     const run = (outcome: Outcome) => {
         nextOutcome = outcome;
-        // refresh() валиден из success / refresh-error, retry() — из error.
+        // invalidate() валиден из success / invalidate-error, retry() — из error.
         if (state.status === 'error') {
             state.retry();
         } else {
-            state.refresh();
+            state.invalidate();
         }
     };
 

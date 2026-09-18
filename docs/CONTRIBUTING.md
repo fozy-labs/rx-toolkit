@@ -71,7 +71,7 @@ rx-toolkit/
 | Модуль | Путь | Описание                                                            |
 |--------|------|---------------------------------------------------------------------|
 | **Signals** | `src/signals/` | Реактивные примитивы: `State`, `Computed`, `Effect`, операторы и тд |
-| **Query** | `src/query/` | Кеш-менеджер: `Resource`, `Command`, агенты, `SKIP_TOKEN` и тд      |
+| **Query** | `src/query/` | Кеш-менеджер: `Resource`, `Command`, сцепления, `SKIP_TOKEN` и тд   |
 | **Common** | `src/common/` | Общие утилиты, интеграция с DevTools, React-хуки и тд                 |
 
 > **Алиас путей:** `@/` → `src/`.

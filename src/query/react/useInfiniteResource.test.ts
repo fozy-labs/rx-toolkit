@@ -191,7 +191,7 @@ describe("useInfiniteResource", () => {
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2]);
     });
 
-    it("refresh() re-validates every loaded page", async () => {
+    it("invalidate() re-validates every loaded page", async () => {
         let currentVersion = "v1";
         const { projection, queryFn } = createProjectionSetup({ version: () => currentVersion });
 
@@ -201,7 +201,7 @@ describe("useInfiniteResource", () => {
         await settle();
 
         currentVersion = "v2";
-        act(() => c.state.refresh());
+        act(() => c.state.invalidate());
         await settle();
 
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2", "user-3-v2"]);
@@ -253,7 +253,7 @@ describe("useInfiniteResource", () => {
         expect(c.state.data?.map((user) => user.id)).toEqual([10, 11]);
     });
 
-    it("keeps the data array identity across a success -> refreshing flip (page data refs unchanged)", async () => {
+    it("keeps the data array identity across a success -> invalidating flip (page data refs unchanged)", async () => {
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
         const queryFn = vi.fn(
@@ -285,15 +285,15 @@ describe("useInfiniteResource", () => {
         const pagesBefore = c.state.pages;
         expect(dataBefore?.map((user) => user.id)).toEqual([1, 2, 3, 4]);
 
-        // Kick off a refresh; the queries stay in flight (deferred), so every
-        // page flips success -> refreshing while reusing its data by reference.
+        // Kick off an invalidation; the queries stay in flight (deferred), so every
+        // page flips success -> invalidating while reusing its data by reference.
         await act(async () => {
-            c.state.refresh();
+            c.state.invalidate();
             await flushMicrotasks();
         });
 
         expect(c.state.pages).not.toBe(pagesBefore); // a new emission happened
-        expect(c.state.pages.map((page) => page.status)).toEqual(["refreshing", "refreshing"]);
+        expect(c.state.pages.map((page) => page.status)).toEqual(["invalidating", "invalidating"]);
         // Pure status flip, no data change — the flattened array keeps identity.
         expect(c.state.data).toBe(dataBefore);
 
@@ -321,7 +321,7 @@ describe("useInfiniteResource", () => {
         expect(dataBefore?.map((user) => user.id)).toEqual([1, 2, 3]);
 
         currentVersion = "v2";
-        act(() => c.state.refresh());
+        act(() => c.state.invalidate());
         await settle();
 
         expect(c.state.data).not.toBe(dataBefore);
@@ -336,13 +336,13 @@ describe("useInfiniteResource", () => {
         await settle();
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
 
-        // A separate id-set overlapping the page refreshes outside the hook.
+        // A separate id-set overlapping the page is invalidated outside the hook.
         await act(async () => {
             await projection.fetch([1, 50]);
         });
         currentVersion = "v2";
         await act(async () => {
-            projection.refresh([1, 50]);
+            projection.invalidate([1, 50]);
             await projection.fetch([1, 50]);
         });
         await settle();
@@ -384,5 +384,31 @@ describe("useInfiniteResource", () => {
         expect(renders).toBeLessThanOrEqual(4);
 
         await act(async () => {});
+    });
+});
+
+// ==================== Deprecated aliases ====================
+
+describe("useInfiniteResource — deprecated aliases", () => {
+    it("refresh() forwards to invalidate()", async () => {
+        let currentVersion = "v1";
+        const { projection, queryFn } = createProjectionSetup({ version: () => currentVersion });
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        await settle();
+        act(() => c.state.fetchNext([3]));
+        await settle();
+
+        currentVersion = "v2";
+        act(() => c.state.refresh());
+        await settle();
+
+        expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v2", "user-3-v2"]);
+        expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
+            { userIds: [1, 2] },
+            { userIds: [3] },
+            { userIds: [1, 2] },
+            { userIds: [3] },
+        ]);
     });
 });

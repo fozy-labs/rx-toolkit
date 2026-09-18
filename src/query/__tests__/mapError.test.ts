@@ -90,7 +90,7 @@ describe("mapError — resource state", () => {
         expect(resource.getState(1).error).toBe(produced);
     });
 
-    it("maps a refresh failure into refresh-error while keeping stale data", async () => {
+    it("maps an invalidation failure into invalidate-error while keeping stale data", async () => {
         let calls = 0;
         const api = createApi({ mapError: toNetError });
         const resource = api.createResource<number, string>({
@@ -106,11 +106,11 @@ describe("mapError — resource state", () => {
         await flushMicrotasks();
         expect(resource.getState(1).status).toBe("success");
 
-        resource.refresh(1);
+        resource.invalidate(1);
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.status).toBe("refresh-error");
+        expect(state.status).toBe("invalidate-error");
         expect(state.isRefreshError).toBe(true);
         expect(state.data).toBe("good");
         expect(state.error).toBeInstanceOf(NetError);
@@ -137,10 +137,10 @@ describe("mapError — resource state", () => {
     });
 });
 
-// ==================== Resource agent + imperative fetch ====================
+// ==================== Resource clutch + imperative fetch ====================
 
-describe("mapError — resource agent and imperative fetch", () => {
-    it("surfaces the mapped error on the agent state", async () => {
+describe("mapError — resource clutch and imperative fetch", () => {
+    it("surfaces the mapped error on the clutch state", async () => {
         const api = createApi({ mapError: toNetError });
         const resource = api.createResource<number, string>({
             queryFn: async () => {
@@ -149,13 +149,13 @@ describe("mapError — resource agent and imperative fetch", () => {
             retentionTime: false,
         });
 
-        const agent = resource.createAgent();
-        agent.set(1, true);
-        agent.start();
+        const clutch = resource.createClutch();
+        clutch.switch(1, { markPending: true });
+        clutch.start();
         await flushMicrotasks();
         await flushMicrotasks();
 
-        const state = agent.state$.peek();
+        const state = clutch.state$.peek();
         expect(state.isError).toBe(true);
         expect(state.error).toBeInstanceOf(NetError);
     });
@@ -334,14 +334,14 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger("x");
+        const clutch = command.createClutch();
+        const result = await clutch.trigger("x");
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetError);
     });
 
-    it("maps the rejection from the agent trigger's unwrap()", async () => {
+    it("maps the rejection from the clutch trigger's unwrap()", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -349,8 +349,8 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        await expect(agent.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
+        const clutch = command.createClutch();
+        await expect(clutch.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
     });
 
     it("maps the raw Command.execute rejection", async () => {
@@ -373,8 +373,8 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger("x");
+        const clutch = command.createClutch();
+        const result = await clutch.trigger("x");
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetUnknownError);
@@ -402,8 +402,8 @@ describe("mapError — command", () => {
                 }),
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger(1);
+        const clutch = command.createClutch();
+        const result = await clutch.trigger(1);
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetUnknownError);
@@ -413,15 +413,15 @@ describe("mapError — command", () => {
 // ==================== Command entry removal ====================
 
 describe("mapError — command entry removal", () => {
-    it("maps the eviction error when a re-trigger with the same key replaces an in-flight mutation", async () => {
+    it("maps the eviction error when a re-trigger with the same entry key replaces an in-flight mutation", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        const agent = command.createAgent();
-        const first = agent.trigger("a", "k");
-        void agent.trigger("b", "k");
+        const clutch = command.createClutch();
+        const first = clutch.trigger("a", "k");
+        void clutch.trigger("b", "k");
 
         const result = await first;
         expect(result.status).toBe("error");

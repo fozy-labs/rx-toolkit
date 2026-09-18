@@ -52,7 +52,7 @@ function deferred<TData>(): TDeferred<TData> {
  * subscriber, so the producer runs exactly once: `firstReceived` settles with
  * the first emission, `allReceived` with the last one at completion, both
  * reject with the raw producer error (or {@link EmptyStreamError} on an empty
- * completion). If the run is torn down before a milestone (refresh / retry /
+ * completion). If the run is torn down before a milestone (invalidate / retry /
  * eviction unsubscribes), the pending promises reject with the abort reason.
  *
  * Like `$queryFulfilled`, all promises deliberately sit upstream of `mapError`

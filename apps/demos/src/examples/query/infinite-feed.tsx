@@ -72,7 +72,7 @@ export function Base() {
                     >
                         {feed.isFetchingNext ? <Spinner size="sm" /> : hasNext ? '⬇️ Загрузить ещё' : 'Это всё'}
                     </Button>
-                    <Button size="sm" variant="flat" onPress={() => feed.refresh()}>
+                    <Button size="sm" variant="flat" onPress={() => feed.invalidate()}>
                         🔄 Обновить ленту
                     </Button>
                     <Button size="sm" variant="flat" color="warning" onPress={() => feed.reset()}>
@@ -86,7 +86,7 @@ export function Base() {
                 <p className="text-xs text-default-400">
                     Каждая страница — отдельная кэш-запись проекционного ресурса: догрузка хвоста
                     не перерисовывает загруженные страницы, id следующей страницы передаёт
-                    вызывающий код. «Обновить» перевалидирует все страницы разом.
+                    вызывающий код. «Обновить» инвалидирует все страницы разом.
                 </p>
             </CardBody>
         </Card>

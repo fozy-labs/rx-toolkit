@@ -2,13 +2,13 @@ import React from "react";
 
 import { useIsomorphicLayoutEffect } from "@/common/react";
 import type {
-    Args,
-    ArgsOrVoidOrSkip,
     IResource,
-    IResourceAgent,
-    Keyed,
+    IResourceClutch,
+    TArgsOrKeyed,
+    TArgsOrVoidOrSkip,
     TInfiniteResourceState,
-    TResourceAgentState,
+    TKeyed,
+    TResourceClutchState,
 } from "@/query/types";
 import { Signal, type StateSignal } from "@/signals";
 import { useSignal } from "@/signals/react";
@@ -20,21 +20,21 @@ import { SKIP } from "../constants";
 interface TPage<TArgs, TData, TError> {
     /** Serialized page args — the page identity (deduplicates fetchNext calls). */
     key: string;
-    agent: IResourceAgent<TArgs, TData, TError>;
-    /** Whether `agent.start()` already ran (deferred to a layout effect for render-phase pages). */
+    clutch: IResourceClutch<TArgs, TData, TError>;
+    /** Whether `clutch.start()` already ran (deferred to a layout effect for render-phase pages). */
     isStarted: boolean;
 }
 
 /**
  * Mutable engine behind one `useInfiniteResource` call: the ordered page list
- * lives in a signal, each page is an ordinary resource agent with fixed args,
+ * lives in a signal, each page is an ordinary resource clutch with fixed args,
  * and `pagesState$` derives the per-page states reactively — so the hook
  * subscribes once regardless of how many pages are loaded (the page count is
  * dynamic, which rules out calling `useResource` per page).
  *
  * The feed identity — the initial args — is fixed at construction; the hook
  * creates a new store when it changes. Render never mutates a store other
- * renders may observe (see `useResourceAgent` for why that matters), and the
+ * renders may observe (see `useResourceClutch` for why that matters), and the
  * page list only changes from event handlers (`fetchNext` / `reset`).
  */
 class InfiniteFeedStore<TArgs, TItem, TError> {
@@ -50,23 +50,23 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     /** Flattened feed of the last {@link buildState} call (identity cache). */
     private _lastData: TItem[] | null = null;
 
-    readonly pagesState$ = Signal.compute<TResourceAgentState<TArgs, TItem[], TError>[]>(
-        () => this._pages$().map((page) => page.agent.state$()),
+    readonly pagesState$ = Signal.compute<TResourceClutchState<TArgs, TItem[], TError>[]>(
+        () => this._pages$().map((page) => page.clutch.state$()),
         { isDisabled: true },
     );
 
     /**
-     * The first page is created with its agent set but not started;
+     * The first page is created with its clutch set but not started;
      * {@link start} picks it up after render.
      */
-    constructor(resource: IResource<TArgs, TItem[], TError>, initialArgs: ArgsOrVoidOrSkip<TArgs>) {
+    constructor(resource: IResource<TArgs, TItem[], TError>, initialArgs: TArgsOrVoidOrSkip<TArgs>) {
         this._resource = resource;
 
         let pages: TPage<TArgs, TItem[], TError>[] = [];
         this._initialKey = null;
 
         if (initialArgs !== SKIP) {
-            const keyed = resource.toKeyed(initialArgs as Args<TArgs>);
+            const keyed = resource.toKeyed(initialArgs as TArgsOrKeyed<TArgs>);
             this._initialKey = keyed.key;
             pages = [this._createPage(keyed)];
         }
@@ -80,13 +80,13 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         for (const page of this._pages$.peek()) {
             if (!page.isStarted) {
                 page.isStarted = true;
-                page.agent.start();
+                page.clutch.start();
             }
         }
     }
 
     /** See {@link TInfiniteResourceState.fetchNext}. */
-    fetchNext = (args: Args<TArgs>): void => {
+    fetchNext = (args: TArgsOrKeyed<TArgs>): void => {
         if (this._initialKey === null) {
             console.warn("[useInfiniteResource] fetchNext() ignored: the feed is idle (initial args are SKIP).");
             return;
@@ -99,8 +99,8 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         if (existing) {
             // Requesting a known page again retries it after a failure and is
             // a no-op otherwise (double-click / StrictMode safe).
-            if (existing.agent.state$.peek().status === "error") {
-                existing.agent.retry();
+            if (existing.clutch.state$.peek().status === "error") {
+                existing.clutch.retry();
             }
             return;
         }
@@ -110,22 +110,27 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         // can start immediately instead of waiting for the layout effect.
         if (this._isStarted) {
             page.isStarted = true;
-            page.agent.start();
+            page.clutch.start();
         }
         this._pages$.set([...pages, page]);
     };
 
-    /** See {@link TInfiniteResourceState.refresh}. */
-    refresh = (): void => {
+    /** See {@link TInfiniteResourceState.invalidate}. */
+    invalidate = (): void => {
         for (const page of this._pages$.peek()) {
-            const status = page.agent.state$.peek().status;
-            if (status === "success" || status === "refresh-error") {
-                page.agent.refresh();
+            const status = page.clutch.state$.peek().status;
+            if (status === "success" || status === "invalidate-error") {
+                page.clutch.invalidate();
             } else if (status === "error") {
-                page.agent.retry();
+                page.clutch.retry();
             }
-            // pending / refreshing — a query is already in flight.
+            // pending / invalidating — a query is already in flight.
         }
+    };
+
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
+    refresh = (): void => {
+        this.invalidate();
     };
 
     /** See {@link TInfiniteResourceState.reset}. */
@@ -136,7 +141,7 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     };
 
     /** Assemble the public state from the derived per-page states. */
-    buildState(pages: TResourceAgentState<TArgs, TItem[], TError>[]): TInfiniteResourceState<TArgs, TItem[], TError> {
+    buildState(pages: TResourceClutchState<TArgs, TItem[], TError>[]): TInfiniteResourceState<TArgs, TItem[], TError> {
         let error: TError | null = null;
         let isLoading = false;
         let isFetchingNext = false;
@@ -161,6 +166,7 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
             isError: error !== null,
             error,
             fetchNext: this.fetchNext,
+            invalidate: this.invalidate,
             refresh: this.refresh,
             reset: this.reset,
         };
@@ -170,14 +176,14 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
      * Flatten the per-page `data` arrays into a single feed array.
      *
      * Identity-stable: when every page's `data` reference is unchanged since
-     * the last call (e.g. a pure status flip such as success → refreshing,
+     * the last call (e.g. a pure status flip such as success → invalidating,
      * which reuses `data` by reference), the previous flattened array is
      * returned as-is — so `Object.is` gates downstream (`React.useMemo` deps,
      * memoized/virtualized lists keyed on `state.data`) see no change.
      * The rebuild itself is a single-pass push into one array (O(total items)),
      * never a chained `concat`.
      */
-    private _flattenData(pages: TResourceAgentState<TArgs, TItem[], TError>[]): TItem[] | null {
+    private _flattenData(pages: TResourceClutchState<TArgs, TItem[], TError>[]): TItem[] | null {
         const prev = this._lastPagesData;
         let unchanged = prev !== null && prev.length === pages.length;
 
@@ -201,11 +207,11 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         return data;
     }
 
-    private _createPage(keyed: Keyed<TArgs>): TPage<TArgs, TItem[], TError> {
-        const agent = this._resource.createAgent();
-        // `mark` hides the not-yet-started gap as pending (same as useResource).
-        agent.set(keyed as ArgsOrVoidOrSkip<TArgs>, true);
-        return { key: keyed.key, agent, isStarted: false };
+    private _createPage(keyed: TKeyed<TArgs>): TPage<TArgs, TItem[], TError> {
+        const clutch = this._resource.createClutch();
+        // `markPending` hides the not-yet-started gap as pending (same as useResource).
+        clutch.switch(keyed as TArgsOrVoidOrSkip<TArgs>, { markPending: true });
+        return { key: keyed.key, clutch, isStarted: false };
     }
 }
 
@@ -216,7 +222,7 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
  * page an ordinary cache entry (id-set) of the projection resource. Loaded pages
  * never re-render on tail growth (their entries are untouched), items shared
  * between pages are deduplicated by the projection item cache, and item updates
- * (e.g. an overlapping set's refresh) propagate into every live page through
+ * (e.g. an overlapping set's invalidate) propagate into every live page through
  * the batch's stream projections.
  *
  * The id-sets of the next pages come from the caller (typically from a
@@ -227,9 +233,9 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
  */
 export function useInfiniteResource<TArgs, TItem, TError = unknown>(
     resource: IResource<TArgs, TItem[], TError>,
-    initialArgs: ArgsOrVoidOrSkip<TArgs>,
+    initialArgs: TArgsOrVoidOrSkip<TArgs>,
 ): TInfiniteResourceState<TArgs, TItem[], TError> {
-    const key = initialArgs === SKIP ? SKIP : resource.serialize(initialArgs as Args<TArgs>);
+    const key = initialArgs === SKIP ? SKIP : resource.serialize(initialArgs as TArgsOrKeyed<TArgs>);
 
     // One store per feed identity (see the class doc). Keyed by the serialized
     // args, not their identity: an inline literal is a new object every render.

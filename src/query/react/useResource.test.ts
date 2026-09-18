@@ -7,7 +7,7 @@ import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurr
 import { createApi } from "@/query/api/createApi";
 import { SKIP } from "@/query/constants";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
-import type { TResourceAgentState } from "@/query/types";
+import type { TResourceClutchState } from "@/query/types";
 
 const h = React.createElement;
 
@@ -25,15 +25,15 @@ function createSetup() {
 }
 
 interface Captured {
-    state: TResourceAgentState<TArgs, TUser>;
+    state: TResourceClutchState<TArgs, TUser>;
     /** Every state seen by the probe, one per render. */
-    history: TResourceAgentState<TArgs, TUser>[];
+    history: TResourceClutchState<TArgs, TUser>[];
     rerender: (args: TArgs | typeof SKIP) => void;
 }
 
 /** Render a probe component around useResource and expose the live state. */
 function setup(
-    useResource: (args: TArgs | typeof SKIP) => TResourceAgentState<TArgs, TUser>,
+    useResource: (args: TArgs | typeof SKIP) => TResourceClutchState<TArgs, TUser>,
     initialArgs: TArgs | typeof SKIP,
 ): Captured {
     const captured = { history: [] } as unknown as Captured;
@@ -72,7 +72,7 @@ describe("useResource", () => {
         expect(c.state.data).toEqual({ id: 1, name: "user-1" });
     });
 
-    it("keeps the previous data as refreshing while the new args load (SWR), with no pending flash", async () => {
+    it("keeps the previous data as invalidating while the new args load (SWR), with no pending flash", async () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
@@ -83,7 +83,7 @@ describe("useResource", () => {
         c.rerender({ id: 2 });
 
         // The very first render on the new args already carries the stale data.
-        expect(c.history[0].status).toBe("refreshing");
+        expect(c.history[0].status).toBe("invalidating");
         expect(c.history[0].data).toEqual({ id: 1, name: "user-1" });
         expect(c.history[0].args).toEqual({ id: 2 });
         expect(c.history.map((s) => s.status)).not.toContain("pending");
@@ -126,7 +126,7 @@ describe("useResource", () => {
         expect(c.state.data).toBeNull();
     });
 
-    it("re-rendering with an equal args literal keeps the same agent state", async () => {
+    it("re-rendering with an equal args literal keeps the same clutch state", async () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
@@ -167,7 +167,7 @@ describe("useResource", () => {
 
         expect(screen.getByTestId("args").textContent).toBe("2");
         // The transition render plus, at most, a couple of store-driven follow-ups.
-        // A render-phase mutation of a shared agent makes this ping-pong between
+        // A render-phase mutation of a shared clutch makes this ping-pong between
         // the transition lane (id=2) and the committed tree (id=1) instead.
         expect(renders).toBeLessThanOrEqual(4);
 

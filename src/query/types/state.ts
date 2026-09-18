@@ -1,30 +1,32 @@
 // ==================== Hook State Types (for React consumers) ====================
 
-import type { Args } from "./common";
+import type { TArgsOrKeyed } from "./common";
 
-// Agent states are discriminated unions: `status` is the primary discriminant,
+// Clutch states are discriminated unions: `status` is the primary discriminant,
 // and every boolean flag is a literal per variant, so narrowing works through
 // either — `state.isError` implies `state.error: TError`, `state.isSuccess`
 // implies `state.data: TData`, and so on.
 //
-// `args` are the arguments the agent observes; `dataArgs` are the arguments
+// `args` are the arguments the clutch observes; `dataArgs` are the arguments
 // `data` was loaded for. They differ only under SWR across an args change,
 // when the previous entry's data is shown while the new one loads (or after it
 // failed). `isSwitching` reports that load in flight.
 //
-// `isRetrying` reports a load started by `retry()` from `error` / `refresh-error`;
+// `isRetrying` reports a load started by `retry()` from `error` / `invalidate-error`;
 // the retried failure stays readable in `error` while it runs (`isError` is
-// still `false`). A first load or a `refresh()` reports `isRetrying: false`.
+// still `false`). A first load or an `invalidate()` reports `isRetrying: false`.
 
-/** Methods present on every resource agent state variant. */
-interface TResourceAgentStateMethods {
+/** Methods present on every resource clutch state variant. */
+interface TResourceClutchStateMethods {
     /**
-     * Re-run the failed query: `error` → `pending`, `refresh-error` →
-     * `refreshing`, both marked `isRetrying` with the failure kept in `error`.
+     * Re-run the failed query: `error` → `pending`, `invalidate-error` →
+     * `invalidating`, both marked `isRetrying` with the failure kept in `error`.
      * No-op outside the error states.
      */
     retry: () => void;
-    /** Force a background refresh of the current entry (SWR). */
+    /** Force a background invalidation of the current entry (SWR). */
+    invalidate: () => void;
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh: () => void;
 }
 
@@ -34,8 +36,8 @@ interface TResourceAgentStateMethods {
  */
 export type TRetrying<TError> = { isRetrying: false; error: null } | { isRetrying: true; error: TError };
 
-/** No observation: the agent was given `SKIP` or has not received arguments yet. */
-export interface TResourceAgentIdleState extends TResourceAgentStateMethods {
+/** No observation: the clutch was given `SKIP` or has not received arguments yet. */
+export interface TResourceClutchIdleState extends TResourceClutchStateMethods {
     status: "idle";
     data: null;
     error: null;
@@ -51,7 +53,7 @@ export interface TResourceAgentIdleState extends TResourceAgentStateMethods {
     isError: false;
 }
 
-interface TResourceAgentPendingBase<TArgs> extends TResourceAgentStateMethods {
+interface TResourceClutchPendingBase<TArgs> extends TResourceClutchStateMethods {
     status: "pending";
     data: null;
     args: TArgs;
@@ -70,10 +72,11 @@ interface TResourceAgentPendingBase<TArgs> extends TResourceAgentStateMethods {
  * `isRetrying`, it is a `retry()` of a failed initial load and `error` holds
  * that failure.
  */
-export type TResourceAgentPendingState<TArgs, TError = unknown> = TResourceAgentPendingBase<TArgs> & TRetrying<TError>;
+export type TResourceClutchPendingState<TArgs, TError = unknown> = TResourceClutchPendingBase<TArgs> &
+    TRetrying<TError>;
 
 /** Query succeeded: `data` is present, no error. */
-export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgentStateMethods {
+export interface TResourceClutchSuccessState<TArgs, TData> extends TResourceClutchStateMethods {
     status: "success";
     data: TData;
     error: null;
@@ -94,7 +97,7 @@ export interface TResourceAgentSuccessState<TArgs, TData> extends TResourceAgent
  * entry's stale data when the arguments changed under SWR — `dataArgs` then
  * holds that entry's arguments.
  */
-export interface TResourceAgentErrorState<TArgs, TData, TError = unknown> extends TResourceAgentStateMethods {
+export interface TResourceClutchErrorState<TArgs, TData, TError = unknown> extends TResourceClutchStateMethods {
     status: "error";
     data: TData | null;
     error: TError;
@@ -110,8 +113,8 @@ export interface TResourceAgentErrorState<TArgs, TData, TError = unknown> extend
     isError: true;
 }
 
-interface TResourceAgentRefreshingBase<TArgs, TData> extends TResourceAgentStateMethods {
-    status: "refreshing";
+interface TResourceClutchInvalidatingBase<TArgs, TData> extends TResourceClutchStateMethods {
+    status: "invalidating";
     data: TData;
     args: TArgs;
     dataArgs: TArgs;
@@ -125,17 +128,24 @@ interface TResourceAgentRefreshingBase<TArgs, TData> extends TResourceAgentState
 }
 
 /**
- * A load is in flight behind stale `data` (SWR): either a background refresh of
+ * A load is in flight behind stale `data` (SWR): either a background invalidation of
  * the current entry, or — with `isSwitching` — the initial load of the new
  * arguments while the previous entry's data (`dataArgs`) is still shown. With
  * `isRetrying`, the load is a `retry()` of a failure that `error` still holds.
  */
-export type TResourceAgentRefreshingState<TArgs, TData, TError = unknown> = TResourceAgentRefreshingBase<TArgs, TData> &
+export type TResourceClutchInvalidatingState<TArgs, TData, TError = unknown> = TResourceClutchInvalidatingBase<
+    TArgs,
+    TData
+> &
     TRetrying<TError>;
 
-/** Background refresh failed; stale `data` is preserved. */
-export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown> extends TResourceAgentStateMethods {
-    status: "refresh-error";
+/** Background invalidation failed; stale `data` is preserved. */
+export interface TResourceClutchInvalidateErrorState<
+    TArgs,
+    TData,
+    TError = unknown,
+> extends TResourceClutchStateMethods {
+    status: "invalidate-error";
     data: TData;
     error: TError;
     args: TArgs;
@@ -150,13 +160,13 @@ export interface TResourceAgentRefreshErrorState<TArgs, TData, TError = unknown>
     isError: true;
 }
 
-export type TResourceAgentState<TArgs, TData, TError = unknown> =
-    | TResourceAgentIdleState
-    | TResourceAgentPendingState<TArgs, TError>
-    | TResourceAgentSuccessState<TArgs, TData>
-    | TResourceAgentErrorState<TArgs, TData, TError>
-    | TResourceAgentRefreshingState<TArgs, TData, TError>
-    | TResourceAgentRefreshErrorState<TArgs, TData, TError>;
+export type TResourceClutchState<TArgs, TData, TError = unknown> =
+    | TResourceClutchIdleState
+    | TResourceClutchPendingState<TArgs, TError>
+    | TResourceClutchSuccessState<TArgs, TData>
+    | TResourceClutchErrorState<TArgs, TData, TError>
+    | TResourceClutchInvalidatingState<TArgs, TData, TError>
+    | TResourceClutchInvalidateErrorState<TArgs, TData, TError>;
 
 /**
  * Error state as returned by the Suspense-enabled resource hook.
@@ -165,7 +175,7 @@ export type TResourceAgentState<TArgs, TData, TError = unknown> =
  * fall back on is thrown to the nearest Error Boundary instead — so `data` is
  * guaranteed non-null here.
  */
-export interface TSuspenseResourceErrorState<TArgs, TData, TError = unknown> extends TResourceAgentErrorState<
+export interface TSuspenseResourceErrorState<TArgs, TData, TError = unknown> extends TResourceClutchErrorState<
     TArgs,
     TData,
     TError
@@ -177,16 +187,16 @@ export interface TSuspenseResourceErrorState<TArgs, TData, TError = unknown> ext
 /**
  * State returned by the Suspense-enabled resource hook.
  *
- * The subset of {@link TResourceAgentState} variants with `data` guaranteed
+ * The subset of {@link TResourceClutchState} variants with `data` guaranteed
  * non-null: the hook only returns once data is available (initial loading
  * suspends, an initial error with no fallback data is thrown to the nearest
- * Error Boundary). Background refreshes still surface through `isRefreshing` /
+ * Error Boundary). Background invalidations still surface through `isRefreshing` /
  * `isRefreshError` without suspending.
  */
 export type TSuspenseResourceState<TArgs, TData, TError = unknown> =
-    | TResourceAgentSuccessState<TArgs, TData>
-    | TResourceAgentRefreshingState<TArgs, TData, TError>
-    | TResourceAgentRefreshErrorState<TArgs, TData, TError>
+    | TResourceClutchSuccessState<TArgs, TData>
+    | TResourceClutchInvalidatingState<TArgs, TData, TError>
+    | TResourceClutchInvalidateErrorState<TArgs, TData, TError>
     | TSuspenseResourceErrorState<TArgs, TData, TError>;
 
 /**
@@ -194,7 +204,7 @@ export type TSuspenseResourceState<TArgs, TData, TError = unknown> =
  *
  * The feed is a list of *pages*: every page is an ordinary cache entry of the
  * projection resource with its own fixed args (an id-set), observed through its own
- * agent. `TData` is the page data type — the projection item array (`TItem[]`) —
+ * clutch. `TData` is the page data type — the projection item array (`TItem[]`) —
  * and `data` flattens the pages' items in page order.
  */
 export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
@@ -203,13 +213,13 @@ export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
      * the first page delivers data.
      */
     data: TData | null;
-    /** Per-page agent states, in load order. Empty while the feed is idle. */
-    pages: TResourceAgentState<TArgs, TData, TError>[];
+    /** Per-page clutch states, in load order. Empty while the feed is idle. */
+    pages: TResourceClutchState<TArgs, TData, TError>[];
     /** No pages observed — the initial args are `SKIP`. */
     isIdle: boolean;
     /** The first page's initial load is in flight and there is nothing to show yet. */
     isInitialLoading: boolean;
-    /** Some page is loading (initial load or background refresh). */
+    /** Some page is loading (initial load or background invalidation). */
     isLoading: boolean;
     /** A page beyond the first is doing its initial load. */
     isFetchingNext: boolean;
@@ -222,21 +232,23 @@ export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
      * the args of an already-present page is a no-op (double-click safe),
      * except when that page previously failed — then it is retried.
      */
-    fetchNext: (args: Args<TArgs>) => void;
-    /** Re-validate the whole feed: refresh pages with data, retry failed ones. */
+    fetchNext: (args: TArgsOrKeyed<TArgs>) => void;
+    /** Re-validate the whole feed: invalidate pages with data, retry failed ones. */
+    invalidate: () => void;
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh: () => void;
     /** Drop every page after the first one. */
     reset: () => void;
 }
 
-/** Methods present on every command agent state variant. */
-interface TCommandAgentStateMethods {
+/** Methods present on every command clutch state variant. */
+interface TCommandClutchStateMethods {
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry: () => void;
 }
 
 /** No observation: nothing triggered yet and no cache key bound. */
-export interface TCommandAgentIdleState extends TCommandAgentStateMethods {
+export interface TCommandClutchIdleState extends TCommandClutchStateMethods {
     status: "idle";
     data: null;
     error: null;
@@ -248,10 +260,10 @@ export interface TCommandAgentIdleState extends TCommandAgentStateMethods {
 
 /**
  * Mutation in flight. `data` / `error` are normally `null`; they carry stale
- * values through when a manually refreshed command entry (machine `refreshing` /
- * `refresh-error`) is defensively remapped to `pending`.
+ * values through when a manually invalidated command entry (machine `invalidating` /
+ * `invalidate-error`) is defensively remapped to `pending`.
  */
-export interface TCommandAgentPendingState<TArgs, TData, TError = unknown> extends TCommandAgentStateMethods {
+export interface TCommandClutchPendingState<TArgs, TData, TError = unknown> extends TCommandClutchStateMethods {
     status: "pending";
     data: TData | null;
     error: TError | null;
@@ -262,7 +274,7 @@ export interface TCommandAgentPendingState<TArgs, TData, TError = unknown> exten
 }
 
 /** Mutation succeeded: `data` is present, no error. */
-export interface TCommandAgentSuccessState<TArgs, TData> extends TCommandAgentStateMethods {
+export interface TCommandClutchSuccessState<TArgs, TData> extends TCommandClutchStateMethods {
     status: "success";
     data: TData;
     error: null;
@@ -273,7 +285,7 @@ export interface TCommandAgentSuccessState<TArgs, TData> extends TCommandAgentSt
 }
 
 /** Mutation failed: `error` is present, no data. */
-export interface TCommandAgentErrorState<TArgs, TError = unknown> extends TCommandAgentStateMethods {
+export interface TCommandClutchErrorState<TArgs, TError = unknown> extends TCommandClutchStateMethods {
     status: "error";
     data: null;
     error: TError;
@@ -283,8 +295,8 @@ export interface TCommandAgentErrorState<TArgs, TError = unknown> extends TComma
     isError: true;
 }
 
-export type TCommandAgentState<TArgs, TData, TError = unknown> =
-    | TCommandAgentIdleState
-    | TCommandAgentPendingState<TArgs, TData, TError>
-    | TCommandAgentSuccessState<TArgs, TData>
-    | TCommandAgentErrorState<TArgs, TError>;
+export type TCommandClutchState<TArgs, TData, TError = unknown> =
+    | TCommandClutchIdleState
+    | TCommandClutchPendingState<TArgs, TData, TError>
+    | TCommandClutchSuccessState<TArgs, TData>
+    | TCommandClutchErrorState<TArgs, TError>;
