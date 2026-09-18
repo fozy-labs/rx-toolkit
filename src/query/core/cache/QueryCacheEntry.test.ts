@@ -1,5 +1,5 @@
 import { Observable, of, Subject } from "rxjs";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { toKeyed } from "@/query/lib/toKeyed";
@@ -12,7 +12,7 @@ import { QueryCacheEntry } from "./QueryCacheEntry";
 type TData = { items: { n: number }[] };
 
 function createEntry<TArgs, TData>(
-    options: Pick<IQueryCacheEntryOptions<TArgs, TData>, "queryFn" | "onStreamPatch"> & {
+    options: Pick<IQueryCacheEntryOptions<TArgs, TData>, "queryFn" | "onStreamPatch" | "errorSource"> & {
         keyedArgs?: TKeyed<TArgs>;
     },
 ): QueryCacheEntry<TArgs, TData> {
@@ -21,7 +21,30 @@ function createEntry<TArgs, TData>(
         keyedArgs: options.keyedArgs ?? toKeyed(undefined as TArgs),
         queryFn: options.queryFn,
         onStreamPatch: options.onStreamPatch,
+        errorSource: options.errorSource,
     });
+}
+
+/** Deferred run handles of a queryFn, one per `_execute()` call. */
+type TRun = { resolve: (data: number) => void; reject: (error: unknown) => void };
+
+/**
+ * An entry whose every run is settled by the test. `runs.length` is the number
+ * of times the query was actually started.
+ */
+function createControlledEntry(errorSource?: "query" | "command"): {
+    entry: QueryCacheEntry<void, number>;
+    runs: TRun[];
+} {
+    const runs: TRun[] = [];
+    const entry = createEntry<void, number>({
+        errorSource,
+        queryFn: () =>
+            new Promise<number>((resolve, reject) => {
+                runs.push({ resolve, reject });
+            }),
+    });
+    return { entry, runs };
 }
 
 /** A cold observable that synchronously emits `value` on subscribe and never terminates. */
@@ -136,5 +159,215 @@ describe("QueryCacheEntry — stream run aborted synchronously during subscribe"
             draft.items = [{ n: 7 }];
         });
         expect(onStreamPatch).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ==================== invalidate() / retry() guards ====================
+
+describe("QueryCacheEntry — invalidate()", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("from error: clears the error, goes pending and re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry();
+        const failure = new Error("boom");
+
+        runs[0]!.reject(failure);
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("error");
+
+        entry.invalidate();
+
+        // The machine is `pending` before `_execute()` decides what to do, so
+        // the run actually starts (the `case "error"` guard is not reached).
+        expect(runs).toHaveLength(2);
+        const state = entry.machine$.peek().state;
+        expect(state.status).toBe("pending");
+        expect(state.error).toBeNull();
+
+        runs[1]!.resolve(7);
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state).toMatchObject({ status: "success", data: 7, error: null });
+    });
+
+    it("from success: goes invalidating with a cleared error and re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry();
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+
+        entry.invalidate();
+        expect(runs).toHaveLength(2);
+        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", data: 1, error: null });
+    });
+
+    it("from invalidate-error: goes invalidating with a cleared error and re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry();
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        entry.invalidate();
+        runs[1]!.reject(new Error("invalidate-boom"));
+        await flushMicrotasks();
+        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
+
+        entry.invalidate();
+        expect(runs).toHaveLength(3);
+        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", data: 1, error: null });
+    });
+
+    it("from pending: warns and does not re-run", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { entry, runs } = createControlledEntry();
+
+        entry.invalidate();
+
+        expect(runs).toHaveLength(1);
+        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("from invalidating: warns and does not re-run", async () => {
+        const { entry, runs } = createControlledEntry();
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        entry.invalidate();
+        expect(runs).toHaveLength(2);
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        entry.invalidate();
+
+        expect(runs).toHaveLength(2);
+        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("QueryCacheEntry — retry()", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("from error: keeps the failure in `error`, goes pending and re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry();
+        const failure = new Error("boom");
+
+        runs[0]!.reject(failure);
+        await flushMicrotasks();
+
+        entry.retry();
+
+        expect(runs).toHaveLength(2);
+        expect(entry.machine$.peek().state).toMatchObject({ status: "pending", error: failure });
+    });
+
+    it("from invalidate-error: keeps the failure in `error`, goes invalidating and re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry();
+        const failure = new Error("invalidate-boom");
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        entry.invalidate();
+        runs[1]!.reject(failure);
+        await flushMicrotasks();
+
+        entry.retry();
+
+        expect(runs).toHaveLength(3);
+        expect(entry.machine$.peek().state).toMatchObject({
+            status: "invalidating",
+            data: 1,
+            error: failure,
+        });
+    });
+
+    it("from pending: warns and does not re-run", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { entry, runs } = createControlledEntry();
+
+        entry.retry();
+
+        expect(runs).toHaveLength(1);
+        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("from success: warns and does not re-run", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        entry.retry();
+
+        expect(runs).toHaveLength(1);
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("from invalidating: warns and does not re-run", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        entry.invalidate();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        entry.retry();
+
+        expect(runs).toHaveLength(2);
+        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+});
+
+/**
+ * A command entry is never invalidated: that is what makes `invalidating` /
+ * `invalidate-error` unreachable for a command, so the command clutch can treat
+ * them as an exhaustive `never` branch.
+ */
+describe("QueryCacheEntry — command entries never invalidate", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("invalidate() from success warns and leaves the machine untouched", async () => {
+        const { entry, runs } = createControlledEntry("command");
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        entry.invalidate();
+
+        expect(runs).toHaveLength(1);
+        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("invalidate() from error warns and leaves the machine untouched", async () => {
+        const { entry, runs } = createControlledEntry("command");
+        const failure = new Error("boom");
+        runs[0]!.reject(failure);
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        entry.invalidate();
+
+        expect(runs).toHaveLength(1);
+        expect(entry.machine$.peek().state).toMatchObject({ status: "error", error: failure });
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("retry() from error still re-runs the query", async () => {
+        const { entry, runs } = createControlledEntry("command");
+        const failure = new Error("boom");
+        runs[0]!.reject(failure);
+        await flushMicrotasks();
+
+        entry.retry();
+
+        expect(runs).toHaveLength(2);
+        expect(entry.machine$.peek().state).toMatchObject({ status: "pending", error: failure });
     });
 });

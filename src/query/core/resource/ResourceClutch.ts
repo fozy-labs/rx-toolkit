@@ -7,15 +7,17 @@ import type {
     TClutchSwitchOptions,
     TKeyed,
     TMachineState,
+    TPendingState,
     TResourceClutchState,
-    TRetrying,
+    TResourceEntryState,
 } from "@/query/types";
 import { Batcher, Signal, type ReadonlySignal } from "@/signals";
 
 import { SKIP } from "../../constants";
 import type { QueryCacheEntry } from "../cache/QueryCacheEntry";
-import { NOT_RETRYING, retryingOf } from "../machine/machine-helpers";
+import { errorSlotOf, isDataState } from "../machine/machine-helpers";
 
+import { buildEntryState, buildPendingEntryState, IDLE_ENTRY_STATE } from "./entry-state";
 import type { Resource } from "./Resource";
 
 // ==================== ResourceClutch ====================
@@ -25,19 +27,42 @@ interface Tracking<TArgs, TData> {
     current$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>;
 }
 
-/** Whether the entry behind `entry$` holds data worth keeping as SWR fallback. */
+/** Lazy `placeholderData` result, memoized per args key. */
+interface PlaceholderMemo<TData> {
+    key: string;
+    result: { data: TData } | null;
+}
+
+/** The loading flags of every settled (non-pending) row. */
+const SETTLED_FLAGS = {
+    isPending: false,
+    isInitialLoading: false,
+    isSwitching: false,
+    isInvalidating: false,
+} as const;
+
+/**
+ * Whether the entry behind `entry$` holds data worth keeping as SWR fallback.
+ *
+ * Asks the machine state, not `data`: `TData` may itself be `null`, and an
+ * entry that successfully loaded `null` has data to fall back on like any other.
+ */
 function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>): boolean {
-    const status = entry$.peek()?.machine$.peek().state.status;
-    return status === "success" || status === "invalidating" || status === "invalidate-error";
+    const state = entry$.peek()?.machine$.peek().state;
+    return state !== undefined && isDataState(state);
 }
 
 /**
  * Reactive observer for a {@link Resource} with SWR behaviour.
  *
  * The clutch tracks a single cache entry at a time, deriving a flat
- * {@link TResourceClutchState} signal. When arguments change via
+ * {@link TResourceClutchState} signal — one of the fourteen rows of the state
+ * matrix. `status` says only whether a query is in flight and how the last one
+ * settled; what is on screen meanwhile is told by `dataSource`, which the
+ * clutch (not the cache entry) owns: when the arguments change via
  * {@link ResourceClutch.switch}, the previous entry's data is preserved as
- * stale fallback (SWR).
+ * stale fallback (SWR), and the resource's `placeholderData` option can put
+ * synthesized data in front of it.
  *
  * @template TArgs - Query argument type.
  * @template TData - Query return data type.
@@ -52,6 +77,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     });
 
     private _previous$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> | null = null;
+    private _placeholder: PlaceholderMemo<TData> | null = null;
     private _isStarted = false;
     private _isMarked = false;
     private _settledPromise: Promise<void> | null = null;
@@ -89,12 +115,12 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * Engage the clutch on the given args. Before {@link start} this only
      * records them; once the clutch is started, changing the args also triggers
      * the query for them. `SKIP` disengages the clutch: it clears the
-     * observation and drops back to `idle`.
+     * observation and drops back to `idle` (row 1).
      *
      * `options.markPending` (default `false`) makes an unstarted clutch report
-     * `pending` (or `invalidating` over adopted stale data) rather than `idle`
-     * while no cache entry exists yet: the React hooks create a clutch during
-     * render but only start it in a layout effect, and marking hides that gap.
+     * `pending` rather than `idle` while no cache entry exists yet: the React
+     * hooks create a clutch during render but only start it in a layout effect,
+     * and marking hides that gap.
      */
     switch(args: TArgsOrVoidOrSkip<TArgs>, options?: TClutchSwitchOptions): void {
         this._isMarked = options?.markPending ?? false;
@@ -104,6 +130,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             if (!tracking) return;
 
             this._previous$ = null;
+            this._placeholder = null;
             this._tracking$.set(null);
             return;
         }
@@ -118,6 +145,11 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         if (tracking) {
             this._promoteToPrevious(tracking);
         }
+
+        // The memoized placeholder belonged to the old args key. The SWR
+        // fallback is deliberately kept: a placeholder only hides previous data,
+        // it never drops it.
+        this._placeholder = null;
 
         const newEntry = this._resource.getEntry$(keyed);
 
@@ -150,6 +182,9 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * For consumers that *replace* the clutch instead of mutating it — the
      * React hooks create one clutch per args so render stays pure, and hand the
      * stale data over from the last committed clutch to its successor.
+     *
+     * The placeholder memo is not carried over: it belongs to the clutch that
+     * computed it, and the successor recomputes it from the adopted fallback.
      */
     adoptPrevious(source: IResourceClutch<TArgs, TData, TError>): void {
         if (!(source instanceof ResourceClutch)) return;
@@ -159,13 +194,36 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         this._previous$ = tracking && hasSettledData(tracking.current$) ? tracking.current$ : source._previous$;
     }
 
-    /** Retry the last failed query. Only meaningful after an error state. */
+    /**
+     * Re-run the failed query keeping the failure on screen: rows 7 → 10,
+     * 8 → 11, 9 → 12, 13 → 14. Outside those edges the cache entry logs a
+     * warning and does nothing.
+     */
     retry = () => {
         this._tracking$.peek()?.current$.peek()?.retry();
     };
 
-    /** Force a background invalidation of the current entry (SWR). */
+    /**
+     * Re-query the current args and clear the failure: rows 5 → 6, 8 → 4,
+     * 9 → 6, 13 → 3. Outside those edges it is a warning and a no-op.
+     */
     invalidate = () => {
+        const state = this.state$.peek();
+
+        // Rows 7, 8 and 13 are one and the same machine status (`error`): which
+        // of them is on screen depends on previous / placeholder data, and both
+        // live in the clutch, invisible to the entry. The entry therefore has to
+        // accept `invalidate()` from `error` (edges 8 → 4 and 13 → 3), and only
+        // the clutch can reject row 7, where there is nothing to re-validate —
+        // `retry()` is the edge the matrix draws out of it.
+        if (state.status === "error" && state.dataSource === "none") {
+            console.warn(
+                "[ResourceClutch] invalidate() called with nothing on screen to re-validate: " +
+                    "use retry() to re-run the failed query.",
+            );
+            return;
+        }
+
         this._tracking$.peek()?.current$.peek()?.invalidate();
     };
 
@@ -175,7 +233,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
-     * Promise resolving once the clutch leaves the initial-loading phase (see
+     * Promise resolving once the clutch has something to render (see
      * {@link IResourceClutch.whenSettled}).
      *
      * Consumed by `useSuspenseResource`: a suspended render aborts its effects,
@@ -215,9 +273,14 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     // ==================== Private ====================
 
-    /** Whether a derived state represents anything other than initial loading. */
+    /**
+     * The Suspense rule: a state is settled once there is something to render
+     * (`hasData` — current, placeholder or previous data) or the query failed
+     * with nothing to show. Only rows 1, 2 and 10 are unsettled: a switching or
+     * invalidating load is `pending`, but it has data and must not re-suspend.
+     */
     private _isSettled(state: TResourceClutchState<TArgs, TData, TError>): boolean {
-        return state.status !== "idle" && state.status !== "pending";
+        return state.hasData || state.status === "error";
     }
 
     private _deriveState(): TResourceClutchState<TArgs, TData, TError> {
@@ -240,11 +303,11 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                     }
                 });
 
-                return this._createLoadingState(tracking.keyed.value, NOT_RETRYING);
+                return this._createLoadingState(tracking.keyed, null);
             }
 
             if (this._isMarked) {
-                return this._createLoadingState(tracking.keyed.value, NOT_RETRYING);
+                return this._createLoadingState(tracking.keyed, null);
             }
 
             return this._idleState;
@@ -252,7 +315,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
         const machine = entry.machine$();
 
-        return this._deriveNotIdleState(machine.state);
+        return this._deriveNotIdleState(tracking.keyed, machine.state);
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {
@@ -261,106 +324,82 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         }
     }
 
-    private _deriveNotIdleState(machineState: TMachineState<TArgs, TData>): TResourceClutchState<TArgs, TData, TError> {
-        // Each machine status maps to one state variant, constructed per branch so
-        // the compiler verifies every field against the discriminated union.
+    private _deriveNotIdleState(
+        keyed: TKeyed<TArgs>,
+        machineState: TMachineState<TArgs, TData>,
+    ): TResourceClutchState<TArgs, TData, TError> {
+        // Rows whose data comes from the entry itself are the entry rows, shared
+        // with `Resource.getState`; the clutch only adds its methods. Rows that
+        // show what the entry does not have — a placeholder, or the previous
+        // args' data — are built here, in display priority.
         switch (machineState.status) {
+            // Rows 2 / 3 / 4, or 10 / 14 / 11 when the run retries a failure.
             case "pending": {
-                return this._createLoadingState(machineState.args, retryingOf(machineState));
+                return this._createLoadingState(keyed, machineState);
             }
 
             case "success": {
-                // Clear previous once success
+                // Row 5. Fresh data of the observed args outranks everything the
+                // clutch held for them: the SWR fallback and the placeholder memo
+                // have done their job and are dropped.
                 this._previous$ = null;
+                this._placeholder = null;
 
-                return {
-                    status: "success",
-                    data: machineState.data,
-                    error: null,
-                    args: machineState.args,
-                    dataArgs: machineState.args,
-                    isLoading: false,
-                    isInitialLoading: false,
-                    isRefreshing: false,
-                    isSwitching: false,
-                    isRetrying: false,
-                    isRefreshError: false,
-                    isSuccess: true,
-                    isError: false,
-                    retry: this.retry,
-                    invalidate: this.invalidate,
-                    refresh: this.refresh,
-                };
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
             }
 
             case "error": {
-                // SWR: error + previous data → keep stale data
+                // Rows 13 / 8 / 7 — the entry holds nothing, so whatever the clutch
+                // can still show stays on screen. A machine `error` always carries
+                // its failure; the cast is sound per the mapError contract.
+                const errorSlot = { hasError: true, error: machineState.error as TError } as const;
+                const placeholder = this._placeholderFor(keyed);
+
+                if (placeholder) {
+                    return {
+                        status: "error",
+                        dataSource: "placeholder",
+                        data: placeholder.data,
+                        dataArgs: null,
+                        hasData: true,
+                        args: keyed.value,
+                        ...errorSlot,
+                        ...SETTLED_FLAGS,
+                        ...this._methods,
+                    };
+                }
+
                 const previous = this._previous();
 
-                return {
-                    status: "error",
-                    data: previous?.data ?? null,
-                    // Sound per the mapError contract: the machine only ever holds errors
-                    // already normalized to TError at the queryFn boundary.
-                    error: machineState.error as TError,
-                    args: machineState.args,
-                    dataArgs: previous?.args ?? null,
-                    isLoading: false,
-                    isInitialLoading: false,
-                    isRefreshing: false,
-                    isSwitching: false,
-                    isRetrying: false,
-                    isRefreshError: false,
-                    isSuccess: false,
-                    isError: true,
-                    retry: this.retry,
-                    invalidate: this.invalidate,
-                    refresh: this.refresh,
-                };
+                if (previous) {
+                    return {
+                        status: "error",
+                        dataSource: "previous",
+                        data: previous.data,
+                        dataArgs: previous.args,
+                        hasData: true,
+                        args: keyed.value,
+                        ...errorSlot,
+                        ...SETTLED_FLAGS,
+                        ...this._methods,
+                    };
+                }
+
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
             }
 
-            case "invalidating": {
-                return {
-                    status: "invalidating",
-                    data: machineState.data,
-                    args: machineState.args,
-                    dataArgs: machineState.args,
-                    isLoading: true,
-                    isInitialLoading: false,
-                    isRefreshing: true,
-                    isSwitching: false,
-                    isRefreshError: false,
-                    isSuccess: false,
-                    isError: false,
-                    retry: this.retry,
-                    invalidate: this.invalidate,
-                    refresh: this.refresh,
-                    ...retryingOf<TArgs, TData, TError>(machineState),
-                };
-            }
-
+            // Rows 6 / 12 and row 9 — the entry's own data is on screen, so
+            // neither the placeholder nor the SWR fallback is consulted.
+            case "invalidating":
             case "invalidate-error": {
-                return {
-                    status: "invalidate-error",
-                    data: machineState.data,
-                    // Sound per the mapError contract (see the error branch above).
-                    error: machineState.error as TError,
-                    args: machineState.args,
-                    dataArgs: machineState.args,
-                    isLoading: false,
-                    isInitialLoading: false,
-                    isRefreshing: false,
-                    isSwitching: false,
-                    isRetrying: false,
-                    isRefreshError: true,
-                    isSuccess: false,
-                    isError: true,
-                    retry: this.retry,
-                    invalidate: this.invalidate,
-                    refresh: this.refresh,
-                };
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
             }
         }
+    }
+
+    /** An entry row as a clutch row: the same fields plus the state methods. */
+    private _withMethods(state: TResourceEntryState<TArgs, TData, TError>): TResourceClutchState<TArgs, TData, TError> {
+        return { ...state, ...this._methods };
     }
 
     /**
@@ -373,74 +412,100 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const previousEntry = this._previous$?.();
         if (!previousEntry) return null;
 
-        const data = previousEntry.machine$().state.data;
-        return data != null ? { data, args: previousEntry.keyedArgs.value } : null;
+        // Presence is a property of the machine state, never of `data`: a query
+        // that resolved `null` holds data, and dropping it here would silently
+        // turn row 4 into row 2 and row 8 into row 7.
+        const state = previousEntry.machine$().state;
+        return isDataState(state) ? { data: state.data, args: previousEntry.keyedArgs.value } : null;
     }
 
     /**
-     * Initial-loading state for `args`: `invalidating` (with `isSwitching`) over
-     * the stale data of the previous entry when there is any (SWR), plain
-     * `pending` otherwise. `retrying` carries the retry bookkeeping of the
-     * underlying machine state (a `retry()` of a failed initial load).
+     * The resource's `placeholderData` result for these args, memoized on the
+     * args key: the option is consulted once per key, so a retry, an
+     * invalidation or a plain re-derivation reuses the first answer and the
+     * `previous` it was handed stays a snapshot of that moment. The memo is
+     * dropped when the args change, on `SKIP` and on `success`; a cache hit
+     * never reaches this branch at all.
      */
-    private _createLoadingState(args: TArgs, retrying: TRetrying<TError>): TResourceClutchState<TArgs, TData, TError> {
+    private _placeholderFor(keyed: TKeyed<TArgs>): { data: TData } | null {
+        const placeholderData = this._resource._placeholderData;
+        if (!placeholderData) return null;
+
+        const memo = this._placeholder;
+        if (memo && memo.key === keyed.key) return memo.result;
+
+        const result = placeholderData(keyed.value, this._previous());
+        this._placeholder = { key: keyed.key, result };
+        return result;
+    }
+
+    /**
+     * The in-flight state for `keyed`: a placeholder when the resource
+     * synthesizes one (rows 3 / 14), else the previous args' data (rows 4 / 11),
+     * else nothing (rows 2 / 10). `machineState` is the entry's pending state,
+     * or `null` before the entry exists — a started (or marked) clutch is
+     * already loading, and the entry it is about to create starts without a
+     * failure.
+     */
+    private _createLoadingState(
+        keyed: TKeyed<TArgs>,
+        machineState: TPendingState<TArgs> | null,
+    ): TResourceClutchState<TArgs, TData, TError> {
+        const error = machineState?.error ?? null;
+        const placeholder = this._placeholderFor(keyed);
+
+        if (placeholder) {
+            return {
+                status: "pending",
+                dataSource: "placeholder",
+                data: placeholder.data,
+                dataArgs: null,
+                hasData: true,
+                args: keyed.value,
+                ...errorSlotOf<TError>(error),
+                isPending: true,
+                isInitialLoading: true,
+                isSwitching: false,
+                isInvalidating: false,
+                ...this._methods,
+            };
+        }
+
         const previous = this._previous();
 
         if (previous) {
             return {
-                status: "invalidating",
+                status: "pending",
+                dataSource: "previous",
                 data: previous.data,
-                args,
                 dataArgs: previous.args,
-                isLoading: true,
+                hasData: true,
+                args: keyed.value,
+                ...errorSlotOf<TError>(error),
+                isPending: true,
                 isInitialLoading: false,
-                isRefreshing: true,
                 isSwitching: true,
-                isRefreshError: false,
-                isSuccess: false,
-                isError: false,
-                retry: this.retry,
-                invalidate: this.invalidate,
-                refresh: this.refresh,
-                ...retrying,
+                isInvalidating: false,
+                ...this._methods,
             };
         }
 
-        return {
-            status: "pending",
-            data: null,
-            args,
-            dataArgs: null,
-            isLoading: true,
-            isInitialLoading: true,
-            isRefreshing: false,
-            isSwitching: false,
-            isRefreshError: false,
-            isSuccess: false,
-            isError: false,
-            retry: this.retry,
-            invalidate: this.invalidate,
-            refresh: this.refresh,
-            ...retrying,
-        };
+        return this._withMethods(buildPendingEntryState<TArgs, TError>(keyed.value, error));
     }
 
-    private _idleState: TResourceClutchState<TArgs, TData, TError> = {
-        status: "idle",
-        data: null,
-        error: null,
-        args: null,
-        dataArgs: null,
-        isLoading: false,
-        isInitialLoading: false,
-        isRefreshing: false,
-        isSwitching: false,
-        isRetrying: false,
-        isRefreshError: false,
-        isSuccess: false,
-        isError: false,
+    // Declared after the method fields above: a field initializer may only
+    // read fields already initialized.
+
+    /** The state methods, identical on every row; spread into each of them. */
+    private readonly _methods = {
         retry: this.retry,
         invalidate: this.invalidate,
         refresh: this.refresh,
+    };
+
+    /** Row 1 — the clutch observes nothing. */
+    private _idleState: TResourceClutchState<TArgs, TData, TError> = {
+        ...IDLE_ENTRY_STATE,
+        ...this._methods,
     };
 }

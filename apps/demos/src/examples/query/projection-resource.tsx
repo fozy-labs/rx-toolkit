@@ -74,11 +74,11 @@ export function Base() {
 
                 <Divider />
 
-                {state.isLoading && (
+                {state.isPending && (
                     <div className="text-sm text-default-500">⏳ Загрузка...</div>
                 )}
 
-                {state.data && (
+                {state.hasData && (
                     <div className="space-y-2">
                         {state.data.map((user) => (
                             <div key={user.id} className="p-3 bg-default-100 rounded-lg flex items-center gap-3">

@@ -22,8 +22,8 @@ import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 import { Machine } from "../machine/Machine";
-import { retryingOf } from "../machine/machine-helpers";
 
+import { buildEntryState, IDLE_ENTRY_STATE } from "./entry-state";
 import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
 import { ResourceClutch } from "./ResourceClutch";
 
@@ -53,6 +53,11 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private readonly _beforeQuery?;
     private readonly _allowStreamPatches: boolean;
     private _streamPatchWarned = false;
+    /**
+     * @internal Read by {@link ResourceClutch} to build its placeholder state.
+     * See {@link TResourceOptions.placeholderData}.
+     */
+    readonly _placeholderData: IResourceConfig<TArgs, TData>["placeholderData"];
 
     constructor(config: IResourceConfig<TArgs, TData>) {
         this._queryFn = config.queryFn;
@@ -65,6 +70,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._onQueryStarted = config.onQueryStarted;
         this._beforeQuery = config.beforeQuery;
         this._allowStreamPatches = config.allowStreamPatches ?? false;
+        this._placeholderData = config.placeholderData;
 
         if (config.snapshot) {
             for (const [key, snap] of Object.entries(config.snapshot.entries)) {
@@ -85,12 +91,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      *
      * @deprecated Use {@link prefetch}: `trigger(args)` ≈ `prefetch(args)`,
      * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
-     * match on an `error`-state entry: `prefetch` retries it in both modes,
-     * while `trigger` left it untouched (its force path went through
-     * `invalidate()`, which is a no-op from `error`). And unlike `trigger`,
-     * every `prefetch` call — cache hits included — holds a keepalive
-     * subscription until it settles and then restarts the entry's retention
-     * countdown. Will be removed in a future release.
+     * match on an `error`-state entry: `prefetch` retries it (the failure stays
+     * readable), while `trigger`'s force path invalidates it, which clears the
+     * failure. And unlike `trigger`, every `prefetch` call — cache hits
+     * included — holds a keepalive subscription until it settles and then
+     * restarts the entry's retention countdown. Will be removed in a future
+     * release.
      * @param args - Query arguments.
      * @param doForce - When `true`, forces an invalidation even if data is cached.
      */
@@ -99,7 +105,11 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     /**
-     * Mark the entry as stale and trigger a background SWR invalidate.
+     * Re-check what the entry shows and re-query it, clearing any failure it
+     * holds: data is re-fetched behind itself (SWR), and a failed entry starts
+     * over as a plain load. No-op when no entry exists for these arguments.
+     * Use `getEntry(args)?.retry()` to re-run a failed query with the failure
+     * kept on screen instead.
      *
      * @param args - Query arguments identifying the cache entry.
      */
@@ -369,111 +379,20 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     /**
-     * Get a simplified state object for the given arguments.
+     * State of the cache entry for the given arguments.
+     *
+     * The clutch state of a single entry: the same fields and flags, with
+     * `dataSource` narrowed to `none | current` (one entry has neither previous
+     * nor placeholder data) and no methods. Its matrix rows are 1, 2, 5, 6, 7,
+     * 9, 10 and 12 — see `docs/query/api/resource-clutch.md`.
      */
     getState(args: TArgsOrVoid<TArgs>): TResourceEntryState<TArgs, TData, TError> {
         const entry = this.getEntry(args, false);
 
-        if (!entry) {
-            return {
-                status: "idle",
-                data: null,
-                error: null,
-                args: null,
-                isLoading: false,
-                isInitialLoading: false,
-                isRefreshing: false,
-                isRetrying: false,
-                isRefreshError: false,
-                isSuccess: false,
-                isError: false,
-            };
-        }
+        // Row 1 — no entry for these arguments.
+        if (!entry) return IDLE_ENTRY_STATE;
 
-        const machine = entry.machine$.peek();
-
-        if (machine.status === "pending") {
-            return {
-                status: "pending",
-                data: null,
-                args: entry.keyedArgs.value,
-                isLoading: true,
-                isInitialLoading: true,
-                isRefreshing: false,
-                isRefreshError: false,
-                isSuccess: false,
-                isError: false,
-                ...retryingOf<TArgs, TData, TError>(machine.state),
-            };
-        }
-
-        if (machine.status === "success") {
-            return {
-                status: "success",
-                data: machine.state.data,
-                error: null,
-                args: entry.keyedArgs.value,
-                isLoading: false,
-                isInitialLoading: false,
-                isRefreshing: false,
-                isRetrying: false,
-                isRefreshError: false,
-                isSuccess: true,
-                isError: false,
-            };
-        }
-
-        if (machine.status === "invalidating") {
-            return {
-                status: "invalidating",
-                data: machine.state.data,
-                args: entry.keyedArgs.value,
-                isLoading: true,
-                isInitialLoading: false,
-                isRefreshing: true,
-                isRefreshError: false,
-                isSuccess: false,
-                isError: false,
-                ...retryingOf<TArgs, TData, TError>(machine.state),
-            };
-        }
-
-        if (machine.status === "invalidate-error") {
-            return {
-                status: "invalidate-error",
-                data: machine.state.data,
-                // Sound per the mapError contract: any error the machine holds was
-                // normalized to TError at the queryFn boundary before entering it.
-                error: machine.state.error as TError,
-                args: entry.keyedArgs.value,
-                isLoading: false,
-                isInitialLoading: false,
-                isRefreshing: false,
-                isRetrying: false,
-                isRefreshError: true,
-                isSuccess: false,
-                isError: true,
-            };
-        }
-
-        if (machine.status === "error") {
-            return {
-                status: "error",
-                data: null,
-                // Sound per the mapError contract (see invalidate-error branch above).
-                error: machine.state.error as TError,
-                args: entry.keyedArgs.value,
-                isLoading: false,
-                isInitialLoading: false,
-                isRefreshing: false,
-                isRetrying: false,
-                isRefreshError: false,
-                isSuccess: false,
-                isError: true,
-            };
-        }
-
-        throw new Error(`Unknown machine status: ${(machine as any).status}`);
+        return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.machine$.peek().state);
     }
 
     /** Clear all cache entries. */

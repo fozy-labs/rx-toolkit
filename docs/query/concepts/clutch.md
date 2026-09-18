@@ -18,51 +18,62 @@
 
 Специальный символ `SKIP` передаётся вместо аргументов, когда запрос выполнять не нужно — например, пока зависимые данные ещё не готовы. Сцепление переходит в состояние `idle`: запись кэша не создаётся, сетевой запрос не выполняется.
 
+## Что на экране: dataSource
+
+Статус отвечает на вопрос «что происходит с запросом», а `dataSource` — на вопрос «что показывать». Это две оси состояния, и вторая — единственный источник истины о наличии данных: сам `TData` может быть `null`, поэтому проверка `data !== null` ничего не гарантирует.
+
+| `dataSource` | Что в `data` | Откуда |
+|---|---|---|
+| `none` | `null` | показать нечего |
+| `placeholder` | синтезированные данные | опция ресурса [`placeholderData`][placeholder]; в кэш не попадают |
+| `previous` | данные предыдущих args | предыдущий слот сцепления (SWR) |
+| `current` | данные текущих args | текущая запись кэша |
+
+Приоритет показа: `current` → `placeholder` → `previous` → `none`. Первое, что есть, то и на экране.
+
+Отсюда читаются все три сценария сцепления: SWR при смене args — это `previous`, инвалидация — `pending` поверх `current`, холодный старт с заглушкой — `placeholder`. Полная таблица состояний — в [API сцепления ресурса][api-res-clutch-rows].
+
 ## SWR-fallback при смене аргументов
 
 Сцепление хранит два слота: **текущая** и **предыдущая** запись. При смене аргументов:
 
-1. Если предыдущая запись содержит данные (`success` / `invalidating`/`invalidate-error`), сцепление сохраняет их как устаревшие.
-2. Пока новая запись в `pending`, сцепление отдаёт устаревшие данные и выставляет статус `invalidating` с флагом `isSwitching: true`; `dataArgs` при этом указывает на аргументы предыдущей записи, `args` — на новые. При `error` данные из предыдущей записи остаются доступны (`dataArgs` — их аргументы), но статус — `error`.
+1. Если предыдущая запись содержит данные (`success` / `invalidating` / `invalidate-error`), сцепление сохраняет их как устаревшие.
+2. Пока новая запись в `pending`, сцепление отдаёт устаревшие данные с `dataSource: "previous"` и флагом `isSwitching: true`; `dataArgs` при этом указывает на аргументы предыдущей записи, `args` — на новые. При `error` данные предыдущей записи остаются на экране (`dataSource` по-прежнему `previous`), но статус — `error`.
 3. Как только новая запись разрешается `success` — предыдущий слот очищается.
 
 Благодаря этому UI показывает предыдущие данные вместо пустого состояния, пока новый запрос загружается.
+
+Плейсхолдер предыдущий слот не отменяет, а лишь перекрывает: если `placeholderData` вернула данные, они показываются вместо предыдущих, но после ещё одной смены args удержанный previous снова может выйти на экран.
 
 React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) не вызывают `switch` на живом сцеплении: рендер должен оставаться чистым, а общее мутируемое сцепление между параллельными рендерами React (transition-ветка и закоммиченное дерево) зацикливало бы обновления. Вместо этого хук создаёт сцепление на каждую пару «ресурс + ключ args», а устаревшие данные передаются новому сцеплению от последнего закоммиченного через `adoptPrevious` — с теми же правилами, что и у `switch`.
 
 ## Статусы
 
-Сцепление предоставляет шесть статусов:
+У сцепления четыре статуса — они описывают только запрос:
 
-- **idle** — передан `SKIP`, наблюдение не активно.
-- **pending** — первичный запрос в процессе.
-- **success** — данные получены.
-- **error** — запрос завершился ошибкой.
-- **invalidating** — фоновый перезапрос после инвалидации (SWR); устаревшие данные доступны. Как состояние машины — только у ресурсов (через `invalidate()`). Как статус сцепления — также при SWR-маскировании (`pending` + предыдущие данные).
-- **invalidate-error** — фоновый перезапрос завершился ошибкой; устаревшие данные сохранены. Только для ресурсов.
+- **idle** — передан `SKIP` или args ещё не заданы, наблюдение не активно.
+- **pending** — запрос в полёте.
+- **success** — данные текущих args получены.
+- **error** — последний запрос текущих args завершился ошибкой.
 
-Статус `invalidate-error` — это полноценное состояние [машины состояний][machine] (переход `invalidating → invalidate-error` при ошибке фонового перезапроса). Сцепление транслирует его напрямую, без трансформации.
+У [машины][machine] состояний пять: её `invalidating` и `invalidate-error` — «запрос в полёте поверх данных» и «упавший перезапрос». Отдельными статусами сцепление их не транслирует, а раскладывает по двум осям: `pending` / `error` плюс `dataSource: "current"`. Ошибка живёт в `error` до следующего settle, поэтому повтор в полёте — это `isPending && hasError`, без отдельного флага.
 
-Булевые флаги и полная таблица соответствий описаны в руководствах по [ресурсам][usage-res] и [командам][usage-cmd].
+| Состояние машины | Слоты сцепления | status | dataSource | Строки |
+|---|---|---|---|---|
+| _(нет записи / `SKIP`)_ | — | `idle` | `none` | 1 |
+| `pending` | ничего | `pending` | `none` | 2, 10 |
+| `pending` | плейсхолдер | `pending` | `placeholder` | 3, 14 |
+| `pending` | previous | `pending` | `previous` | 4, 11 |
+| `success` | — | `success` | `current` | 5 |
+| `invalidating` | — | `pending` | `current` | 6, 12 |
+| `error` | ничего | `error` | `none` | 7 |
+| `error` | плейсхолдер | `error` | `placeholder` | 13 |
+| `error` | previous | `error` | `previous` | 8 |
+| `invalidate-error` | — | `error` | `current` | 9 |
+
+Номера строк и флаги — в [API сцепления ресурса][api-res-clutch-rows]; у [команды][api-cmd-clutch] слотов нет, её состояние проще.
 
 Подробные sequence-диаграммы потоков (cache miss, cache hit, инвалидация, SWR-fallback и др.) — в [dataflows.md][dataflows].
-
-## Матрица состояний
-
-| Состояние машины | Статус сцепления | data | dataArgs | Описание поведения |
-|---|---|---|---|---|
-| _(нет записи / SKIP)_ | `idle` | `null` | `null` | Запрос не выполняется |
-| `pending` | `pending` | `null` | `null` | Ожидание первого ответа |
-| `pending` + _previous_ | `invalidating` (`isSwitching`) | stale data из prev | args prev | SWR: pending маскируется в invalidating; stale данные показываются, пока новая запись загружается |
-| `pending` (`isRetrying`) | `pending` (`isRetrying`) | `null` | `null` | Повтор после `error` через `retry()`; `error` хранит повторяемую ошибку |
-| `success` | `success` | `TData` | = args | Данные получены |
-| `error` | `error` | `null` | `null` | Ошибка, данных нет |
-| `error` + _previous_ | `error` | stale data из prev | args prev | Ошибка; stale данные из prev доступны, но статус — error |
-| `invalidating` | `invalidating` | stale `TData` | = args | Фоновый перезапрос, показываются устаревшие данные (только ресурс) |
-| `invalidating` (`isRetrying`) | `invalidating` (`isRetrying`) | stale `TData` | = args | Повтор после `invalidate-error` через `retry()`; `error` хранит повторяемую ошибку |
-| `invalidate-error` | `invalidate-error` | stale `TData` | = args | Перезапрос завершился ошибкой, стейл данные сохраняются (только ресурс) |
-
-Подробнее о механизме слотов — в разделе [SWR-fallback при смене аргументов][swr-fallback].
 
 ## См. также
 
@@ -71,12 +82,11 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 - [Кэш][cache] — хранилище записей, за которыми наблюдает сцепление.
 - [Использование ресурсов][usage-res] — хук `useResource` и полная таблица состояний.
 - [Использование команд][usage-cmd] — хук `useCommand` и жизненный цикл мутаций.
-- [API: createResource][api-res] — создание ресурса и его сцепления.
+- [API: createResource][api-res] — создание ресурса, опция `placeholderData`.
 - [API: createCommand][api-cmd] — создание команды и её сцепления.
 
 ---
 
-[swr-fallback]: #swr-fallback-при-смене-аргументов
 [machine]: machine.md
 [cache]: cache.md
 [dataflows]: dataflows.md
@@ -84,3 +94,6 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 [usage-cmd]: ../usage/command.md
 [api-res]: ../api/resource.md
 [api-cmd]: ../api/command.md
+[api-res-clutch-rows]: ../api/resource-clutch.md#варианты-состояния
+[api-cmd-clutch]: ../api/command-clutch.md#варианты-состояния
+[placeholder]: ../api/resource.md#placeholderdata

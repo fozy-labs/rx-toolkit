@@ -52,8 +52,9 @@ export function useResourceClutch<TArgs, TData, TError>(
             next.adoptPrevious(committed.clutch);
         }
 
-        // `markPending` reports pending (or invalidating over the adopted data)
-        // instead of idle while the clutch waits for its start.
+        // `markPending` reports `status: "pending"` instead of `idle` while the
+        // clutch waits for its start — over the adopted data when there is any
+        // (`dataSource: "previous"`), with nothing to show otherwise.
         next.switch(args, { markPending: true });
 
         if (startDuringRender) {

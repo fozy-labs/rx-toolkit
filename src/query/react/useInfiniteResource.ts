@@ -45,8 +45,8 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     private readonly _initialKey: string | null;
     private _isStarted = false;
 
-    /** Per-page `data` references of the last {@link buildState} call. */
-    private _lastPagesData: readonly (readonly TItem[] | null | undefined)[] | null = null;
+    /** Per-page contributions to the feed of the last {@link buildState} call. */
+    private _lastPagesData: readonly (readonly TItem[] | null)[] | null = null;
     /** Flattened feed of the last {@link buildState} call (identity cache). */
     private _lastData: TItem[] | null = null;
 
@@ -97,8 +97,10 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
 
         const existing = pages.find((page) => page.key === keyed.key);
         if (existing) {
-            // Requesting a known page again retries it after a failure and is
-            // a no-op otherwise (double-click / StrictMode safe).
+            // Requesting a known page again retries it whenever it is in the
+            // `error` status — a failed first load (row 7) and a failed re-query
+            // that kept its data (row 9) alike — and is a no-op otherwise
+            // (double-click / StrictMode safe).
             if (existing.clutch.state$.peek().status === "error") {
                 existing.clutch.retry();
             }
@@ -118,13 +120,22 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     /** See {@link TInfiniteResourceState.invalidate}. */
     invalidate = (): void => {
         for (const page of this._pages$.peek()) {
-            const status = page.clutch.state$.peek().status;
-            if (status === "success" || status === "invalidate-error") {
+            const state = page.clutch.state$.peek();
+
+            // A query is already in flight: both `invalidate()` and `retry()`
+            // would be an undrawn edge of the transition diagram — a
+            // `console.warn` plus a no-op. Checked first, because a pending
+            // page may well carry data (an invalidation) or an error (a retry).
+            if (state.isPending) continue;
+
+            if (state.hasData) {
+                // Rows 5 and 9 — re-check what is on screen, clearing the error.
                 page.clutch.invalidate();
-            } else if (status === "error") {
+            } else if (state.hasError) {
+                // Row 7 — nothing to re-check, only a failure to repeat.
                 page.clutch.retry();
             }
-            // pending / invalidating — a query is already in flight.
+            // Row 1 (idle) — the page observes nothing yet.
         }
     };
 
@@ -140,18 +151,30 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         this._pages$.set(pages.slice(0, 1));
     };
 
-    /** Assemble the public state from the derived per-page states. */
+    /**
+     * Assemble the public state from the derived per-page states.
+     *
+     * The loading flags are aggregates of the shape "some page is like this",
+     * **not** a partition of `isPending` the way they are on a single clutch:
+     * after invalidating a feed whose last page had failed, the head page is
+     * re-queried behind its data (`isInvalidating`) while the tail retries with
+     * nothing to show (`isLoadingNext`), so both are `true` at once.
+     */
     buildState(pages: TResourceClutchState<TArgs, TItem[], TError>[]): TInfiniteResourceState<TArgs, TItem[], TError> {
         let error: TError | null = null;
-        let isLoading = false;
-        let isFetchingNext = false;
+        let isPending = false;
+        let isLoadingNext = false;
+        let isInvalidating = false;
 
         pages.forEach((page, index) => {
+            // The first error in page order — it survives the retry that
+            // follows, because a pending page keeps the failure it retries.
             if (error === null && page.error !== null) {
                 error = page.error;
             }
-            if (page.isLoading) isLoading = true;
-            if (index > 0 && page.isInitialLoading) isFetchingNext = true;
+            if (page.isPending) isPending = true;
+            if (page.isInvalidating) isInvalidating = true;
+            if (index > 0 && page.isInitialLoading) isLoadingNext = true;
         });
 
         const data = this._flattenData(pages);
@@ -161,9 +184,11 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
             pages,
             isIdle: pages.length === 0,
             isInitialLoading: pages.length > 0 && pages[0].isInitialLoading,
-            isLoading,
-            isFetchingNext,
-            isError: error !== null,
+            isPending,
+            isLoadingNext,
+            isInvalidating,
+            hasData: data !== null,
+            hasError: error !== null,
             error,
             fetchNext: this.fetchNext,
             invalidate: this.invalidate,
@@ -175,10 +200,17 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     /**
      * Flatten the per-page `data` arrays into a single feed array.
      *
-     * Identity-stable: when every page's `data` reference is unchanged since
-     * the last call (e.g. a pure status flip such as success → invalidating,
-     * which reuses `data` by reference), the previous flattened array is
-     * returned as-is — so `Object.is` gates downstream (`React.useMemo` deps,
+     * Only a page holding data of its *own* args (`dataSource: "current"`)
+     * contributes: placeholder or previous-args data belongs to no page of the
+     * feed, and splicing it in would smuggle foreign items between the
+     * neighbours' items. Such a page is memoized as `null`, so a page that
+     * merely changes `dataSource` while reusing its `data` reference still
+     * invalidates the identity cache below.
+     *
+     * Identity-stable: when every page's contribution is unchanged since the
+     * last call (e.g. a pure status flip such as success → pending, which
+     * reuses `data` by reference), the previous flattened array is returned
+     * as-is — so `Object.is` gates downstream (`React.useMemo` deps,
      * memoized/virtualized lists keyed on `state.data`) see no change.
      * The rebuild itself is a single-pass push into one array (O(total items)),
      * never a chained `concat`.
@@ -187,9 +219,10 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         const prev = this._lastPagesData;
         let unchanged = prev !== null && prev.length === pages.length;
 
-        const pagesData: (TItem[] | null | undefined)[] = new Array(pages.length);
+        const pagesData: (TItem[] | null)[] = new Array(pages.length);
         for (let i = 0; i < pages.length; i++) {
-            const pageData = pages[i].data;
+            const page = pages[i];
+            const pageData = page.dataSource === "current" ? page.data : null;
             pagesData[i] = pageData;
             if (unchanged && prev![i] !== pageData) unchanged = false;
         }
@@ -199,7 +232,7 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
 
         let data: TItem[] | null = null;
         for (const pageData of pagesData) {
-            if (pageData == null) continue;
+            if (pageData === null) continue;
             if (data === null) data = [];
             for (const item of pageData) data.push(item);
         }
@@ -230,6 +263,11 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
  * know whether more pages exist.
  *
  * Changing `initialArgs` (by cache key) resets the feed to its new first page.
+ *
+ * Page invariants: a page's args are fixed for its whole lifetime and the
+ * projection resource has no `placeholderData`, so a page's `dataSource` is
+ * only `none` or `current` and its `isSwitching` is always `false`. Only pages
+ * holding data of their own args contribute to `data`.
  */
 export function useInfiniteResource<TArgs, TItem, TError = unknown>(
     resource: IResource<TArgs, TItem[], TError>,

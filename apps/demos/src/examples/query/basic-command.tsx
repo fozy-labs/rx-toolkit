@@ -81,14 +81,14 @@ export function Base() {
             <CardBody className="space-y-4">
                 {/* Состояние команды */}
                 <div className="flex gap-2 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isLoading ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                        isLoading: {String(commandState.isLoading)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isPending ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                        isPending: {String(commandState.isPending)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
-                        isSuccess: {String(commandState.isSuccess)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.hasData ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
+                        hasData: {String(commandState.hasData)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                        isError: {String(commandState.isError)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                        hasError: {String(commandState.hasError)}
                     </span>
                     <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                         status: {commandState.status}
@@ -103,20 +103,20 @@ export function Base() {
                         value={inputText}
                         onValueChange={inputText$.set}
                         onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                        isDisabled={commandState.isLoading}
+                        isDisabled={commandState.isPending}
                     />
                     <Button
                         color="primary"
                         size="sm"
                         onPress={handleAdd}
-                        isLoading={commandState.isLoading}
+                        isLoading={commandState.isPending}
                     >
                         Оформить
                     </Button>
                 </div>
 
                 {/* Ошибка */}
-                {commandState.isError && (
+                {commandState.hasError && (
                     <div className="p-3 bg-danger-50 text-danger-700 rounded-lg text-sm">
                         Ошибка: {String(commandState.error)}
                     </div>
@@ -129,7 +129,7 @@ export function Base() {
                     </div>
                 )}
 
-                {resourceState.data && (
+                {resourceState.hasData && (
                     <div className="space-y-2">
                         {resourceState.data.items.map((item: TodoItem) => (
                             <div

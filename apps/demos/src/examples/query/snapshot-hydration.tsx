@@ -82,8 +82,8 @@ export function Base() {
                     <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                         status: {state.status}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isRefreshing ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                        isRefreshing: {String(state.isRefreshing)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isInvalidating ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                        isInvalidating: {String(state.isInvalidating)}
                     </span>
                 </div>
 
@@ -94,7 +94,7 @@ export function Base() {
                     </p>
                 </div>
 
-                {state.data && (
+                {state.hasData && (
                     <div className="space-y-2">
                         {state.data.items.map((item: Product) => (
                             <div
@@ -110,7 +110,7 @@ export function Base() {
                     </div>
                 )}
 
-                {state.isRefreshing && (
+                {state.isInvalidating && (
                     <div className="text-center text-warning text-sm">
                         🔄 Обновление каталога с сервера...
                     </div>

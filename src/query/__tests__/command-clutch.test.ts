@@ -7,7 +7,7 @@ import type { ICommandForClutch } from "@/query/core/command/CommandClutch";
 import { CommandClutch } from "@/query/core/command/CommandClutch";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IQueryCacheEntry, TCommandClutchState, TLinkConfig, TMachineState } from "@/query/types";
+import type { ICommandClutch, IQueryCacheEntry, TCommandClutchState, TLinkConfig, TMachineState } from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -38,6 +38,11 @@ function createMockEntry<TArgs, TData>(initialState: TMachineState<TArgs, TData>
 
 function pendingState<TArgs>(args: TArgs): TMachineState<TArgs, any> {
     return { status: "pending", args, data: null, error: null, updatedAt: null } as any;
+}
+
+/** A pending run started by `retry()`: the failure it retries travels with it. */
+function retryingPendingState<TArgs>(args: TArgs, error: unknown): TMachineState<TArgs, any> {
+    return { status: "pending", args, data: null, error, updatedAt: null } as any;
 }
 
 function successState<TArgs, TData>(args: TArgs, data: TData): TMachineState<TArgs, TData> {
@@ -81,10 +86,49 @@ function createMockCommand<TArgs = string, TData = string>() {
     };
 }
 
+/** Every own field of a command clutch state except the `retry` method. */
+interface ExpectedRow<TArgs, TData, TError> {
+    status: TCommandClutchState<TArgs, TData, TError>["status"];
+    hasData: boolean;
+    hasError: boolean;
+    data: TData | null;
+    error: TError | null;
+    args: TArgs | null;
+    isPending: boolean;
+}
+
+/**
+ * Assert the *complete* shape of a matrix row: `toEqual` fails on an extra
+ * field, so a removed flag (`isLoading` / `isSuccess` / `isError`) coming back
+ * breaks the test.
+ */
+function expectRow<TArgs, TData, TError>(
+    actual: TCommandClutchState<TArgs, TData, TError>,
+    expected: ExpectedRow<TArgs, TData, TError>,
+): void {
+    expect(actual).toEqual({ ...expected, retry: expect.any(Function) });
+}
+
+/** A promise whose settlement the test drives. */
+function defer<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+}
+
+/** `retentionTime: false` keeps the settled entry alive so retry / invalidate have a target. */
+function makeCommand<TArgs, TData>(queryFn: (args: TArgs, requestId: string) => Promise<TData>) {
+    return new Command<TArgs, TData>({ retentionTime: false, links: [], queryFn });
+}
+
 // Collect effects for cleanup
 const _effects: Array<{ unsubscribe: () => void }> = [];
 
-function observe<TArgs, TData>(clutch: CommandClutch<TArgs, TData>) {
+function observe<TArgs, TData>(clutch: ICommandClutch<TArgs, TData>) {
     let latest!: TCommandClutchState<TArgs, TData>;
     const eff = Signal.effect(() => {
         latest = clutch.state$();
@@ -95,24 +139,102 @@ function observe<TArgs, TData>(clutch: CommandClutch<TArgs, TData>) {
 
 afterEach(() => {
     while (_effects.length) _effects.pop()!.unsubscribe();
+    vi.restoreAllMocks();
 });
 
-// ==================== 1. Initial idle state ====================
+// ==================== 1. State matrix rows K1–K5 ====================
 
-describe("CommandClutch initial state", () => {
-    it("state$() returns idle state initially", () => {
+// Rows of the command section of the state matrix. Each test pins the whole
+// state shape, not only the flag under discussion.
+describe("CommandClutch state matrix", () => {
+    it("K1 — nothing triggered: idle with nothing to show", () => {
         const { command } = createMockCommand();
         const clutch = new CommandClutch(command);
         const s = observe(clutch);
 
-        const st = s.get();
-        expect(st.status).toBe("idle");
-        expect(st.data).toBeNull();
-        expect(st.error).toBeNull();
-        expect(st.args).toBeNull();
-        expect(st.isLoading).toBe(false);
-        expect(st.isSuccess).toBe(false);
-        expect(st.isError).toBe(false);
+        expectRow(s.get(), {
+            status: "idle",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: null,
+            isPending: false,
+        });
+    });
+
+    it("K2 — running (first or repeated trigger): pending, no data, no error", () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", pendingState("hello"));
+
+        const clutch = new CommandClutch(mock.command, "k1");
+        const s = observe(clutch);
+
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: "hello",
+            isPending: true,
+        });
+    });
+
+    it("K3 — success: data present, no error", () => {
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", successState("hello", "result"));
+
+        const clutch = new CommandClutch(mock.command, "k1");
+        const s = observe(clutch);
+
+        expectRow(s.get(), {
+            status: "success",
+            hasData: true,
+            hasError: false,
+            data: "result",
+            error: null,
+            args: "hello",
+            isPending: false,
+        });
+    });
+
+    it("K4 — error: error present, no data", () => {
+        const err = new Error("fail");
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", errorState("hello", err));
+
+        const clutch = new CommandClutch(mock.command, "k1");
+        const s = observe(clutch);
+
+        expectRow(s.get(), {
+            status: "error",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "hello",
+            isPending: false,
+        });
+    });
+
+    it("K5 — retry of K4: pending that keeps the retried failure readable", () => {
+        const err = new Error("fail");
+        const mock = createMockCommand<string, string>();
+        mock.addEntry("k1", retryingPendingState("hello", err));
+
+        const clutch = new CommandClutch(mock.command, "k1");
+        const s = observe(clutch);
+
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "hello",
+            isPending: true,
+        });
     });
 });
 
@@ -133,15 +255,15 @@ describe("CommandClutch trigger success", () => {
         // trigger with an explicit entry key
         clutch.trigger("hello", "k1");
         expect(s.get().status).toBe("pending");
-        expect(s.get().isLoading).toBe(true);
+        expect(s.get().isPending).toBe(true);
         expect(s.get().args).toBe("hello");
 
         // Simulate machine transitioning to success
         entryMock.setMachineState(successState("hello", "result"));
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("result");
-        expect(s.get().isSuccess).toBe(true);
-        expect(s.get().isLoading).toBe(false);
+        expect(s.get().hasData).toBe(true);
+        expect(s.get().isPending).toBe(false);
     });
 });
 
@@ -173,8 +295,8 @@ describe("CommandClutch trigger error", () => {
         entryMock.setMachineState(errorState("hello", err));
         expect(s.get().status).toBe("error");
         expect(s.get().error).toBe(err);
-        expect(s.get().isError).toBe(true);
-        expect(s.get().isLoading).toBe(false);
+        expect(s.get().hasError).toBe(true);
+        expect(s.get().isPending).toBe(false);
     });
 });
 
@@ -353,81 +475,35 @@ describe("CommandClutch dispose", () => {
     });
 });
 
-// ==================== 6. Status remapping ====================
+// ==================== 6. Unreachable machine statuses ====================
 
-describe("CommandClutch status remapping", () => {
-    it('"invalidating" is remapped to "pending"', () => {
+// A command entry never invalidates, so `invalidating` / `invalidate-error`
+// cannot reach the clutch. That branch fails loudly instead of remapping into
+// `pending` with stale data (which would break the `data: null` typing of the
+// K2 / K5 rows). Only a hand-made entry can reach it.
+describe("CommandClutch unreachable machine statuses", () => {
+    it('throws on "invalidating" instead of remapping it to pending', () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", invalidatingState("a", "stale-data"));
 
         const clutch = new CommandClutch(mock.command);
-        const s = observe(clutch);
-
         clutch.setEntryKey("k1");
-        expect(s.get().status).toBe("pending");
-        expect(s.get().isLoading).toBe(true);
-        // Data from the invalidating state is still carried through
-        expect(s.get().data).toBe("stale-data");
+
+        expect(() => clutch.state$()).toThrow(/invalidating/);
     });
 
-    it('"invalidate-error" is remapped to "pending"', () => {
+    it('throws on "invalidate-error" instead of remapping it to pending', () => {
         const mock = createMockCommand<string, string>();
-        const err = new Error("invalidate fail");
-        mock.addEntry("k1", invalidateErrorState("a", "stale-data", err));
+        mock.addEntry("k1", invalidateErrorState("a", "stale-data", new Error("invalidate fail")));
 
         const clutch = new CommandClutch(mock.command);
-        const s = observe(clutch);
-
         clutch.setEntryKey("k1");
-        expect(s.get().status).toBe("pending");
-        expect(s.get().isLoading).toBe(true);
+
+        expect(() => clutch.state$()).toThrow(/invalidate-error/);
     });
 });
 
-// ==================== 7. Derived flags ====================
-
-describe("CommandClutch derived flags", () => {
-    it("isLoading is true only when status is pending", () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", pendingState("a"));
-
-        const clutch = new CommandClutch(mock.command);
-        const s = observe(clutch);
-
-        clutch.setEntryKey("k1");
-        expect(s.get().isLoading).toBe(true);
-        expect(s.get().isSuccess).toBe(false);
-        expect(s.get().isError).toBe(false);
-    });
-
-    it("isSuccess is true only when status is success", () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", successState("a", "data"));
-
-        const clutch = new CommandClutch(mock.command);
-        const s = observe(clutch);
-
-        clutch.setEntryKey("k1");
-        expect(s.get().isSuccess).toBe(true);
-        expect(s.get().isLoading).toBe(false);
-        expect(s.get().isError).toBe(false);
-    });
-
-    it("isError is true only when status is error", () => {
-        const mock = createMockCommand<string, string>();
-        mock.addEntry("k1", errorState("a", new Error("x")));
-
-        const clutch = new CommandClutch(mock.command);
-        const s = observe(clutch);
-
-        clutch.setEntryKey("k1");
-        expect(s.get().isError).toBe(true);
-        expect(s.get().isLoading).toBe(false);
-        expect(s.get().isSuccess).toBe(false);
-    });
-});
-
-// ==================== 8. Entry key switching — different entry keys update state$ ====================
+// ==================== 7. Entry key switching — different entry keys update state$ ====================
 
 describe("CommandClutch entry key switching", () => {
     it("switching entry keys reflects each entry's state independently", () => {
@@ -464,7 +540,7 @@ describe("CommandClutch entry key switching", () => {
     });
 });
 
-// ==================== 9. retry ====================
+// ==================== 8. retry ====================
 
 describe("CommandClutch retry", () => {
     it("calls retry() on the tracked entry", () => {
@@ -494,7 +570,7 @@ describe("CommandClutch retry", () => {
         const s = observe(clutch);
         clutch.setEntryKey("k1");
 
-        expect(s.get().isError).toBe(true);
+        expect(s.get().hasError).toBe(true);
         expect(typeof s.get().retry).toBe("function");
 
         s.get().retry();
@@ -502,7 +578,327 @@ describe("CommandClutch retry", () => {
     });
 });
 
-// ==================== 10. Real Command integration — entry teardown with retentionTime: 0 ====================
+// ==================== 9. Repeated trigger on the same entry key ====================
+
+// `Command.execute` completes the previous entry and creates a fresh one under
+// the same entry key, so a repeated trigger always restarts at K2: neither the
+// data nor the error of the previous run leaks into the new pending state.
+describe("CommandClutch repeated trigger", () => {
+    it("after a success, a repeated trigger starts from K2 with no stale data", async () => {
+        const command = makeCommand<string, string>(async (args) => args.toUpperCase());
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+        expect(s.get().data).toBe("A");
+
+        void clutch.trigger("b", "k1");
+
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: "b",
+            isPending: true,
+        });
+
+        await flushMicrotasks();
+        expect(s.get().data).toBe("B");
+    });
+
+    it("after a failure, a repeated trigger starts from K2 with no stale error", async () => {
+        const err = new Error("first boom");
+        let attempt = 0;
+        const command = makeCommand<string, string>(async (args) => {
+            attempt += 1;
+            if (attempt === 1) throw err;
+            return args.toUpperCase();
+        });
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+        expect(s.get().error).toBe(err);
+
+        void clutch.trigger("b", "k1");
+
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: "b",
+            isPending: true,
+        });
+
+        await flushMicrotasks();
+        expect(s.get().status).toBe("success");
+    });
+});
+
+// ==================== 10. retry over a real Command (K4 ↔ K5) ====================
+
+describe("CommandClutch retry transitions", () => {
+    it("K4 → K5 → K3: the retried failure stays readable until the retry succeeds", async () => {
+        const err = new Error("boom");
+        let attempt = 0;
+        const command = makeCommand<string, string>(async (args) => {
+            attempt += 1;
+            if (attempt === 1) throw err;
+            return args.toUpperCase();
+        });
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+
+        // K4
+        expectRow(s.get(), {
+            status: "error",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "a",
+            isPending: false,
+        });
+
+        s.get().retry();
+
+        // K5 — the failure being retried is still readable.
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "a",
+            isPending: true,
+        });
+
+        await flushMicrotasks();
+
+        // K3
+        expectRow(s.get(), {
+            status: "success",
+            hasData: true,
+            hasError: false,
+            data: "A",
+            error: null,
+            args: "a",
+            isPending: false,
+        });
+    });
+
+    it("K4 → K5 → K4: a failed retry lands back in the error row with the new failure", async () => {
+        const first = new Error("boom-1");
+        const second = new Error("boom-2");
+        let attempt = 0;
+        const command = makeCommand<string, string>(async () => {
+            attempt += 1;
+            throw attempt === 1 ? first : second;
+        });
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+        expect(s.get().error).toBe(first);
+
+        s.get().retry();
+        expect(s.get().status).toBe("pending");
+        expect(s.get().hasError).toBe(true);
+
+        await flushMicrotasks();
+
+        expectRow(s.get(), {
+            status: "error",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: second,
+            args: "a",
+            isPending: false,
+        });
+    });
+});
+
+// ==================== 11. retry() outside the error row ====================
+
+// Every call outside the drawn K4 → K5 edge is a `console.warn` + no-op; the
+// warning comes from QueryCacheEntry.retry(), the clutch only forwards.
+describe("CommandClutch retry outside the error row", () => {
+    it("K1 — no entry: no throw, no warning, state unchanged", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const command = makeCommand<string, string>(async (args) => args);
+        const clutch = command.createClutch();
+        const s = observe(clutch);
+
+        expect(() => s.get().retry()).not.toThrow();
+
+        expect(warn).not.toHaveBeenCalled();
+        expectRow(s.get(), {
+            status: "idle",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: null,
+            isPending: false,
+        });
+    });
+
+    it("K2 — running: warns and leaves the pending row untouched", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const deferred = defer<string>();
+        const command = makeCommand<string, string>(() => deferred.promise);
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        void clutch.trigger("a", "k1");
+        expect(s.get().status).toBe("pending");
+
+        s.get().retry();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("retry() called in invalid state: pending"));
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: false,
+            data: null,
+            error: null,
+            args: "a",
+            isPending: true,
+        });
+
+        deferred.resolve("A");
+        await flushMicrotasks();
+    });
+
+    it("K3 — success: warns and leaves the success row untouched", async () => {
+        const command = makeCommand<string, string>(async (args) => args.toUpperCase());
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        s.get().retry();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("retry() called in invalid state: success"));
+        expectRow(s.get(), {
+            status: "success",
+            hasData: true,
+            hasError: false,
+            data: "A",
+            error: null,
+            args: "a",
+            isPending: false,
+        });
+    });
+
+    it("K5 — a retry already in flight: warns and leaves the row untouched", async () => {
+        const err = new Error("boom");
+        const deferred = defer<string>();
+        let attempt = 0;
+        const command = makeCommand<string, string>(() => {
+            attempt += 1;
+            return attempt === 1 ? Promise.reject(err) : deferred.promise;
+        });
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+
+        s.get().retry();
+        expect(s.get().status).toBe("pending");
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        s.get().retry();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("retry() called in invalid state: pending"));
+        expectRow(s.get(), {
+            status: "pending",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "a",
+            isPending: true,
+        });
+
+        deferred.resolve("A");
+        await flushMicrotasks();
+    });
+});
+
+// ==================== 12. invalidate() never applies to a command entry ====================
+
+// The guarantee behind the unreachable `invalidating` / `invalidate-error`
+// branch of _deriveState: QueryCacheEntry.invalidate() warns and no-ops on any
+// entry created with errorSource: "command".
+describe("CommandClutch invalidate() on a command entry", () => {
+    it("K3 — invalidate() warns and leaves the success row untouched", async () => {
+        const command = makeCommand<string, string>(async (args) => args.toUpperCase());
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        command.getEntry("k1")!.invalidate();
+        await flushMicrotasks();
+
+        expect(warn).toHaveBeenCalled();
+        expectRow(s.get(), {
+            status: "success",
+            hasData: true,
+            hasError: false,
+            data: "A",
+            error: null,
+            args: "a",
+            isPending: false,
+        });
+    });
+
+    it("K4 — invalidate() warns and leaves the error row untouched", async () => {
+        const err = new Error("boom");
+        const command = makeCommand<string, string>(async () => {
+            throw err;
+        });
+        const clutch = command.createClutch("k1");
+        const s = observe(clutch);
+
+        await clutch.trigger("a", "k1");
+        await flushMicrotasks();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        command.getEntry("k1")!.invalidate();
+        await flushMicrotasks();
+
+        expect(warn).toHaveBeenCalled();
+        expectRow(s.get(), {
+            status: "error",
+            hasData: false,
+            hasError: true,
+            data: null,
+            error: err,
+            args: "a",
+            isPending: false,
+        });
+    });
+});
+
+// ==================== 13. Real Command integration — entry teardown with retentionTime: 0 ====================
 
 // Regression for the default `useCommand` path: with retentionTime: 0 the cache entry
 // is torn down the instant the mutation settles, while the clutch's `state$` is still
@@ -511,13 +907,13 @@ describe("CommandClutch retry", () => {
 // and breaking the React subscription. A deferred, cancellable reset (timer(0)) survives
 // the clutch's momentary unsubscribe/resubscribe during dependency switching.
 describe("CommandClutch + real Command (retentionTime: 0 teardown)", () => {
-    function makeCommand(queryFn: (args: number, requestId: string) => Promise<number>) {
+    function makeEphemeralCommand(queryFn: (args: number, requestId: string) => Promise<number>) {
         // retentionTime: 0 mirrors DEFAULT_COMMAND_RETENTION_TIME used by api.createCommand.
         return new Command<number, number>({ retentionTime: 0, links: [], queryFn });
     }
 
     it("trigger without an entry key: idle → pending → success without throwing", async () => {
-        const command = makeCommand(async (args) => {
+        const command = makeEphemeralCommand(async (args) => {
             await Promise.resolve();
             return args;
         });
@@ -537,13 +933,14 @@ describe("CommandClutch + real Command (retentionTime: 0 teardown)", () => {
         expect(seen).toContain("success");
 
         const final = clutch.state$();
-        expect(final.isSuccess).toBe(true);
+        expect(final.status).toBe("success");
+        expect(final.hasData).toBe(true);
         expect(final.data).toBe(100);
     });
 
     it("trigger without an entry key: idle → pending → error without throwing", async () => {
         const err = new Error("boom");
-        const command = makeCommand(async () => {
+        const command = makeEphemeralCommand(async () => {
             await Promise.resolve();
             throw err;
         });
@@ -564,12 +961,13 @@ describe("CommandClutch + real Command (retentionTime: 0 teardown)", () => {
         expect(seen).toContain("error");
 
         const final = clutch.state$();
-        expect(final.isError).toBe(true);
+        expect(final.status).toBe("error");
+        expect(final.hasError).toBe(true);
         expect(final.error).toBe(err);
     });
 
     it("survives a second trigger after the first settles", async () => {
-        const command = makeCommand(async (args) => {
+        const command = makeEphemeralCommand(async (args) => {
             await Promise.resolve();
             return args;
         });
@@ -586,12 +984,12 @@ describe("CommandClutch + real Command (retentionTime: 0 teardown)", () => {
 
         await clutch.trigger(2);
         await flushMicrotasks();
-        expect(clutch.state$().isSuccess).toBe(true);
+        expect(clutch.state$().status).toBe("success");
         expect(clutch.state$().data).toBe(2);
     });
 });
 
-// ==================== 11. Real Command integration — throwing optimisticUpdate ====================
+// ==================== 14. Real Command integration — throwing optimisticUpdate ====================
 
 // A throwing optimisticUpdate used to bypass the machine entirely: the trigger
 // envelope carried the error, but no cache entry was created, so the clutch's
@@ -637,7 +1035,8 @@ describe("CommandClutch + real Command (throwing optimisticUpdate)", () => {
         expect(seen).toContain("error");
 
         const final = clutch.state$();
-        expect(final.isError).toBe(true);
+        expect(final.status).toBe("error");
+        expect(final.hasError).toBe(true);
         expect((final.error as Error).message).toBe("optimistic boom");
     });
 });

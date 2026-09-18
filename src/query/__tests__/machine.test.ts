@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MachineStateError, MachineTransitionError } from "../core/errors";
-import { Machine } from "../core/machine/Machine";
+import { Machine, MachineBase } from "../core/machine/Machine";
+import type { TMachineState } from "../types";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -53,7 +54,13 @@ describe("Machine", () => {
             expect(m.state.data).toBeNull();
             expect(m.state.error).toBeNull();
             expect(m.state.updatedAt).toBeNull();
-            expect(m.state.isRetrying).toBe(false);
+        });
+
+        it("carries no retry flag — a retry in flight is `error !== null`", () => {
+            expect(makePending().state).not.toHaveProperty("isRetrying");
+            expect(makeSuccess().invalidate().state).not.toHaveProperty("isRetrying");
+            expect(makeError().retry().state).not.toHaveProperty("isRetrying");
+            expect(makeInvalidateError().retry().state).not.toHaveProperty("isRetrying");
         });
 
         it("preserves args reference", () => {
@@ -231,14 +238,23 @@ describe("Machine", () => {
             expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toEqual(DATA);
             expect(m.state.error).toBeNull();
-            expect(m.state.isRetrying).toBe(false);
         });
 
         it("invalidate-error → invalidating: preserves data and patchState, not a retry", () => {
             const m = makeInvalidateError().invalidate();
             expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toEqual(DATA);
-            expect(m.state.isRetrying).toBe(false);
+            expect(m.state.error).toBeNull();
+        });
+
+        it("error → pending: same args, clears the error (not a retry)", () => {
+            const failed = makeError();
+            const m = failed.invalidate();
+            expect(m.state.status).toBe("pending");
+            expect(m.state.args).toEqual(ARGS);
+            expect(m.state.data).toBeNull();
+            expect(m.state.error).toBeNull();
+            expect(m.state.updatedAt).toBeNull();
         });
 
         it("preserves patchState through invalidate", () => {
@@ -256,10 +272,6 @@ describe("Machine", () => {
             expect(() => makePending().invalidate()).toThrow(MachineTransitionError);
         });
 
-        it("throws MachineTransitionError from error state", () => {
-            expect(() => makeError().invalidate()).toThrow(MachineTransitionError);
-        });
-
         it("throws MachineTransitionError from invalidating state", () => {
             expect(() => makeInvalidating().invalidate()).toThrow(MachineTransitionError);
         });
@@ -268,7 +280,7 @@ describe("Machine", () => {
     // ── FSM Transition: retry() ────────────────────────────────────
 
     describe("retry()", () => {
-        it("error → pending: preserves args and the error, resets data/updatedAt, marks the retry", () => {
+        it("error → pending: preserves args and the error (the only retry marker), resets data/updatedAt", () => {
             const failed = makeError();
             const m = failed.retry();
             expect(m.state.status).toBe("pending");
@@ -276,10 +288,9 @@ describe("Machine", () => {
             expect(m.state.data).toBeNull();
             expect(m.state.error).toBe(failed.state.error);
             expect(m.state.updatedAt).toBeNull();
-            expect(m.state.isRetrying).toBe(true);
         });
 
-        it("invalidate-error → invalidating: preserves data, patchState and the error, marks the retry", () => {
+        it("invalidate-error → invalidating: preserves data, patchState and the error (the retry marker)", () => {
             const { machine: patched } = makeSuccess().createPatch((d) => {
                 d.count = 99;
             });
@@ -292,41 +303,52 @@ describe("Machine", () => {
             expect(m.state.updatedAt).toBe(failed.state.updatedAt);
             if (m.state.status === "invalidating") {
                 expect(m.state.patchState).not.toBeNull();
-                expect(m.state.isRetrying).toBe(true);
             }
         });
 
-        it("isRetrying and the error survive patch operations on the retrying invalidating state", () => {
-            expect.assertions(4);
+        it("the retried error survives patch operations on the retrying invalidating state", () => {
+            expect.assertions(2);
             const retrying = makeInvalidateError().retry();
             const { machine: patched, handle } = retrying.createPatch((d) => {
                 d.count = 1;
             });
             if (patched.state.status === "invalidating") {
-                expect(patched.state.isRetrying).toBe(true);
                 expect(patched.state.error).toBe(retrying.state.error);
             }
 
             handle.commit();
             const finished = patched.finishPatch();
             if (finished.state.status === "invalidating") {
-                expect(finished.state.isRetrying).toBe(true);
                 expect(finished.state.error).toBe(retrying.state.error);
             }
         });
 
-        it("the retry bookkeeping is dropped once the retry settles", () => {
+        it("patch operations on a plain invalidating state keep error null", () => {
+            expect.assertions(2);
+            const invalidating = makeInvalidating();
+            const { machine: patched, handle } = invalidating.createPatch((d) => {
+                d.count = 1;
+            });
+            if (patched.state.status === "invalidating") {
+                expect(patched.state.error).toBeNull();
+            }
+
+            handle.commit();
+            const finished = patched.finishPatch();
+            if (finished.state.status === "invalidating") {
+                expect(finished.state.error).toBeNull();
+            }
+        });
+
+        it("the retried error is dropped once the retry settles", () => {
             const succeeded = makeError().retry().success(DATA);
-            expect(succeeded.state).not.toHaveProperty("isRetrying");
             expect(succeeded.state.error).toBeNull();
 
             const rebased = makeInvalidateError().retry().rebase(DATA2);
-            expect(rebased.state).not.toHaveProperty("isRetrying");
             expect(rebased.state.error).toBeNull();
 
             const again = new Error("again");
             const failed = makeInvalidateError().retry().fail(again);
-            expect(failed.state).not.toHaveProperty("isRetrying");
             expect(failed.state.error).toBe(again);
         });
 
@@ -699,21 +721,22 @@ describe("Machine", () => {
 
     // ── Full Transition Matrix ─────────────────────────────────────
 
-    describe("transition matrix — invalid transitions throw", () => {
+    describe("transition matrix — drawn edges transition, everything else throws", () => {
         const methods = ["success", "fail", "invalidate", "retry", "rebase", "next"] as const;
 
-        // Map of valid transitions: [fromState, method]
-        const validTransitions = new Set([
-            "pending:success",
-            "pending:fail",
-            "success:invalidate",
-            "success:fail",
-            "success:next",
-            "error:retry",
-            "invalidating:fail",
-            "invalidating:rebase",
-            "invalidate-error:invalidate",
-            "invalidate-error:retry",
+        // Map of valid transitions: [fromState, method] → resulting status
+        const validTransitions = new Map([
+            ["pending:success", "success"],
+            ["pending:fail", "error"],
+            ["success:invalidate", "invalidating"],
+            ["success:fail", "invalidate-error"],
+            ["success:next", "success"],
+            ["error:retry", "pending"],
+            ["error:invalidate", "pending"],
+            ["invalidating:fail", "invalidate-error"],
+            ["invalidating:rebase", "success"],
+            ["invalidate-error:invalidate", "invalidating"],
+            ["invalidate-error:retry", "invalidating"],
         ]);
 
         const states = {
@@ -736,7 +759,16 @@ describe("Machine", () => {
         for (const [stateName, factory] of Object.entries(states)) {
             for (const method of methods) {
                 const key = `${stateName}:${method}`;
-                if (validTransitions.has(key)) continue;
+                const target = validTransitions.get(key);
+
+                if (target !== undefined) {
+                    it(`${stateName} + ${method}() → ${target}`, () => {
+                        const m = factory();
+                        const next = (m as any)[method](...methodArgs[method]);
+                        expect(next.state.status).toBe(target);
+                    });
+                    continue;
+                }
 
                 it(`${stateName} + ${method}() → throws`, () => {
                     const m = factory();
@@ -912,6 +944,90 @@ describe("Machine", () => {
             const finished = invalidated.finishPatch();
             expect(finished.state.status).toBe("invalidating");
             expect(finished.state.data).toEqual({ name: "Alice", count: 42 });
+        });
+    });
+
+    // ── MachineBase fallback transitions ───────────────────────────
+
+    /**
+     * The subtypes override their own edges; `MachineBase` keeps the full guard
+     * table for machines built by the base transitions themselves. Exercised
+     * through a harness because the base constructor is protected.
+     */
+    describe("MachineBase guard table", () => {
+        class BaseHarness<TArgs, TData> extends MachineBase<TArgs, TData> {
+            constructor(state: TMachineState<TArgs, TData>) {
+                super(state);
+            }
+        }
+
+        const baseError = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "error",
+                args: ARGS,
+                data: null,
+                error: new Error("boom"),
+                updatedAt: null,
+            });
+
+        const baseSuccess = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "success",
+                args: ARGS,
+                data: DATA,
+                error: null,
+                updatedAt: 1000,
+                patchState: null,
+            });
+
+        const baseInvalidateError = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "invalidate-error",
+                args: ARGS,
+                data: DATA,
+                error: new Error("invalidate-boom"),
+                updatedAt: 1000,
+                patchState: null,
+            });
+
+        it("invalidate() from error → pending with a cleared error", () => {
+            const m = baseError().invalidate();
+            expect(m.state.status).toBe("pending");
+            expect(m.state.args).toEqual(ARGS);
+            expect(m.state.data).toBeNull();
+            expect(m.state.error).toBeNull();
+            expect(m.state.updatedAt).toBeNull();
+        });
+
+        it("invalidate() from success / invalidate-error → invalidating with a cleared error", () => {
+            for (const failed of [baseSuccess(), baseInvalidateError()]) {
+                const m = failed.invalidate();
+                expect(m.state.status).toBe("invalidating");
+                expect(m.state.data).toEqual(DATA);
+                expect(m.state.error).toBeNull();
+            }
+        });
+
+        it("retry() keeps the retried error as the only retry marker", () => {
+            const failed = baseError();
+            const retried = failed.retry();
+            expect(retried.state.status).toBe("pending");
+            expect(retried.state.error).toBe(failed.state.error);
+            expect(retried.state).not.toHaveProperty("isRetrying");
+
+            const invalidateFailed = baseInvalidateError();
+            const reRetried = invalidateFailed.retry();
+            expect(reRetried.state.status).toBe("invalidating");
+            expect(reRetried.state.error).toBe(invalidateFailed.state.error);
+            expect(reRetried.state).not.toHaveProperty("isRetrying");
+        });
+
+        it("throws MachineTransitionError on undrawn edges", () => {
+            expect(() => baseError().success(DATA)).toThrow(MachineTransitionError);
+            expect(() => baseError().fail(new Error("e"))).toThrow(MachineTransitionError);
+            expect(() => baseError().rebase(DATA2)).toThrow(MachineTransitionError);
+            expect(() => baseError().next(DATA2)).toThrow(MachineTransitionError);
+            expect(() => baseSuccess().retry()).toThrow(MachineTransitionError);
         });
     });
 });

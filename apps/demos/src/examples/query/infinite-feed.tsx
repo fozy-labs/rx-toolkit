@@ -67,10 +67,10 @@ export function Base() {
                         size="sm"
                         variant="flat"
                         color="primary"
-                        isDisabled={!hasNext || feed.isFetchingNext || feed.isInitialLoading}
+                        isDisabled={!hasNext || feed.isLoadingNext || feed.isInitialLoading}
                         onPress={() => feed.fetchNext(pageIds(feed.pages.length))}
                     >
-                        {feed.isFetchingNext ? <Spinner size="sm" /> : hasNext ? '⬇️ Загрузить ещё' : 'Это всё'}
+                        {feed.isLoadingNext ? <Spinner size="sm" /> : hasNext ? '⬇️ Загрузить ещё' : 'Это всё'}
                     </Button>
                     <Button size="sm" variant="flat" onPress={() => feed.invalidate()}>
                         🔄 Обновить ленту

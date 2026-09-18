@@ -96,11 +96,26 @@ export class QueryCacheEntry<TArgs, TData>
         }
     }
 
-    /** Transition to invalidating and re-fetch data. Valid from success or invalidate-error. */
+    /**
+     * Re-check what the entry shows and re-fetch. Valid from success,
+     * invalidate-error and error (the last one lands in `pending`: the entry
+     * holds nothing, and the reader's view may show data the machine does not
+     * know about).
+     *
+     * Never valid on a command entry: a command result is not re-checked, it is
+     * re-executed. That is what keeps `invalidating` / `invalidate-error`
+     * unreachable for a command, so the command clutch can treat those statuses
+     * as an exhaustive `never` branch.
+     */
     invalidate(): void {
+        if (this._errorSource === "command") {
+            console.warn("[QueryCacheEntry] invalidate() called on a command entry: not supported");
+            return;
+        }
+
         const machine = this.machine$.peek();
 
-        if (machine.status !== "success" && machine.status !== "invalidate-error") {
+        if (machine.status !== "success" && machine.status !== "invalidate-error" && machine.status !== "error") {
             console.warn(`[QueryCacheEntry] invalidate() called in invalid state: ${machine.status}`);
             return;
         }
@@ -116,8 +131,8 @@ export class QueryCacheEntry<TArgs, TData>
 
     /**
      * Re-execute the query after a failure. Valid from error and invalidate-error.
-     * Unlike {@link invalidate}, the failed error stays visible and the in-flight
-     * state is marked `isRetrying`.
+     * Unlike {@link invalidate}, the failed error stays visible: in the resulting
+     * in-flight state a non-null `error` is what marks the run as a retry.
      */
     retry(): void {
         const machine = this.machine$.peek();
@@ -367,10 +382,16 @@ export class QueryCacheEntry<TArgs, TData>
             case "pending":
             case "invalidating":
                 break;
+            // A failed run is only restarted through retry() / invalidate(), both
+            // of which leave `error` before calling back in — a bare _execute()
+            // here would lose the failure.
             case "error":
                 return;
-            default:
-                console.warn(`[QueryCacheEntry] executed in unexpected state: ${(machine as any).status}`);
+            default: {
+                // Compiler-checked exhaustiveness: the machine union has no other status.
+                const unexpected: never = machine;
+                return unexpected;
+            }
         }
 
         const result = this._queryFn(this.keyedArgs, controller.signal);

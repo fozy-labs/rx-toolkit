@@ -19,8 +19,9 @@ const usersResource = api.createResource({
 
 // React-компонент
 function UsersList({ page }: { page: number }) {
-  const { data, error, isLoading } = usersResource.useResource({ page });
-  if (isLoading) return <Spinner />;
+  const { data, error, hasData, hasError } = usersResource.useResource({ page });
+  if (hasError) return <ErrorMessage error={error} />;
+  if (!hasData) return <Spinner />;
   return <ul>{data.map(u => <li key={u.id}>{u.name}</li>)}</ul>;
 }
 ```

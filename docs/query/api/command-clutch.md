@@ -52,31 +52,30 @@ const data = await clutch.trigger({ text: 'Задача' }).unwrap();
 
 ## Состояние (TCommandClutchState)
 
-`TCommandClutchState` — **дискриминированное объединение** по `status`: каждый статус — отдельный вариант с литеральными булевыми флагами и точными типами `data` / `error`. Проверка `status`, `isSuccess`, `isError` сужает тип:
+`TCommandClutchState` — **дискриминированное объединение** по `status` и `hasError`: каждый вариант несёт литеральные значения флагов и точные типы `data` / `error`. Сужение работает по любому из них:
 
 ```typescript
 const state = clutch.state$();
 
-if (state.isError) {
+if (state.hasError) {
   state.error; // TError — без `| null`
-  state.data;  // null
 }
-if (state.isSuccess) {
+if (state.hasData) {
   state.data;  // TData — без `| null`
 }
 ```
 
-Поля (широкие типы на несуженном объединении):
+У сцепления команды нет ни данных предыдущих args, ни смены args, ни плейсхолдера: повторный `trigger()` с тем же ключом записи создаёт **новую** запись, поэтому `data` и `error` прошлого запуска в `pending` не переносятся.
 
 | Поле | Тип                                           | Описание |
 |------|-----------------------------------------------|----------|
 | `status` | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус сцепления. |
 | `data` | `TData \| null`                               | Данные результата мутации. `null` до завершения. |
-| `error` | `TError \| null`                              | Ошибка мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
+| `error` | `TError \| null`                              | Ошибка мутации; живёт до следующего settle, поэтому переживает повтор. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
 | `args` | `TArgs \| null`                               | Аргументы последнего вызова `trigger`. `null` только в `idle`. |
-| `isLoading` | `boolean`                                     | `true`, пока мутация выполняется (`pending`). |
-| `isSuccess` | `boolean`                                     | `true`, если мутация завершилась успешно. |
-| `isError` | `boolean`                                     | `true`, если мутация завершилась ошибкой. |
+| `isPending` | `boolean`                                | `true`, пока мутация выполняется. |
+| `hasData` | `boolean`                                  | `true` ⇔ `status === "success"`. |
+| `hasError` | `boolean`                                 | `true` ⇔ `error !== null`. |
 | `retry` | `() => void`                                   | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
 
 
@@ -84,14 +83,15 @@ if (state.isSuccess) {
 
 Типы вариантов экспортируются: `TCommandClutchIdleState`, `TCommandClutchPendingState`, `TCommandClutchSuccessState`, `TCommandClutchErrorState`.
 
-| Статус | `data` | `error` | `isLoading` | `isSuccess` | `isError` | Описание |
-|--------|:------:|:-------:|:-----------:|:-----------:|:---------:|----------|
-| `idle` | `null` | `null` | — | — | — | Мутация не запускалась или ключ записи не привязан. |
-| `pending` | `TData \| null`¹ | `TError \| null`¹ | ✓ | — | — | Мутация выполняется. |
-| `success` | `TData` | `null` | — | ✓ | — | Мутация завершилась успешно, данные доступны в `data`. |
-| `error` | `null` | `TError` | — | — | ✓ | Мутация завершилась ошибкой. |
+| #  | Случай                                        | status  | `data` | `error` | isPending | hasData | hasError |
+|----|-----------------------------------------------|---------|:------:|:-------:|:---------:|:-------:|:--------:|
+| К1 | мутация не запускалась, запись не привязана   | idle    | `null` | `null`  | ✗         | ✗       | ✗        |
+| К2 | выполняется (первый или повторный `trigger`)  | pending | `null` | `null`  | ✓         | ✗       | ✗        |
+| К3 | успех                                         | success | `TData` | `null` | ✗         | ✓       | ✗        |
+| К4 | ошибка                                        | error   | `null` | `TError` | ✗        | ✗       | ✓        |
+| К5 | повтор из К4 (`retry()`)                      | pending | `null` | `TError` | ✓        | ✗       | ✓        |
 
-¹ Обычно `null`; несут устаревшие значения только при защитном ремаппинге вручную инвалидированной (`invalidate`) кэш-записи команды в `pending`.
+`pending` никогда не несёт данных: `data` типизирован строго `null`. Статусы `invalidating` / `invalidate-error` для команды недостижимы — `invalidate()` на записи команды выводит `console.warn` и ничего не делает.
 
 
 ## См. также

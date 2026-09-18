@@ -24,7 +24,7 @@ const usersResource = api.createResource({
 });
 
 // Хук доступен благодаря плагину:
-const { data, isLoading } = usersResource.useResource({ page: 1 });
+const { data, isPending } = usersResource.useResource({ page: 1 });
 ```
 
 Подробнее о поведении хука — см. раздел «React: useResource» в документации [ресурса][resource].

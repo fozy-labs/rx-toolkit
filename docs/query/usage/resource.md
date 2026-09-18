@@ -47,10 +47,11 @@ const api = createApi({
 
 ```tsx
 function UsersList({ page }: { page: number }) {
-  const { data, error, isLoading } = usersResource.useResource({ page });
+  const { data, error, hasData, hasError } = usersResource.useResource({ page });
 
-  if (isLoading) return <Spinner />;
-  if (error) return <ErrorMessage error={error} />;
+  if (!hasData) {
+    return hasError ? <ErrorMessage error={error} /> : <Spinner />;
+  }
 
   return (
     <ul>
@@ -76,12 +77,12 @@ function UsersList({ page }: { page: number }) {
 import { SKIP } from '@fozy-labs/rx-toolkit';
 
 function UserProfile({ userId }: { userId: string | null }) {
-  const { data, isLoading } = userResource.useResource(
+  const { data, hasData } = userResource.useResource(
     userId ? { id: userId } : SKIP,
   );
 
   if (!userId) return <p>Выберите пользователя</p>;
-  if (isLoading) return <Spinner />;
+  if (!hasData) return <Spinner />;
   return <h1>{data.name}</h1>;
 }
 ```
@@ -91,44 +92,53 @@ function UserProfile({ userId }: { userId: string | null }) {
 
 ## Состояния ресурса
 
-`useResource` возвращает объект с полями `status`, `data`, `error` и булевыми флагами:
+`useResource` возвращает объект с полями `status`, `dataSource`, `data`, `error` и булевыми флагами:
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `status` | `TClutchStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` · `'invalidating'` · `'invalidate-error'` |
-| `data` | `TData \| null` | Данные последнего успешного ответа. Сохраняются при `invalidating`. |
-| `error` | `TError \| null` | Ошибка последнего запроса. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
-| `isLoading` | `boolean` | `true` при любом незавершённом запросе. |
-| `isInitialLoading` | `boolean` | `true` только при первой загрузке (данных ещё нет). |
-| `isSuccess` | `boolean` | `true` когда данные получены. |
-| `isError` | `boolean` | `true` при ошибке. |
-| `isRefreshing` | `boolean` | `true` при фоновом перезапросе после инвалидации (SWR). |
-| `isSwitching` | `boolean` | `true`, если под `invalidating` грузятся новые аргументы, а `data` — от предыдущих. |
-| `isRetrying` | `boolean` | `true`, если загрузка запущена через `retry()` после ошибки; `error` при этом хранит повторяемую ошибку. |
-| `isRefreshError` | `boolean` | `true` при ошибке фонового перезапроса. |
+| `status` | `TClutchStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` — что происходит с запросом. |
+| `dataSource` | `'none' \| 'placeholder' \| 'previous' \| 'current'` | Что на экране: ничего, [плейсхолдер][placeholder], данные предыдущих аргументов (SWR) или текущих. |
+| `data` | `TData \| null` | Данные, соответствующие `dataSource`. |
+| `error` | `TError \| null` | Ошибка последнего завершившегося запроса текущих аргументов; живёт до следующего. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
+| `hasData` | `boolean` | Есть что показать (`dataSource !== 'none'`). |
+| `hasError` | `boolean` | `error !== null`. |
+| `isPending` | `boolean` | Запрос в полёте. |
+| `isInitialLoading` | `boolean` | Запрос в полёте: показать нечего либо только плейсхолдер. |
+| `isSwitching` | `boolean` | Запрос в полёте, на экране данные предыдущих аргументов. |
+| `isInvalidating` | `boolean` | Запрос в полёте поверх данных текущих аргументов. |
 | `args` | `TArgs \| null` | Аргументы текущего наблюдения. |
-| `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Отличаются от `args` только при SWR-fallback после смены аргументов. |
+| `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Отличаются от `args` при SWR-fallback; `null` у плейсхолдера. |
+| `retry` / `invalidate` | `() => void` | Повторить упавший запрос / перезапросить показанное. |
 
-Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей. `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` (без `| null`), `isRefreshError` — что устаревшие `data` сохранены. Полная таблица вариантов — в [API сцепления ресурса][api-res-clutch].
+Состояние — **дискриминированное объединение**: проверка `status`, `dataSource` или любого флага сужает типы остальных полей. `hasData` гарантирует `data: TData` (без `| null`), `hasError` — `error: TError` (без `| null`). Полная таблица вариантов — в [API сцепления ресурса][api-res-clutch].
+
+Рендер данных гейтится по `hasData`, а не по `status`: при инвалидации на экране данные текущих аргументов, но `status` уже `pending` — `switch (status)` без `hasData` показал бы спиннер на каждом обновлении.
 
 ```tsx
 const state = usersResource.useResource({ page });
 
-if (state.isError) {
-  return <ErrorMessage error={state.error} />; // error: TError, не TError | null
+if (state.hasData) {
+  return <List items={state.data} stale={state.isPending} />; // data: TData, не TData | null
 }
-if (state.isSuccess) {
-  return <List items={state.data} />;          // data: TData, не TData | null
+if (state.hasError) {
+  return <ErrorMessage error={state.error} onRetry={state.retry} />; // error: TError, не TError | null
 }
+return <Spinner />;
 ```
+
+Повтор упавшего запроса отдельного флага не имеет: пока он в полёте, истинны и `isPending`, и `hasError`.
 
 ### Инвалидация (invalidate)
 
-Вызов `invalidate(args)` или `prefetch(args, { force: true })` обновляет данные **без потери текущего отображения**. Пользователь продолжает видеть прежние данные, пока в фоне выполняется новый запрос. Когда ответ приходит — данные обновляются на месте; если запрос падает с ошибкой, прежние данные сохраняются, а статус переходит в `invalidate-error`.
+Вызов `invalidate(args)` или `prefetch(args, { force: true })` обновляет данные **без потери текущего отображения**. Пользователь продолжает видеть прежние данные, пока выполняется новый запрос: `dataSource` остаётся `current`, `isInvalidating` — `true`. Когда ответ приходит, данные обновляются на месте; если запрос падает, прежние данные сохраняются, а состояние становится `status: 'error'` с тем же `dataSource: 'current'`.
 
 ### Плавная смена аргументов (SWR)
 
-Когда аргументы `useResource` меняются (например, пользователь переключает страницу), компонент **не сбрасывается в пустое состояние**. Вместо этого на экране остаются данные предыдущего запроса, пока загружаются новые. Как только новые данные готовы, они автоматически заменяют старые.
+Когда аргументы `useResource` меняются (например, пользователь переключает страницу), компонент **не сбрасывается в пустое состояние**. Вместо этого на экране остаются данные предыдущего запроса (`dataSource: 'previous'`, `isSwitching: true`), пока загружаются новые. Как только новые данные готовы, они автоматически заменяют старые.
+
+### Заглушка на время загрузки (placeholderData)
+
+Когда показывать нечего — ни данных текущих аргументов, ни предыдущих — ресурс может синтезировать заглушку опцией [`placeholderData`][placeholder]: скелетон, элемент из уже загруженного списка, значение по умолчанию. Она отдаётся с `dataSource: 'placeholder'`, в кэш не попадает и перекрывает данные предыдущих аргументов.
 
 
 ## Императивный API
@@ -158,7 +168,9 @@ const fresh = await usersResource.fetch({ page: 1 });
 usersResource.invalidate({ page: 1 });
 ```
 
-Помечает существующую кэш-запись устаревшей и запускает фоновый перезапрос — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает только из статусов `success` и `invalidate-error`; на `pending` / `error` — предупреждение в консоль и no-op (после ошибки нужен `retry`). Из `invalidate-error` доступны оба: `invalidate()` — обычная инвалидация, `retry()` — повтор с `isRetrying` и сохранённой ошибкой (см. [состояния сцепления][api-res-clutch]).
+Помечает существующую кэш-запись устаревшей и запускает перезапрос — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает из статусов `success`, `invalidate-error` и `error`; на записи с запросом в полёте (`pending` / `invalidating`) — предупреждение в консоль и no-op.
+
+Ошибку `invalidate()` снимает, `retry()` — сохраняет до следующего ответа. Отсюда и выбор: `retry()`, когда упавший запрос повторяет пользователь и ошибку надо оставить на экране; `invalidate()`, когда данные перепроверяются сами (см. [переходы сцепления][clutch-transitions]).
 
 
 ### getEntry
@@ -194,14 +206,14 @@ const dynEntry$ = Signal.compute(() => usersResource.getEntry$({ page: page$() }
 
 ### getState
 
-Синхронно возвращает упрощённое состояние ресурса для аргументов: `status`, `data`, `error` и булевые флаги (`isLoading`, `isSuccess`, `isError` и т. д.).
+Синхронно возвращает состояние одной кэш-записи: те же поля и флаги, что у сцепления, но `dataSource` сужен до `none | current` — ни данных предыдущих аргументов, ни плейсхолдера у записи нет. Методов `retry` / `invalidate` в снимке тоже нет. Подробнее — в [API ресурса][api-getstate].
 
 Подходит для императивной логики вне реактивного контекста, когда нужна моментальная проверка состояния без подписки:
 
 ```ts
 const state = usersResource.getState({ page: 1 });
 
-if (state.isSuccess) {
+if (state.hasData) {
   console.log(state.data);
 }
 ```
@@ -218,19 +230,19 @@ if (state.isSuccess) {
 const clutch = usersResource.createClutch();
 clutch.switch({ page: 1 });
 clutch.start();
-// clutch.state$() → { status: "pending", data: null, isInitialLoading: true, ... }
+// clutch.state$() → { status: "pending", dataSource: "none", data: null, isInitialLoading: true, ... }
 ```
 
 При смене аргументов через `switch(newArgs)` сцепление реализует SWR-поведение:
-    если предыдущая запись **уже содержит данные** (статус `success`, `invalidating` или `invalidate-error`),
-    они сохраняются в `data`, а `status` переключается на `"invalidating"` до получения нового ответа.
+    если предыдущая запись **уже содержит данные** (статус записи `success`, `invalidating` или `invalidate-error`),
+    они остаются в `data` с `dataSource: "previous"`, пока не придёт новый ответ.
 Это позволяет показывать устаревшие данные вместо пустого состояния.
-Если предыдущий запрос ещё не завершился (`pending`), переносить нечего — сцепление уйдёт в `pending` с `data: null`.
+Если предыдущий запрос ещё не завершился (`pending`), переносить нечего — сцепление уйдёт в `pending` с `dataSource: "none"`.
 
 ```ts
 // page:1 уже загрузилась (success)
-clutch.switch({ page: 2 }); // SWR: data от page:1, status: "invalidating"
-clutch.switch(SKIP);        // idle: data: null, status: "idle"
+clutch.switch({ page: 2 }); // SWR: data от page:1, dataSource: "previous", isSwitching: true
+clutch.switch(SKIP);        // idle: data: null, dataSource: "none"
 ```
 
 
@@ -263,4 +275,7 @@ clutch.switch(SKIP);        // idle: data: null, status: "idle"
 [cache]: ../concepts/cache.md
 [clutch]: ../concepts/clutch.md
 [api-res-clutch]: ../api/resource-clutch.md
+[clutch-transitions]: ../api/resource-clutch.md#переходы
+[api-getstate]: ../api/resource.md#getstate
+[placeholder]: ../api/resource.md#placeholderdata
 [broadcast]: ./broadcast.md

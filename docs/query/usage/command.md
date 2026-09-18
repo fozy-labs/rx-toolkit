@@ -55,7 +55,7 @@ const api = createApi({
 
 ```tsx
 function AddTodoForm() {
-  const [trigger, { data, error, isLoading }] = addTodoCommand.useCommand();
+  const [trigger, { data, error, isPending }] = addTodoCommand.useCommand();
   const [text, setText] = React.useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,8 +67,8 @@ function AddTodoForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <input value={text} onChange={e => setText(e.target.value)} disabled={isLoading} />
-      <button disabled={isLoading}>Добавить</button>
+      <input value={text} onChange={e => setText(e.target.value)} disabled={isPending} />
+      <button disabled={isPending}>Добавить</button>
       {error && <p>Ошибка: {String(error)}</p>}
     </form>
   );
@@ -79,7 +79,7 @@ function AddTodoForm() {
 
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
 2. `trigger(args)` запускает `queryFn` и возвращает `TTriggerPromise<TData>` — [конверт результата](#результат-trigger); промис не реджектится.
-3. Состояние (`isLoading`, `isSuccess`, `isError`) обновляется реактивно.
+3. Состояние (`isPending`, `hasData`, `hasError`) обновляется реактивно.
 
 
 ## Результат trigger
@@ -106,7 +106,7 @@ try {
 }
 ```
 
-Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.isError`.
+Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.hasError`.
 
 ## Состояния команды
 
@@ -114,15 +114,16 @@ try {
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `status` | `string` | `'idle'` · `'pending'` · `'success'` · `'error'` |
+| `status` | `TClutchStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` |
 | `data` | `TData \| null` | Данные последнего успешного ответа. |
-| `error` | `TError \| null` | Ошибка последней мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
-| `isLoading` | `boolean` | `true` при выполнении мутации. |
-| `isSuccess` | `boolean` | `true` когда мутация завершилась успешно. |
-| `isError` | `boolean` | `true` при ошибке мутации. |
+| `error` | `TError \| null` | Ошибка последней мутации; живёт до следующего ответа, поэтому переживает повтор. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
+| `isPending` | `boolean` | `true` при выполнении мутации. |
+| `hasData` | `boolean` | `true` ⇔ `status === 'success'`. |
+| `hasError` | `boolean` | `true` ⇔ `error !== null`. |
+| `args` | `TArgs \| null` | Аргументы последнего запуска. |
 | `retry` | `() => void` | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
 
-Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` и `data: null`. Полная таблица вариантов — в [API сцепления команды][api-cmd-clutch].
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `hasData` гарантирует `data: TData` (без `| null`), `hasError` — `error: TError`. Пока идёт повтор упавшей мутации, истинны и `isPending`, и `hasError`. Полная таблица вариантов — в [API сцепления команды][api-cmd-clutch].
 
 
 ## Ретраи и request id
@@ -131,9 +132,9 @@ try {
 
 ```tsx
 function PayButton() {
-  const [pay, { isError, error, retry, isLoading }] = payCommand.useCommand();
+  const [pay, { hasError, error, retry, isPending }] = payCommand.useCommand();
 
-  if (isError) {
+  if (hasError && !isPending) {
     return (
       <div>
         <p>Ошибка: {String(error)}</p>
@@ -142,11 +143,11 @@ function PayButton() {
     );
   }
 
-  return <button disabled={isLoading} onClick={() => pay({ amount: 100 })}>Оплатить</button>;
+  return <button disabled={isPending} onClick={() => pay({ amount: 100 })}>Оплатить</button>;
 }
 ```
 
-`retry()` перезапускает текущую (упавшую) кэш-запись — новая запись не создаётся, request id сохраняется. Повторный вызов `trigger` без явного ключа, наоборот, создаёт новую запись с новым request id.
+`retry()` перезапускает текущую (упавшую) кэш-запись — новая запись не создаётся, request id сохраняется, а повторяемая ошибка остаётся читаемой в `error`. Повторный вызов `trigger`, наоборот, создаёт новую запись с новым request id — в том числе с тем же ключом записи, поэтому `data` и `error` прошлого запуска в новое `pending` не переносятся.
 
 
 ## Императивный API
@@ -203,7 +204,7 @@ const clutch = addTodoCommand.createClutch('my-mutation-1');
 
 // trigger через сцепление
 clutch.trigger({ text: 'New todo' });
-// clutch.state$() → { status: "pending", data: null, isLoading: true, ... }
+// clutch.state$() → { status: "pending", data: null, isPending: true, ... }
 ```
 
 

@@ -64,7 +64,7 @@ export function Base() {
 
     const handlePay = () => {
         // Промис trigger не реджектится — ошибка приходит конвертом
-        // и отражается реактивно через state.isError.
+        // и отражается реактивно через state.hasError.
         void pay({ amount: 100 });
     };
 
@@ -84,14 +84,14 @@ export function Base() {
             <CardBody className="space-y-4">
                 {/* Состояние команды */}
                 <div className="flex gap-2 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isLoading ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                        isLoading: {String(state.isLoading)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isPending ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                        isPending: {String(state.isPending)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
-                        isSuccess: {String(state.isSuccess)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasData ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
+                        hasData: {String(state.hasData)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                        isError: {String(state.isError)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                        hasError: {String(state.hasError)}
                     </span>
                 </div>
 
@@ -109,10 +109,10 @@ export function Base() {
 
                 {/* Управление */}
                 <div className="flex gap-2">
-                    <Button color="primary" size="sm" onPress={handlePay} isLoading={state.isLoading}>
+                    <Button color="primary" size="sm" onPress={handlePay} isLoading={state.isPending}>
                         Оплатить 100 ₽
                     </Button>
-                    {state.isError && (
+                    {state.status === 'error' && (
                         <Button color="warning" size="sm" variant="flat" onPress={state.retry}>
                             ↻ Повторить (тот же requestId)
                         </Button>
@@ -120,7 +120,7 @@ export function Base() {
                 </div>
 
                 {/* Ошибка */}
-                {state.isError && (
+                {state.hasError && (
                     <div className="p-3 bg-danger-50 text-danger-700 rounded-lg text-sm">
                         Ошибка: {String(state.error)}. Деньги уже списаны — «Повторить» переотправит запрос
                         с тем же requestId, и сервер вернёт прежний результат без повторного списания.
@@ -128,7 +128,7 @@ export function Base() {
                 )}
 
                 {/* Успех */}
-                {state.isSuccess && state.data && (
+                {state.hasData && (
                     <div className="p-3 bg-success-50 text-success-700 rounded-lg text-sm">
                         ✅ Оплачено. Заказ #{state.data.orderId}
                     </div>

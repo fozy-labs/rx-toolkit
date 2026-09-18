@@ -43,7 +43,6 @@ function makeInvalidating(): TestMachine<TestArgs, TestData> {
         error: null,
         updatedAt: 1000,
         patchState: null,
-        isRetrying: false,
     });
 }
 

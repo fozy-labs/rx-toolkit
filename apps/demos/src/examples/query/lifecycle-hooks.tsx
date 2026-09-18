@@ -114,7 +114,9 @@ const kindColors: Record<LogEntry['kind'], string> = {
 export function Base() {
     const state = dataResource.useResource();
     const logEntries = useLogEntries();
-    const { isRefreshError } = state;
+    // A failed invalidation: the current args' own data is still on screen
+    // while their last query failed (row 9 of the state matrix).
+    const isInvalidateError = state.hasError && state.dataSource === 'current';
 
     const handleInvalidate = () => {
         logBus.push('action', 'invalidate() — запускает refetch → onQueryStarted', 'info');
@@ -143,8 +145,11 @@ export function Base() {
                         <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                             status: {state.status}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                            isRefreshError: {String(isRefreshError)}
+                        <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
+                            dataSource: {state.dataSource}
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            hasError: {String(state.hasError)}
                         </span>
                     </div>
 
@@ -152,13 +157,13 @@ export function Base() {
                         <div className="text-center py-4 text-lg">⏳ Загрузка...</div>
                     )}
 
-                    {state.data && (
+                    {state.hasData && (
                         <div className="p-3 bg-success-50 border border-success-200 rounded-lg">
                             <p className="font-semibold">{state.data.message}</p>
                         </div>
                     )}
 
-                    {isRefreshError && (
+                    {isInvalidateError && (
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
                             <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                             <p className="text-xs text-warning-500 mt-1">

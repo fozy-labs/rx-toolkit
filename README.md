@@ -138,7 +138,7 @@ function ShoppingCart() {
     const cart = cartQuery.data;
 
     return (
-        <Container isLoading={cartQuery.isLoading}>
+        <Container isLoading={cartQuery.isPending}>
             {cart?.items.map(item => (
                 <CartItem
                     key={item.id}

@@ -30,7 +30,6 @@ export namespace Machine {
             data: null,
             error: null,
             updatedAt: null,
-            isRetrying: false,
         };
         return new MachinePending<TArgs, TData>(state);
     }
@@ -47,7 +46,6 @@ export namespace Machine {
                 error: null,
                 updatedAt: snapshot.updatedAt,
                 patchState: null,
-                isRetrying: false,
             };
             return new MachineInvalidating<TArgs, TData>(state);
         }

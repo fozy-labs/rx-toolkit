@@ -168,8 +168,8 @@ sequenceDiagram
     Clutch->>Entry: invalidate()
     Entry->>Entry: success → invalidating
     Entry-->>Clutch: machine$ → invalidating
-    Clutch-->>Hook: invalidating
-    Hook-->>UI: { status: invalidating, data: v1 }
+    Clutch-->>Hook: строка 6
+    Hook-->>UI: { status: pending, dataSource: current, data: v1 }
 
     Entry->>Query: queryFn(args, abortSignal)
 
@@ -177,14 +177,14 @@ sequenceDiagram
         Query-->>Entry: data v2
         Entry->>Entry: invalidating → success (rebase)
         Entry-->>Clutch: machine$ → success
-        Clutch-->>Hook: success
-        Hook-->>UI: { status: success, data: v2 }
+        Clutch-->>Hook: строка 5
+        Hook-->>UI: { status: success, dataSource: current, data: v2 }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: invalidating → invalidate-error (fail)
         Entry-->>Clutch: machine$ → invalidate-error
-        Clutch-->>Hook: invalidate-error
-        Hook-->>UI: { status: invalidate-error, data: v1, error }
+        Clutch-->>Hook: строка 9
+        Hook-->>UI: { status: error, dataSource: current, data: v1, error }
     end
 ```
 
@@ -213,22 +213,22 @@ sequenceDiagram
     Note over Clutch: Реактивная зависимость: Entry2 (pending)
     Clutch-->>Clutch: Подписка на machine$ (pending)
 
-    Note over Clutch: pending + prev → invalidating (SWR)
-    Clutch-->>Hook: invalidating
-    Hook-->>UI: { status: invalidating, data: data/1 }
+    Note over Clutch: pending + prev → dataSource previous (SWR)
+    Clutch-->>Hook: строка 4
+    Hook-->>UI: { status: pending, dataSource: previous, isSwitching, data: data/1 }
 
     alt ответ OK
         Entry2->>Entry2: → success
         Entry2-->>Clutch: machine$ → success
         Clutch->>Clutch: prev = null
-        Clutch-->>Hook: success
-        Hook-->>UI: { status: success, data: data/2 }
+        Clutch-->>Hook: строка 5
+        Hook-->>UI: { status: success, dataSource: current, data: data/2 }
     else ошибка
         Entry2->>Entry2: → error
         Entry2-->>Clutch: machine$ → error
         Note over Clutch: error не маскируется, prev (Entry1) сохраняется
-        Clutch-->>Hook: error
-        Hook-->>UI: { status: error, data: data/1, error }
+        Clutch-->>Hook: строка 8
+        Hook-->>UI: { status: error, dataSource: previous, data: data/1, error }
     end
 ```
 

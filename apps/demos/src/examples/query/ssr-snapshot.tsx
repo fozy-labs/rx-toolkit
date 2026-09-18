@@ -68,21 +68,22 @@ const usersResource = api.createResource<{ id: string }, User>({
 
 function UserCard({ userId }: { userId: string }) {
     const state = usersResource.useResource({ id: userId });
-    const { isRefreshError } = state;
+    // A failed invalidation of hydrated data: it stays on screen (row 9).
+    const isInvalidateError = state.hasError && state.dataSource === 'current';
 
     return (
-        <div className={`p-3 rounded-lg ${isRefreshError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}>
+        <div className={`p-3 rounded-lg ${isInvalidateError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}>
             {state.isInitialLoading && (
                 <p className="text-default-400">⏳ Загрузка...</p>
             )}
-            {state.data && (
+            {state.hasData && (
                 <>
                     <p className="font-semibold">{state.data.name}</p>
                     <p className="text-sm text-default-500">{state.data.email}</p>
-                    {state.isRefreshing && (
+                    {state.isInvalidating && (
                         <p className="text-xs text-warning mt-1">🔄 Обновление...</p>
                     )}
-                    {isRefreshError && (
+                    {isInvalidateError && (
                         <p className="text-xs text-danger mt-1">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                     )}
                 </>

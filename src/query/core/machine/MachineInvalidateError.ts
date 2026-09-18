@@ -25,12 +25,11 @@ export class MachineInvalidateError<TArgs, TData> extends MachineWithData<TArgs,
             error: null,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
-            isRetrying: false,
         };
         return new MachineInvalidating<TArgs, TData>(state);
     }
 
-    /** invalidate-error → invalidating (keeps the retried error, marks `isRetrying`) */
+    /** invalidate-error → invalidating (keeps the retried error — the retry marker of an in-flight state) */
     retry(): MachineInvalidating<TArgs, TData> {
         const state: TInvalidatingState<TArgs, TData> = {
             status: "invalidating",
@@ -39,7 +38,6 @@ export class MachineInvalidateError<TArgs, TData> extends MachineWithData<TArgs,
             error: this.state.error,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
-            isRetrying: true,
         };
         return new MachineInvalidating<TArgs, TData>(state);
     }

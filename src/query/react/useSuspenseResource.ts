@@ -7,22 +7,27 @@ import { useResourceClutch } from "./useResourceClutch";
  * Suspense-enabled variant of `useResource`.
  *
  * Instead of returning loading/error flags, the hook integrates with React
- * Suspense and Error Boundaries:
- * - while the initial query is in flight it throws a promise → the nearest
- *   `<Suspense fallback>` is shown;
- * - if the initial query fails with nothing to fall back on it throws the error
- *   → the nearest Error Boundary catches it;
- * - otherwise it returns the resolved state with `data` guaranteed non-null.
+ * Suspense and Error Boundaries, in this order:
  *
- * A background invalidation (SWR) never suspends: stale data stays on screen
- * while `isRefreshing` / `isRefreshError` let the UI render inline indicators.
+ * 1. `hasData` — anything to show (fresh, previous or placeholder data) is
+ *    returned, so `data` is guaranteed non-null;
+ * 2. `status === "error"` — a failure with nothing to show is thrown → the
+ *    nearest Error Boundary catches it;
+ * 3. otherwise the query is in flight with nothing to show: a promise is thrown
+ *    → the nearest `<Suspense fallback>` is shown until the clutch settles.
+ *
+ * Only the first step returns, so the three loading flags are the right hooks
+ * for inline indicators: a background invalidation (row 6) never suspends, and
+ * neither does an error behind previous or placeholder data (rows 8 and 13) —
+ * those states are returned with `hasError`, not thrown.
  *
  * `SKIP` is intentionally unsupported — a component that may suspend must always
  * have arguments. For conditional queries use `useResource`.
  *
  * @param resource - The resource to observe.
  * @param args - Query arguments (or `void` when `TArgs` is `void`).
- * @returns The settled resource state with non-null `data`.
+ * @returns A resource state with something to show: non-null `data` and
+ *   `dataSource` narrowed to `placeholder | previous | current`.
  */
 export function useSuspenseResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
@@ -34,16 +39,17 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
 
     const state = useSignal(clutch.state$);
 
-    // Data present (success / invalidating / invalidate-error / stale SWR) → render it.
-    if (state.isSuccess || state.isRefreshing || state.isRefreshError || state.data != null) {
-        return state as TSuspenseResourceState<TArgs, TData, TError>;
+    // 1. Something to show → render it, whatever the query is doing.
+    if (state.hasData) {
+        return state;
     }
 
-    // Initial error with nothing to fall back on → let an Error Boundary handle it.
-    if (state.isError) {
+    // 2. Failed with nothing to fall back on → let an Error Boundary handle it.
+    if (state.status === "error") {
         throw state.error;
     }
 
-    // Initial loading → suspend until the query settles.
+    // 3. Idle or loading with nothing to show → suspend until the clutch has
+    //    data or fails with nothing to show (the same condition as step 1 / 2).
     throw clutch.whenSettled();
 }

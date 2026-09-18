@@ -38,12 +38,14 @@ export function Base() {
     const state = itemsResource.useResource();
     const [log, setLog] = React.useState<string[]>([]);
 
-    const { isRefreshError } = state;
+    // A failed invalidation: the query of the current args failed while their
+    // own data stays on screen (row 9 of the state matrix).
+    const isInvalidateError = state.hasError && state.dataSource === 'current';
 
     React.useEffect(() => {
-        const entry = `[${new Date().toLocaleTimeString()}] status=${state.status}, isRefreshError=${isRefreshError}, hasData=${!!state.data}`;
+        const entry = `[${new Date().toLocaleTimeString()}] status=${state.status}, dataSource=${state.dataSource}, hasError=${state.hasError}`;
         setLog(prev => [entry, ...prev].slice(0, 8));
-    }, [state.status, isRefreshError, state.data]);
+    }, [state.status, state.dataSource, state.hasError]);
 
     const handleInvalidate = () => {
         state.invalidate();
@@ -59,26 +61,30 @@ export function Base() {
                 <CardBody className="space-y-4">
                     {/* Индикаторы состояния */}
                     <div className="flex gap-2 flex-wrap">
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.isLoading ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                            isLoading: {String(state.isLoading)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.isPending ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                            isPending: {String(state.isPending)}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
-                            isSuccess: {String(state.isSuccess)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.isInvalidating ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                            isInvalidating: {String(state.isInvalidating)}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                            isRefreshError: {String(isRefreshError)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasData ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
+                            hasData: {String(state.hasData)}
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            hasError: {String(state.hasError)}
                         </span>
                         <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
-                            status: {state.status}
+                            status: {state.status} · dataSource: {state.dataSource}
                         </span>
                     </div>
 
                     {/* SWR: ошибка при инвалидации — данные остаются, error доступен */}
-                    {isRefreshError && (
+                    {isInvalidateError && (
                         <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
                             <p className="text-warning-700 font-semibold">⚠️ Ошибка при обновлении: {String(state.error)}</p>
                             <p className="text-xs text-warning-500 mt-1">
-                                Устаревшие данные остаются доступны (SWR-семантика). isError = true, ошибка в state.error.
+                                Устаревшие данные остаются доступны (SWR-семантика): dataSource остаётся current,
+                                hasError = true, ошибка в state.error.
                             </p>
                         </div>
                     )}
@@ -89,16 +95,16 @@ export function Base() {
                         </div>
                     )}
 
-                    {state.data && (
+                    {state.hasData && (
                         <div className="space-y-2">
                             <p className="text-sm text-default-500">
                                 Данные от: {state.data.fetchedAt}
-                                {state.isRefreshing && ' 🔄 Обновление...'}
+                                {state.isInvalidating && ' 🔄 Обновление...'}
                             </p>
                             {state.data.items.map((item: { id: number; name: string }) => (
                                 <div
                                     key={item.id}
-                                    className={`p-3 rounded-lg ${isRefreshError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}
+                                    className={`p-3 rounded-lg ${isInvalidateError ? 'bg-warning-50 border border-warning-200' : 'bg-default-100'}`}
                                 >
                                     <p className="font-semibold">{item.name}</p>
                                 </div>

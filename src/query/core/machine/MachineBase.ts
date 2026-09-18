@@ -91,8 +91,24 @@ export class MachineBase<TArgs, TData> {
         throw new MachineTransitionError("fail", this.state.status);
     }
 
-    /** success → invalidating, invalidate-error → invalidating */
+    /**
+     * success → invalidating, invalidate-error → invalidating, error → pending.
+     * Re-checks what is shown and clears the error; the caller's own view may
+     * still hold data the machine does not know about (previous args or a
+     * placeholder), which is why `error` is a valid origin.
+     */
     invalidate(): MachineBase<TArgs, TData> {
+        if (this.state.status === "error") {
+            const state: TPendingState<TArgs> = {
+                status: "pending",
+                args: this.state.args,
+                data: null,
+                error: null,
+                updatedAt: null,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
         if (this.state.status === "success") {
             const state: TInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
@@ -101,7 +117,6 @@ export class MachineBase<TArgs, TData> {
                 error: null,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
-                isRetrying: false,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -114,7 +129,6 @@ export class MachineBase<TArgs, TData> {
                 error: null,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
-                isRetrying: false,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -123,8 +137,9 @@ export class MachineBase<TArgs, TData> {
     }
 
     /**
-     * error → pending, invalidate-error → invalidating. Unlike {@link invalidate}, the
-     * retried failure stays in `error` and the target is marked `isRetrying`.
+     * error → pending, invalidate-error → invalidating. Unlike {@link invalidate},
+     * the retried failure stays in `error` — in an in-flight state that is what
+     * marks the run as a retry.
      */
     retry(): MachineBase<TArgs, TData> {
         if (this.state.status === "error") {
@@ -134,7 +149,6 @@ export class MachineBase<TArgs, TData> {
                 data: null,
                 error: this.state.error,
                 updatedAt: null,
-                isRetrying: true,
             };
             return new MachineBase<TArgs, TData>(state);
         }
@@ -147,7 +161,6 @@ export class MachineBase<TArgs, TData> {
                 error: this.state.error,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
-                isRetrying: true,
             };
             return new MachineBase<TArgs, TData>(state);
         }

@@ -149,9 +149,9 @@ const todosResource = api.createResource({
 
 ```tsx
 function TodoApp() {
-  const { data: todos, isLoading } = todosResource.useResource();
+  const { data: todos, hasData } = todosResource.useResource();
 
-  if (isLoading) return <p>Загрузка...</p>;
+  if (!hasData) return <p>Загрузка...</p>;
 
   return (
     <div>

@@ -35,8 +35,8 @@
 
 | Метод         | Параметры                     | Возвращаемое значение | Описание                                                            |
 |---------------|-------------------------------|-----------------------|---------------------------------------------------------------------|
-| `invalidate`  | —                             | `void`                | Помечает запись устаревшей: переводит в `invalidating` и перезапрашивает данные. |
-| `retry`       | —                             | `void`                | Перезапускает запрос после ошибки.                                         |
+| `invalidate`  | —                             | `void`                | Помечает запись устаревшей и перезапрашивает данные: `success` / `invalidate-error` → `invalidating`, `error` → `pending` со снятой ошибкой. На записи команды и при запросе в полёте — `console.warn` и no-op. |
+| `retry`       | —                             | `void`                | Перезапускает запрос после ошибки, сохраняя её видимой: `error` → `pending`, `invalidate-error` → `invalidating`. Вне этих статусов — `console.warn` и no-op. |
 | `createPatch` | `patchFn: (data: TData) => void` | `IPatchHandle \| null` | Создаёт оптимистичный патч. См. [Патчинг][patching-section].             |
 | `whenLoaded`  | `signal?: AbortSignal`        | `Promise<TData>`      | ⚠️ Экспериментально. Резолвится, как только у записи есть данные — включая устаревшие (`invalidating` / `invalidate-error`); реджектит на терминальной ошибке. Стоит за `Resource.ensure` / `prefetch`. |
 | `whenFetched` | `signal?: AbortSignal`        | `Promise<TData>`      | ⚠️ Экспериментально. Дожидается свежих данных (`success`), реджектит на `error` / `invalidate-error`. Стоит за `Resource.fetch`. |

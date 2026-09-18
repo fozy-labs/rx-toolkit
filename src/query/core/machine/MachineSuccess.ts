@@ -61,7 +61,6 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
             error: null,
             updatedAt: this.state.updatedAt,
             patchState: this.state.patchState,
-            isRetrying: false,
         };
         return new MachineInvalidating<TArgs, TData>(state);
     }

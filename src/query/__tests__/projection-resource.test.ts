@@ -296,9 +296,10 @@ describe("ProjectionResource", () => {
             expect(error).toBeInstanceOf(ProjectionItemMissingError);
             expect((error as ProjectionItemMissingError).ids).toEqual([3]);
 
-            // A failed invalidate keeps the stale data (regular invalidate-error semantics).
+            // A failed invalidation keeps the entry's own data (matrix row 9).
             const state = projection.getState([1, 2, 3]);
-            expect(state.status).toBe("invalidate-error");
+            expect(state.status).toBe("error");
+            expect(state.dataSource).toBe("current");
             expect(state.data?.map((user) => user.id)).toEqual([1, 2, 3]);
         });
 
@@ -435,7 +436,7 @@ describe("ProjectionResource", () => {
 
             // The stale items are still cached, but the invalidation run is gated
             // behind its refetch — the entry must not settle prematurely.
-            expect(projection.getState([1, 2]).status).toBe("invalidating");
+            expect(projection.getState([1, 2]).isInvalidating).toBe(true);
             expect(projection.getState([1, 2]).data?.map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
 
             deferred[1].resolve([

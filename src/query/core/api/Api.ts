@@ -123,6 +123,7 @@ export class Api implements IApi {
             mapError: this.apiMapError,
             onCacheEntryAdded: mergedOnCacheEntryAdded,
             onQueryStarted: mergedOnQueryStarted,
+            placeholderData: opts.placeholderData,
             snapshot: initialEntries,
             snapshotable: opts.snapshotable,
             allowStreamPatches: opts.allowStreamPatches,

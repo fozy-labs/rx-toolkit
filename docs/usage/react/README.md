@@ -52,16 +52,14 @@ function UserProfile({ userId }: { userId: string | null }) {
         userId ? { id: userId } : SKIP
     );
 
-    if (userQuery.isInitialLoading) {
-        return <div>Загрузка...</div>;
+    if (!userQuery.hasData) {
+        return userQuery.hasError
+            ? <div>Ошибка: {String(userQuery.error)}</div>
+            : <div>Загрузка...</div>;
     }
-    
-    if (userQuery.isError) {
-        return <div>Ошибка: {String(userQuery.error)}</div>;
-    }
-    
-    if (userQuery.isRefreshing) {
-        // Показываем данные + индикатор фонового перезапроса
+
+    if (userQuery.isInvalidating) {
+        // Показываем данные + индикатор инвалидации
     }
     
     return (
@@ -77,35 +75,39 @@ function UserProfile({ userId }: { userId: string | null }) {
 
 | Поле               | Тип              | Описание                              |
 |--------------------|------------------|---------------------------------------|
-| `status`           | `TClutchStatus`   | Текущий статус сцепления              |
+| `status`           | `TClutchStatus`  | `'idle'` · `'pending'` · `'success'` · `'error'` |
+| `dataSource`       | `'none' \| 'placeholder' \| 'previous' \| 'current'` | Что сейчас в `data` |
 | `data`             | `TData \| null`  | Данные ресурса                        |
-| `error`            | `unknown`        | Объект ошибки                         |
-| `args`             | `TArgs \| null`  | Аргументы последнего запроса          |
+| `error`            | `unknown`        | Ошибка последнего завершившегося запроса; живёт до следующего |
+| `args`             | `TArgs \| null`  | Аргументы текущего наблюдения         |
 | `dataArgs`         | `TArgs \| null`  | Аргументы, для которых загружены `data` |
-| `isLoading`        | `boolean`        | Любая загрузка (первая или повторная) |
-| `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
-| `isRefreshing`     | `boolean`        | Фоновый перезапрос (данные уже есть)  |
-| `isSwitching`      | `boolean`        | Загрузка новых аргументов поверх данных от предыдущих (SWR) |
-| `isRetrying`       | `boolean`        | Загрузка запущена через `retry()`; `error` хранит повторяемую ошибку |
-| `isRefreshError`   | `boolean`        | Ошибка фонового перезапроса           |
-| `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
-| `isError`          | `boolean`        | Произошла ли ошибка                   |
-| `retry()`          | `() => void`     | Повторить запрос после `error` / `invalidate-error` |
-| `invalidate()`     | `() => void`     | Инвалидировать данные с фоновым перезапросом |
+| `hasData`          | `boolean`        | Есть что показать                     |
+| `hasError`         | `boolean`        | Есть ошибка                           |
+| `isPending`        | `boolean`        | Запрос в полёте                       |
+| `isInitialLoading` | `boolean`        | Запрос в полёте: показать нечего либо только плейсхолдер |
+| `isSwitching`      | `boolean`        | Запрос в полёте, на экране данные предыдущих аргументов (SWR) |
+| `isInvalidating`   | `boolean`        | Запрос в полёте поверх данных текущих аргументов |
+| `retry()`          | `() => void`     | Повторить упавший запрос, оставив ошибку на экране |
+| `invalidate()`     | `() => void`     | Перезапросить показанное, сняв ошибку |
+
+Полная таблица вариантов состояния — в [API сцепления ресурса](../../query/api/resource-clutch.md#варианты-состояния).
 
 **Особенности:**
 - Автоматическая подписка на состояние ресурса
 - Умная инициация: не повторяет запрос для тех же аргументов
 - Поддержка `SKIP` токена для условного пропуска запроса
 - При смене аргументов показывает предыдущие данные во время загрузки новых
+- Пока идёт повтор упавшего запроса, истинны и `isPending`, и `hasError` — отдельного флага у него нет
 
 ### useSuspenseResource
 
-Suspense-вариант `useResource`. Вместо флагов загрузки/ошибки хук интегрируется с React Suspense и Error Boundary:
+Suspense-вариант `useResource`. Вместо флагов загрузки/ошибки хук интегрируется с React Suspense и Error Boundary. Решение принимается по порядку:
 
-- пока идёт **первичная** загрузка — бросает промис → показывается ближайший `<Suspense fallback>`;
-- если первичный запрос **упал** (и нет данных для отката) — бросает ошибку → её ловит ближайший `ErrorBoundary`;
-- иначе возвращает состояние, в котором `data` **гарантированно не `null`**.
+1. есть что показать (`hasData`) — возвращает состояние, в котором `data` **гарантированно не `null`**;
+2. `status === 'error'` и показать нечего — бросает ошибку → её ловит ближайший `ErrorBoundary`;
+3. иначе приостанавливает рендер → показывается ближайший `<Suspense fallback>`.
+
+Ошибка **за** данными предыдущих аргументов или за плейсхолдером не бросается: она приходит в возвращённом состоянии, потому что на экране есть что оставить.
 
 ```tsx
 import { Suspense } from 'react';
@@ -113,11 +115,11 @@ import { userResource } from '../api/userResource';
 
 function UserProfile({ userId }: { userId: string }) {
     // data типизирована как TData (без | null) — проверки не нужны
-    const { data, isRefreshing } = userResource.useSuspenseResource({ id: userId });
+    const { data, isInvalidating } = userResource.useSuspenseResource({ id: userId });
 
     return (
         <div>
-            <h1>{data.name} {isRefreshing && '🔄'}</h1>
+            <h1>{data.name} {isInvalidating && '🔄'}</h1>
             <p>{data.email}</p>
         </div>
     );
@@ -136,17 +138,18 @@ function Page({ userId }: { userId: string }) {
 
 > Если ресурс подключён через `reactHooksPlugin`, хук доступен как метод: `userResource.useSuspenseResource(args)`. Standalone-форма `useSuspenseResource(resource, args)` тоже экспортируется.
 
-**Возвращаемое значение (`TSuspenseResourceState`):** то же, что у `useResource` (`TResourceClutchState`), но поле `data` имеет тип `TData` вместо `TData | null`.
+**Возвращаемое значение (`TSuspenseResourceState`):** те же варианты, что у `useResource` (`TResourceClutchState`), суженные до `dataSource: 'placeholder' | 'previous' | 'current'` — поэтому `data` имеет тип `TData` вместо `TData | null`.
 
 **Особенности и отличия от `useResource`:**
 
-| Сценарий                          | Поведение                                                                 |
-|-----------------------------------|---------------------------------------------------------------------------|
-| Первичная загрузка                | Бросает промис → `<Suspense fallback>`                                     |
-| Первичная ошибка (нет данных)     | Бросает ошибку → `ErrorBoundary`                                           |
-| Фоновый перезапрос (SWR)          | **Не** приостанавливается: показывает stale-данные, `isRefreshing = true`  |
-| Ошибка фонового перезапроса (SWR) | **Не** приостанавливается: stale-данные остаются, `isRefreshError = true`  |
-| Кэш уже прогрет                   | Рендерится синхронно, без fallback                                         |
+| Сценарий                                   | Поведение                                                                    |
+|--------------------------------------------|------------------------------------------------------------------------------|
+| Первичная загрузка, показать нечего        | Приостанавливает рендер → `<Suspense fallback>`                               |
+| Первичная ошибка, показать нечего          | Бросает ошибку → `ErrorBoundary`                                              |
+| Инвалидация                                | **Не** приостанавливается: устаревшие данные на экране, `isInvalidating = true` |
+| Упавшая инвалидация                        | **Не** приостанавливается: `status = 'error'` при `dataSource = 'current'`     |
+| Загрузка / ошибка за данными предыдущих args или плейсхолдером | **Не** приостанавливается и не бросает: состояние возвращается как есть |
+| Кэш уже прогрет                            | Рендерится синхронно, без fallback                                            |
 
 - Запрос стартует **во время рендера** (а не в эффекте) — приостановленный рендер не выполняет эффекты, иначе fallback завис бы навсегда.
 - `SKIP` намеренно **не поддерживается**: компонент, который может приостановиться, всегда должен иметь аргументы. Для условных запросов используйте `useResource`.
@@ -183,11 +186,11 @@ function EditUserForm({ user }: { user: User }) {
             <input name="name" defaultValue={user.name} />
             <input name="email" defaultValue={user.email} />
             
-            <button type="submit" disabled={updateState.isLoading}>
-                {updateState.isLoading ? 'Сохранение...' : 'Сохранить'}
+            <button type="submit" disabled={updateState.isPending}>
+                {updateState.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
             
-            {updateState.isError && (
+            {updateState.hasError && (
                 <p className="error">Ошибка: {String(updateState.error)}</p>
             )}
         </form>
@@ -214,11 +217,12 @@ function EditUserForm({ user }: { user: User }) {
 |-------------|----------------------------------------------|------------------------|
 | `status`    | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус команды |
 | `data`      | `TData \| null`                              | Результат команды      |
-| `error`     | `unknown`                                    | Объект ошибки          |
+| `error`     | `unknown`                                    | Ошибка мутации; переживает повтор |
 | `args`      | `TArgs \| null`                              | Аргументы запуска      |
-| `isLoading` | `boolean`                                    | Выполняется ли команда |
-| `isSuccess` | `boolean`                                    | Успешно ли завершена   |
-| `isError`   | `boolean`                                    | Произошла ли ошибка    |
+| `isPending` | `boolean`                                    | Выполняется ли команда |
+| `hasData`   | `boolean`                                    | Успешно ли завершена   |
+| `hasError`  | `boolean`                                    | Есть ли ошибка         |
+| `retry()`   | `() => void`                                 | Перезапустить упавшую мутацию |
 
 ---
 
@@ -278,11 +282,11 @@ function Dashboard() {
     const userQuery = useResource(userResource, { id: currentUserId });
     const settingsQuery = useResource(settingsResource, undefined);
     
-    const isLoading = userQuery.isLoading || settingsQuery.isLoading;
-    const isError = userQuery.isError || settingsQuery.isError;
+    const hasData = userQuery.hasData && settingsQuery.hasData;
+    const hasError = userQuery.hasError || settingsQuery.hasError;
     
-    if (isLoading) return <Loader />;
-    if (isError) return <Error />;
+    if (hasError) return <Error />;
+    if (!hasData) return <Loader />;
     
     return (
         <div>

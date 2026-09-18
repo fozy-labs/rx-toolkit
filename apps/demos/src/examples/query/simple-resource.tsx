@@ -31,7 +31,7 @@ export function Base() {
                     </div>
                 )}
 
-                {state.isSuccess && state.data && (
+                {state.hasData && (
                     <>
                         <div className="space-y-2">
                             {state.data.items.map((item: { id: number; name: string; description: string }) => (

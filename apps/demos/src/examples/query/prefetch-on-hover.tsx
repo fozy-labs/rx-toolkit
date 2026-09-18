@@ -47,10 +47,10 @@ function UserDetail({ id }: { id: number }) {
     const [elapsedMs, setElapsedMs] = React.useState<number | null>(null);
 
     React.useEffect(() => {
-        if (state.isSuccess && elapsedMs === null) {
+        if (state.hasData && elapsedMs === null) {
             setElapsedMs(Math.round(performance.now() - startRef.current));
         }
-    }, [state.isSuccess, elapsedMs]);
+    }, [state.hasData, elapsedMs]);
 
     if (state.isInitialLoading) {
         return (

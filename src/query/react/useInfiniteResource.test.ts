@@ -7,6 +7,7 @@ import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurr
 import { createApi } from "@/query/api/createApi";
 import { SKIP } from "@/query/constants";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
+import { useInfiniteResource } from "@/query/react/useInfiniteResource";
 import type { TInfiniteResourceState } from "@/query/types";
 
 const h = React.createElement;
@@ -16,10 +17,18 @@ const h = React.createElement;
 type TUser = { id: number; name: string };
 type TBatchQueryArgs = { userIds: number[] };
 
-function createProjectionSetup(options?: { version?: () => string; failOn?: (ids: number[]) => boolean }) {
+function createProjectionSetup(options?: {
+    version?: () => string;
+    failOn?: (ids: number[]) => boolean;
+    errorFor?: (ids: number[]) => Error | null;
+}) {
     const api = createApi({ plugins: [reactHooksPlugin()] });
     const version = options?.version ?? (() => "v1");
     const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> => {
+        const error = options?.errorFor?.(args.userIds) ?? null;
+        if (error !== null) {
+            throw error;
+        }
         if (options?.failOn?.(args.userIds)) {
             throw new Error("network down");
         }
@@ -36,6 +45,36 @@ function createProjectionSetup(options?: { version?: () => string; failOn?: (ids
     return { api, queryFn, projection };
 }
 
+interface DeferredCall {
+    args: TBatchQueryArgs;
+    resolve: (users: TUser[]) => void;
+    reject: (error: unknown) => void;
+}
+
+/** The same projection, but every batch query hangs until the test settles it. */
+function createDeferredSetup() {
+    const api = createApi({ plugins: [reactHooksPlugin()] });
+    const calls: DeferredCall[] = [];
+    const queryFn = vi.fn(
+        (args: TBatchQueryArgs) =>
+            new Promise<TUser[]>((resolve, reject) => {
+                calls.push({ args, resolve, reject });
+            }),
+    );
+    const userResource = api.createResource({ queryFn });
+    const projection = api.unstable_createProjectionResource({
+        resource: userResource,
+        parseData: (data) => data.map((item) => ({ id: item.id, item })),
+        makeArgs: (ids) => ({ userIds: ids }),
+        retentionTime: false,
+    });
+    return { api, queryFn, projection, calls };
+}
+
+function users(ids: number[], suffix = ""): TUser[] {
+    return ids.map((id) => ({ id, name: `user-${id}${suffix}` }));
+}
+
 interface Captured {
     state: TInfiniteResourceState<number[], TUser[], unknown>;
     rerender: (args: number[] | typeof SKIP) => void;
@@ -43,13 +82,15 @@ interface Captured {
 
 /** Render a probe component around useInfiniteResource and expose the live state. */
 function setup(
-    useInfiniteResource: (initialArgs: number[] | typeof SKIP) => TInfiniteResourceState<number[], TUser[], unknown>,
+    useInfiniteResourceHook: (
+        initialArgs: number[] | typeof SKIP,
+    ) => TInfiniteResourceState<number[], TUser[], unknown>,
     initialArgs: number[] | typeof SKIP,
 ): Captured {
     const captured = {} as Captured;
 
     function Probe({ args }: { args: number[] | typeof SKIP }) {
-        captured.state = useInfiniteResource(args);
+        captured.state = useInfiniteResourceHook(args);
         return null;
     }
 
@@ -60,6 +101,19 @@ function setup(
 
 async function settle(): Promise<void> {
     await act(async () => {
+        await flushMicrotasks();
+        await flushMicrotasks();
+    });
+}
+
+/** Resolve / reject a hanging batch query and flush everything it wakes up. */
+async function settleCall(call: DeferredCall, outcome: TUser[] | Error): Promise<void> {
+    await act(async () => {
+        if (outcome instanceof Error) {
+            call.reject(outcome);
+        } else {
+            call.resolve(outcome);
+        }
         await flushMicrotasks();
         await flushMicrotasks();
     });
@@ -79,32 +133,15 @@ describe("useInfiniteResource", () => {
         await settle();
 
         expect(c.state.isInitialLoading).toBe(false);
-        expect(c.state.isLoading).toBe(false);
+        expect(c.state.isPending).toBe(false);
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2]);
     });
 
     it("fetchNext appends a page and flattens data in page order", async () => {
-        const api = createApi({ plugins: [reactHooksPlugin()] });
-        const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
-        const queryFn = vi.fn(
-            (args: TBatchQueryArgs) =>
-                new Promise<TUser[]>((resolve) => {
-                    deferred.push({ args, resolve });
-                }),
-        );
-        const userResource = api.createResource({ queryFn });
-        const projection = api.unstable_createProjectionResource({
-            resource: userResource,
-            parseData: (data) => data.map((item) => ({ id: item.id, item })),
-            makeArgs: (ids) => ({ userIds: ids }),
-            retentionTime: false,
-        });
+        const { projection, queryFn, calls } = createDeferredSetup();
 
         const c = setup(projection.useInfiniteResource, [1, 2]);
-        await act(async () => {
-            deferred[0].resolve([1, 2].map((id) => ({ id, name: `user-${id}` })));
-            await flushMicrotasks();
-        });
+        await settleCall(calls[0], users([1, 2]));
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2]);
 
         await act(async () => {
@@ -112,16 +149,13 @@ describe("useInfiniteResource", () => {
             await flushMicrotasks();
         });
         expect(c.state.pages).toHaveLength(2);
-        expect(c.state.isFetchingNext).toBe(true);
+        expect(c.state.isLoadingNext).toBe(true);
         // Loaded data stays visible while the tail loads.
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2]);
 
-        await act(async () => {
-            deferred[1].resolve([3, 4].map((id) => ({ id, name: `user-${id}` })));
-            await flushMicrotasks();
-        });
+        await settleCall(calls[1], users([3, 4]));
 
-        expect(c.state.isFetchingNext).toBe(false);
+        expect(c.state.isLoadingNext).toBe(false);
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2, 3, 4]);
         expect(queryFn.mock.calls.map((call) => call[0])).toEqual([{ userIds: [1, 2] }, { userIds: [3, 4] }]);
     });
@@ -163,7 +197,7 @@ describe("useInfiniteResource", () => {
         act(() => c.state.fetchNext([3]));
         await settle();
 
-        expect(c.state.isError).toBe(true);
+        expect(c.state.hasError).toBe(true);
         expect(c.state.error).toBeInstanceOf(Error);
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2]);
 
@@ -171,7 +205,7 @@ describe("useInfiniteResource", () => {
         act(() => c.state.fetchNext([3]));
         await settle();
 
-        expect(c.state.isError).toBe(false);
+        expect(c.state.hasError).toBe(false);
         expect(c.state.data?.map((user) => user.id)).toEqual([1, 2, 3]);
         expect(c.state.pages).toHaveLength(2);
     });
@@ -254,52 +288,34 @@ describe("useInfiniteResource", () => {
     });
 
     it("keeps the data array identity across a success -> invalidating flip (page data refs unchanged)", async () => {
-        const api = createApi({ plugins: [reactHooksPlugin()] });
-        const deferred: Array<{ args: TBatchQueryArgs; resolve: (users: TUser[]) => void }> = [];
-        const queryFn = vi.fn(
-            (args: TBatchQueryArgs) =>
-                new Promise<TUser[]>((resolve) => {
-                    deferred.push({ args, resolve });
-                }),
-        );
-        const userResource = api.createResource({ queryFn });
-        const projection = api.unstable_createProjectionResource({
-            resource: userResource,
-            parseData: (data) => data.map((item) => ({ id: item.id, item })),
-            makeArgs: (ids) => ({ userIds: ids }),
-            retentionTime: false,
-        });
+        const { projection, calls } = createDeferredSetup();
 
         const c = setup(projection.useInfiniteResource, [1, 2]);
-        await act(async () => {
-            deferred[0].resolve([1, 2].map((id) => ({ id, name: `user-${id}` })));
-            await flushMicrotasks();
-        });
+        await settleCall(calls[0], users([1, 2]));
         act(() => c.state.fetchNext([3, 4]));
-        await act(async () => {
-            deferred[1].resolve([3, 4].map((id) => ({ id, name: `user-${id}` })));
-            await flushMicrotasks();
-        });
+        await settleCall(calls[1], users([3, 4]));
 
         const dataBefore = c.state.data;
         const pagesBefore = c.state.pages;
         expect(dataBefore?.map((user) => user.id)).toEqual([1, 2, 3, 4]);
 
         // Kick off an invalidation; the queries stay in flight (deferred), so every
-        // page flips success -> invalidating while reusing its data by reference.
+        // page flips success -> pending while reusing its data by reference.
         await act(async () => {
             c.state.invalidate();
             await flushMicrotasks();
         });
 
         expect(c.state.pages).not.toBe(pagesBefore); // a new emission happened
-        expect(c.state.pages.map((page) => page.status)).toEqual(["invalidating", "invalidating"]);
+        expect(c.state.pages.map((page) => page.status)).toEqual(["pending", "pending"]);
+        expect(c.state.pages.map((page) => page.dataSource)).toEqual(["current", "current"]);
+        expect(c.state.isInvalidating).toBe(true);
         // Pure status flip, no data change — the flattened array keeps identity.
         expect(c.state.data).toBe(dataBefore);
 
         await act(async () => {
-            deferred[2].resolve([1, 2].map((id) => ({ id, name: `user-${id}-v2` })));
-            deferred[3].resolve([3, 4].map((id) => ({ id, name: `user-${id}-v2` })));
+            calls[2].resolve(users([1, 2], "-v2"));
+            calls[3].resolve(users([3, 4], "-v2"));
             await flushMicrotasks();
         });
 
@@ -350,6 +366,7 @@ describe("useInfiniteResource", () => {
         // The page re-emitted through the projection's live stream.
         expect(c.state.data?.map((user) => user.name)).toEqual(["user-1-v2", "user-2-v1"]);
     });
+
     it("settles an initial-args change made inside startTransition without a render loop", async () => {
         const { projection } = createProjectionSetup();
 
@@ -384,6 +401,396 @@ describe("useInfiniteResource", () => {
         expect(renders).toBeLessThanOrEqual(4);
 
         await act(async () => {});
+    });
+});
+
+// ==================== Aggregate flags ====================
+
+describe("useInfiniteResource — flags", () => {
+    it("isIdle: true only while there is no page at all", async () => {
+        const { projection } = createProjectionSetup();
+
+        const c = setup(projection.useInfiniteResource, SKIP);
+        expect(c.state.isIdle).toBe(true);
+        expect(c.state.isInitialLoading).toBe(false);
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.isLoadingNext).toBe(false);
+        expect(c.state.isInvalidating).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
+        expect(c.state.error).toBeNull();
+
+        c.rerender([1, 2]);
+        expect(c.state.isIdle).toBe(false);
+        await settle();
+        expect(c.state.isIdle).toBe(false);
+    });
+
+    it("isInitialLoading: follows the first page only", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        expect(c.state.isInitialLoading).toBe(true);
+        expect(c.state.pages[0].isInitialLoading).toBe(true);
+
+        await settleCall(calls[0], users([1, 2]));
+        expect(c.state.isInitialLoading).toBe(false);
+
+        // A second page loading does not make the feed "initially loading".
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+        expect(c.state.pages[1].isInitialLoading).toBe(true);
+        expect(c.state.isInitialLoading).toBe(false);
+    });
+
+    it("isPending: true while any page has a query in flight", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        expect(c.state.isPending).toBe(true);
+
+        await settleCall(calls[0], users([1, 2]));
+        expect(c.state.isPending).toBe(false);
+
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+        // Only the tail page is in flight — the aggregate is still pending.
+        expect(c.state.pages.map((page) => page.isPending)).toEqual([false, true]);
+        expect(c.state.isPending).toBe(true);
+
+        await settleCall(calls[1], users([3]));
+        expect(c.state.isPending).toBe(false);
+    });
+
+    it("isLoadingNext: only pages beyond the first count", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        // The first page's initial load is not "loading next".
+        expect(c.state.isLoadingNext).toBe(false);
+
+        await settleCall(calls[0], users([1, 2]));
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+        expect(c.state.isLoadingNext).toBe(true);
+
+        await settleCall(calls[1], users([3]));
+        expect(c.state.isLoadingNext).toBe(false);
+    });
+
+    it("isInvalidating: true while a page is re-queried behind its own data", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        expect(c.state.isInvalidating).toBe(false); // the initial load is not an invalidation
+
+        await settleCall(calls[0], users([1, 2]));
+        expect(c.state.isInvalidating).toBe(false);
+
+        await act(async () => {
+            c.state.invalidate();
+            await flushMicrotasks();
+        });
+        expect(c.state.isInvalidating).toBe(true);
+        expect(c.state.isPending).toBe(true);
+        expect(c.state.isLoadingNext).toBe(false);
+        expect(c.state.isInitialLoading).toBe(false);
+
+        await settleCall(calls[1], users([1, 2], "-v2"));
+        expect(c.state.isInvalidating).toBe(false);
+    });
+
+    it("hasData: mirrors data !== null", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        expect(c.state.data).toBeNull();
+        expect(c.state.hasData).toBe(false);
+
+        await settleCall(calls[0], users([1, 2]));
+        expect(c.state.data).not.toBeNull();
+        expect(c.state.hasData).toBe(true);
+    });
+
+    it("error: the first error in page order, hasError mirrors it, and it survives a retry", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1]);
+        expect(c.state.hasError).toBe(false);
+        expect(c.state.error).toBeNull();
+
+        await settleCall(calls[0], new Error("first page down"));
+        expect(c.state.hasError).toBe(true);
+        expect((c.state.error as Error).message).toBe("first page down");
+
+        // A second, also failing page must not displace the first error.
+        await act(async () => {
+            c.state.fetchNext([2]);
+            await flushMicrotasks();
+        });
+        await settleCall(calls[1], new Error("second page down"));
+        expect((c.state.error as Error).message).toBe("first page down");
+
+        // The retry of the first page is in flight — the error stays readable.
+        await act(async () => {
+            c.state.fetchNext([1]);
+            await flushMicrotasks();
+        });
+        expect(c.state.isPending).toBe(true);
+        expect(c.state.hasError).toBe(true);
+        expect((c.state.error as Error).message).toBe("first page down");
+
+        await settleCall(calls[2], users([1]));
+        expect((c.state.error as Error).message).toBe("second page down");
+    });
+
+    it("isInvalidating and isLoadingNext are both true after invalidating a feed whose last page failed", async () => {
+        const { projection, calls } = createDeferredSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        await settleCall(calls[0], users([1, 2]));
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+        await settleCall(calls[1], new Error("tail down"));
+
+        expect(c.state.pages.map((page) => page.status)).toEqual(["success", "error"]);
+
+        await act(async () => {
+            c.state.invalidate();
+            await flushMicrotasks();
+        });
+
+        // Page 0 re-queries behind its data, page 1 retries with nothing to show:
+        // the three loading flags are not a partition of isPending.
+        expect(c.state.isPending).toBe(true);
+        expect(c.state.isInvalidating).toBe(true);
+        expect(c.state.isLoadingNext).toBe(true);
+        expect(c.state.isInitialLoading).toBe(false);
+    });
+});
+
+// ==================== Per-page dispatch and invariants ====================
+
+describe("useInfiniteResource — per-page dispatch", () => {
+    it("invalidate() invalidates pages with data, retries failed ones and skips in-flight ones", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { projection, queryFn, calls } = createDeferredSetup();
+
+            const c = setup(projection.useInfiniteResource, [1]);
+            await settleCall(calls[0], users([1]));
+
+            // Page 1 fails; page 2 stays in flight.
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+            await settleCall(calls[1], new Error("page 2 down"));
+            await act(async () => {
+                c.state.fetchNext([3]);
+                await flushMicrotasks();
+            });
+
+            expect(c.state.pages.map((page) => page.status)).toEqual(["success", "error", "pending"]);
+            expect(queryFn).toHaveBeenCalledTimes(3);
+
+            await act(async () => {
+                c.state.invalidate();
+                await flushMicrotasks();
+            });
+
+            // Page 0 → invalidate(), page 1 → retry(), page 2 → skipped.
+            expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
+                { userIds: [1] },
+                { userIds: [2] },
+                { userIds: [3] },
+                { userIds: [1] },
+                { userIds: [2] },
+            ]);
+            // Nothing was dispatched along an undrawn edge.
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it("invalidate() on an idle feed does nothing and does not warn", () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { projection, queryFn } = createProjectionSetup();
+
+            const c = setup(projection.useInfiniteResource, SKIP);
+            act(() => c.state.invalidate());
+
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it("fetchNext() on a known page retries it after a failure and is a no-op otherwise", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { projection, queryFn, calls } = createDeferredSetup();
+
+            const c = setup(projection.useInfiniteResource, [1]);
+            await settleCall(calls[0], users([1]));
+
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+            await settleCall(calls[1], new Error("down"));
+            expect(c.state.pages[1].status).toBe("error");
+
+            // Known page, failed → retried, no new page.
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+            expect(c.state.pages).toHaveLength(2);
+            expect(c.state.pages[1].status).toBe("pending");
+            expect(queryFn).toHaveBeenCalledTimes(3);
+
+            // Known page, already in flight → no-op.
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+            expect(queryFn).toHaveBeenCalledTimes(3);
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it("fetchNext() also retries a page whose re-query failed behind its data (row 9)", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { projection, queryFn, calls } = createDeferredSetup();
+
+            const c = setup(projection.useInfiniteResource, [1]);
+            await settleCall(calls[0], users([1]));
+
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+            await settleCall(calls[1], users([2]));
+
+            // Fail an invalidation of the second page: it keeps its data, so the
+            // page sits in row 9 — `status: "error"` with `dataSource: "current"`.
+            await act(async () => {
+                c.state.invalidate();
+                await flushMicrotasks();
+            });
+            await settleCall(calls[2], new Error("down"));
+            await settleCall(calls[3], new Error("down"));
+
+            expect(c.state.pages[1].status).toBe("error");
+            expect(c.state.pages[1].dataSource).toBe("current");
+            expect(c.state.pages[1].hasData).toBe(true);
+
+            const before = queryFn.mock.calls.length;
+
+            await act(async () => {
+                c.state.fetchNext([2]);
+                await flushMicrotasks();
+            });
+
+            // Retried, not ignored, and no page was appended.
+            expect(c.state.pages).toHaveLength(2);
+            expect(c.state.pages[1].isPending).toBe(true);
+            expect(queryFn.mock.calls.length).toBe(before + 1);
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it("page invariants: dataSource stays none | current and isSwitching is always false", async () => {
+        const { projection, calls } = createDeferredSetup();
+        const seen: string[] = [];
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+
+        const record = () => {
+            for (const page of c.state.pages) {
+                seen.push(page.dataSource);
+                expect(page.isSwitching).toBe(false);
+                expect(["none", "current"]).toContain(page.dataSource);
+            }
+        };
+
+        record(); // initial load
+        await settleCall(calls[0], users([1, 2]));
+        record(); // success
+
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+        record(); // tail loading
+        await settleCall(calls[1], new Error("down"));
+        record(); // tail failed
+
+        await act(async () => {
+            c.state.invalidate();
+            await flushMicrotasks();
+        });
+        record(); // head invalidating, tail retrying
+
+        expect(seen).toContain("none");
+        expect(seen).toContain("current");
+    });
+
+    it("data only takes pages holding data of their own args — a placeholder never reaches the feed", async () => {
+        // The hook accepts any resource; a plain one with `placeholderData`
+        // produces the `dataSource: "placeholder"` page the projection resource
+        // cannot (see the page invariants above), which is exactly the case the
+        // `current`-only filter in `_flattenData` guards against.
+        const api = createApi();
+        const calls: Array<{ resolve: (users: TUser[]) => void }> = [];
+        const resource = api.createResource<{ page: number }, TUser[]>({
+            queryFn: () =>
+                new Promise<TUser[]>((resolve) => {
+                    calls.push({ resolve });
+                }),
+            placeholderData: ({ page }) => ({ data: [{ id: 900 + page, name: "ghost" }] }),
+        });
+
+        let state!: TInfiniteResourceState<{ page: number }, TUser[], unknown>;
+        function Probe() {
+            state = useInfiniteResource(resource, { page: 1 });
+            return null;
+        }
+        render(h(Probe));
+
+        // The page itself has something to show, the feed does not: those items
+        // belong to no page of the feed.
+        expect(state.pages[0].dataSource).toBe("placeholder");
+        expect(state.pages[0].hasData).toBe(true);
+        expect(state.data).toBeNull();
+        expect(state.hasData).toBe(false);
+
+        await act(async () => {
+            calls[0].resolve([{ id: 1, name: "real" }]);
+            await flushMicrotasks();
+            await flushMicrotasks();
+        });
+
+        expect(state.pages[0].dataSource).toBe("current");
+        expect(state.data?.map((user) => user.name)).toEqual(["real"]);
+        expect(state.hasData).toBe(true);
     });
 });
 

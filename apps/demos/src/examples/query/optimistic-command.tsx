@@ -106,14 +106,14 @@ export function Base() {
                 <CardBody className="space-y-4">
                     {/* Состояние команды */}
                     <div className="flex gap-2 flex-wrap">
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isLoading ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                            isLoading: {String(commandState.isLoading)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isPending ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                            isPending: {String(commandState.isPending)}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
-                            isSuccess: {String(commandState.isSuccess)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.hasData ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
+                            hasData: {String(commandState.hasData)}
                         </span>
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                            isError: {String(commandState.isError)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${commandState.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            hasError: {String(commandState.hasError)}
                         </span>
                         <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                             status: {commandState.status}
@@ -141,7 +141,7 @@ export function Base() {
                                 <Checkbox
                                     isSelected={item.completed}
                                     onValueChange={() => handleToggle(item)}
-                                    isDisabled={commandState.isLoading}
+                                    isDisabled={commandState.isPending}
                                 />
                                 <span className={`flex-1 ${item.completed ? 'line-through text-default-400' : ''}`}>
                                     {item.text}

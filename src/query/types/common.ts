@@ -16,9 +16,10 @@ export type TArgsOrVoidOrSkip<TArgs> = TArgs extends void ? void | typeof SKIP :
 
 export type TMachineStatus = "pending" | "success" | "error" | "invalidating" | "invalidate-error";
 
-// `isRetrying` marks a load started by `retry()` from a failed state; the
-// failure it retries stays in `error` until the load settles. A first load or a
-// plain `invalidate()` reports `isRetrying: false` with `error: null`.
+// In the in-flight states (`pending`, `invalidating`) `error` is the failure the
+// run retries: a load started by `retry()` carries it until the run settles,
+// while a first load or a plain `invalidate()` has `error: null`. There is no
+// separate retry flag — a retry in flight *is* `error !== null`.
 
 export interface TPendingState<TArgs> {
     status: "pending";
@@ -26,7 +27,6 @@ export interface TPendingState<TArgs> {
     data: null;
     error: unknown;
     updatedAt: null;
-    isRetrying: boolean;
 }
 
 export interface TSuccessState<TArgs, TData> {
@@ -53,7 +53,6 @@ export interface TInvalidatingState<TArgs, TData> {
     error: unknown;
     updatedAt: number;
     patchState: TPatchState<TData> | null;
-    isRetrying: boolean;
 }
 
 export interface TInvalidateErrorState<TArgs, TData> {
@@ -93,7 +92,13 @@ export interface IPatchHandle {
 
 // ==================== Clutch Types ====================
 
-export type TClutchStatus = TMachineStatus | "idle";
+/**
+ * Status of a clutch state. Unlike {@link TMachineStatus} (the status of one
+ * cache entry), it says only whether a query is in flight and how the last one
+ * settled: a background invalidation is `pending`, a failed one is `error`.
+ * What is on screen meanwhile is told by `dataSource`.
+ */
+export type TClutchStatus = "idle" | "pending" | "success" | "error";
 
 // ==================== Deprecated Aliases ====================
 

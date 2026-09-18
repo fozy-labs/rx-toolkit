@@ -45,7 +45,9 @@ let nextId = 1;
 export function Base() {
     const state = todoResource.useResource();
     const [patches, setPatches] = React.useState<PatchDemoItem[]>([]);
-    const { isRefreshError } = state;
+    // A failed invalidation: the data of the current args is still on screen
+    // (row 9 of the state matrix) — pending patches survive it.
+    const isInvalidateError = state.hasError && state.dataSource === 'current';
 
     const applyPatch = (patchName: string, patchFn: (data: TodoList) => void) => {
         const handle = todoResource.getEntry()?.createPatch(patchFn);
@@ -114,8 +116,8 @@ export function Base() {
                 <CardHeader className="flex justify-between items-center">
                     <h3 className="text-xl font-bold">📝 Заявки на отпуск </h3>
                     <div className="flex gap-2 items-center">
-                        <span className={`px-2 py-1 rounded text-xs font-mono ${isRefreshError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                            isRefreshError: {String(isRefreshError)}
+                        <span className={`px-2 py-1 rounded text-xs font-mono ${isInvalidateError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                            ошибка инвалидации: {String(isInvalidateError)}
                         </span>
                         <Button color="primary" size="sm" onPress={handleAddItem}>
                             ➕ Новая заявка

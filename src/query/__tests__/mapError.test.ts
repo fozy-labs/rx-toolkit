@@ -50,7 +50,7 @@ describe("mapError — resource state", () => {
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.isError).toBe(true);
+        expect(state.hasError).toBe(true);
         expect(state.error).toBeInstanceOf(NetUnknownError);
         expect((state.error as NetUnknownError).original).toBeInstanceOf(Error);
     });
@@ -90,7 +90,7 @@ describe("mapError — resource state", () => {
         expect(resource.getState(1).error).toBe(produced);
     });
 
-    it("maps an invalidation failure into invalidate-error while keeping stale data", async () => {
+    it("maps a failed invalidation into an error keeping the entry's own data", async () => {
         let calls = 0;
         const api = createApi({ mapError: toNetError });
         const resource = api.createResource<number, string>({
@@ -110,8 +110,9 @@ describe("mapError — resource state", () => {
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.status).toBe("invalidate-error");
-        expect(state.isRefreshError).toBe(true);
+        expect(state.status).toBe("error");
+        expect(state.dataSource).toBe("current");
+        expect(state.hasError).toBe(true);
         expect(state.data).toBe("good");
         expect(state.error).toBeInstanceOf(NetError);
     });
@@ -156,7 +157,7 @@ describe("mapError — resource clutch and imperative fetch", () => {
         await flushMicrotasks();
 
         const state = clutch.state$.peek();
-        expect(state.isError).toBe(true);
+        expect(state.hasError).toBe(true);
         expect(state.error).toBeInstanceOf(NetError);
     });
 
@@ -271,7 +272,7 @@ describe("mapError — robustness", () => {
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.isError).toBe(true);
+        expect(state.hasError).toBe(true);
         expect(state.error).toBe(raw);
         expect(consoleError).toHaveBeenCalled();
 

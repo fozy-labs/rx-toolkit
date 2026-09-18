@@ -63,16 +63,30 @@ describe("useResource", () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
+        // Row 2 — the initial load with nothing to show.
         expect(c.state.status).toBe("pending");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.isPending).toBe(true);
+        expect(c.state.isInitialLoading).toBe(true);
+        expect(c.state.isSwitching).toBe(false);
+        expect(c.state.isInvalidating).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
         expect(c.state.args).toEqual({ id: 1 });
 
         await settle();
 
+        // Row 5 — success.
         expect(c.state.status).toBe("success");
+        expect(c.state.dataSource).toBe("current");
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.hasData).toBe(true);
+        expect(c.state.hasError).toBe(false);
         expect(c.state.data).toEqual({ id: 1, name: "user-1" });
+        expect(c.state.dataArgs).toEqual({ id: 1 });
     });
 
-    it("keeps the previous data as invalidating while the new args load (SWR), with no pending flash", async () => {
+    it("keeps the previous data on screen while the new args load (SWR), with no empty flash", async () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
@@ -82,15 +96,22 @@ describe("useResource", () => {
         c.history.length = 0;
         c.rerender({ id: 2 });
 
-        // The very first render on the new args already carries the stale data.
-        expect(c.history[0].status).toBe("invalidating");
+        // Row 4 — the very first render on the new args already carries the stale data.
+        expect(c.history[0].status).toBe("pending");
+        expect(c.history[0].dataSource).toBe("previous");
+        expect(c.history[0].isSwitching).toBe(true);
+        expect(c.history[0].isInitialLoading).toBe(false);
+        expect(c.history[0].isInvalidating).toBe(false);
         expect(c.history[0].data).toEqual({ id: 1, name: "user-1" });
         expect(c.history[0].args).toEqual({ id: 2 });
-        expect(c.history.map((s) => s.status)).not.toContain("pending");
+        expect(c.history[0].dataArgs).toEqual({ id: 1 });
+        // Nothing to show never happens in between.
+        expect(c.history.map((s) => s.hasData)).not.toContain(false);
 
         await settle();
 
         expect(c.state.status).toBe("success");
+        expect(c.state.dataSource).toBe("current");
         expect(c.state.data).toEqual({ id: 2, name: "user-2" });
     });
 
@@ -107,6 +128,7 @@ describe("useResource", () => {
         c.rerender({ id: 1 });
 
         expect(c.history[0].status).toBe("success");
+        expect(c.history[0].dataSource).toBe("current");
         expect(c.history[0].data).toEqual({ id: 1, name: "user-1" });
     });
 
@@ -114,7 +136,13 @@ describe("useResource", () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, SKIP);
+        // Row 1 — nothing observed.
         expect(c.state.status).toBe("idle");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
+        expect(c.state.args).toBeNull();
 
         c.rerender({ id: 1 });
         expect(c.state.status).toBe("pending");
@@ -123,7 +151,9 @@ describe("useResource", () => {
 
         c.rerender(SKIP);
         expect(c.state.status).toBe("idle");
+        expect(c.state.dataSource).toBe("none");
         expect(c.state.data).toBeNull();
+        expect(c.state.hasData).toBe(false);
     });
 
     it("re-rendering with an equal args literal keeps the same clutch state", async () => {

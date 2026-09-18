@@ -63,14 +63,14 @@ class ProfileErrorBoundary extends React.Component<BoundaryProps, { error: Error
 // Этот компонент «приостанавливается»: пока данных нет — useSuspenseResource бросает
 // промис, и React показывает ближайший <Suspense fallback>. data всегда не null.
 function ProfileCard({ id }: { id: number }) {
-    const { data, isRefreshing } = userResource.useSuspenseResource({ id });
+    const { data, isInvalidating } = userResource.useSuspenseResource({ id });
 
     return (
         <div className="p-4 bg-default-100 rounded-lg flex items-center gap-4">
             <span className="text-4xl">{data.emoji}</span>
             <div>
                 <p className="text-lg font-bold">
-                    {data.name} {isRefreshing && '🔄'}
+                    {data.name} {isInvalidating && '🔄'}
                 </p>
                 <p className="text-sm text-default-500">{data.role}</p>
                 <p className="text-xs text-default-400 mt-1">user #{data.id}</p>

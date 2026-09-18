@@ -1,11 +1,10 @@
 import type {
+    TErrorSlot,
     TInvalidateErrorState,
     TInvalidatingState,
     TMachineState,
     TPatchEntry,
     TPatchState,
-    TPendingState,
-    TRetrying,
     TSuccessState,
 } from "@/query/types";
 
@@ -19,19 +18,17 @@ export function isDataState<TArgs, TData>(state: TMachineState<TArgs, TData>): s
     return state.status === "success" || state.status === "invalidating" || state.status === "invalidate-error";
 }
 
-/** No retry in flight: the shape of a first load or a plain invalidation. */
-export const NOT_RETRYING: TRetrying<never> = { isRetrying: false, error: null };
-
 /**
- * The retry bookkeeping of an in-flight machine state as the {@link TRetrying}
- * union, for the derived (clutch / entry) states. The cast is sound per the
- * mapError contract: the machine only holds errors already normalized to
- * `TError` at the queryFn boundary.
+ * The error slot of a derived (clutch / entry) state built from a machine
+ * state's `error`. In an in-flight state a non-null `error` is the failure the
+ * run retries, and it survives into the next load — so `isPending && hasError`
+ * is a retry in flight.
+ *
+ * The cast is sound per the mapError contract: the machine only ever holds
+ * errors already normalized to `TError` at the queryFn boundary.
  */
-export function retryingOf<TArgs, TData, TError>(
-    state: TPendingState<TArgs> | TInvalidatingState<TArgs, TData>,
-): TRetrying<TError> {
-    return state.isRetrying ? { isRetrying: true, error: state.error as TError } : NOT_RETRYING;
+export function errorSlotOf<TError>(error: unknown): TErrorSlot<TError> {
+    return error !== null ? { hasError: true, error: error as TError } : { hasError: false, error: null };
 }
 
 export function buildDataState<TArgs, TData>(
@@ -56,17 +53,16 @@ export function buildDataState<TArgs, TData>(
             return state;
         }
         case "invalidating": {
-            // Patch operations rebuild the state in place: keep the retry
-            // bookkeeping of a retrying invalidation.
-            const retrying = base.status === "invalidating" && base.isRetrying;
+            // Patch operations rebuild the state in place: a retry in flight is
+            // `error !== null`, so rebuilding an invalidating state on top of an
+            // invalidating one must not lose the retried failure.
             const state: TInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
                 args: base.args,
                 data,
-                error: retrying ? base.error : null,
+                error: base.status === "invalidating" ? base.error : null,
                 updatedAt: resolvedUpdatedAt,
                 patchState,
-                isRetrying: retrying,
             };
             return state;
         }

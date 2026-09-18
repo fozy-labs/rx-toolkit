@@ -11,7 +11,7 @@ const ordersFeed = api.createResource({
 });
 
 // Компонент подписывается как обычно — данные обновляются с каждой эмиссией
-const { data, isLoading } = ordersFeed.useResource({ deskId: 'main' });
+const { data, isPending } = ordersFeed.useResource({ deskId: 'main' });
 ```
 
 Тип возврата описан как `TQueryFnResult<TData> = Promise<TData> | Observable<TData>`; ветка выбирается в рантайме через `isObservable`. Всё остальное — сцепления, `useResource` / `useSuspenseResource`, SWR, `ensure` / `fetch` / `prefetch`, devtools — работает без изменений.

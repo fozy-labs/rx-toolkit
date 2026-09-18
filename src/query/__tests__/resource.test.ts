@@ -1677,7 +1677,7 @@ describe("Error flows", () => {
 
         // invalidate-error allows invalidate() again
         entry.invalidate();
-        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", isRetrying: false, error: null });
+        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", error: null });
         await flushMicrotasks();
 
         expect(entry.machine$.peek().state.status).toBe("success");
@@ -1706,17 +1706,20 @@ describe("Error flows", () => {
 
         const failure = entry.machine$.peek().state.error;
         entry.retry();
+        // A retry in flight is the machine holding the failure it retries.
         expect(entry.machine$.peek().state).toMatchObject({
             status: "invalidating",
             data: "initial",
             error: failure,
-            isRetrying: true,
         });
+        // Matrix row 12 at the entry level.
         expect(resource.getState(1)).toMatchObject({
-            status: "invalidating",
-            isRefreshing: true,
-            isRetrying: true,
-            isError: false,
+            status: "pending",
+            dataSource: "current",
+            data: "initial",
+            isInvalidating: true,
+            hasData: true,
+            hasError: true,
             error: failure,
         });
 
@@ -3019,83 +3022,59 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
     });
 });
 
-// ==================== getState ====================
+// ==================== getState (entry-state matrix) ====================
+//
+// `resource.getState(args)` is the clutch state of a single cache entry: the
+// same fields and flags, `dataSource` narrowed to `none | current` (one entry
+// has neither previous nor placeholder data) and no methods. Its matrix rows
+// are 1, 2, 5, 6, 7, 9, 10 and 12 — one test each, asserting the whole shape.
 
-describe("Resource.getState", () => {
-    it("idle: no entry → idle status, all flags false", () => {
+describe("Resource.getState — entry-state matrix", () => {
+    it("row 1 — no entry: idle with nothing to show", () => {
         const resource = createResource<number, string>({
             queryFn: async () => "data",
         });
 
-        const state = resource.getState(1);
-
-        expect(state).toMatchObject({
+        expect(resource.getState(1)).toEqual({
             status: "idle",
+            dataSource: "none",
             data: null,
-            error: null,
+            dataArgs: null,
             args: null,
-            isLoading: false,
+            error: null,
+            hasData: false,
+            hasError: false,
+            isPending: false,
             isInitialLoading: false,
-            isRefreshing: false,
-            isRefreshError: false,
-            isSuccess: false,
-            isError: false,
+            isSwitching: false,
+            isInvalidating: false,
         });
     });
 
-    it("pending: initial query in flight → isLoading + isInitialLoading", () => {
+    it("row 2 — initial load in flight: pending with nothing to show", () => {
         const resource = createResource<number, string>({
             queryFn: () => new Promise<string>(() => {}),
         });
 
         resource.trigger(1);
 
-        const state = resource.getState(1);
-
-        expect(state).toMatchObject({
+        expect(resource.getState(1)).toEqual({
             status: "pending",
+            dataSource: "none",
             data: null,
-            error: null,
+            dataArgs: null,
             args: 1,
-            isLoading: true,
+            error: null,
+            hasData: false,
+            hasError: false,
+            isPending: true,
             isInitialLoading: true,
-            isRefreshing: false,
-            isRetrying: false,
-            isRefreshError: false,
-            isSuccess: false,
-            isError: false,
+            isSwitching: false,
+            isInvalidating: false,
         });
     });
 
-    it("pending after retry(): isRetrying", async () => {
-        let callCount = 0;
-        const resource = createResource<number, string>({
-            queryFn: () => {
-                callCount++;
-                if (callCount === 1) return Promise.reject(new Error("boom"));
-                return new Promise<string>(() => {});
-            },
-        });
-
-        resource.trigger(1);
-        await flushMicrotasks();
-        expect(resource.getState(1)).toMatchObject({ status: "error", isRetrying: false });
-
-        resource.getEntry(1)!.retry();
-
-        const state = resource.getState(1);
-        expect(state).toMatchObject({
-            status: "pending",
-            data: null,
-            isLoading: true,
-            isInitialLoading: true,
-            isRetrying: true,
-            isError: false,
-        });
-        expect(state.error).toBeInstanceOf(Error);
-    });
-
-    it("success: data available → isSuccess only", async () => {
+    it("row 5 — success: the entry's own data, no error", async () => {
         const resource = createResource<number, string>({
             queryFn: async () => "good-data",
         });
@@ -3103,49 +3082,23 @@ describe("Resource.getState", () => {
         resource.trigger(1);
         await flushMicrotasks();
 
-        const state = resource.getState(1);
-
-        expect(state).toMatchObject({
+        expect(resource.getState(1)).toEqual({
             status: "success",
+            dataSource: "current",
             data: "good-data",
+            dataArgs: 1,
+            args: 1,
             error: null,
-            args: 1,
-            isLoading: false,
+            hasData: true,
+            hasError: false,
+            isPending: false,
             isInitialLoading: false,
-            isRefreshing: false,
-            isRefreshError: false,
-            isSuccess: true,
-            isError: false,
+            isSwitching: false,
+            isInvalidating: false,
         });
     });
 
-    it("error: initial query failed → isError, no data", async () => {
-        const resource = createResource<number, string>({
-            queryFn: async () => {
-                throw new Error("boom");
-            },
-        });
-
-        resource.trigger(1);
-        await flushMicrotasks();
-
-        const state = resource.getState(1);
-
-        expect(state).toMatchObject({
-            status: "error",
-            data: null,
-            args: 1,
-            isLoading: false,
-            isInitialLoading: false,
-            isRefreshing: false,
-            isRefreshError: false,
-            isSuccess: false,
-            isError: true,
-        });
-        expect(state.error).toBeInstanceOf(Error);
-    });
-
-    it("invalidating: background SWR in flight → isLoading + isRefreshing, stale data kept", async () => {
+    it("row 6 — invalidation in flight: pending behind the entry's own data", async () => {
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: async () => {
@@ -3161,29 +3114,60 @@ describe("Resource.getState", () => {
         resource.invalidate(1);
         await flushMicrotasks();
 
-        const state = resource.getState(1);
-
-        expect(state).toMatchObject({
-            status: "invalidating",
+        expect(resource.getState(1)).toEqual({
+            status: "pending",
+            dataSource: "current",
             data: "good-data",
-            error: null,
+            dataArgs: 1,
             args: 1,
-            isLoading: true,
+            error: null,
+            hasData: true,
+            hasError: false,
+            isPending: true,
             isInitialLoading: false,
-            isRefreshing: true,
-            isRefreshError: false,
-            isSuccess: false,
-            isError: false,
+            isSwitching: false,
+            isInvalidating: true,
         });
     });
 
-    it("invalidate-error: background SWR failed → isRefreshError + isError, NOT isLoading; stale data kept", async () => {
+    it("row 7 — the initial load failed: error with nothing to show", async () => {
+        const failure = new Error("boom");
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                throw failure;
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const state = resource.getState(1);
+
+        expect(state).toEqual({
+            status: "error",
+            dataSource: "none",
+            data: null,
+            dataArgs: null,
+            args: 1,
+            error: failure,
+            hasData: false,
+            hasError: true,
+            isPending: false,
+            isInitialLoading: false,
+            isSwitching: false,
+            isInvalidating: false,
+        });
+        expect(state.error).toBe(failure);
+    });
+
+    it("row 9 — the invalidation failed: error behind the entry's own data", async () => {
+        const failure = new Error("invalidation failed");
         let callCount = 0;
         const resource = createResource<number, string>({
             queryFn: async () => {
                 callCount++;
                 if (callCount === 1) return "good-data";
-                throw new Error("invalidation failed");
+                throw failure;
             },
         });
 
@@ -3193,26 +3177,218 @@ describe("Resource.getState", () => {
         resource.invalidate(1);
         await flushMicrotasks();
 
-        // Guard: we are actually in invalidate-error at the machine level.
+        // Guard: the machine is in invalidate-error, which the entry state
+        // reports as `error` with the data kept.
         expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidate-error");
 
         const state = resource.getState(1);
 
-        // Matches the documented flag contract (resource-clutch.md) and
-        // ResourceClutch._deriveNotIdleState: stale data is present and the last
-        // The invalidation errored, so the entry is NOT loading and IS in an error state.
-        expect(state).toMatchObject({
-            status: "invalidate-error",
+        expect(state).toEqual({
+            status: "error",
+            dataSource: "current",
             data: "good-data",
+            dataArgs: 1,
             args: 1,
-            isLoading: false,
+            error: failure,
+            hasData: true,
+            hasError: true,
+            isPending: false,
             isInitialLoading: false,
-            isRefreshing: false,
-            isRefreshError: true,
-            isSuccess: false,
-            isError: true,
+            isSwitching: false,
+            isInvalidating: false,
         });
-        expect(state.error).toBeInstanceOf(Error);
+        expect(state.error).toBe(failure);
+    });
+
+    it("row 10 — retry of row 7: pending with the failure still readable", async () => {
+        const failure = new Error("boom");
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(failure);
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "error", dataSource: "none" });
+
+        resource.getEntry(1)!.retry();
+
+        const state = resource.getState(1);
+
+        expect(state).toEqual({
+            status: "pending",
+            dataSource: "none",
+            data: null,
+            dataArgs: null,
+            args: 1,
+            error: failure,
+            hasData: false,
+            hasError: true,
+            isPending: true,
+            isInitialLoading: true,
+            isSwitching: false,
+            isInvalidating: false,
+        });
+        expect(state.error).toBe(failure);
+    });
+
+    it("row 12 — retry of row 9: pending behind the data, failure still readable", async () => {
+        const failure = new Error("invalidation failed");
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.resolve("good-data");
+                if (callCount === 2) return Promise.reject(failure);
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        resource.invalidate(1);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "error", dataSource: "current" });
+
+        resource.getEntry(1)!.retry();
+
+        const state = resource.getState(1);
+
+        expect(state).toEqual({
+            status: "pending",
+            dataSource: "current",
+            data: "good-data",
+            dataArgs: 1,
+            args: 1,
+            error: failure,
+            hasData: true,
+            hasError: true,
+            isPending: true,
+            isInitialLoading: false,
+            isSwitching: false,
+            isInvalidating: true,
+        });
+        expect(state.error).toBe(failure);
+    });
+
+    it("never reports a placeholder: the option belongs to the clutch, not to an entry", async () => {
+        const placeholderData = vi.fn(() => ({ data: "placeholder" }));
+        const failure = new Error("boom");
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(failure);
+                return new Promise<string>(() => {});
+            },
+            placeholderData,
+        });
+
+        resource.trigger(1);
+
+        // Row 2, not row 3: the entry itself has nothing to show.
+        expect(resource.getState(1)).toMatchObject({
+            status: "pending",
+            dataSource: "none",
+            data: null,
+            hasData: false,
+        });
+
+        await flushMicrotasks();
+
+        // Row 7, not row 13.
+        expect(resource.getState(1)).toMatchObject({
+            status: "error",
+            dataSource: "none",
+            data: null,
+            hasData: false,
+        });
+
+        resource.getEntry(1)!.retry();
+
+        // Row 10, not row 14.
+        expect(resource.getState(1)).toMatchObject({
+            status: "pending",
+            dataSource: "none",
+            data: null,
+            hasData: false,
+            hasError: true,
+        });
+
+        expect(placeholderData).not.toHaveBeenCalled();
+    });
+
+    it("invalidate() on a failed entry re-runs it with the error cleared (row 7 → row 2)", async () => {
+        const failure = new Error("boom");
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(failure);
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "error", hasError: true });
+
+        resource.invalidate(1);
+
+        expect(resource.getState(1)).toEqual({
+            status: "pending",
+            dataSource: "none",
+            data: null,
+            dataArgs: null,
+            args: 1,
+            error: null,
+            hasData: false,
+            hasError: false,
+            isPending: true,
+            isInitialLoading: true,
+            isSwitching: false,
+            isInvalidating: false,
+        });
+        expect(callCount).toBe(2);
+    });
+
+    it("prefetch(force) on a failed entry retries it, keeping the failure visible (row 7 → row 10)", async () => {
+        const failure = new Error("boom");
+        let callCount = 0;
+        const resource = createResource<number, string>({
+            queryFn: () => {
+                callCount++;
+                if (callCount === 1) return Promise.reject(failure);
+                return new Promise<string>(() => {});
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "error", hasError: true });
+
+        void resource.prefetch(1, { force: true });
+
+        expect(resource.getState(1)).toEqual({
+            status: "pending",
+            dataSource: "none",
+            data: null,
+            dataArgs: null,
+            args: 1,
+            error: failure,
+            hasData: false,
+            hasError: true,
+            isPending: true,
+            isInitialLoading: true,
+            isSwitching: false,
+            isInvalidating: false,
+        });
+        expect(callCount).toBe(2);
     });
 });
 

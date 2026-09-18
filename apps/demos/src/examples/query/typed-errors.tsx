@@ -103,7 +103,7 @@ export function Base() {
 
     const run = (outcome: Outcome) => {
         nextOutcome = outcome;
-        // invalidate() валиден из success / invalidate-error, retry() — из error.
+        // retry() валиден из состояния error, invalidate() — из success.
         if (state.status === 'error') {
             state.retry();
         } else {
@@ -111,7 +111,7 @@ export function Base() {
         }
     };
 
-    const described = state.isError ? describeError(state.error) : null;
+    const described = state.hasError ? describeError(state.error) : null;
 
     return (
         <Card>
@@ -120,14 +120,14 @@ export function Base() {
             <CardBody className="space-y-4">
                 {/* Состояние ресурса */}
                 <div className="flex gap-2 flex-wrap">
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isLoading ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
-                        isLoading: {String(state.isLoading)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isPending ? 'bg-warning-100 text-warning-700' : 'bg-default-100 text-default-400'}`}>
+                        isPending: {String(state.isPending)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isSuccess ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
-                        isSuccess: {String(state.isSuccess)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasData ? 'bg-success-100 text-success-700' : 'bg-default-100 text-default-400'}`}>
+                        hasData: {String(state.hasData)}
                     </span>
-                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.isError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
-                        isError: {String(state.isError)}
+                    <span className={`px-2 py-1 rounded text-xs font-mono ${state.hasError ? 'bg-danger-100 text-danger-700' : 'bg-default-100 text-default-400'}`}>
+                        hasError: {String(state.hasError)}
                     </span>
                     <span className="px-2 py-1 rounded text-xs font-mono bg-default-100 text-default-500">
                         status: {state.status}
@@ -136,16 +136,16 @@ export function Base() {
 
                 {/* Выбор следующего исхода «сервера» */}
                 <div className="flex gap-2 flex-wrap">
-                    <Button size="sm" color="success" variant="flat" isDisabled={state.isLoading} onPress={() => run('success')}>
+                    <Button size="sm" color="success" variant="flat" isDisabled={state.isPending} onPress={() => run('success')}>
                         ✅ Успех
                     </Button>
-                    <Button size="sm" color="warning" variant="flat" isDisabled={state.isLoading} onPress={() => run('not-found')}>
+                    <Button size="sm" color="warning" variant="flat" isDisabled={state.isPending} onPress={() => run('not-found')}>
                         404 Not Found
                     </Button>
-                    <Button size="sm" color="danger" variant="flat" isDisabled={state.isLoading} onPress={() => run('server')}>
+                    <Button size="sm" color="danger" variant="flat" isDisabled={state.isPending} onPress={() => run('server')}>
                         503 Server
                     </Button>
-                    <Button size="sm" color="default" variant="flat" isDisabled={state.isLoading} onPress={() => run('network')}>
+                    <Button size="sm" color="default" variant="flat" isDisabled={state.isPending} onPress={() => run('network')}>
                         📡 Сеть
                     </Button>
                 </div>
@@ -163,7 +163,7 @@ export function Base() {
                         <p className="text-xs text-danger-500 mt-1 font-mono">
                             state.error → {described.detail}
                         </p>
-                        {state.data && (
+                        {state.hasData && (
                             <p className="text-xs text-default-500 mt-1">
                                 Устаревшие данные сохранены (SWR): {state.data.name}
                             </p>
@@ -172,7 +172,8 @@ export function Base() {
                 )}
 
                 {/* Успешные данные */}
-                {state.isSuccess && state.data && (
+                {/* Данные остаются на экране и во время инвалидации — показ ошибки берёт на себя панель выше */}
+                {state.hasData && !state.hasError && (
                     <div className="p-3 bg-success-50 rounded-lg">
                         <p className="font-semibold">{state.data.name}</p>
                         <p className="text-sm text-default-500">{state.data.role}</p>

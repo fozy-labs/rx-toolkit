@@ -23,7 +23,6 @@ function makePending() {
         data: null,
         error: null,
         updatedAt: null,
-        isRetrying: false,
     });
 }
 
@@ -56,7 +55,6 @@ function makeInvalidating() {
         error: null,
         updatedAt: 1000,
         patchState: null,
-        isRetrying: false,
     });
 }
 
@@ -155,16 +153,6 @@ describe("Machine Subtypes", () => {
             expect(m.state.args).toBe(ARGS);
         });
 
-        it("retry() returns MachineInvalidating marked as retrying, keeping the error", () => {
-            const failed = makeInvalidateError();
-            const m = failed.retry();
-            expect(m).toBeInstanceOf(MachineInvalidating);
-            expect(m.status).toBe("invalidating");
-            expect(m.state.data).toBe(DATA);
-            expect(m.state.error).toBe(failed.state.error);
-            expect(m.state.isRetrying).toBe(true);
-        });
-
         it("createPatch() returns MachineSuccess with patch state", () => {
             const { machine, handle } = makeSuccess().createPatch((d) => {
                 d.count = 99;
@@ -213,7 +201,7 @@ describe("Machine Subtypes", () => {
             expect(makeError()).not.toBeInstanceOf(MachineWithData);
         });
 
-        it("retry() returns MachinePending marked as retrying, keeping the error", () => {
+        it("retry() returns MachinePending keeping the error (the retry marker)", () => {
             const failed = makeError();
             const m = failed.retry();
             expect(m).toBeInstanceOf(MachinePending);
@@ -221,7 +209,16 @@ describe("Machine Subtypes", () => {
             expect(m.state.args).toBe(ARGS);
             expect(m.state.data).toBeNull();
             expect(m.state.error).toBe(failed.state.error);
-            expect(m.state.isRetrying).toBe(true);
+        });
+
+        it("invalidate() returns MachinePending with a cleared error", () => {
+            const m = makeError().invalidate();
+            expect(m).toBeInstanceOf(MachinePending);
+            expect(m.status).toBe("pending");
+            expect(m.state.args).toBe(ARGS);
+            expect(m.state.data).toBeNull();
+            expect(m.state.error).toBeNull();
+            expect(m.state.updatedAt).toBeNull();
         });
     });
 
@@ -313,6 +310,16 @@ describe("Machine Subtypes", () => {
             expect(m.status).toBe("invalidating");
             expect(m.state.data).toBe(DATA);
             expect(m.state.error).toBeNull();
+        });
+
+        it("retry() returns MachineInvalidating keeping the error (the retry marker)", () => {
+            const failed = makeInvalidateError();
+            const m = failed.retry();
+            expect(m).toBeInstanceOf(MachineInvalidating);
+            expect(m.status).toBe("invalidating");
+            expect(m.state.data).toBe(DATA);
+            expect(m.state.error).toBe(failed.state.error);
+            expect(m.state.updatedAt).toBe(failed.state.updatedAt);
         });
 
         it("createPatch() returns MachineInvalidateError", () => {

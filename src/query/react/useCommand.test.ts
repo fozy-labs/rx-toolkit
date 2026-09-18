@@ -55,6 +55,9 @@ describe("useCommand", () => {
 
         const c = setup(command.useCommand);
         expect(c.state.status).toBe("idle");
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
 
         let result: Awaited<ReturnType<typeof c.trigger>> | undefined;
         await act(async () => {
@@ -65,6 +68,9 @@ describe("useCommand", () => {
         expect(result).toEqual({ status: "success", data: "result-x" });
         expect(c.state.status).toBe("success");
         expect(c.state.data).toBe("result-x");
+        expect(c.state.hasData).toBe(true);
+        expect(c.state.hasError).toBe(false);
+        expect(c.state.isPending).toBe(false);
     });
 
     it("trigger resolves with an error envelope carrying the mapError-normalized error", async () => {
@@ -92,6 +98,9 @@ describe("useCommand", () => {
         expect(result?.error).toBeInstanceOf(NetError);
         expect(c.state.status).toBe("error");
         expect(c.state.error).toBe(result?.error);
+        expect(c.state.hasError).toBe(true);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.isPending).toBe(false);
     });
 
     it("unwrap() exposes the raw throwing promise", async () => {
@@ -140,7 +149,7 @@ describe("useCommand", () => {
 
             expect(tracker.unhandled).toEqual([]);
             expect(c.state.status).toBe("error");
-            expect(c.state.isError).toBe(true);
+            expect(c.state.hasError).toBe(true);
         } finally {
             tracker.stop();
         }
