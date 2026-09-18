@@ -145,11 +145,27 @@ const todosResource = api.createResource({
     return res.json();
   },
 });
+
+// Команда — sync: false (defaultSync: 'resources'). Её связь инвалидирует ресурс,
+// а инвалидация уезжает в другие вкладки вместе с записью ресурса.
+const addTodoCommand = api.createCommand({
+  key: 'add-todo',
+  queryFn: async (args: { text: string }) => {
+    const res = await fetch('/api/todos', { method: 'POST', body: JSON.stringify(args) });
+    return res.json();
+  },
+  links: (link) => link({
+    resource: todosResource,
+    forwardArgs: () => undefined,
+    invalidate: true,
+  }),
+});
 ```
 
 ```tsx
 function TodoApp() {
   const { data: todos, hasData } = todosResource.useResource();
+  const [addTodo, { isPending }] = addTodoCommand.useCommand();
 
   if (!hasData) return <p>Загрузка...</p>;
 
@@ -158,7 +174,7 @@ function TodoApp() {
       <ul>
         {todos.map((t: any) => <li key={t.id}>{t.text}</li>)}
       </ul>
-      <button disabled={isSaving} onClick={() => trigger({ text: 'Новая задача' })}>
+      <button disabled={isPending} onClick={() => addTodo({ text: 'Новая задача' })}>
         Добавить
       </button>
     </div>
