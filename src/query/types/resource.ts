@@ -286,7 +286,7 @@ export interface IResourceConfig<TArgs, TData> {
     retentionTime: number | false;
     serializeArgs: (args: TArgs) => string;
     /**
-     * Normalizes raw query errors before they enter the machine. The Api always
+     * Normalizes raw query errors before they enter the entry's state. The Api always
      * supplies one (identity when the consumer configured no `mapError`);
      * defaults to identity if constructed directly. See {@link TMapError}.
      */

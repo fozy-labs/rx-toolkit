@@ -214,12 +214,12 @@ stateDiagram-v2
 - [Концепция сцепления][clutch-concept] — `dataSource`, SWR-fallback, SKIP, жизненный цикл
 - [Ресурс — API][api-res] — создание ресурса, опция `placeholderData`, метод `createClutch()`
 - [Использование ресурса][usage-res] — хук `useResource`, примеры, паттерны
-- [Машина состояний][machine] — переходы между статусами записи кэша
+- [Состояние записи запроса][entry-state] — пять статусов и переходы между ними
 
 
 [clutch-concept]: ../concepts/clutch.md
 [api-res]: ./resource.md
 [usage-res]: ../usage/resource.md
 [suspense-hook]: ../../usage/react/README.md#usesuspenseresource
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [cache]: ../concepts/cache.md

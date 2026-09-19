@@ -3,7 +3,6 @@ export * from "./projection-resource";
 export * from "./errors";
 export * from "./resource";
 export * from "./command";
-export * from "./machine";
 export * from "./cache";
 export * from "./snapshotter";
 export * from "./syncer";

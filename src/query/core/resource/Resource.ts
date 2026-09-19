@@ -10,6 +10,7 @@ import type {
     TCacheEntryAddedContext,
     TKeyed,
     TMapError,
+    TQueryEntryState,
     TQueryFnResult,
     TQueryStartedContext,
     TResourceEntryState,
@@ -21,7 +22,7 @@ import { Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
 import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
-import { Machine } from "../machine/Machine";
+import { pendingEntryState, snapshotEntryState } from "../machine/machine-helpers";
 
 import { buildEntryState, IDLE_ENTRY_STATE } from "./entry-state";
 import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
@@ -309,7 +310,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
 
         // A failed entry has no data to hand back — kick off a retry before awaiting.
-        if (existing.machine$.peek().state.status === "error") {
+        if (existing.state$.peek().status === "error") {
             existing.retry();
         }
 
@@ -347,7 +348,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return this._getOrCreate(keyed).whenFetched(options?.signal);
         }
 
-        const status = existing.machine$.peek().state.status;
+        const status = existing.state$.peek().status;
         if (status === "success" || status === "invalidate-error") {
             existing.invalidate();
         } else if (status === "error") {
@@ -392,7 +393,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         // Row 1 — no entry for these arguments.
         if (!entry) return IDLE_ENTRY_STATE;
 
-        return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.machine$.peek().state);
+        return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.state$.peek());
     }
 
     /** Clear all cache entries. */
@@ -410,9 +411,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * non-async queryFn) into a rejected promise. Without this the throw would
      * escape the QueryCacheEntry constructor on the initial run — no entry
      * created, prefetch()/ensure()/fetch() throwing synchronously — and escape
-     * `_execute` on invalidate()/retry() after the machine had already moved to
+     * `_execute` on invalidate()/retry() after the entry had already moved to
      * invalidating/pending, stranding it there. As a rejection it flows through
-     * the machine (→ error / invalidate-error) like any other query failure.
+     * the entry's state (→ error / invalidate-error) like any other query failure.
      */
     private _callQueryFn(args: TArgs, signal: AbortSignal): TQueryFnResult<TData> {
         try {
@@ -450,21 +451,24 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         return this._createEntry(keyed);
     }
 
-    private _createEntry(keyed: TKeyed<TArgs>, initialMachine?: Machine<TArgs, TData>): QueryCacheEntry<TArgs, TData> {
+    private _createEntry(
+        keyed: TKeyed<TArgs>,
+        initialState?: TQueryEntryState<TArgs, TData>,
+    ): QueryCacheEntry<TArgs, TData> {
         // ── beforeQuery sync intercept ──
-        // If beforeQuery is set AND there's no snapshot (initialMachine), intercept
+        // If beforeQuery is set AND there's no snapshot (initialState), intercept
         // to ask other tabs for data before executing queryFn.
-        if (!initialMachine && this._beforeQuery && this._key) {
+        if (!initialState && this._beforeQuery && this._key) {
             return this._createEntryWithBeforeQuery(keyed);
         }
 
-        return this._createEntryDirect(keyed, initialMachine);
+        return this._createEntryDirect(keyed, initialState);
     }
 
     /** Standard entry creation: queryFn auto-executes in constructor. */
     private _createEntryDirect(
         keyed: TKeyed<TArgs>,
-        initialMachine?: Machine<TArgs, TData>,
+        initialState?: TQueryEntryState<TArgs, TData>,
     ): QueryCacheEntry<TArgs, TData> {
         // Capture the initial run's lifecycle context for onQueryStarted.
         // During the QueryCacheEntry constructor, _execute() fires synchronously,
@@ -500,7 +504,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             resourceKey: this._key,
             mapError: this._mapError,
             errorSource: "query",
-            initialMachine,
+            initialState,
             beforeDevtoolsPush: undefined,
             onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
         });
@@ -536,7 +540,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return result;
         };
 
-        // Create entry with an explicit pending Machine to PREVENT auto-execute
+        // Create entry with an explicit pending state to PREVENT auto-execute
         const entry = new QueryCacheEntry<TArgs, TData>({
             queryFn: wrappedQueryFn,
             retentionTime: this._retentionTime,
@@ -544,7 +548,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             resourceKey: this._key,
             mapError: this._mapError,
             errorSource: "query",
-            initialMachine: Machine.pending<TArgs, TData>(keyed.value),
+            initialState: pendingEntryState<TArgs>(keyed.value),
             beforeDevtoolsPush: undefined,
             onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
         });
@@ -569,9 +573,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 if (entry.isCompleted) return;
 
                 if (result) {
-                    const machine = entry.machine$.peek();
+                    const machine = entry._machine;
                     if (machine.status === "pending") {
-                        entry.set(machine.success(result.data), "sync");
+                        entry._setMachine(machine.success(result.data), "sync");
                     }
                 } else {
                     entry._execute();
@@ -587,7 +591,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     private _hydrateEntry(key: string, meta: { args: TArgs; data: TData; updatedAt: number; isStale: boolean }): void {
-        const machine = Machine.fromSnapshot<TArgs, TData>(meta, meta.isStale);
+        const initialState = snapshotEntryState<TArgs, TData>(meta, meta.isStale);
 
         const keyed = toKeyedUtil<TArgs>(meta.args as TArgsOrKeyed<TArgs>, this._serializeArgs);
 
@@ -599,7 +603,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return;
         }
 
-        this._createEntry(keyed, machine);
+        this._createEntry(keyed, initialState);
     }
 
     private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {

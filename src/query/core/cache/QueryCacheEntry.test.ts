@@ -95,7 +95,7 @@ describe("QueryCacheEntry — stream run aborted synchronously during subscribe"
         });
 
         // Run 1 emitted and completed synchronously — the entry holds data.
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
 
         // Pending patch over closed stream — must not signal.
         entry.createPatch((draft) => {
@@ -118,7 +118,7 @@ describe("QueryCacheEntry — stream run aborted synchronously during subscribe"
         run3.resolve({ items: [{ n: 5 }] });
         await flushMicrotasks();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toEqual({ items: [{ n: 5 }] });
 
@@ -139,7 +139,7 @@ describe("QueryCacheEntry — stream run aborted synchronously during subscribe"
         run3.resolve({ items: [{ n: 5 }] });
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
 
         entry.createPatch((draft) => {
             draft.items[0]!.n = 6;
@@ -175,20 +175,20 @@ describe("QueryCacheEntry — invalidate()", () => {
 
         runs[0]!.reject(failure);
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.invalidate();
 
-        // The machine is `pending` before `_execute()` decides what to do, so
+        // The entry is `pending` before `_execute()` decides what to do, so
         // the run actually starts (the `case "error"` guard is not reached).
         expect(runs).toHaveLength(2);
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("pending");
         expect(state.error).toBeNull();
 
         runs[1]!.resolve(7);
         await flushMicrotasks();
-        expect(entry.machine$.peek().state).toMatchObject({ status: "success", data: 7, error: null });
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: 7, error: null });
     });
 
     it("from success: goes invalidating with a cleared error and re-runs the query", async () => {
@@ -199,7 +199,7 @@ describe("QueryCacheEntry — invalidate()", () => {
 
         entry.invalidate();
         expect(runs).toHaveLength(2);
-        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", data: 1, error: null });
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: 1, error: null });
     });
 
     it("from invalidate-error: goes invalidating with a cleared error and re-runs the query", async () => {
@@ -210,11 +210,11 @@ describe("QueryCacheEntry — invalidate()", () => {
         entry.invalidate();
         runs[1]!.reject(new Error("invalidate-boom"));
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
+        expect(entry.state$.peek().status).toBe("invalidate-error");
 
         entry.invalidate();
         expect(runs).toHaveLength(3);
-        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", data: 1, error: null });
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: 1, error: null });
     });
 
     it("from pending: warns and does not re-run", () => {
@@ -224,7 +224,7 @@ describe("QueryCacheEntry — invalidate()", () => {
         entry.invalidate();
 
         expect(runs).toHaveLength(1);
-        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 
@@ -240,7 +240,7 @@ describe("QueryCacheEntry — invalidate()", () => {
         entry.invalidate();
 
         expect(runs).toHaveLength(2);
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 });
@@ -260,7 +260,7 @@ describe("QueryCacheEntry — retry()", () => {
         entry.retry();
 
         expect(runs).toHaveLength(2);
-        expect(entry.machine$.peek().state).toMatchObject({ status: "pending", error: failure });
+        expect(entry.state$.peek()).toMatchObject({ status: "pending", error: failure });
     });
 
     it("from invalidate-error: keeps the failure in `error`, goes invalidating and re-runs the query", async () => {
@@ -276,7 +276,7 @@ describe("QueryCacheEntry — retry()", () => {
         entry.retry();
 
         expect(runs).toHaveLength(3);
-        expect(entry.machine$.peek().state).toMatchObject({
+        expect(entry.state$.peek()).toMatchObject({
             status: "invalidating",
             data: 1,
             error: failure,
@@ -290,7 +290,7 @@ describe("QueryCacheEntry — retry()", () => {
         entry.retry();
 
         expect(runs).toHaveLength(1);
-        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 
@@ -303,7 +303,7 @@ describe("QueryCacheEntry — retry()", () => {
         entry.retry();
 
         expect(runs).toHaveLength(1);
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 
@@ -317,7 +317,7 @@ describe("QueryCacheEntry — retry()", () => {
         entry.retry();
 
         expect(runs).toHaveLength(2);
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 });
@@ -332,7 +332,7 @@ describe("QueryCacheEntry — command entries never invalidate", () => {
         vi.restoreAllMocks();
     });
 
-    it("invalidate() from success warns and leaves the machine untouched", async () => {
+    it("invalidate() from success warns and leaves the entry state untouched", async () => {
         const { entry, runs } = createControlledEntry("command");
         runs[0]!.resolve(1);
         await flushMicrotasks();
@@ -341,11 +341,11 @@ describe("QueryCacheEntry — command entries never invalidate", () => {
         entry.invalidate();
 
         expect(runs).toHaveLength(1);
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
         expect(warn).toHaveBeenCalledTimes(1);
     });
 
-    it("invalidate() from error warns and leaves the machine untouched", async () => {
+    it("invalidate() from error warns and leaves the entry state untouched", async () => {
         const { entry, runs } = createControlledEntry("command");
         const failure = new Error("boom");
         runs[0]!.reject(failure);
@@ -355,7 +355,7 @@ describe("QueryCacheEntry — command entries never invalidate", () => {
         entry.invalidate();
 
         expect(runs).toHaveLength(1);
-        expect(entry.machine$.peek().state).toMatchObject({ status: "error", error: failure });
+        expect(entry.state$.peek()).toMatchObject({ status: "error", error: failure });
         expect(warn).toHaveBeenCalledTimes(1);
     });
 
@@ -368,6 +368,6 @@ describe("QueryCacheEntry — command entries never invalidate", () => {
         entry.retry();
 
         expect(runs).toHaveLength(2);
-        expect(entry.machine$.peek().state).toMatchObject({ status: "pending", error: failure });
+        expect(entry.state$.peek()).toMatchObject({ status: "pending", error: failure });
     });
 });

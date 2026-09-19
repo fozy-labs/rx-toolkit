@@ -56,7 +56,7 @@ sequenceDiagram
             alt данные получены
                 BQ-->>Entry: hydrate(data)
                 Entry->>Entry: → success (без сетевого запроса)
-                Entry-->>Clutch: machine$ → success
+                Entry-->>Clutch: state$ → success
                 Clutch-->>Hook: success
                 Hook-->>UI: { status: success, data }
             else таймаут
@@ -76,7 +76,7 @@ sequenceDiagram
         opt Отработка реактивной зависимости (null → Entry)
             Res -->> Res: lastEntry.set(Entry)
             Res-->>Clutch: $: Entry (pending)
-            Clutch-->>Clutch: Подписка на machine$ (pending)
+            Clutch-->>Clutch: Подписка на state$ (pending)
             Note over Clutch: return stable(prev, next)
         end
 
@@ -89,13 +89,13 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: → success
-        Entry-->>Clutch: machine$ → success
+        Entry-->>Clutch: state$ → success
         Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: → error
-        Entry-->>Clutch: machine$ → error
+        Entry-->>Clutch: state$ → error
         Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
@@ -119,7 +119,7 @@ sequenceDiagram
     Res->>Cache: get(key)
     Cache-->>Res: Entry
     Res-->>Clutch: Entry
-    Clutch-->>Clutch: Подписка на machine$
+    Clutch-->>Clutch: Подписка на state$
     Clutch-->>Hook: state
     Hook-->>UI: state
 ```
@@ -161,13 +161,13 @@ sequenceDiagram
     participant Entry as QueryCacheEntry
     participant Query as queryFn
 
-    Note over Entry: machine: success (data v1)
+    Note over Entry: состояние: success (data v1)
 
     UI->>Hook: invalidate()
     Hook->>Clutch: invalidate()
     Clutch->>Entry: invalidate()
     Entry->>Entry: success → invalidating
-    Entry-->>Clutch: machine$ → invalidating
+    Entry-->>Clutch: state$ → invalidating
     Clutch-->>Hook: строка 6
     Hook-->>UI: { status: pending, dataSource: current, data: v1 }
 
@@ -176,13 +176,13 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data v2
         Entry->>Entry: invalidating → success (rebase)
-        Entry-->>Clutch: machine$ → success
+        Entry-->>Clutch: state$ → success
         Clutch-->>Hook: строка 5
         Hook-->>UI: { status: success, dataSource: current, data: v2 }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: invalidating → invalidate-error (fail)
-        Entry-->>Clutch: machine$ → invalidate-error
+        Entry-->>Clutch: state$ → invalidate-error
         Clutch-->>Hook: строка 9
         Hook-->>UI: { status: error, dataSource: current, data: v1, error }
     end
@@ -211,7 +211,7 @@ sequenceDiagram
     Note over Clutch,Entry2: → поток «Cache miss» для { id: 2 }
 
     Note over Clutch: Реактивная зависимость: Entry2 (pending)
-    Clutch-->>Clutch: Подписка на machine$ (pending)
+    Clutch-->>Clutch: Подписка на state$ (pending)
 
     Note over Clutch: pending + prev → dataSource previous (SWR)
     Clutch-->>Hook: строка 4
@@ -219,13 +219,13 @@ sequenceDiagram
 
     alt ответ OK
         Entry2->>Entry2: → success
-        Entry2-->>Clutch: machine$ → success
+        Entry2-->>Clutch: state$ → success
         Clutch->>Clutch: prev = null
         Clutch-->>Hook: строка 5
         Hook-->>UI: { status: success, dataSource: current, data: data/2 }
     else ошибка
         Entry2->>Entry2: → error
-        Entry2-->>Clutch: machine$ → error
+        Entry2-->>Clutch: state$ → error
         Note over Clutch: error не маскируется, prev (Entry1) сохраняется
         Clutch-->>Hook: строка 8
         Hook-->>UI: { status: error, dataSource: previous, data: data/1, error }
@@ -287,13 +287,13 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: pending → success
-        Entry-->>Clutch: machine$ → success
+        Entry-->>Clutch: state$ → success
         Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: pending → error
-        Entry-->>Clutch: machine$ → error
+        Entry-->>Clutch: state$ → error
         Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
@@ -315,7 +315,7 @@ sequenceDiagram
     
     Note over Lnk: invalidate: true
 
-    Note over Entry: machine: success (data v1)
+    Note over Entry: состояние: success (data v1)
 
     Note over Cmd: Мутация (UI → Hook → Cmd) — см. «Мутация — базовый поток»
     Note over Cmd: queryFn(args) завершился успешно
@@ -368,7 +368,7 @@ sequenceDiagram
     Res-->>Lnk: Entry
     Lnk->>Entry: createPatch(patchFn)
     Entry->>Entry: Immer produce → patches + inversePatches
-    Entry-->>Entry: machine$ → success (patched data)
+    Entry-->>Entry: state$ → success (patched data)
 
     alt ответ OK
         Cmd->>Lnk: $queryFulfilled.resolve(data)
@@ -379,7 +379,7 @@ sequenceDiagram
         Cmd->>Lnk: onError(args, error)
         Lnk->>Entry: handle.abort()
         Entry->>Entry: inversePatches → rollback
-        Entry-->>Entry: machine$ → success (original data)
+        Entry-->>Entry: state$ → success (original data)
         Note over Entry: Возможен isConsistencyViolation →<br/>автоинвалидация (см. патчинг)
         Entry-->>Lnk: void
     end
@@ -427,7 +427,7 @@ sequenceDiagram
             BQ-->>Entry: hydrate(data)
             Entry->>Entry: → success (queryFn не вызывается)
             Note over Entry: Мгновенный кэш-хит —<br/>рендер без сетевого запроса
-            Entry-->>Clutch: machine$ → success
+            Entry-->>Clutch: state$ → success
             Clutch-->>Hook: success
             Hook-->>UI: { status: success, data }
         else таймаут
@@ -444,13 +444,13 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: → success
-        Entry-->>Clutch: machine$ → success
+        Entry-->>Clutch: state$ → success
         Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: → error
-        Entry-->>Clutch: machine$ → error
+        Entry-->>Clutch: state$ → error
         Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
@@ -459,15 +459,15 @@ sequenceDiagram
 
 ## См. также
 
-- [Машина состояний запроса][machine] — статусы и переходы, на которых построены все потоки
+- [Состояние записи запроса][entry-state] — статусы и переходы, на которых построены все потоки
 - [Система кэширования][cache] — жизненный цикл записей и `retentionTime`
 - [Оптимистичные обновления (links)][usage-links] — `optimisticUpdate` и `invalidate` в действии
-- [Сцепление][clutch] — SWR-наблюдатель, транслирующий состояние машины в UI
+- [Сцепление][clutch] — SWR-наблюдатель, транслирующий состояние записи в UI
 - [Кросс-табовая синхронизация][usage-broadcast] — настройка `syncDriver` и `broadcastSyncDriver`
 
 
 [clutch]: clutch.md
-[machine]: machine.md
+[entry-state]: query-entry-state.md
 [cache]: cache.md
 [usage-links]: ../usage/links.md
 [usage-broadcast]: ../usage/broadcast.md

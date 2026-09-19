@@ -21,7 +21,7 @@ export const KEYED_BRAND: unique symbol = Symbol("KEYED_BRAND");
  *
  * History:
  * - `1` — initial format.
- * - `2` (0.13.0) — machine status strings renamed: `refreshing` → `invalidating`,
+ * - `2` (0.13.0) — entry status strings renamed: `refreshing` → `invalidating`,
  *   `refresh-error` → `invalidate-error`. Snapshots written by an older version are
  *   translated on hydration (see `Snapshotter.hydrateResource`).
  */

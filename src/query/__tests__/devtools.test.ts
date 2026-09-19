@@ -239,8 +239,8 @@ describe("query devtools — beforeDevtoolsPush", () => {
         const entry = createEntry<number, string>({
             queryFn: async () => "data",
             keyedArgs: toKeyed(1),
-            beforeDevtoolsPush: (machine, push, actionName) => {
-                push(machine, actionName === undefined ? undefined : `wrapped:${actionName}`);
+            beforeDevtoolsPush: (state, push, actionName) => {
+                push(state, actionName === undefined ? undefined : `wrapped:${actionName}`);
             },
         });
 
@@ -256,8 +256,8 @@ describe("query devtools — beforeDevtoolsPush", () => {
         const entry = createEntry<number, string>({
             queryFn: async () => "data",
             keyedArgs: toKeyed(1),
-            beforeDevtoolsPush: (machine, push) => {
-                if (machine.state.status !== "pending") push(machine);
+            beforeDevtoolsPush: (state, push) => {
+                if (state.status !== "pending") push(state);
             },
         });
 

@@ -12,16 +12,21 @@ export type TArgsOrVoid<TArgs> = TArgs extends void ? void : TArgsOrKeyed<TArgs>
 
 export type TArgsOrVoidOrSkip<TArgs> = TArgs extends void ? void | typeof SKIP : TArgsOrKeyed<TArgs> | typeof SKIP;
 
-// ==================== Machine Types ====================
+// ==================== Query Entry State ====================
 
-export type TMachineStatus = "pending" | "success" | "error" | "invalidating" | "invalidate-error";
+/**
+ * Status of a single cache entry — the raw record a {@link IQueryCacheEntry}
+ * stores and publishes through `state$`. Readers usually observe the derived
+ * clutch / entry state instead (see `TClutchStatus`).
+ */
+export type TQueryEntryStatus = "pending" | "success" | "error" | "invalidating" | "invalidate-error";
 
 // In the in-flight states (`pending`, `invalidating`) `error` is the failure the
 // run retries: a load started by `retry()` carries it until the run settles,
 // while a first load or a plain `invalidate()` has `error: null`. There is no
 // separate retry flag — a retry in flight *is* `error !== null`.
 
-export interface TPendingState<TArgs> {
+export interface TQueryEntryPendingState<TArgs> {
     status: "pending";
     args: TArgs;
     data: null;
@@ -29,7 +34,7 @@ export interface TPendingState<TArgs> {
     updatedAt: null;
 }
 
-export interface TSuccessState<TArgs, TData> {
+export interface TQueryEntrySuccessState<TArgs, TData> {
     status: "success";
     args: TArgs;
     data: TData;
@@ -38,7 +43,7 @@ export interface TSuccessState<TArgs, TData> {
     patchState: TPatchState<TData> | null;
 }
 
-export interface TErrorState<TArgs> {
+export interface TQueryEntryErrorState<TArgs> {
     status: "error";
     args: TArgs;
     data: null;
@@ -46,7 +51,7 @@ export interface TErrorState<TArgs> {
     updatedAt: null;
 }
 
-export interface TInvalidatingState<TArgs, TData> {
+export interface TQueryEntryInvalidatingState<TArgs, TData> {
     status: "invalidating";
     args: TArgs;
     data: TData;
@@ -55,7 +60,7 @@ export interface TInvalidatingState<TArgs, TData> {
     patchState: TPatchState<TData> | null;
 }
 
-export interface TInvalidateErrorState<TArgs, TData> {
+export interface TQueryEntryInvalidateErrorState<TArgs, TData> {
     status: "invalidate-error";
     args: TArgs;
     data: TData;
@@ -64,12 +69,17 @@ export interface TInvalidateErrorState<TArgs, TData> {
     patchState: TPatchState<TData> | null;
 }
 
-export type TMachineState<TArgs, TData> =
-    | TPendingState<TArgs>
-    | TSuccessState<TArgs, TData>
-    | TErrorState<TArgs>
-    | TInvalidatingState<TArgs, TData>
-    | TInvalidateErrorState<TArgs, TData>;
+/**
+ * The state of one cache entry: a flat, immutable record. Every transition
+ * produces a new record; the entry publishes it through
+ * `IQueryCacheEntry.state$`.
+ */
+export type TQueryEntryState<TArgs, TData> =
+    | TQueryEntryPendingState<TArgs>
+    | TQueryEntrySuccessState<TArgs, TData>
+    | TQueryEntryErrorState<TArgs>
+    | TQueryEntryInvalidatingState<TArgs, TData>
+    | TQueryEntryInvalidateErrorState<TArgs, TData>;
 
 // ==================== Patch Types ====================
 
@@ -93,7 +103,7 @@ export interface IPatchHandle {
 // ==================== Clutch Types ====================
 
 /**
- * Status of a clutch state. Unlike {@link TMachineStatus} (the status of one
+ * Status of a clutch state. Unlike {@link TQueryEntryStatus} (the status of one
  * cache entry), it says only whether a query is in flight and how the last one
  * settled: a background invalidation is `pending`, a failed one is `error`.
  * What is on screen meanwhile is told by `dataSource`.
@@ -128,3 +138,27 @@ export type ArgsOrVoidOrSkip<TArgs> = TArgsOrVoidOrSkip<TArgs>;
 
 /** @deprecated Renamed to {@link TClutchStatus}. Will be removed in 0.14.0. */
 export type TAgentStatus = TClutchStatus;
+
+/**
+ * @deprecated Renamed to {@link TQueryEntryState}: the cache entry's state is no
+ * longer wrapped in a machine class. Will be removed in 0.14.0.
+ */
+export type TMachineState<TArgs, TData> = TQueryEntryState<TArgs, TData>;
+
+/** @deprecated Renamed to {@link TQueryEntryStatus}. Will be removed in 0.14.0. */
+export type TMachineStatus = TQueryEntryStatus;
+
+/** @deprecated Renamed to {@link TQueryEntryPendingState}. Will be removed in 0.14.0. */
+export type TPendingState<TArgs> = TQueryEntryPendingState<TArgs>;
+
+/** @deprecated Renamed to {@link TQueryEntrySuccessState}. Will be removed in 0.14.0. */
+export type TSuccessState<TArgs, TData> = TQueryEntrySuccessState<TArgs, TData>;
+
+/** @deprecated Renamed to {@link TQueryEntryErrorState}. Will be removed in 0.14.0. */
+export type TErrorState<TArgs> = TQueryEntryErrorState<TArgs>;
+
+/** @deprecated Renamed to {@link TQueryEntryInvalidatingState}. Will be removed in 0.14.0. */
+export type TInvalidatingState<TArgs, TData> = TQueryEntryInvalidatingState<TArgs, TData>;
+
+/** @deprecated Renamed to {@link TQueryEntryInvalidateErrorState}. Will be removed in 0.14.0. */
+export type TInvalidateErrorState<TArgs, TData> = TQueryEntryInvalidateErrorState<TArgs, TData>;

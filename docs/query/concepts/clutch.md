@@ -56,9 +56,9 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 - **success** — данные текущих args получены.
 - **error** — последний запрос текущих args завершился ошибкой.
 
-У [машины][machine] состояний пять: её `invalidating` и `invalidate-error` — «запрос в полёте поверх данных» и «упавший перезапрос». Отдельными статусами сцепление их не транслирует, а раскладывает по двум осям: `pending` / `error` плюс `dataSource: "current"`. Ошибка живёт в `error` до следующего settle, поэтому повтор в полёте — это `isPending && hasError`, без отдельного флага.
+У [записи кэша][entry-state] состояний пять: её `invalidating` и `invalidate-error` — «запрос в полёте поверх данных» и «упавший перезапрос». Отдельными статусами сцепление их не транслирует, а раскладывает по двум осям: `pending` / `error` плюс `dataSource: "current"`. Ошибка живёт в `error` до следующего settle, поэтому повтор в полёте — это `isPending && hasError`, без отдельного флага.
 
-| Состояние машины | Слоты сцепления | status | dataSource | Строки |
+| Состояние записи | Слоты сцепления | status | dataSource | Строки |
 |---|---|---|---|---|
 | _(нет записи / `SKIP`)_ | — | `idle` | `none` | 1 |
 | `pending` | ничего | `pending` | `none` | 2, 10 |
@@ -78,7 +78,7 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 ## См. также
 
 - [Потоки данных][dataflows] — диаграммы всех ресурсных и командных потоков.
-- [Машина состояний][machine] — состояние, которое сцепление транслирует из записи кэша.
+- [Состояние записи запроса][entry-state] — состояние, которое сцепление транслирует из записи кэша.
 - [Кэш][cache] — хранилище записей, за которыми наблюдает сцепление.
 - [Использование ресурсов][usage-res] — хук `useResource` и полная таблица состояний.
 - [Использование команд][usage-cmd] — хук `useCommand` и жизненный цикл мутаций.
@@ -87,7 +87,7 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 
 ---
 
-[machine]: machine.md
+[entry-state]: query-entry-state.md
 [cache]: cache.md
 [dataflows]: dataflows.md
 [usage-res]: ../usage/resource.md

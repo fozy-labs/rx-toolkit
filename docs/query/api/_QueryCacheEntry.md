@@ -3,7 +3,7 @@
 Расширяет [CacheEntry][cache-entry-api], 
     добавляя жизненный цикл запроса: выполнение `queryFn`, 
     дедупликация, прерывание, [патчинг][patching-concept] 
-    и интеграция с [машиной состояний][machine-concept]. 
+    и переходы [состояния записи][entry-state-concept]. 
 Используется [ресурсом][resource-api] и [командой][command-api].
 
 
@@ -15,20 +15,21 @@
 | `retentionTime`      | `number \| false`                                                  | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять.                  |
 | `keyedArgs`          | `TKeyed<TArgs>`                                                     | (Обязательное поле) | Аргументы для `queryFn`. Используются для дедупликации и отображения в DevTools.                        |
 | `resourceKey`        | `string`                                                           | —                   | Ключ для отображения в DevTools.                                                                        |
-| `mapError`           | `TMapError` — `(error: unknown, ctx: TErrorContext) => unknown`    | `identity`          | Нормализует сырую ошибку в точке входа в машину (`machine.fail`). Прокидывается из [API][api-readme].    |
+| `mapError`           | `TMapError` — `(error: unknown, ctx: TErrorContext) => unknown`    | `identity`          | Нормализует сырую ошибку в единственной точке её входа в состояние записи. Прокидывается из [API][api-readme]. |
 | `errorSource`        | `'query'` \| `'command'`                                           | `'query'`           | Провенанс, попадающий в контекст `mapError`.                                                            |
-| `initialMachine`     | `Machine<TArgs, TData>`                                            | —                   | Машина состояний для инициализации записи.                                                              |
-| `beforeDevtoolsPush` | `(machine: Machine<TArgs, TData>) => any`                          | —                   | Функция для изменения состояния перед отправкой в DevTools. Полезно для удаления чувствительных данных. `Resource` и `Command` её не пробрасывают. |
+| `initialState`       | [`TQueryEntryState<TArgs, TData>`][entry-state-concept]            | —                   | Состояние, с которого запись начинает жизнь. Обычная плоская запись — например, восстановленная из снимка. |
+| `beforeDevtoolsPush` | `TBeforeDevtoolsPushFn<TQueryEntryState<TArgs, TData>>`            | —                   | Перехватывает состояние записи перед отправкой в DevTools. Полезно для удаления чувствительных данных. `Resource` и `Command` её не пробрасывают. |
 
 
 ## Свойства
 
-| Свойство   | Тип                                          | Описание                                                    |
-|------------|----------------------------------------------|-------------------------------------------------------------|
-| `keyedArgs` | `TKeyed<TArgs>`                              | Аргументы, с которыми была создана запись.                  |
-| `machine$` | `ReadonlySignal<Machine<TArgs, TData>>`   | Реактивный сигнал состояния [машины][machine-concept]. |
+| Свойство    | Тип                                                                        | Описание                                                       |
+|-------------|----------------------------------------------------------------------------|-----------------------------------------------------------------|
+| `keyedArgs` | `TKeyed<TArgs>`                                                            | Аргументы, с которыми была создана запись.                     |
+| `state$`    | `ReadonlySignal<`[`TQueryEntryState<TArgs, TData>`][entry-state-concept]`>` | Реактивный сигнал [состояния записи][entry-state-concept] — плоская запись: `entry.state$().status`. |
 
-> Наследуемые свойства `state$`, `completed$` — см. [CacheEntry][cache-entry-api].
+> `state$` унаследован от [CacheEntry][cache-entry-api], параметризованного
+> `TQueryEntryState<TArgs, TData>`; там же — `completed$`.
 
 
 ## Методы
@@ -44,12 +45,13 @@
 Оба реджектят ещё в двух случаях: `CacheEntryRemovedError`, если запись завершилась раньше подходящего состояния (`reset()` / `resetAll()` / явный `complete()`), и причиной отмены (`signal.reason`), если переданный `AbortSignal` сработал первым. Сборка по `retentionTime` таким источником **не** является: пока ожидание не завершилось, оно удерживает refcount записи и откладывает сборку.
 
 
-> Наследуемые `peek()`, `set()`, `complete()` — см. [CacheEntry][cache-entry-api].
+> Наследуемые `peek()`, `set()`, `complete()` — см. [CacheEntry][cache-entry-api];
+> `peek()` и `set()` работают с той же плоской записью, что и `state$`.
 
 
 ## Выполнение запроса
 
-При создании записи `queryFn` вызывается автоматически, если `initialMachine` **не** была указана — либо если указанная машина находится в статусе `invalidating` (гидрация устаревшего снимка сразу запускает перезапрос).
+При создании записи `queryFn` вызывается автоматически, если `initialState` **не** было указано — либо если указанное состояние имеет статус `invalidating` (гидрация устаревшего снимка сразу запускает перезапрос).
 
 Принудительный запрос (`invalidate()`) прерывает текущий запрос через `AbortSignal` и запускает новый.
 
@@ -68,7 +70,7 @@
 ## См. также
 
 - [CacheEntry — API][cache-entry-api]
-- [Машина состояний][machine-concept]
+- [Состояние записи запроса][entry-state-concept]
 - [Патчинг][patching-concept]
 - [Ресурс — API][resource-api]
 - [Команда — API][command-api]
@@ -76,7 +78,7 @@
 ---
 
 [cache-entry-api]: ./_CacheEntry.md
-[machine-concept]: ../concepts/machine.md
+[entry-state-concept]: ../concepts/query-entry-state.md
 [patching-concept]: ../concepts/patching.md
 [resource-api]: ./resource.md
 [command-api]: ./command.md

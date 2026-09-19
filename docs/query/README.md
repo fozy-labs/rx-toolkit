@@ -47,7 +47,7 @@ function UsersList({ page }: { page: number }) {
 | **Коллекции по id** | [usage/projection-resource.md][projection-resource] — кэш на уровне элементов |
 | **Написание queryFn** | [usage/query-fn.md][query-fn] — fetcher, отличия ресурса и команды, request id |
 | **Живые данные (WebSocket, SSE)** | [usage/stream-query.md][stream-query] — `Observable` в queryFn ресурса |
-| **Понять внутреннее устройство** | [concepts/machine.md][machine] → [concepts/cache.md][cache] → [concepts/clutch.md][clutch] |
+| **Понять внутреннее устройство** | [concepts/query-entry-state.md][entry-state] → [concepts/cache.md][cache] → [concepts/clutch.md][clutch] |
 | **Оптимистичные обновления** | [concepts/patching.md][patching] → [usage/links.md][links] |
 | **SSR / гидрация** | [usage/snapshot.md][snapshot] |
 | **Кросс-табовая синхронизация** | [usage/broadcast.md][broadcast] |
@@ -61,7 +61,7 @@ function UsersList({ page }: { page: number }) {
 [stream-query]: usage/stream-query.md
 [command]: usage/command.md
 [query-fn]: usage/query-fn.md
-[machine]: concepts/machine.md
+[entry-state]: concepts/query-entry-state.md
 [cache]: concepts/cache.md
 [clutch]: concepts/clutch.md
 [patching]: concepts/patching.md

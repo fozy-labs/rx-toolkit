@@ -539,7 +539,7 @@ describe("ResourceClutch — invalidate edges", () => {
 
 describe("ResourceClutch — undrawn edges are a warn + no-op", () => {
     const RETRY_ROWS: TRow[] = [2, 3, 4, 5, 6, 10, 11, 12, 14];
-    // Row 7 is rejected by the clutch, not by the entry: the machine cannot tell
+    // Row 7 is rejected by the clutch, not by the entry: the entry cannot tell
     // rows 7 / 8 / 13 apart, they are all `error`.
     const INVALIDATE_ROWS: TRow[] = [2, 3, 4, 6, 7, 10, 11, 12, 14];
 
@@ -1100,7 +1100,7 @@ describe("ResourceClutch reset() on active clutch (regression)", () => {
 // The clutch holds its tracked entry through `current$` (a getEntry$ signal). When
 // the tracked entry is NOT the last one created and is removed while the clutch is
 // unmounted (state$ read only via peek — no live subscription), current$ must stop
-// yielding the completed entry, or every reader of `entry.machine$.peek()` hits a
+// yielding the completed entry, or every reader of `entry.state$.peek()` hits a
 // disposed state and throws "No value emitted".
 
 describe("ResourceClutch — non-last entry removal (N1 regression)", () => {

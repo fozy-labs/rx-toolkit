@@ -633,8 +633,8 @@ describe("createApi — snapshot hydration", () => {
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        expect(entries[0].machine$.peek().state.status).toBe("invalidating");
-        expect(entries[0].machine$.peek().state.data).toBe("old-data");
+        expect(entries[0].state$.peek().status).toBe("invalidating");
+        expect(entries[0].state$.peek().data).toBe("old-data");
     });
 
     it("fresh snapshot entry hydrates as 'success'", () => {
@@ -669,8 +669,8 @@ describe("createApi — snapshot hydration", () => {
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        expect(entries[0].machine$.peek().state.status).toBe("success");
-        expect(entries[0].machine$.peek().state.data).toBe("cached-data");
+        expect(entries[0].state$.peek().status).toBe("success");
+        expect(entries[0].state$.peek().data).toBe("cached-data");
     });
 });
 

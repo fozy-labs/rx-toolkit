@@ -45,19 +45,19 @@ function trackedStream<TData>() {
     return { stream, state };
 }
 
-// ==================== Stream lifecycle through the machine ====================
+// ==================== Stream lifecycle through the entry state ====================
 
-describe("stream queryFn — machine transitions", () => {
+describe("stream queryFn — entry state transitions", () => {
     it("first emission: pending → success", () => {
         const subject = new Subject<string>();
         const resource = createResource({ queryFn: () => subject.asObservable() });
 
         const entry = resource.getEntry(undefined, true);
-        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
 
         subject.next("live-1");
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-1");
     });
@@ -71,7 +71,7 @@ describe("stream queryFn — machine transitions", () => {
         subject.next("live-2");
         subject.next("live-3");
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-3");
     });
@@ -81,7 +81,7 @@ describe("stream queryFn — machine transitions", () => {
 
         const entry = resource.getEntry(undefined, true);
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("c");
     });
@@ -97,7 +97,7 @@ describe("stream queryFn — machine transitions", () => {
         const boom = new Error("boom");
         subject.error(boom);
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("error");
         expect(state.error).toEqual({ mapped: boom });
     });
@@ -111,7 +111,7 @@ describe("stream queryFn — machine transitions", () => {
         const boom = new Error("late-boom");
         subject.error(boom);
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("invalidate-error");
         expect(state.data).toBe("live-1");
         expect(state.error).toBe(boom);
@@ -124,7 +124,7 @@ describe("stream queryFn — machine transitions", () => {
         const entry = resource.getEntry(undefined, true);
         subject.complete();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("error");
         expect(state.error).toBeInstanceOf(EmptyStreamError);
     });
@@ -139,7 +139,7 @@ describe("stream queryFn — machine transitions", () => {
         subject.next("live-2");
         subject.complete();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-2");
         expect(queryFn).toHaveBeenCalledTimes(1);
@@ -160,12 +160,12 @@ describe("stream queryFn — teardown and resubscription", () => {
         entry.invalidate();
         expect(state.teardownCount).toBe(1);
         expect(state.subscribeCount).toBe(2);
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         state.subscriber!.next("run2-value");
-        const machineState = entry.machine$.peek().state;
-        expect(machineState.status).toBe("success");
-        expect(machineState.data).toBe("run2-value");
+        const entryState = entry.state$.peek();
+        expect(entryState.status).toBe("success");
+        expect(entryState.data).toBe("run2-value");
     });
 
     it("emissions from a superseded run are ignored", () => {
@@ -177,11 +177,11 @@ describe("stream queryFn — teardown and resubscription", () => {
         run1.next("run1-value");
 
         entry.invalidate();
-        // The stale producer keeps pushing after unsubscribe — must not reach the machine.
+        // The stale producer keeps pushing after unsubscribe — must not reach the entry.
         run1.next("stale-value");
 
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
-        expect(entry.machine$.peek().state.data).toBe("run1-value");
+        expect(entry.state$.peek().status).toBe("invalidating");
+        expect(entry.state$.peek().data).toBe("run1-value");
     });
 
     it("entry eviction (reset) tears down the subscription", () => {
@@ -201,14 +201,14 @@ describe("stream queryFn — teardown and resubscription", () => {
 
         const entry = resource.getEntry(undefined, true);
         state.subscriber!.error(new Error("boom"));
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         expect(state.subscribeCount).toBe(2);
 
         state.subscriber!.next("recovered");
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
     });
 });
 
@@ -232,14 +232,14 @@ describe("stream queryFn — optimistic patches", () => {
         entry.createPatch((draft) => {
             draft.likes += 1;
         });
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2, title: "v1" });
+        expect(entry.state$.peek().data).toEqual({ likes: 2, title: "v1" });
 
         subject.next({ likes: 5, title: "v2" });
 
         // Pending patch replayed on the new base. Immer patches are absolute
         // replacements: the recorded `likes = 2` wins over the emitted 5,
         // while untouched fields take the new base's values.
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2, title: "v2" });
+        expect(entry.state$.peek().data).toEqual({ likes: 2, title: "v2" });
     });
 
     it("committing a patch during a stream folds it into the data", () => {
@@ -257,11 +257,11 @@ describe("stream queryFn — optimistic patches", () => {
         })!;
         handle.commit();
 
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2 });
+        expect(entry.state$.peek().data).toEqual({ likes: 2 });
 
         // The next emission is the new base — the committed patch dissolved into it.
         subject.next({ likes: 10 });
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 10 });
+        expect(entry.state$.peek().data).toEqual({ likes: 10 });
     });
 
     it("warns once per resource when patching while the stream is open", () => {

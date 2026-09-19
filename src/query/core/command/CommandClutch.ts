@@ -3,7 +3,7 @@ import type {
     IQueryCacheEntry,
     TArgsOrKeyed,
     TCommandClutchState,
-    TMachineState,
+    TQueryEntryState,
     TTriggerPromise,
 } from "@/query/types";
 import { Signal } from "@/signals";
@@ -48,8 +48,7 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
                 const entry = tracking.current$();
                 if (!entry) return this._createIdleState();
 
-                const machineState = entry.state$().state;
-                return this._deriveState(entry, machineState);
+                return this._deriveState(entry, entry.state$());
             },
             { isDisabled: true },
         );
@@ -114,14 +113,14 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
 
     private _deriveState(
         entry: IQueryCacheEntry<TArgs, TData>,
-        machineState: TMachineState<TArgs, TData>,
+        entryState: TQueryEntryState<TArgs, TData>,
     ): TCommandClutchState<TArgs, TData, TError> {
-        // Each machine status maps to one row of the command state matrix,
+        // Each entry status maps to one row of the command state matrix,
         // constructed per branch so the compiler verifies every field against the
-        // discriminated union. The switch stays exhaustive over TMachineStatus:
-        // a new machine status makes this function fall off its end, which the
+        // discriminated union. The switch stays exhaustive over TQueryEntryStatus:
+        // a new entry status makes this function fall off its end, which the
         // declared return type rejects.
-        switch (machineState.status) {
+        switch (entryState.status) {
             // Rows K2 / K5 — a run is in flight. A command never carries data into
             // pending: a repeated trigger creates a fresh entry, so there is no
             // stale value to show. `hasError` distinguishes a retry (K5, keeping
@@ -131,8 +130,8 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
                     status: "pending",
                     data: null,
                     hasData: false,
-                    ...errorSlotOf<TError>(machineState.error),
-                    args: machineState.args,
+                    ...errorSlotOf<TError>(entryState.error),
+                    args: entryState.args,
                     isPending: true,
                     retry: this.retry,
                 };
@@ -142,11 +141,11 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
             case "success": {
                 return {
                     status: "success",
-                    data: machineState.data,
+                    data: entryState.data,
                     hasData: true,
                     error: null,
                     hasError: false,
-                    args: machineState.args,
+                    args: entryState.args,
                     isPending: false,
                     retry: this.retry,
                 };
@@ -159,9 +158,9 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
                     data: null,
                     hasData: false,
                     // Sound per the mapError contract (see the pending branch above).
-                    error: machineState.error as TError,
+                    error: entryState.error as TError,
                     hasError: true,
-                    args: machineState.args,
+                    args: entryState.args,
                     isPending: false,
                     retry: this.retry,
                 };
@@ -180,7 +179,7 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
                 // data) so the invariant fails loudly instead of silently producing a
                 // K2 / K5 state that violates its own `data: null` typing.
                 throw new Error(
-                    `[CommandClutch] unreachable machine status "${machineState.status}": ` +
+                    `[CommandClutch] unreachable entry status "${entryState.status}": ` +
                         "a command cache entry never invalidates (see QueryCacheEntry.invalidate()).",
                 );
             }

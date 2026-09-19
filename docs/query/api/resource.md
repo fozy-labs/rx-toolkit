@@ -51,7 +51,7 @@ placeholderData?: (
 ) => { data: TData } | null;
 ```
 
-Синтезирует данные, которые показывать, пока для `args` в кэше ничего нет. Результат отдаётся как [`dataSource: "placeholder"`][clutch-datasource] и **в кэш не попадает**: ни машина состояний, ни запись кэша о нём не знают.
+Синтезирует данные, которые показывать, пока для `args` в кэше ничего нет. Результат отдаётся как [`dataSource: "placeholder"`][clutch-datasource] и **в кэш не попадает**: запись кэша о нём не знает.
 
 - `{ data }` — показать `data`. Плейсхолдер приоритетнее данных предыдущих args.
 - `null` — поведение без опции: данные предыдущих args, если они есть, иначе ничего.
@@ -115,7 +115,7 @@ placeholderData: (args) => {
 
 ## Что запускает запрос
 
-Выполнение `queryFn` можно инициировать несколькими способами. Они различаются по трём осям: **создаёт ли холодную запись**, **форсит ли свежие данные** и **как отдаёт результат**. Запись запускает `queryFn` при создании, если ей не передана начальная машина.
+Выполнение `queryFn` можно инициировать несколькими способами. Они различаются по трём осям: **создаёт ли холодную запись**, **форсит ли свежие данные** и **как отдаёт результат**. Запись запускает `queryFn` при создании, если ей не передано начальное состояние.
 
 ### Императивные методы
 
@@ -167,7 +167,7 @@ placeholderData: (args) => {
 
 Доступны [строки][clutch-status] 1, 2, 5, 6, 7, 9, 10, 12; варианты экспортируются как `TResourceEntryIdleState`, `TResourceEntryPendingNoneState`, `TResourceEntryPendingCurrentState`, `TResourceEntrySuccessState`, `TResourceEntryErrorState`. Методов (`retry` / `invalidate`) у снимка нет — они есть у записи и у сцепления.
 
-Упавший перезапрос (машина в `invalidate-error`) — это строка 9: `status: 'error'`, `dataSource: 'current'`, устаревшие данные остаются в `data`.
+Упавший перезапрос (запись в `invalidate-error`) — это строка 9: `status: 'error'`, `dataSource: 'current'`, устаревшие данные остаются в `data`.
 
 
 ## Bind
@@ -247,7 +247,7 @@ void usersResource.prefetch({ page: 1 });
 
 - [Использование ресурса][usage] — примеры, паттерны, состояния
 - [Команда — API][command-api] — API мутаций
-- [Машина состояний запроса][machine] — переходы между статусами
+- [Состояние записи запроса][entry-state] — статусы записи кэша и переходы между ними
 - [Сцепление][clutch] — реактивный наблюдатель
 - [Сцепление ресурса — API][clutch-api] — полная таблица методов и статусов сцепления
 - [Типизация аргументов (Keyed)][keyed] — пайплайн аргументов: args → keyedArgs → key
@@ -259,7 +259,7 @@ void usersResource.prefetch({ page: 1 });
 [fetch-methods]: #ensure--fetch--prefetch
 [command-bind]: ./command.md#bind
 [command-api]: ./command.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [clutch]: ../concepts/clutch.md
 [clutch-api]: ./resource-clutch.md
 [clutch-status]: ./resource-clutch.md#варианты-состояния

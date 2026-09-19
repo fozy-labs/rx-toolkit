@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MachineStateError } from "../core/errors";
+import { QueryEntryStateError } from "../core/errors";
 import type { TDataState } from "../core/machine/machine-helpers";
 import { MachineWithData } from "../core/machine/MachineWithData";
 
@@ -234,7 +234,7 @@ describe("MachineWithData", () => {
 
         it("throws when no active patchState", () => {
             const m = makeSuccess();
-            expect(() => m.finishPatch()).toThrow(MachineStateError);
+            expect(() => m.finishPatch()).toThrow(QueryEntryStateError);
         });
 
         it("preserves state status after finish", () => {
@@ -291,9 +291,9 @@ describe("MachineWithData", () => {
             expect(finished.patchState!.patches[0].status).toBe("pending");
         });
 
-        it("throws MachineStateError when no active patchState", () => {
+        it("throws QueryEntryStateError when no active patchState", () => {
             const m = makeSuccess();
-            expect(() => m.finishAllPatches()).toThrow(MachineStateError);
+            expect(() => m.finishAllPatches()).toThrow(QueryEntryStateError);
         });
     });
 });

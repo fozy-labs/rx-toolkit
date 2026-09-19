@@ -40,11 +40,9 @@ function createMockResource(
             entries.map((e) => ({
                 keyedArgs: { key: e.key },
                 peek: () => ({
-                    state: {
-                        status: e.status,
-                        data: e.data,
-                        patchState: e.patchState ?? null,
-                    },
+                    status: e.status,
+                    data: e.data,
+                    patchState: e.patchState ?? null,
                 }),
             })),
         getEntryByKey: (key: string) => {
@@ -52,11 +50,9 @@ function createMockResource(
             if (!found) return null;
             return {
                 peek: () => ({
-                    state: {
-                        status: found.status,
-                        data: found.data,
-                        patchState: found.patchState ?? null,
-                    },
+                    status: found.status,
+                    data: found.data,
+                    patchState: found.patchState ?? null,
                 }),
             };
         },

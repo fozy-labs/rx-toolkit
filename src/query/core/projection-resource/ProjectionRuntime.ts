@@ -30,7 +30,7 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  *   request at all;
  * - an invalidation run bypasses the item cache and refetches every requested id,
  *   without joining requests begun before it — they may carry pre-invalidation
- *   data (detected via the entry's machine, which `_execute` moves to
+ *   data (detected via the entry's state, which `_execute` moves to
  *   `invalidating` before calling `queryFn`);
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
@@ -116,14 +116,14 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 return;
             }
 
-            // `_execute` moves the machine to `invalidating` before subscribing,
+            // `_execute` moves the entry to `invalidating` before subscribing,
             // so an invalidation run is observable here: it must bypass the item
             // cache and refetch every requested id instead of only the missing
             // ones. On the very first run the entry is not registered yet —
             // that run can only be an initial (pending) load, so `false` is
             // always correct.
             const entry = this._resource?.getEntry(args as unknown as TArgsOrVoid<TArgs>) ?? null;
-            const isInvalidateRun = entry !== null && entry.machine$.peek().status === "invalidating";
+            const isInvalidateRun = entry !== null && entry.state$.peek().status === "invalidating";
 
             const waits = new Set<Promise<unknown>>();
             const idsToFetch: TId[] = [];
@@ -300,7 +300,7 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             try {
                 data = await this._wrapped.fetch(this._makeArgs(ids));
             } catch (error) {
-                // The wrapped resource rejects with its machine error, which
+                // The wrapped resource rejects with its entry error, which
                 // already passed the api's mapError at that entry's
                 // normalization boundary — re-throw it in the PreMappedError
                 // envelope so the outer id-set entry surfaces it as-is instead

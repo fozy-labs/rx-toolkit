@@ -29,10 +29,24 @@ import type {
     TCombinePluginCommandAugments,
     TCombinePluginProjectionResourceAugments,
     TCombinePluginResourceAugments,
+    TErrorState,
+    TInvalidateErrorState,
+    TInvalidatingState,
     TKeyed,
+    TMachineState,
+    TMachineStatus,
     TPacked,
     TPackedCommand,
     TPackedResource,
+    TPendingState,
+    TQueryEntryErrorState,
+    TQueryEntryInvalidateErrorState,
+    TQueryEntryInvalidatingState,
+    TQueryEntryPendingState,
+    TQueryEntryState,
+    TQueryEntryStatus,
+    TQueryEntrySuccessState,
+    TSuccessState,
 } from "@/query";
 
 /**
@@ -40,8 +54,10 @@ import type {
  * 0.14.0). Type aliases cannot be asserted at runtime, so this file pins them
  * with `expectTypeOf`: every alias must resolve to exactly the new type.
  *
- * State types (clutch / machine / entry) intentionally have no aliases — their
- * shape changes, so a silent alias would be a lie.
+ * The derived state types (resource / command clutch, `getState`) intentionally
+ * have no aliases — their shape changed, so a silent alias would be a lie. The
+ * raw cache-entry record only changed its name and lost its class wrapper, so it
+ * keeps aliases like any other pure rename.
  */
 describe("deprecated type aliases (removed in 0.14.0)", () => {
     it("common type prefixes forward to the T-prefixed names", () => {
@@ -55,6 +71,20 @@ describe("deprecated type aliases (removed in 0.14.0)", () => {
 
     it("TAgentStatus forwards to TClutchStatus", () => {
         expectTypeOf<TAgentStatus>().toEqualTypeOf<TClutchStatus>();
+    });
+
+    it("query entry state types forward from the Machine names", () => {
+        expectTypeOf<TMachineState<number, string>>().toEqualTypeOf<TQueryEntryState<number, string>>();
+        expectTypeOf<TMachineStatus>().toEqualTypeOf<TQueryEntryStatus>();
+        expectTypeOf<TPendingState<number>>().toEqualTypeOf<TQueryEntryPendingState<number>>();
+        expectTypeOf<TSuccessState<number, string>>().toEqualTypeOf<TQueryEntrySuccessState<number, string>>();
+        expectTypeOf<TErrorState<number>>().toEqualTypeOf<TQueryEntryErrorState<number>>();
+        expectTypeOf<TInvalidatingState<number, string>>().toEqualTypeOf<
+            TQueryEntryInvalidatingState<number, string>
+        >();
+        expectTypeOf<TInvalidateErrorState<number, string>>().toEqualTypeOf<
+            TQueryEntryInvalidateErrorState<number, string>
+        >();
     });
 
     it("clutch interfaces forward from the Agent names", () => {

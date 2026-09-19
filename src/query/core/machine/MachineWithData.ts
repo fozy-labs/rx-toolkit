@@ -1,6 +1,6 @@
 import type { IPatchHandle, TPatchEntry, TPatchState } from "@/query/types";
 
-import { MachineStateError } from "../errors";
+import { QueryEntryStateError } from "../errors";
 import { createPatches } from "../patcher";
 
 import { processAllPatches, processPatches, withDataState, type TDataState } from "./machine-helpers";
@@ -82,7 +82,7 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
 
     finishPatch(): this {
         if (!this.state.patchState) {
-            throw new MachineStateError("finishPatch", "no active patchState");
+            throw new QueryEntryStateError("finishPatch", "no active patchState");
         }
 
         return this.withState(processPatches(this.state, this.state.patchState));
@@ -90,7 +90,7 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
 
     finishAllPatches(): this {
         if (!this.state.patchState) {
-            throw new MachineStateError("finishAllPatches", "no active patchState");
+            throw new QueryEntryStateError("finishAllPatches", "no active patchState");
         }
 
         return this.withState(processAllPatches(this.state, this.state.patchState));

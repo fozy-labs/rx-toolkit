@@ -14,13 +14,3 @@ export { ProjectionItemMissingError, CacheEntryRemovedError, EmptyStreamError } 
 // onCacheEntryAdded) into a single option value — the options take an array
 // directly now. Removed in 0.14.0.
 export { composeHooks } from "./core/api";
-export {
-    Machine,
-    MachineBase,
-    MachineWithData,
-    MachinePending,
-    MachineSuccess,
-    MachineError,
-    MachineInvalidating,
-    MachineInvalidateError,
-} from "./core/machine";

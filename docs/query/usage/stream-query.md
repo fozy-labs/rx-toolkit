@@ -100,11 +100,11 @@ const feed = api.createResource({
 - [queryFn][query-fn] — как писать функцию запроса
 - [Хуки жизненного цикла][lifecycle] — `onQueryStarted`, `$queryFulfilled`
 - [Оптимистичные обновления][patching] — механика патчей и ребейза
-- [Машина состояний][machine] — все переходы статусов
+- [Состояние записи запроса][entry-state] — все переходы статусов
 
 [resource]: ./resource.md
 [projection-resource]: ./projection-resource.md
 [query-fn]: ./query-fn.md
 [lifecycle]: ./lifecycle.md
 [patching]: ../concepts/patching.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md

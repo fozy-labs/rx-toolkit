@@ -6,29 +6,28 @@ import type {
     IQueryCacheEntryOptions,
     TErrorContext,
     TKeyed,
-    TMachineState,
     TMapError,
+    TQueryEntryState,
 } from "@/query/types";
-import type { ReadonlySignal } from "@/signals/types";
 
 import { abortReason } from "../../lib/abortReason";
 import { CacheEntryRemovedError, EmptyStreamError, PreMappedError } from "../errors";
 import { Machine } from "../machine/Machine";
-import { isDataState } from "../machine/machine-helpers";
+import { isDataState, pendingEntryState } from "../machine/machine-helpers";
+import type { MachineBase } from "../machine/MachineBase";
 
 import { CacheEntry } from "./CacheEntry";
 
 // ==================== QueryCacheEntry ====================
 
-/** Outcome of matching a machine state in {@link QueryCacheEntry._awaitState}. */
+/** Outcome of matching an entry state in {@link QueryCacheEntry._awaitState}. */
 type TSettled<TData> = { kind: "data"; data: TData } | { kind: "error"; error: unknown };
 
 export class QueryCacheEntry<TArgs, TData>
-    extends CacheEntry<Machine<TArgs, TData>>
+    extends CacheEntry<TQueryEntryState<TArgs, TData>>
     implements IQueryCacheEntry<TArgs, TData>
 {
     readonly keyedArgs: TKeyed<TArgs>;
-    readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
 
     private _queryFn: (keyedArgs: TKeyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
     private _abortController: AbortController | null = null;
@@ -56,13 +55,13 @@ export class QueryCacheEntry<TArgs, TData>
     private readonly _firstLoaded: Promise<TData>;
 
     constructor(options: IQueryCacheEntryOptions<TArgs, TData>) {
-        const machine = options.initialMachine ?? Machine.pending<TArgs, TData>(options.keyedArgs.value);
+        const initialState = options.initialState ?? pendingEntryState<TArgs>(options.keyedArgs.value);
 
         const devtoolsKey = options.resourceKey
             ? `${options.resourceKey}:${options.keyedArgs.key}`
             : options.keyedArgs.key;
 
-        super(machine, {
+        super(initialState, {
             retentionTime: options.retentionTime,
             devtoolsKey,
             beforeDevtoolsPush: options.beforeDevtoolsPush,
@@ -74,7 +73,6 @@ export class QueryCacheEntry<TArgs, TData>
         this._errorSource = options.errorSource ?? "query";
         this._resourceKey = options.resourceKey;
         this._onStreamPatch = options.onStreamPatch;
-        this.machine$ = this.state$;
 
         // The raw stream replays the current state, so hydrated entries settle
         // immediately. Suppress "nobody awaited" rejections (may never be read).
@@ -87,11 +85,11 @@ export class QueryCacheEntry<TArgs, TData>
         void this._firstLoaded.catch(() => {});
 
         // Auto-execute queryFn when no initial state is provided. An explicit
-        // pending initialMachine suppresses auto-execute (beforeQuery intercept),
-        // but a hydrated "invalidating" machine (stale snapshot) requires a real
+        // pending initialState suppresses auto-execute (beforeQuery intercept),
+        // but a hydrated "invalidating" state (stale snapshot) requires a real
         // run: the state means "query in flight" and, with invalidate()/retry()
         // invalid from it, has no other way out.
-        if (!options.initialMachine || options.initialMachine.status === "invalidating") {
+        if (!options.initialState || options.initialState.status === "invalidating") {
             this._execute();
         }
     }
@@ -99,7 +97,7 @@ export class QueryCacheEntry<TArgs, TData>
     /**
      * Re-check what the entry shows and re-fetch. Valid from success,
      * invalidate-error and error (the last one lands in `pending`: the entry
-     * holds nothing, and the reader's view may show data the machine does not
+     * holds nothing, and the reader's view may show data the entry does not
      * know about).
      *
      * Never valid on a command entry: a command result is not re-checked, it is
@@ -113,14 +111,14 @@ export class QueryCacheEntry<TArgs, TData>
             return;
         }
 
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         if (machine.status !== "success" && machine.status !== "invalidate-error" && machine.status !== "error") {
             console.warn(`[QueryCacheEntry] invalidate() called in invalid state: ${machine.status}`);
             return;
         }
 
-        this.set(machine.invalidate(), "invalidate");
+        this._setMachine(machine.invalidate(), "invalidate");
         this._execute();
     }
 
@@ -135,20 +133,20 @@ export class QueryCacheEntry<TArgs, TData>
      * in-flight state a non-null `error` is what marks the run as a retry.
      */
     retry(): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         if (machine.status !== "error" && machine.status !== "invalidate-error") {
             console.warn(`[QueryCacheEntry] retry() called in invalid state: ${machine.status}`);
             return;
         }
 
-        this.set(machine.retry(), "retry");
+        this._setMachine(machine.retry(), "retry");
         this._execute();
     }
 
     /** Create an optimistic patch. Returns null if state has no data. */
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         if (
             machine.status !== "success" &&
@@ -160,7 +158,7 @@ export class QueryCacheEntry<TArgs, TData>
         }
 
         const onSettle = () => {
-            const current = this.machine$.peek();
+            const current = this._machine;
             if (
                 (current.status === "success" ||
                     current.status === "invalidating" ||
@@ -168,7 +166,7 @@ export class QueryCacheEntry<TArgs, TData>
                 current.patchState
             ) {
                 const finished = current.finishPatch();
-                this.set(finished, "patch-settled");
+                this._setMachine(finished, "patch-settled");
 
                 if (finished.patchState?.isConsistencyViolation) {
                     this.invalidate();
@@ -178,7 +176,7 @@ export class QueryCacheEntry<TArgs, TData>
 
         const { machine: newMachine, handle } = machine.createPatch(patchFn, onSettle);
 
-        this.set(newMachine, "patch");
+        this._setMachine(newMachine, "patch");
 
         // While a query stream is open, incoming emissions rebase over the patch
         // — let the owner surface that (e.g. the resource's one-time warning).
@@ -213,7 +211,7 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Resolve when the machine settles with fresh data (`success`), rejecting on
+     * Resolve when the entry settles with fresh data (`success`), rejecting on
      * `error` / `invalidate-error`. Unlike {@link whenLoaded}, transient stale data
      * (pending / invalidating) is awaited rather than resolved. Used by
      * {@link Resource.fetch} (which always (re)starts a run before awaiting).
@@ -236,7 +234,7 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Resolve/reject with the outcome of the machine's next settled state — the
+     * Resolve/reject with the outcome of the entry's next settled state — the
      * same transitions as {@link whenFetched}, but without a keepalive
      * subscription, so the caller owns the entry's lifecycle. Backs `Command.execute`.
      *
@@ -262,17 +260,37 @@ export class QueryCacheEntry<TArgs, TData>
         super.complete();
     }
 
+    // ==================== Internal ====================
+
+    /**
+     * @internal The transition algebra over the entry's current state.
+     *
+     * The entry stores the flat {@link TQueryEntryState} record; everything that
+     * needs a typed transition (`success`, `fail`, `invalidate`, `rebase`,
+     * `createPatch`, …) goes through a machine rebuilt here and writes the
+     * result back with {@link QueryCacheEntry._setMachine}. Not part of
+     * `IQueryCacheEntry`: consumers read `state$` instead.
+     */
+    get _machine(): Machine<TArgs, TData> {
+        return Machine.of(this.peek());
+    }
+
+    /** @internal Store the outcome of a transition (see {@link QueryCacheEntry._machine}). */
+    _setMachine(machine: MachineBase<TArgs, TData>, actionName?: string): void {
+        this.set(machine.state, actionName);
+    }
+
     // ==================== Private ====================
 
     /**
-     * Universal state-driven waiter: observe machine transitions (starting from
-     * the current state, which is replayed on subscribe) and settle on the first
-     * state that `settle` maps to an outcome.
+     * Universal state-driven waiter: observe the entry's transitions (starting
+     * from the current state, which is replayed on subscribe) and settle on the
+     * first state that `settle` maps to an outcome.
      *
      * Rejects with {@link CacheEntryRemovedError} if the entry completes before a
      * matching state, and with the signal's reason if `signal` aborts first.
      *
-     * @param settle - Maps a machine state to a resolution/rejection outcome, or
+     * @param settle - Maps an entry state to a resolution/rejection outcome, or
      *   `null` to keep waiting.
      * @param opts.keepalive - When `true`, observes the shared stream and thereby
      *   holds the share's refcount, so retention GC only resumes once the waiter
@@ -284,7 +302,7 @@ export class QueryCacheEntry<TArgs, TData>
      *   rejections, `$cacheDataLoaded`) keep the raw `CacheEntryRemovedError`.
      */
     private _awaitState(
-        settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
+        settle: (state: TQueryEntryState<TArgs, TData>) => TSettled<TData> | null,
         opts: { keepalive: boolean; signal?: AbortSignal; mapRemoval?: boolean },
     ): Promise<TData> {
         const { keepalive, signal } = opts;
@@ -293,10 +311,10 @@ export class QueryCacheEntry<TArgs, TData>
             return Promise.reject(abortReason(signal));
         }
 
-        const source: Observable<Machine<TArgs, TData>> = keepalive ? this.obs : this.rawObs;
+        const source: Observable<TQueryEntryState<TArgs, TData>> = keepalive ? this.obs : this.rawObs;
 
         // Manual subscription (instead of firstValueFrom) so the promise settles in
-        // the same microtask as the machine transition — no extra `.then` hops.
+        // the same microtask as the state transition — no extra `.then` hops.
         return new Promise<TData>((resolve, reject) => {
             let isSettled = false;
             let subscription: Subscription | null = null;
@@ -313,8 +331,8 @@ export class QueryCacheEntry<TArgs, TData>
             signal?.addEventListener("abort", onAbort, { once: true });
 
             subscription = source.subscribe({
-                next: (machine) => {
-                    const outcome = settle(machine.state);
+                next: (state) => {
+                    const outcome = settle(state);
                     if (!outcome) return;
                     finish(() => (outcome.kind === "data" ? resolve(outcome.data) : reject(outcome.error)));
                 },
@@ -357,7 +375,7 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
-    private _settleQueryOutcome(state: TMachineState<TArgs, TData>): TSettled<TData> | null {
+    private _settleQueryOutcome(state: TQueryEntryState<TArgs, TData>): TSettled<TData> | null {
         if (state.status === "success") return { kind: "data", data: state.data };
         if (state.status === "error" || state.status === "invalidate-error")
             return { kind: "error", error: state.error };
@@ -372,12 +390,12 @@ export class QueryCacheEntry<TArgs, TData>
 
         const controller = new AbortController();
         this._abortController = controller;
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         switch (machine.status) {
             case "success":
             case "invalidate-error":
-                this.set(machine.invalidate(), "refetch");
+                this._setMachine(machine.invalidate(), "refetch");
                 break;
             case "pending":
             case "invalidating":
@@ -388,7 +406,7 @@ export class QueryCacheEntry<TArgs, TData>
             case "error":
                 return;
             default: {
-                // Compiler-checked exhaustiveness: the machine union has no other status.
+                // Compiler-checked exhaustiveness: the union has no other status.
                 const unexpected: never = machine;
                 return unexpected;
             }
@@ -405,19 +423,16 @@ export class QueryCacheEntry<TArgs, TData>
             .then((data) => {
                 if (controller.signal.aborted) return;
 
-                const machine = this.machine$.peek();
+                const machine = this._machine;
 
                 switch (machine.status) {
                     case "pending":
-                        this.set(machine.success(data), "success");
+                        this._setMachine(machine.success(data), "success");
                         break;
                     case "invalidating": {
                         const rebased = machine.rebase(data);
-                        this.set(rebased, "rebase");
-
-                        if (rebased.patchState?.isConsistencyViolation) {
-                            this.invalidate();
-                        }
+                        this._setMachine(rebased, "rebase");
+                        this._rerunOnDiscardedRebase(rebased);
                         break;
                     }
                     default:
@@ -427,7 +442,7 @@ export class QueryCacheEntry<TArgs, TData>
             .catch((error) => {
                 if (controller.signal.aborted) return;
 
-                const machine = this.machine$.peek();
+                const machine = this._machine;
 
                 if (machine.status !== "pending" && machine.status !== "invalidating") {
                     console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
@@ -436,7 +451,7 @@ export class QueryCacheEntry<TArgs, TData>
 
                 // Single normalization boundary (see _normalizeError): the raw
                 // rejection becomes the api's TError exactly here, as it enters the
-                // machine, so every reader of the machine's error — clutch state,
+                // entry's state, so every reader of that error — clutch state,
                 // imperative-fetch rejections, the command result envelope, the
                 // Suspense throw — observes the same mapped instance. Deliberately
                 // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
@@ -448,7 +463,7 @@ export class QueryCacheEntry<TArgs, TData>
                 // keeps its data, a failed first load has none to keep.
                 const failedAction = machine.status === "invalidating" ? "invalidate-error" : "error";
 
-                this.set(machine.fail(mappedError), failedAction);
+                this._setMachine(machine.fail(mappedError), failedAction);
             });
     }
 
@@ -526,26 +541,39 @@ export class QueryCacheEntry<TArgs, TData>
         );
     }
 
-    /** Apply a stream emission to the machine (see {@link _subscribeStream}). */
+    /**
+     * Start another run when a rebase discarded its own result.
+     *
+     * The entry is still `invalidating` — the run settled nothing — so this
+     * goes through {@link _execute} rather than {@link invalidate}: the latter
+     * is not a valid edge out of `invalidating` and would leave the entry
+     * stranded with no query in flight. The next run's rebase replays the now
+     * empty patch list and lands in a clean `success`.
+     */
+    private _rerunOnDiscardedRebase(rebased: Machine<TArgs, TData>): void {
+        if (rebased.status !== "invalidating") return;
+        if (!rebased.state.patchState?.isConsistencyViolation) return;
+
+        this._execute();
+    }
+
+    /** Apply a stream emission to the entry's state (see {@link _subscribeStream}). */
     private _applyStreamData(data: TData): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         switch (machine.status) {
             case "pending":
-                this.set(machine.success(data), "success");
+                this._setMachine(machine.success(data), "success");
                 break;
             case "invalidating": {
                 const rebased = machine.rebase(data);
-                this.set(rebased, "rebase");
-
-                if (rebased.patchState?.isConsistencyViolation) {
-                    this.invalidate();
-                }
+                this._setMachine(rebased, "rebase");
+                this._rerunOnDiscardedRebase(rebased);
                 break;
             }
             case "success": {
                 const next = machine.next(data);
-                this.set(next, "stream-next");
+                this._setMachine(next, "stream-next");
 
                 if (next.patchState?.isConsistencyViolation) {
                     this.invalidate();
@@ -559,7 +587,7 @@ export class QueryCacheEntry<TArgs, TData>
 
     /** Fail the current stream run; unlike the promise path, `success` is a valid failure origin. */
     private _failStreamRun(error: unknown): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         if (machine.status !== "pending" && machine.status !== "invalidating" && machine.status !== "success") {
             console.warn(`[QueryCacheEntry] received stream error in unexpected state: ${machine.status}`);
@@ -571,6 +599,6 @@ export class QueryCacheEntry<TArgs, TData>
 
         const failedAction = machine.status === "pending" ? "error" : "invalidate-error";
 
-        this.set(machine.fail(mappedError), failedAction);
+        this._setMachine(machine.fail(mappedError), failedAction);
     }
 }

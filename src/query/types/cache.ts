@@ -1,10 +1,9 @@
 import type { Observable, Subject } from "rxjs";
 
-import type { Machine } from "@/query/core/machine";
 import type { ReadonlySignal, TBeforeDevtoolsPushFn } from "@/signals/types";
 
 import type { TMapError } from "./api";
-import type { IPatchHandle, TKeyed } from "./common";
+import type { IPatchHandle, TKeyed, TQueryEntryState } from "./common";
 
 // ==================== Cache Interfaces ====================
 
@@ -14,6 +13,11 @@ export interface ICacheEntryOptions<TState> {
     beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TState>;
 }
 
+/**
+ * Reactive container over a single state value. `TState` is both what the entry
+ * stores and what it publishes: {@link IQueryCacheEntry} instantiates it with the
+ * flat {@link TQueryEntryState} record.
+ */
 export interface ICacheEntry<TState> {
     readonly completed$: Subject<void>;
     readonly state$: ReadonlySignal<TState>;
@@ -31,13 +35,18 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
     resourceKey?: string;
     /**
      * Normalizes a raw query rejection into the api's error type at the single
-     * point it enters the machine (`machine.fail`). Defaults to identity.
+     * point it enters the entry's state. Defaults to identity.
      */
     mapError?: TMapError;
     /** Provenance forwarded to {@link mapError}'s context. Defaults to `"query"`. */
     errorSource?: "query" | "command";
-    initialMachine?: Machine<TArgs, TData>;
-    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<Machine<TArgs, TData>>;
+    /**
+     * State the entry starts in. Supplying it also suppresses the automatic
+     * first run — except for an `invalidating` state (a stale snapshot), which
+     * means "query in flight" and therefore requires a real run.
+     */
+    initialState?: TQueryEntryState<TArgs, TData>;
+    beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TQueryEntryState<TArgs, TData>>;
     /**
      * Invoked on every `createPatch` made while a query stream is open. Lets
      * the owning resource surface the emissions-rebase-over-patches interplay
@@ -46,10 +55,9 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
     onStreamPatch?: () => void;
 }
 
-export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<Machine<TArgs, TData>> {
+export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<TQueryEntryState<TArgs, TData>> {
     readonly keyedArgs: TKeyed<TArgs>;
-    // state$ is inherited from ICacheEntry<Machine<TArgs, TData>>
-    readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
+    // state$ / peek() / set() are inherited from ICacheEntry<TQueryEntryState<TArgs, TData>>
     invalidate(): void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(): void;

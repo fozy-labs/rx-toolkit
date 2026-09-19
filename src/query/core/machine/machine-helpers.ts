@@ -1,20 +1,80 @@
 import type {
     TErrorSlot,
-    TInvalidateErrorState,
-    TInvalidatingState,
-    TMachineState,
     TPatchEntry,
     TPatchState,
-    TSuccessState,
+    TQueryEntryInvalidateErrorState,
+    TQueryEntryInvalidatingState,
+    TQueryEntryPendingState,
+    TQueryEntryState,
+    TQueryEntrySuccessState,
 } from "@/query/types";
 
 import { processAllSettledPatches, processPatchState, replayPatchEntries } from "../patcher";
 
+// ==================== Initial states ====================
+
+/**
+ * The state a fresh cache entry starts in: a first load of `args`, with nothing
+ * to show and no failure behind it.
+ */
+export function pendingEntryState<TArgs>(args: TArgs): TQueryEntryPendingState<TArgs> {
+    return {
+        status: "pending",
+        args,
+        data: null,
+        error: null,
+        updatedAt: null,
+    };
+}
+
+/**
+ * The state a cache entry hydrated from a snapshot starts in. A stale snapshot
+ * lands in `invalidating`: the data shows immediately and the entry re-queries
+ * on creation.
+ */
+export function snapshotEntryState<TArgs, TData>(
+    snapshot: { args: TArgs; data: TData; updatedAt: number },
+    isStale = false,
+): TQueryEntrySuccessState<TArgs, TData> | TQueryEntryInvalidatingState<TArgs, TData> {
+    if (isStale) {
+        return {
+            status: "invalidating",
+            args: snapshot.args,
+            data: snapshot.data,
+            error: null,
+            updatedAt: snapshot.updatedAt,
+            patchState: null,
+        };
+    }
+
+    return {
+        status: "success",
+        args: snapshot.args,
+        data: snapshot.data,
+        error: null,
+        updatedAt: snapshot.updatedAt,
+        patchState: null,
+    };
+}
+
+// ==================== State predicates ====================
+
 // States that carry data and support patching
 export type TDataState<TArgs, TData> =
-    TSuccessState<TArgs, TData> | TInvalidatingState<TArgs, TData> | TInvalidateErrorState<TArgs, TData>;
+    | TQueryEntrySuccessState<TArgs, TData>
+    | TQueryEntryInvalidatingState<TArgs, TData>
+    | TQueryEntryInvalidateErrorState<TArgs, TData>;
 
-export function isDataState<TArgs, TData>(state: TMachineState<TArgs, TData>): state is TDataState<TArgs, TData> {
+/** The statuses a data-bearing entry state can have. */
+export type TDataStatus = TDataState<unknown, unknown>["status"];
+
+/** The single data-bearing state of a given status. */
+export type TDataStateOf<TArgs, TData, TStatus extends TDataStatus> = Extract<
+    TDataState<TArgs, TData>,
+    { status: TStatus }
+>;
+
+export function isDataState<TArgs, TData>(state: TQueryEntryState<TArgs, TData>): state is TDataState<TArgs, TData> {
     return state.status === "success" || state.status === "invalidating" || state.status === "invalidate-error";
 }
 
@@ -32,8 +92,8 @@ export function errorSlotOf<TError>(error: unknown): TErrorSlot<TError> {
 }
 
 export function buildDataState<TArgs, TData>(
-    status: "success" | "invalidating" | "invalidate-error",
-    base: TMachineState<TArgs, TData>,
+    status: TDataStatus,
+    base: TQueryEntryState<TArgs, TData>,
     data: TData,
     patchState: TPatchState<TData> | null,
     updatedAt?: number,
@@ -42,7 +102,7 @@ export function buildDataState<TArgs, TData>(
 
     switch (status) {
         case "success": {
-            const state: TSuccessState<TArgs, TData> = {
+            const state: TQueryEntrySuccessState<TArgs, TData> = {
                 status: "success",
                 args: base.args,
                 data,
@@ -56,7 +116,7 @@ export function buildDataState<TArgs, TData>(
             // Patch operations rebuild the state in place: a retry in flight is
             // `error !== null`, so rebuilding an invalidating state on top of an
             // invalidating one must not lose the retried failure.
-            const state: TInvalidatingState<TArgs, TData> = {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
                 args: base.args,
                 data,
@@ -70,7 +130,7 @@ export function buildDataState<TArgs, TData>(
             if (!isDataState(base)) {
                 throw new Error("Cannot build invalidate-error from non-data state");
             }
-            const state: TInvalidateErrorState<TArgs, TData> = {
+            const state: TQueryEntryInvalidateErrorState<TArgs, TData> = {
                 status: "invalidate-error",
                 args: base.args,
                 data,
@@ -84,7 +144,7 @@ export function buildDataState<TArgs, TData>(
 }
 
 export function withDataState<TArgs, TData>(
-    currentState: TMachineState<TArgs, TData>,
+    currentState: TQueryEntryState<TArgs, TData>,
     data: TData,
     patchState: TPatchState<TData> | null,
 ): TDataState<TArgs, TData> {
@@ -94,36 +154,69 @@ export function withDataState<TArgs, TData>(
     return buildDataState(currentState.status, currentState, data, patchState);
 }
 
-export function consistencyViolation<TArgs, TData>(
-    currentState: TMachineState<TArgs, TData>,
-): TDataState<TArgs, TData> {
-    if (!isDataState(currentState)) {
-        throw new Error("Consistency violation in non-data state");
-    }
-
-    const newPatchState: TPatchState<TData> = {
-        originalData: currentState.patchState?.originalData ?? currentState.data,
-        patches: [],
-        isConsistencyViolation: true,
+/**
+ * Give up on the pending patches: drop them and flag the patch state so the
+ * owner re-queries.
+ *
+ * Everything else is left exactly as it is — including `status` and
+ * `updatedAt`. A discarded replay is not a settled run: the entry keeps the
+ * status it was in (an interrupted rebase stays `invalidating`) and the
+ * timestamp of its last real settle, so no reader can mistake the optimistic
+ * data it still shows for a fresh server answer.
+ */
+export function consistencyViolation<TArgs, TData, TState extends TDataState<TArgs, TData>>(
+    currentState: TState,
+): TState {
+    return {
+        ...currentState,
+        patchState: {
+            originalData: currentState.patchState?.originalData ?? currentState.data,
+            patches: [],
+            isConsistencyViolation: true,
+        },
     };
-
-    return withDataState(currentState, currentState.data, newPatchState);
 }
 
-export function replayPatches<TArgs, TData>(
-    currentState: TMachineState<TArgs, TData>,
-    targetStatus: "success" | "invalidating" | "invalidate-error",
+/**
+ * Outcome of replaying optimistic patches over freshly received data.
+ *
+ * `ok` — they applied, and the transition settles in `targetStatus`.
+ * Otherwise the run is discarded: `state` is the caller's own state with the
+ * patches dropped and {@link TPatchState.isConsistencyViolation} raised, and it
+ * is up to the caller to start another run.
+ */
+export type TReplayOutcome<TArgs, TData, TStatus extends TDataStatus> =
+    { ok: true; state: TDataStateOf<TArgs, TData, TStatus> } | { ok: false; state: TDataState<TArgs, TData> };
+
+/**
+ * Replay the pending patches over `baseData`, landing in `targetStatus` if they
+ * apply.
+ *
+ * They may not: a patch can address a path the server data no longer has. The
+ * server answer is then unusable — it would have to be presented either with
+ * patches that do not fit it or without patches the caller believes are
+ * applied — so the run is thrown away rather than settled. See
+ * {@link consistencyViolation} for what the entry looks like meanwhile.
+ */
+export function replayPatches<TArgs, TData, TStatus extends TDataStatus>(
+    currentState: TDataState<TArgs, TData>,
+    targetStatus: TStatus,
     baseData: TData,
     patches: TPatchEntry[],
     updatedAt?: number,
-): TDataState<TArgs, TData> {
+): TReplayOutcome<TArgs, TData, TStatus> {
     const result = replayPatchEntries(baseData, patches);
-    if (!result.ok) return consistencyViolation(currentState);
-    return buildDataState(targetStatus, currentState, result.data, result.patchState, updatedAt);
+
+    if (!result.ok) return { ok: false, state: consistencyViolation(currentState) };
+
+    // `buildDataState` constructs exactly `targetStatus`; its union return type
+    // cannot express that dependency on its own argument.
+    const state = buildDataState(targetStatus, currentState, result.data, result.patchState, updatedAt);
+    return { ok: true, state: state as TDataStateOf<TArgs, TData, TStatus> };
 }
 
 export function processPatches<TArgs, TData>(
-    currentState: TMachineState<TArgs, TData>,
+    currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
 ): TDataState<TArgs, TData> {
     const result = processPatchState(patchState);
@@ -132,7 +225,7 @@ export function processPatches<TArgs, TData>(
 }
 
 export function processAllPatches<TArgs, TData>(
-    currentState: TMachineState<TArgs, TData>,
+    currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
 ): TDataState<TArgs, TData> {
     const result = processAllSettledPatches(patchState);

@@ -1,16 +1,16 @@
 import type {
     IPatchHandle,
-    TErrorState,
-    TInvalidateErrorState,
-    TInvalidatingState,
-    TMachineState,
     TPatchEntry,
     TPatchState,
-    TPendingState,
-    TSuccessState,
+    TQueryEntryErrorState,
+    TQueryEntryInvalidateErrorState,
+    TQueryEntryInvalidatingState,
+    TQueryEntryPendingState,
+    TQueryEntryState,
+    TQueryEntrySuccessState,
 } from "@/query/types";
 
-import { MachineStateError, MachineTransitionError } from "../errors";
+import { QueryEntryStateError, QueryEntryTransitionError } from "../errors";
 import { createPatches } from "../patcher";
 
 import { isDataState, processAllPatches, processPatches, replayPatches } from "./machine-helpers";
@@ -20,12 +20,12 @@ import { isDataState, processAllPatches, processPatches, replayPatches } from ".
  *
  * Provides all transition methods with runtime guards.
  * Subtypes extend this and override their valid transitions with narrower return types.
- * Invalid transitions inherited from MachineBase throw MachineTransitionError/MachineStateError.
+ * Invalid transitions inherited from MachineBase throw QueryEntryTransitionError/QueryEntryStateError.
  */
 export class MachineBase<TArgs, TData> {
-    readonly state: TMachineState<TArgs, TData>;
+    readonly state: TQueryEntryState<TArgs, TData>;
 
-    protected constructor(state: TMachineState<TArgs, TData>) {
+    protected constructor(state: TQueryEntryState<TArgs, TData>) {
         this.state = state;
     }
 
@@ -34,10 +34,10 @@ export class MachineBase<TArgs, TData> {
     /** pending → success */
     success(data: TData): MachineBase<TArgs, TData> {
         if (this.state.status !== "pending") {
-            throw new MachineTransitionError("success", this.state.status);
+            throw new QueryEntryTransitionError("success", this.state.status);
         }
 
-        const state: TSuccessState<TArgs, TData> = {
+        const state: TQueryEntrySuccessState<TArgs, TData> = {
             status: "success",
             args: this.state.args,
             data,
@@ -51,7 +51,7 @@ export class MachineBase<TArgs, TData> {
     /** pending → error, invalidating → invalidate-error, success → invalidate-error */
     fail(error: unknown): MachineBase<TArgs, TData> {
         if (this.state.status === "pending") {
-            const state: TErrorState<TArgs> = {
+            const state: TQueryEntryErrorState<TArgs> = {
                 status: "error",
                 args: this.state.args,
                 data: null,
@@ -65,7 +65,7 @@ export class MachineBase<TArgs, TData> {
         // sits in `success` when the stream errors. Data is kept, like a failed
         // background invalidation.
         if (this.state.status === "success") {
-            const state: TInvalidateErrorState<TArgs, TData> = {
+            const state: TQueryEntryInvalidateErrorState<TArgs, TData> = {
                 status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
@@ -77,7 +77,7 @@ export class MachineBase<TArgs, TData> {
         }
 
         if (this.state.status === "invalidating") {
-            const state: TInvalidateErrorState<TArgs, TData> = {
+            const state: TQueryEntryInvalidateErrorState<TArgs, TData> = {
                 status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
@@ -88,7 +88,7 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("fail", this.state.status);
+        throw new QueryEntryTransitionError("fail", this.state.status);
     }
 
     /**
@@ -99,7 +99,7 @@ export class MachineBase<TArgs, TData> {
      */
     invalidate(): MachineBase<TArgs, TData> {
         if (this.state.status === "error") {
-            const state: TPendingState<TArgs> = {
+            const state: TQueryEntryPendingState<TArgs> = {
                 status: "pending",
                 args: this.state.args,
                 data: null,
@@ -110,7 +110,7 @@ export class MachineBase<TArgs, TData> {
         }
 
         if (this.state.status === "success") {
-            const state: TInvalidatingState<TArgs, TData> = {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
@@ -122,7 +122,7 @@ export class MachineBase<TArgs, TData> {
         }
 
         if (this.state.status === "invalidate-error") {
-            const state: TInvalidatingState<TArgs, TData> = {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
@@ -133,7 +133,7 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("invalidate", this.state.status);
+        throw new QueryEntryTransitionError("invalidate", this.state.status);
     }
 
     /**
@@ -143,7 +143,7 @@ export class MachineBase<TArgs, TData> {
      */
     retry(): MachineBase<TArgs, TData> {
         if (this.state.status === "error") {
-            const state: TPendingState<TArgs> = {
+            const state: TQueryEntryPendingState<TArgs> = {
                 status: "pending",
                 args: this.state.args,
                 data: null,
@@ -154,7 +154,7 @@ export class MachineBase<TArgs, TData> {
         }
 
         if (this.state.status === "invalidate-error") {
-            const state: TInvalidatingState<TArgs, TData> = {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
                 status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
@@ -165,20 +165,20 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("retry", this.state.status);
+        throw new QueryEntryTransitionError("retry", this.state.status);
     }
 
     /** success → success (subsequent stream emission; replays patches on new data) */
     next(data: TData): MachineBase<TArgs, TData> {
         if (this.state.status !== "success") {
-            throw new MachineTransitionError("next", this.state.status);
+            throw new QueryEntryTransitionError("next", this.state.status);
         }
 
         const patchState = this.state.patchState;
 
         // No patches → fresh success with the new base
         if (!patchState) {
-            const state: TSuccessState<TArgs, TData> = {
+            const state: TQueryEntrySuccessState<TArgs, TData> = {
                 status: "success",
                 args: this.state.args,
                 data,
@@ -191,21 +191,21 @@ export class MachineBase<TArgs, TData> {
 
         // Replay pending patches on new base
         return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()),
+            replayPatches(this.state, "success", data, patchState.patches, Date.now()).state,
         );
     }
 
     /** invalidating → success (replays patches on new data) */
     rebase(data: TData): MachineBase<TArgs, TData> {
         if (this.state.status !== "invalidating") {
-            throw new MachineTransitionError("rebase", this.state.status);
+            throw new QueryEntryTransitionError("rebase", this.state.status);
         }
 
         const patchState = this.state.patchState;
 
         // No patches → straight to success
         if (!patchState) {
-            const state: TSuccessState<TArgs, TData> = {
+            const state: TQueryEntrySuccessState<TArgs, TData> = {
                 status: "success",
                 args: this.state.args,
                 data,
@@ -218,7 +218,7 @@ export class MachineBase<TArgs, TData> {
 
         // Replay pending patches on new base
         return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()),
+            replayPatches(this.state, "success", data, patchState.patches, Date.now()).state,
         );
     }
 
@@ -230,7 +230,7 @@ export class MachineBase<TArgs, TData> {
         onSettle?: () => void,
     ): { machine: MachineBase<TArgs, TData>; handle: IPatchHandle } {
         if (!isDataState(this.state)) {
-            throw new MachineStateError("createPatch", `invalid state "${this.state.status}"`);
+            throw new QueryEntryStateError("createPatch", `invalid state "${this.state.status}"`);
         }
 
         const currentData = this.state.data;
@@ -281,7 +281,7 @@ export class MachineBase<TArgs, TData> {
     /** Process all settled patches up to the first pending one */
     finishPatch(): MachineBase<TArgs, TData> {
         if (!isDataState(this.state) || !this.state.patchState) {
-            throw new MachineStateError("finishPatch", "no active patchState");
+            throw new QueryEntryStateError("finishPatch", "no active patchState");
         }
 
         return new MachineBase<TArgs, TData>(processPatches(this.state, this.state.patchState));
@@ -290,7 +290,7 @@ export class MachineBase<TArgs, TData> {
     /** Process all settled patches (continues past pending) */
     finishAllPatches(): MachineBase<TArgs, TData> {
         if (!isDataState(this.state) || !this.state.patchState) {
-            throw new MachineStateError("finishAllPatches", "no active patchState");
+            throw new QueryEntryStateError("finishAllPatches", "no active patchState");
         }
 
         return new MachineBase<TArgs, TData>(processAllPatches(this.state, this.state.patchState));

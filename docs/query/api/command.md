@@ -91,7 +91,7 @@ function run(bound: TBound<unknown, unknown>) {
 
 - [Использование команды][usage] — примеры, паттерны, links, lifecycle hooks
 - [Ресурс — API][resource-api] — API чтения данных
-- [Машина состояний запроса][machine] — переходы между статусами
+- [Состояние записи запроса][entry-state] — статусы записи кэша и переходы между ними
 - [Сцепление][clutch] — реактивный наблюдатель
 - [Сцепление команды — API][clutch-api] — полная таблица методов и статусов сцепления
 - [Система кэширования][cache] — жизненный цикл записей кэша
@@ -104,7 +104,7 @@ function run(bound: TBound<unknown, unknown>) {
 [usage-links]: ../usage/links.md
 [usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [clutch]: ../concepts/clutch.md
 [clutch-api]: ./command-clutch.md
 [clutch-api-trigger]: ./command-clutch.md#результат-trigger

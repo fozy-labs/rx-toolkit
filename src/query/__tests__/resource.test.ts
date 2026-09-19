@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { CacheEntryRemovedError } from "@/query/core/errors";
-import { Machine } from "@/query/core/machine/Machine";
+import { pendingEntryState } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { ResourceClutch } from "@/query/core/resource/ResourceClutch";
 import { stableStringify } from "@/query/lib/stableStringify";
@@ -63,9 +63,9 @@ describe("Resource constructor", () => {
 
         const entry = resource.getEntry(42);
         expect(entry).not.toBeNull();
-        const machine = entry!.machine$.peek();
-        expect(machine.state.status).toBe("success");
-        expect(machine.state.data).toBe("cached");
+        const state = entry!.state$.peek();
+        expect(state.status).toBe("success");
+        expect(state.data).toBe("cached");
     });
 
     it("hydration with isStale produces entry in invalidating state with the query in flight", () => {
@@ -89,9 +89,9 @@ describe("Resource constructor", () => {
 
         const entry = resource.getEntry(99);
         expect(entry).not.toBeNull();
-        const machine = entry!.machine$.peek();
-        expect(machine.state.status).toBe("invalidating");
-        expect(machine.state.data).toBe("stale-data");
+        const state = entry!.state$.peek();
+        expect(state.status).toBe("invalidating");
+        expect(state.data).toBe("stale-data");
         // "invalidating" must mean an actual query is in flight — otherwise the
         // entry is stuck: invalidate()/retry() are invalid from this state.
         expect(queryFn).toHaveBeenCalledWith(99, expect.any(AbortSignal));
@@ -118,9 +118,9 @@ describe("Resource constructor", () => {
 
         await flushMicrotasks();
 
-        const machine = resource.getEntry(99)!.machine$.peek();
-        expect(machine.state.status).toBe("success");
-        expect(machine.state.data).toBe("fresh");
+        const state = resource.getEntry(99)!.state$.peek();
+        expect(state.status).toBe("success");
+        expect(state.data).toBe("fresh");
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
 
@@ -148,10 +148,10 @@ describe("Resource constructor", () => {
 
         await flushMicrotasks();
 
-        const machine = resource.getEntry(99)!.machine$.peek();
-        expect(machine.state.status).toBe("invalidate-error");
-        expect(machine.state.data).toBe("stale-data");
-        expect(machine.state.error).toBe(error);
+        const state = resource.getEntry(99)!.state$.peek();
+        expect(state.status).toBe("invalidate-error");
+        expect(state.data).toBe("stale-data");
+        expect(state.error).toBe(error);
     });
 
     it("fetch() on a stale-hydrated entry resolves with the invalidated data", { timeout: 1000 }, async () => {
@@ -212,8 +212,8 @@ describe("Resource.trigger", () => {
         await flushMicrotasks();
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("success");
-        expect(entry!.machine$.peek().state.data).toBe("data");
+        expect(entry!.state$.peek().status).toBe("success");
+        expect(entry!.state$.peek().data).toBe("data");
     });
 
     it("returns existing entry without re-fetching on cache hit (doForce=false)", async () => {
@@ -287,21 +287,21 @@ describe("Resource.invalidate", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("data-1");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("data-1");
 
         resource.invalidate(1);
 
         // During the invalidation, the entry transitions to the invalidating state
         // but data is still accessible
-        const midInvalidate = entry.machine$.peek();
-        expect(midInvalidate.state.status).toBe("invalidating");
-        expect(midInvalidate.state.data).toBe("data-1");
+        const midInvalidate = entry.state$.peek();
+        expect(midInvalidate.status).toBe("invalidating");
+        expect(midInvalidate.data).toBe("data-1");
 
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("data-2");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("data-2");
     });
 
     it("is a no-op when no cache entry exists for given args", () => {
@@ -330,7 +330,7 @@ describe("Resource.getEntry", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.data).toBe("data");
+        expect(entry!.state$.peek().data).toBe("data");
     });
 
     it("returns null for unknown args when doInitiate=false", () => {
@@ -360,7 +360,7 @@ describe("Resource.getEntry", () => {
         expect(queryFn).toHaveBeenCalledWith(42, expect.any(AbortSignal));
 
         await flushMicrotasks();
-        expect(entry!.machine$.peek().state.data).toBe("initiated");
+        expect(entry!.state$.peek().data).toBe("initiated");
     });
 
     it("handles void args correctly", async () => {
@@ -373,7 +373,7 @@ describe("Resource.getEntry", () => {
 
         const entry = resource.getEntry(undefined as void);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.data).toBe("void-data");
+        expect(entry!.state$.peek().data).toBe("void-data");
     });
 });
 
@@ -484,8 +484,8 @@ describe("Resource.getEntry$ reactivity", () => {
         expect(entry1).not.toBeNull();
         expect(entry2).not.toBeNull();
         expect(entry1).not.toBe(entry2);
-        expect(entry1!.machine$.peek().state.data).toBe("data-1");
-        expect(entry2!.machine$.peek().state.data).toBe("data-2");
+        expect(entry1!.state$.peek().data).toBe("data-1");
+        expect(entry2!.state$.peek().data).toBe("data-2");
     });
 
     it("getEntry$ reads as null after entry is removed via complete()", async () => {
@@ -500,7 +500,7 @@ describe("Resource.getEntry$ reactivity", () => {
         await flushMicrotasks();
 
         expect(entry$()).not.toBeNull();
-        expect(entry$()!.machine$.peek().state.data).toBe("data");
+        expect(entry$()!.state$.peek().data).toBe("data");
 
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
@@ -520,7 +520,7 @@ describe("Resource.getEntry$ reactivity", () => {
         expect(queryFn).toHaveBeenCalledWith(42, expect.any(AbortSignal));
 
         await flushMicrotasks();
-        expect(entry$()!.machine$.peek().state.data).toBe("initiated");
+        expect(entry$()!.state$.peek().data).toBe("initiated");
     });
 
     it("getEntry$ with doInitiate=true is idempotent (reuses the existing entry)", () => {
@@ -832,7 +832,7 @@ describe("Resource.bind", () => {
 
         expect(queryFn).toHaveBeenCalledWith(99, expect.anything());
         const entry = resource.getEntry(99);
-        expect(entry!.machine$.peek().state.data).toBe("data-99");
+        expect(entry!.state$.peek().data).toBe("data-99");
     });
 });
 
@@ -911,7 +911,7 @@ describe("Resource.reset", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.data).toBe("data-2");
+        expect(entry!.state$.peek().data).toBe("data-2");
     });
 });
 
@@ -951,24 +951,24 @@ describe("SWR scenarios", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("stale");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("stale");
 
         // Force re-fetch
         resource.trigger(1, true);
 
         // Entry should be in invalidating state with stale data still accessible
         const entry = resource.getEntry(1)!;
-        const mid = entry.machine$.peek();
-        expect(mid.state.status).toBe("invalidating");
-        expect(mid.state.data).toBe("stale");
+        const mid = entry.state$.peek();
+        expect(mid.status).toBe("invalidating");
+        expect(mid.data).toBe("stale");
 
         // Resolve the invalidation
         resolveQuery("fresh");
         await flushMicrotasks();
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("fresh");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("fresh");
     });
 
     it("during an invalidation, getEntry still returns the entry with old data", async () => {
@@ -991,8 +991,8 @@ describe("SWR scenarios", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("invalidating");
-        expect(entry!.machine$.peek().state.data).toBe("original");
+        expect(entry!.state$.peek().status).toBe("invalidating");
+        expect(entry!.state$.peek().data).toBe("original");
 
         resolveQuery("updated");
         await flushMicrotasks();
@@ -1016,9 +1016,9 @@ describe("SWR scenarios", () => {
     });
 });
 
-// ==================== Machine State Interactions ====================
+// ==================== Entry State Interactions ====================
 
-describe("Machine state interactions", () => {
+describe("entry state interactions", () => {
     it("new entry starts in pending state", () => {
         const resource = createResource<number, string>({
             queryFn: () => new Promise(() => {}), // never resolves
@@ -1026,7 +1026,7 @@ describe("Machine state interactions", () => {
 
         resource.trigger(1);
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
     });
 
     it("successful fetch → success state", async () => {
@@ -1037,7 +1037,7 @@ describe("Machine state interactions", () => {
         resource.trigger(1);
         await flushMicrotasks();
 
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("success");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
     });
 
     it("failed fetch → error state", async () => {
@@ -1051,8 +1051,8 @@ describe("Machine state interactions", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("error");
-        expect(entry.machine$.peek().state.error).toBeInstanceOf(Error);
+        expect(entry.state$.peek().status).toBe("error");
+        expect(entry.state$.peek().error).toBeInstanceOf(Error);
     });
 
     it("invalidate() transitions through invalidating state", async () => {
@@ -1066,10 +1066,10 @@ describe("Machine state interactions", () => {
 
         resource.invalidate(1);
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
     });
 
     it("hydrated snapshot creates entry in success state", () => {
@@ -1091,8 +1091,8 @@ describe("Machine state interactions", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("success");
-        expect(entry!.machine$.peek().state.data).toBe("snapshot-data");
+        expect(entry!.state$.peek().status).toBe("success");
+        expect(entry!.state$.peek().data).toBe("snapshot-data");
     });
 
     it("error → retry → success flow", async () => {
@@ -1109,13 +1109,13 @@ describe("Machine state interactions", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
     });
 });
 
@@ -1286,7 +1286,7 @@ describe("onQueryStarted lifecycle", () => {
         resource.trigger(1);
         await flushMicrotasks();
 
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
     });
 });
 
@@ -1310,8 +1310,8 @@ describe("beforeQuery (cross-tab sync)", () => {
         expect(queryFn).not.toHaveBeenCalled();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("from-tab");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("from-tab");
     });
 
     it("falls back to queryFn when beforeQuery returns null", async () => {
@@ -1331,8 +1331,8 @@ describe("beforeQuery (cross-tab sync)", () => {
         expect(queryFn).toHaveBeenCalled();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("from-query");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("from-query");
     });
 
     it("falls back to queryFn when beforeQuery throws", async () => {
@@ -1355,8 +1355,8 @@ describe("beforeQuery (cross-tab sync)", () => {
         expect(queryFn).toHaveBeenCalled();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("from-query");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("from-query");
     });
 
     it("is skipped when key is not set", async () => {
@@ -1400,7 +1400,7 @@ describe("beforeQuery (cross-tab sync)", () => {
 
         expect(beforeQuery).not.toHaveBeenCalled();
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.data).toBe("hydrated");
+        expect(entry.state$.peek().data).toBe("hydrated");
     });
 
     it("entry removed while beforeQuery is in flight — null result does not re-execute", async () => {
@@ -1584,7 +1584,7 @@ describe("Cache entry completion", () => {
         await flushMicrotasks();
 
         const entry1 = resource.getEntry(1)!;
-        expect(entry1.machine$.peek().state.data).toBe("v1");
+        expect(entry1.state$.peek().data).toBe("v1");
 
         entry1.complete();
         await flushMicrotasks();
@@ -1594,7 +1594,7 @@ describe("Cache entry completion", () => {
 
         const entry2 = resource.getEntry(1)!;
         expect(entry2).not.toBe(entry1);
-        expect(entry2.machine$.peek().state.data).toBe("v2");
+        expect(entry2.state$.peek().data).toBe("v2");
     });
 });
 
@@ -1613,8 +1613,8 @@ describe("Error flows", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("error");
-        expect(entry.machine$.peek().state.error).toBe(cause);
+        expect(entry.state$.peek().status).toBe("error");
+        expect(entry.state$.peek().error).toBe(cause);
     });
 
     it("queryFn rejection with non-Error value still transitions to error", async () => {
@@ -1628,8 +1628,8 @@ describe("Error flows", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("error");
-        expect(entry.machine$.peek().state.error).toBe("string-error");
+        expect(entry.state$.peek().status).toBe("error");
+        expect(entry.state$.peek().error).toBe("string-error");
     });
 
     it("a failed invalidation transitions to invalidate-error, preserving old data", async () => {
@@ -1644,15 +1644,15 @@ describe("Error flows", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("success");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
         resource.invalidate(1);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
-        expect(entry.machine$.peek().state.data).toBe("good-data");
-        expect(entry.machine$.peek().state.error).toBeInstanceOf(Error);
+        expect(entry.state$.peek().status).toBe("invalidate-error");
+        expect(entry.state$.peek().data).toBe("good-data");
+        expect(entry.state$.peek().error).toBeInstanceOf(Error);
     });
 
     it("retry after invalidate-error triggers a new fetch via invalidate()", async () => {
@@ -1673,15 +1673,15 @@ describe("Error flows", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
+        expect(entry.state$.peek().status).toBe("invalidate-error");
 
         // invalidate-error allows invalidate() again
         entry.invalidate();
-        expect(entry.machine$.peek().state).toMatchObject({ status: "invalidating", error: null });
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", error: null });
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
     });
 
     it("retry() after invalidate-error re-fetches as a retrying invalidation, keeping the data", async () => {
@@ -1702,12 +1702,12 @@ describe("Error flows", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
+        expect(entry.state$.peek().status).toBe("invalidate-error");
 
-        const failure = entry.machine$.peek().state.error;
+        const failure = entry.state$.peek().error;
         entry.retry();
-        // A retry in flight is the machine holding the failure it retries.
-        expect(entry.machine$.peek().state).toMatchObject({
+        // A retry in flight is the entry holding the failure it retries.
+        expect(entry.state$.peek()).toMatchObject({
             status: "invalidating",
             data: "initial",
             error: failure,
@@ -1724,8 +1724,8 @@ describe("Error flows", () => {
         });
 
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
         expect(callCount).toBe(3);
     });
 
@@ -1741,16 +1741,16 @@ describe("Error flows", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         resource.getEntry(1)!.retry();
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         resource.getEntry(1)!.retry();
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("success");
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("finally");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("finally");
     });
 });
 
@@ -1918,7 +1918,7 @@ describe("Lifecycle hooks error paths", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.data).toBe("data");
+        expect(entry!.state$.peek().data).toBe("data");
     });
 
     it("async onCacheEntryAdded rejection is suppressed", async () => {
@@ -1947,7 +1947,7 @@ describe("Lifecycle hooks error paths", () => {
             // Entry should still be created and queryFn should resolve normally
             const entry = resource.getEntry(1);
             expect(entry).not.toBeNull();
-            expect(entry!.machine$.peek().state.data).toBe("data");
+            expect(entry!.state$.peek().data).toBe("data");
 
             // No unhandled rejection should have been captured
             expect(unhandled).toEqual([]);
@@ -1972,7 +1972,7 @@ describe("Lifecycle hooks error paths", () => {
             resource.trigger(1);
             await flushUnhandledRejections();
 
-            expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+            expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
             expect(tracker.unhandled).toEqual([]);
         } finally {
             tracker.stop();
@@ -2055,18 +2055,18 @@ describe("Concurrent trigger abort/cancel", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("success");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
         // Start the invalidation → entry goes to invalidating, _execute creates new AbortController
         resource.invalidate(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidating");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
         // Resolve the invalidation
         resolvers[0]!("invalidated");
         await flushMicrotasks();
         await flushMicrotasks();
 
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("invalidated");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("invalidated");
     });
 
     it("reset while query is in-flight clears cache; late resolve is ignored", async () => {
@@ -2111,7 +2111,7 @@ describe("Concurrent trigger abort/cancel", () => {
         await flushMicrotasks();
 
         resource.invalidate(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidating");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
         resource.reset();
         expect(resource.getEntry(1)).toBeNull();
@@ -2138,14 +2138,14 @@ describe("Concurrent trigger abort/cancel", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         resource.getEntry(1)!.retry();
         await flushMicrotasks();
 
         expect(signals).toHaveLength(2);
         expect(signals[0]).not.toBe(signals[1]);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("recovered");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("recovered");
     });
 });
 
@@ -2155,7 +2155,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
     type Data = { name: string };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const peek = (e: any) => e.machine$.peek() as any;
+    const peek = (e: any) => e.state$.peek() as any;
 
     function createSuccessEntry() {
         const resource = createResource<number, Data>({
@@ -2176,10 +2176,10 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         expect(handle).not.toBeNull();
 
         handle.commit();
-        const stateAfterFirstCommit = e.machine$.peek();
+        const stateAfterFirstCommit = e.state$.peek();
 
         handle.commit();
-        const stateAfterSecondCommit = e.machine$.peek();
+        const stateAfterSecondCommit = e.state$.peek();
 
         expect(stateAfterSecondCommit).toBe(stateAfterFirstCommit);
     });
@@ -2194,10 +2194,10 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         })!;
 
         handle.commit();
-        const stateAfterCommit = e.machine$.peek();
+        const stateAfterCommit = e.state$.peek();
 
         handle.abort();
-        const stateAfterAbort = e.machine$.peek();
+        const stateAfterAbort = e.state$.peek();
 
         expect(stateAfterAbort).toBe(stateAfterCommit);
     });
@@ -2212,10 +2212,10 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         })!;
 
         handle.abort();
-        const stateAfterAbort = e.machine$.peek();
+        const stateAfterAbort = e.state$.peek();
 
         handle.commit();
-        const stateAfterCommit = e.machine$.peek();
+        const stateAfterCommit = e.state$.peek();
 
         expect(stateAfterCommit).toBe(stateAfterAbort);
     });
@@ -2227,7 +2227,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         resource.trigger(1);
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
 
         const handle = entry.createPatch((d: Data) => {
             d.name = "Bob";
@@ -2245,7 +2245,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         const handle = entry.createPatch((d: Data) => {
             d.name = "Bob";
@@ -2423,13 +2423,13 @@ describe("Resource — retry() on non-error state is no-op", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         entry.retry();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("data");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("data");
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
 });
@@ -2450,21 +2450,21 @@ describe("Resource — multi-key invalidation isolation", () => {
 
         const entry1 = resource.getEntry(1)!;
         const entry2 = resource.getEntry(2)!;
-        expect(entry1.machine$.peek().state.status).toBe("success");
-        expect(entry2.machine$.peek().state.status).toBe("success");
+        expect(entry1.state$.peek().status).toBe("success");
+        expect(entry2.state$.peek().status).toBe("success");
 
-        const entry2DataBefore = entry2.machine$.peek().state.data;
+        const entry2DataBefore = entry2.state$.peek().data;
 
         resource.invalidate(1);
         await flushMicrotasks();
 
         // key=2 remains unchanged
-        expect(entry2.machine$.peek().state.status).toBe("success");
-        expect(entry2.machine$.peek().state.data).toBe(entry2DataBefore);
+        expect(entry2.state$.peek().status).toBe("success");
+        expect(entry2.state$.peek().data).toBe(entry2DataBefore);
 
         // key=1 was invalidated
-        expect(entry1.machine$.peek().state.status).toBe("success");
-        expect(entry1.machine$.peek().state.data).not.toBe("data-1-call1");
+        expect(entry1.state$.peek().status).toBe("success");
+        expect(entry1.state$.peek().data).not.toBe("data-1-call1");
     });
 });
 
@@ -2478,19 +2478,19 @@ describe("CacheEntry — set after complete() is ignored", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
 
         // Capture the state value via peek() before complete
-        const dataBefore = entry.machine$.peek().state.data;
+        const dataBefore = entry.state$.peek().data;
 
         entry.complete();
 
         // Attempt to set after complete — CacheEntry._isCompleted guards this
-        entry.set(Machine.pending<number, string>(1));
+        entry.set(pendingEntryState<number>(1));
 
         // peek() on the underlying state should still return the last value
-        expect(entry.peek().state.status).toBe("success");
-        expect(entry.peek().state.data).toBe(dataBefore);
+        expect(entry.peek().status).toBe("success");
+        expect(entry.peek().data).toBe(dataBefore);
     });
 });
 
@@ -2554,7 +2554,7 @@ describe("Resource.ensure", () => {
         await flushMicrotasks();
 
         resource.invalidate(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidating");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
         // ensure hands back the stale value without waiting for the invalidation
         expect(await resource.ensure(1)).toBe("v1");
@@ -2585,7 +2585,7 @@ describe("Resource.ensure", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         const data = await resource.ensure(1);
         expect(data).toBe("recovered");
@@ -2673,8 +2673,8 @@ describe("Resource.fetch", () => {
         await expect(resource.fetch(1)).rejects.toThrow("invalidation failed");
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("invalidate-error");
-        expect(entry.machine$.peek().state.data).toBe("v1");
+        expect(entry.state$.peek().status).toBe("invalidate-error");
+        expect(entry.state$.peek().data).toBe("v1");
     });
 
     it("retries a previously failed entry", async () => {
@@ -2689,7 +2689,7 @@ describe("Resource.fetch", () => {
 
         resource.trigger(1);
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         expect(await resource.fetch(1)).toBe("recovered");
     });
@@ -2733,7 +2733,7 @@ describe("Resource.prefetch", () => {
 
         expect(result).toBeUndefined();
         expect(queryFn).toHaveBeenCalledTimes(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
     });
 
     it("never rejects when the query fails", async () => {
@@ -2772,11 +2772,11 @@ describe("Resource.prefetch", () => {
         });
 
         await resource.prefetch(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v1");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("v1");
 
         await resource.prefetch(1, { force: true });
         expect(callCount).toBe(2);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("v2");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("v2");
     });
 
     it("force: creates and loads a cold entry", async () => {
@@ -2786,7 +2786,7 @@ describe("Resource.prefetch", () => {
         await resource.prefetch(1, { force: true });
 
         expect(queryFn).toHaveBeenCalledTimes(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
     });
 
     it("force: retries a previously failed entry and still never rejects", async () => {
@@ -2799,7 +2799,7 @@ describe("Resource.prefetch", () => {
         });
 
         await resource.prefetch(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
         await expect(resource.prefetch(1, { force: true })).resolves.toBeUndefined();
         expect(callCount).toBe(2);
@@ -2823,7 +2823,7 @@ describe("Resource.prefetch", () => {
         await p;
 
         expect(queryFn).toHaveBeenCalledTimes(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
     });
 
     it("force: invalidates an invalidate-error entry with fresh data", async () => {
@@ -2838,11 +2838,11 @@ describe("Resource.prefetch", () => {
 
         await resource.ensure(1); // v1
         await resource.fetch(1).catch(() => {}); // invalidate fails → invalidate-error
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidate-error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidate-error");
 
         await resource.prefetch(1, { force: true });
 
-        const state = resource.getEntry(1)!.machine$.peek().state;
+        const state = resource.getEntry(1)!.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("v3");
     });
@@ -3005,7 +3005,7 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
 
         const entry = resource.getEntry(1)!;
         entry.invalidate();
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         const p = entry.whenFetched();
         let settled = false;
@@ -3177,9 +3177,9 @@ describe("Resource.getState — entry-state matrix", () => {
         resource.invalidate(1);
         await flushMicrotasks();
 
-        // Guard: the machine is in invalidate-error, which the entry state
+        // Guard: the entry is in invalidate-error, which the derived state
         // reports as `error` with the data kept.
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidate-error");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidate-error");
 
         const state = resource.getState(1);
 
@@ -3397,9 +3397,9 @@ describe("Resource.getState — entry-state matrix", () => {
 // A non-async queryFn can throw *synchronously*, before any promise exists.
 // That throw used to escape the QueryCacheEntry constructor — so trigger() /
 // ensure() / fetch() threw synchronously and no entry was created — and, on
-// invalidate()/retry(), escaped _execute() after the machine had already moved to
+// invalidate()/retry(), escaped _execute() after the entry had already moved to
 // invalidating/pending, stranding it there forever. The throw must instead flow
-// through the machine like any other query failure.
+// through the entry's state like any other query failure.
 describe("Resource — synchronous throw from queryFn", () => {
     it("trigger() does not throw; the entry is created and settles in error state", async () => {
         const error = new Error("sync boom");
@@ -3414,7 +3414,7 @@ describe("Resource — synchronous throw from queryFn", () => {
 
         const entry = resource.getEntry(1);
         expect(entry).not.toBeNull();
-        const state = entry!.machine$.peek().state;
+        const state = entry!.state$.peek();
         expect(state.status).toBe("error");
         if (state.status !== "error") throw new Error("expected error state");
         expect(state.error).toBe(error);
@@ -3452,7 +3452,7 @@ describe("Resource — synchronous throw from queryFn", () => {
         await expect(promise).rejects.toBe(error);
     });
 
-    it("invalidate() lands in invalidate-error (machine not stranded in invalidating) and can recover", async () => {
+    it("invalidate() lands in invalidate-error (entry not stranded in invalidating) and can recover", async () => {
         let attempt = 0;
         const resource = createResource<number, string>({
             queryFn: (n) => {
@@ -3469,20 +3469,20 @@ describe("Resource — synchronous throw from queryFn", () => {
         entry.invalidate();
         await flushMicrotasks();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("invalidate-error");
         if (state.status !== "invalidate-error") throw new Error("expected invalidate-error state");
         // Stale data survives the failed invalidation.
         expect(state.data).toBe("data-1-attempt-1");
 
-        // The machine is alive: a further invalidate() recovers.
+        // The entry is alive: a further invalidate() recovers.
         entry.invalidate();
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("data-1-attempt-3");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("data-1-attempt-3");
     });
 
-    it("retry() returns to error (machine not stranded in pending) and can recover", async () => {
+    it("retry() returns to error (entry not stranded in pending) and can recover", async () => {
         let attempt = 0;
         const resource = createResource<number, string>({
             queryFn: () => {
@@ -3496,17 +3496,17 @@ describe("Resource — synchronous throw from queryFn", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         // Retry hits another sync throw — must settle back in error, not hang in pending.
         entry.retry();
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
     });
 
     it("beforeQuery fallback path settles the entry in error state", async () => {
@@ -3522,7 +3522,7 @@ describe("Resource — synchronous throw from queryFn", () => {
         // ensure() awaits the full beforeQuery → fallback-execute chain.
         await expect(resource.ensure(1)).rejects.toBe(error);
 
-        const state = resource.getEntry(1)!.machine$.peek().state;
+        const state = resource.getEntry(1)!.state$.peek();
         expect(state.status).toBe("error");
         if (state.status !== "error") throw new Error("expected error state");
         expect(state.error).toBe(error);
@@ -3586,10 +3586,10 @@ describe("Resource — deprecated aliases", () => {
 
         expect(invalidate).toHaveBeenCalledTimes(1);
         expect(invalidate).toHaveBeenCalledWith(1);
-        expect(resource.getEntry(1)!.machine$.peek().state.status).toBe("invalidating");
+        expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
         await flushMicrotasks();
-        expect(resource.getEntry(1)!.machine$.peek().state.data).toBe("data-2");
+        expect(resource.getEntry(1)!.state$.peek().data).toBe("data-2");
     });
 
     it("createAgent() forwards to createClutch()", () => {
@@ -3627,9 +3627,9 @@ describe("Resource — deprecated aliases", () => {
         entry.refresh();
 
         expect(invalidate).toHaveBeenCalledTimes(1);
-        expect(entry.machine$.peek().state.status).toBe("invalidating");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         await flushMicrotasks();
-        expect(entry.machine$.peek().state.data).toBe("data-2");
+        expect(entry.state$.peek().data).toBe("data-2");
     });
 });

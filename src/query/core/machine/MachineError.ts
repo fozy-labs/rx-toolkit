@@ -1,19 +1,19 @@
-import type { TErrorState, TPendingState } from "@/query/types";
+import type { TQueryEntryErrorState, TQueryEntryPendingState } from "@/query/types";
 
 import { MachineBase } from "./MachineBase";
 import { MachinePending } from "./MachinePending";
 
 export class MachineError<TArgs, TData> extends MachineBase<TArgs, TData> {
     readonly status = "error" as const;
-    declare readonly state: TErrorState<TArgs>;
+    declare readonly state: TQueryEntryErrorState<TArgs>;
 
-    constructor(state: TErrorState<TArgs>) {
+    constructor(state: TQueryEntryErrorState<TArgs>) {
         super(state);
     }
 
     /** error → pending (keeps the retried error — the retry marker of an in-flight state) */
     retry(): MachinePending<TArgs, TData> {
-        const state: TPendingState<TArgs> = {
+        const state: TQueryEntryPendingState<TArgs> = {
             status: "pending",
             args: this.state.args,
             data: null,
@@ -30,7 +30,7 @@ export class MachineError<TArgs, TData> extends MachineBase<TArgs, TData> {
      * keeping the failure on screen.
      */
     invalidate(): MachinePending<TArgs, TData> {
-        const state: TPendingState<TArgs> = {
+        const state: TQueryEntryPendingState<TArgs> = {
             status: "pending",
             args: this.state.args,
             data: null,

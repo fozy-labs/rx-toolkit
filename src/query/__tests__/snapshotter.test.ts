@@ -188,7 +188,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
         expect(handle).not.toBeNull();
 
         // Live state reflects the optimistic patch...
-        expect((entry.peek().state.data as { name: string }).name).toBe("Bob");
+        expect((entry.peek().data as { name: string }).name).toBe("Bob");
 
         // ...but the snapshot must persist the confirmed base data, since the
         // patch is unconfirmed and could still roll back.
@@ -287,7 +287,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
         entry.invalidate();
         await flushMicrotasks();
 
-        expect(entry.peek().state.status).toBe("invalidate-error");
+        expect(entry.peek().status).toBe("invalidate-error");
 
         const handle = entry.createPatch((draft) => {
             draft.reading = 999;
@@ -322,7 +322,7 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
         await flushMicrotasks();
 
         // The entry holds last-known-good data but its latest invalidate failed.
-        expect(entry.peek().state.status).toBe("invalidate-error");
+        expect(entry.peek().status).toBe("invalidate-error");
 
         const snapshot = source.getSnapshot();
         expect(Object.values(snapshot.resources["sensor"].entries)[0].status).toBe("invalidate-error");
@@ -338,7 +338,7 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
         expect(entries).toHaveLength(1);
 
         // The invalidate-error's last-known-good data is revived...
-        const state = entries[0].machine$.peek().state;
+        const state = entries[0].state$.peek();
         expect(state.data).toEqual({ reading: 1 });
         // ...as a stale entry (invalidating), so it shows data immediately and refetches.
         expect(state.status).toBe("invalidating");
@@ -377,8 +377,8 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
         // Despite the fresh timestamp, the failed-invalidate entry must refetch.
-        expect(entries[0].machine$.peek().state.status).toBe("invalidating");
-        expect(entries[0].machine$.peek().state.data).toBe("last-known-good");
+        expect(entries[0].state$.peek().status).toBe("invalidating");
+        expect(entries[0].state$.peek().data).toBe("last-known-good");
     });
 });
 
@@ -405,7 +405,7 @@ describe("Snapshotter hydration — snapshot version migration", () => {
 
         return [...resource.getEntries()].map((entry) => ({
             key: entry.keyedArgs.key,
-            state: entry.machine$.peek().state,
+            state: entry.state$.peek(),
         }));
     }
 
@@ -521,7 +521,7 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         const flaky = resource.getEntry("flaky")!;
         flaky.invalidate();
         await flushMicrotasks();
-        expect(flaky.peek().state.status).toBe("invalidate-error");
+        expect(flaky.peek().status).toBe("invalidate-error");
 
         const snapshot = api.getSnapshot();
 

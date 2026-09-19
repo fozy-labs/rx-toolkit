@@ -10,7 +10,7 @@ export interface TSnapshotterOptions {
 }
 
 /**
- * Machine status strings written by snapshot version 1, mapped to their current
+ * Entry status strings written by snapshot version 1, mapped to their current
  * spelling. Version 2 (0.13.0) renamed the invalidation statuses; every other
  * status string kept its name across versions.
  */
@@ -20,7 +20,7 @@ const LEGACY_STATUSES_V1: Readonly<Record<string, string>> = {
 };
 
 /**
- * Translates a persisted machine status into the vocabulary of
+ * Translates a persisted entry status into the vocabulary of
  * {@link CURRENT_SNAPSHOT_VERSION}.
  *
  * Only snapshots strictly older than the current version are translated. A snapshot
@@ -79,7 +79,7 @@ export class Snapshotter {
 
             entries[entryKey] = {
                 // Normalize to "success" — downstream hydration only revives
-                // with-data machines and ignores the status field otherwise.
+                // with-data entries and ignores the status field otherwise.
                 status: "success",
                 args: snapEntry.args,
                 data: snapEntry.data,
@@ -106,7 +106,7 @@ export class Snapshotter {
             let hasEntries = false;
 
             for (const entry of resource.getEntries()) {
-                const { state } = entry.peek();
+                const state = entry.peek();
                 if (state.status !== "success" && state.status !== "invalidate-error") continue;
 
                 // A non-null patchState means unconfirmed optimistic patches are

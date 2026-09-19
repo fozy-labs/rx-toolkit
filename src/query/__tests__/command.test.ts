@@ -112,7 +112,7 @@ describe("Command.execute", () => {
 
         const entry2 = command.getEntry("k1");
         expect(entry2).not.toBe(entry1);
-        expect(entry2!.machine$.peek().state.data).toBe("result-2");
+        expect(entry2!.state$.peek().data).toBe("result-2");
     });
 
     it("calls complete() on existing entry when replacing with the same entry key", async () => {
@@ -149,11 +149,11 @@ describe("Command.execute", () => {
 
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("pending");
+        expect(entry!.state$.peek().status).toBe("pending");
 
         await flushMicrotasks();
-        expect(entry!.machine$.peek().state.status).toBe("success");
-        expect(entry!.machine$.peek().state.data).toBe("data");
+        expect(entry!.state$.peek().status).toBe("success");
+        expect(entry!.state$.peek().data).toBe("data");
     });
 
     it("entry transitions to error state when queryFn rejects", async () => {
@@ -169,7 +169,7 @@ describe("Command.execute", () => {
 
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("error");
+        expect(entry!.state$.peek().status).toBe("error");
     });
 
     it("failed execute does not produce an unhandled rejection (no lifecycle hooks)", async () => {
@@ -588,13 +588,13 @@ describe("Command.reset", () => {
 
         command.execute("a", "k1");
         await flushMicrotasks();
-        expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data-1");
+        expect(command.getEntry("k1")!.state$.peek().data).toBe("data-1");
 
         command.reset();
 
         command.execute("a", "k1");
         await flushMicrotasks();
-        expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data-2");
+        expect(command.getEntry("k1")!.state$.peek().data).toBe("data-2");
     });
 });
 
@@ -629,7 +629,7 @@ describe("Link scenarios", () => {
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
-            expect(entry.machine$.peek().state.status).toBe("success");
+            expect(entry.state$.peek().status).toBe("success");
 
             // Execute command — should trigger invalidate on the linked resource
             const invalidateSpy = vi.spyOn(resource, "invalidate");
@@ -734,7 +734,7 @@ describe("Link scenarios", () => {
             await flushMicrotasks();
 
             // After rollback, data should be unchanged
-            expect(entry.machine$.peek().state.data).toBe("original-1");
+            expect(entry.state$.peek().data).toBe("original-1");
         });
 
         it("rolls back already-applied patches when a later link's optimisticUpdate throws", async () => {
@@ -780,24 +780,24 @@ describe("Link scenarios", () => {
             await expect(command.execute("1", "k1")).rejects.toThrow("optimistic boom");
             await flushMicrotasks();
 
-            // The failure goes through the machine: the entry exists and holds the
+            // The failure goes through the entry's state: the entry exists and holds the
             // error, so state observers (clutch / useCommand) see it too.
             const cmdEntry = command.getEntry("k1");
             expect(cmdEntry).not.toBeNull();
-            const cmdState = cmdEntry!.machine$.peek().state;
+            const cmdState = cmdEntry!.state$.peek();
             expect(cmdState.status).toBe("error");
             if (cmdState.status !== "error") throw new Error("expected error state");
             expect((cmdState.error as Error).message).toBe("optimistic boom");
 
             // Resource A's already-applied optimistic patch must be rolled back:
             // data restored and no dangling pending patch left behind.
-            const stateA = entryA.machine$.peek().state;
+            const stateA = entryA.state$.peek();
             expect(stateA.data).toEqual({ value: "original-1" });
             if (!isDataState(stateA)) throw new Error(`Resource A: expected data state, got "${stateA.status}"`);
             expect(stateA.patchState).toBeNull();
 
             // Resource B is untouched (its patch never applied).
-            const stateB = entryB.machine$.peek().state;
+            const stateB = entryB.state$.peek();
             expect(stateB.data).toEqual({ value: "original-1" });
             if (!isDataState(stateB)) throw new Error(`Resource B: expected data state, got "${stateB.status}"`);
             expect(stateB.patchState).toBeNull();
@@ -920,7 +920,7 @@ describe("Link scenarios", () => {
                     await flushUnhandledRejections();
 
                     // 1. Optimistic patch committed — not left dangling as a pending patch.
-                    const state = patchedEntry.machine$.peek().state;
+                    const state = patchedEntry.state$.peek();
                     if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
                     expect(state.data).toEqual({ value: "original-1-optimistic" });
                     expect(state.patchState).toBeNull();
@@ -980,7 +980,7 @@ describe("Link scenarios", () => {
                     await flushUnhandledRejections();
 
                     // The sibling link's update ran and committed despite the earlier throw.
-                    const state = appliedEntry.machine$.peek().state;
+                    const state = appliedEntry.state$.peek();
                     if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
                     expect(state.data).toEqual({ value: "B-1-done" });
                     expect(state.patchState).toBeNull();
@@ -1229,7 +1229,7 @@ describe("onQueryStarted lifecycle", () => {
         command.execute("x", "k1");
         await flushMicrotasks();
 
-        expect(command.getEntry("k1")!.machine$.peek().state.data).toBe("data");
+        expect(command.getEntry("k1")!.state$.peek().data).toBe("data");
     });
 
     it("fires for initial trigger (deferred after QCE constructor)", async () => {
@@ -1324,7 +1324,7 @@ describe("Edge cases", () => {
 
         const entry = command.getEntry("k1");
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("pending");
+        expect(entry!.state$.peek().status).toBe("pending");
     });
 
     it("onCacheEntryAdded + immediate reset — $cacheEntryRemoved resolves, $cacheDataLoaded rejects", async () => {
@@ -1417,7 +1417,7 @@ describe("Edge cases", () => {
         resource.trigger(1);
         await flushMicrotasks();
         const resourceEntry = resource.getEntry(1)!;
-        expect(resourceEntry.machine$.peek().state.data).toEqual({ value: "original-1" });
+        expect(resourceEntry.state$.peek().data).toEqual({ value: "original-1" });
 
         // Deferred resolvers for each command trigger
         let resolveFirst!: (val: string) => void;
@@ -1448,7 +1448,7 @@ describe("Edge cases", () => {
         const p2 = command.execute("1", "k2");
 
         // Both optimistic patches should have been applied synchronously
-        const dataAfterOptimistic = resourceEntry.machine$.peek().state.data;
+        const dataAfterOptimistic = resourceEntry.state$.peek().data;
         expect((dataAfterOptimistic as { value: string }).value).toContain("optimistic");
 
         // Resolve second trigger first (out of order)
@@ -1466,7 +1466,7 @@ describe("Edge cases", () => {
         // Resource should have valid data (no corruption, no thrown errors).
         // After both patches are committed, the final data should still be
         // an object with a string value (not reverted to original).
-        const finalData = resourceEntry.machine$.peek().state.data as { value: string };
+        const finalData = resourceEntry.state$.peek().data as { value: string };
         expect(typeof finalData.value).toBe("string");
     });
 });
@@ -1484,8 +1484,8 @@ describe("Command — execute with pre-TKeyed args", () => {
 
         const entry = command.getEntry("custom-key");
         expect(entry).not.toBeNull();
-        expect(entry!.machine$.peek().state.status).toBe("success");
-        expect(entry!.machine$.peek().state.data).toBe("result-x");
+        expect(entry!.state$.peek().status).toBe("success");
+        expect(entry!.state$.peek().data).toBe("result-x");
     });
 });
 
@@ -1526,12 +1526,12 @@ describe("Command request id", () => {
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         await flushMicrotasks();
 
-        expect(entry.machine$.peek().state.status).toBe("success");
+        expect(entry.state$.peek().status).toBe("success");
         expect(queryFn).toHaveBeenCalledTimes(2);
         expect(queryFn.mock.calls[1][1]).toBe(queryFn.mock.calls[0][1]);
     });
@@ -1624,7 +1624,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
         await command.execute("x", "k1").catch(() => {});
         await flushMicrotasks();
 
-        expect(command.getEntry("k1")!.machine$.peek().state.status).toBe("error");
+        expect(command.getEntry("k1")!.state$.peek().status).toBe("error");
     });
 
     it("execute() rejects (does not synchronously throw) when a sync generateRequestId throws", async () => {
@@ -1675,7 +1675,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
         await flushMicrotasks();
 
         // The optimistic patch must be rolled back: data restored, no dangling patch.
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
         expect(state.data).toEqual({ value: "original-1" });
         expect(state.patchState).toBeNull();
@@ -1700,14 +1700,14 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
     });
 });
 
-// ==================== Throwing optimisticUpdate goes through the machine ====================
+// ==================== Throwing optimisticUpdate goes through the entry state ====================
 //
 // A throwing optimisticUpdate used to be handled pre-flight: trigger() rejected,
 // but no cache entry was created — state observers (clutch / useCommand) never
-// saw the failure, contradicting the "every failure enters the machine"
+// saw the failure, contradicting the "every failure enters the entry state"
 // principle. Patches are now applied inside the entry's queryFn run, so the
-// throw settles the machine in `error` like any other mutation failure.
-describe("Command — throwing optimisticUpdate goes through the machine", () => {
+// throw settles the entry in `error` like any other mutation failure.
+describe("Command — throwing optimisticUpdate goes through the entry state", () => {
     function createThrowingOptimisticSetup(queryFn: (args: string, requestId: string) => Promise<string>) {
         const resource = createLinkedResource<number, { value: string }>({
             queryFn: async (n) => ({ value: `original-${n}` }),
@@ -1736,7 +1736,7 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
         await command.execute("1", "k1").catch(() => {});
         await flushMicrotasks();
 
-        const state = command.getEntry("k1")!.machine$.peek().state;
+        const state = command.getEntry("k1")!.state$.peek();
         expect(state.status).toBe("error");
         if (state.status !== "error") throw new Error("expected error state");
         expect((state.error as Error).message).toBe("optimistic boom");
@@ -1758,12 +1758,12 @@ describe("Command — throwing optimisticUpdate goes through the machine", () =>
         cmdEntry.retry();
         await flushMicrotasks();
 
-        expect(cmdEntry.machine$.peek().state.status).toBe("success");
+        expect(cmdEntry.state$.peek().status).toBe("success");
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         // The resource was never optimistically patched — and the retry must not
         // have tried to re-apply the throwing patch either.
-        const resourceState = resourceEntry.machine$.peek().state;
+        const resourceState = resourceEntry.state$.peek();
         if (!isDataState(resourceState)) throw new Error(`expected data state, got "${resourceState.status}"`);
         expect(resourceState.data).toEqual({ value: "original-1" });
         expect(resourceState.patchState).toBeNull();
@@ -1804,12 +1804,12 @@ describe("Command retry", () => {
         await flushMicrotasks();
 
         const entry = command.getEntry("k1")!;
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         await flushMicrotasks();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("recovered");
     });

@@ -76,7 +76,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // execute() must never throw synchronously, and every rejection of the
         // returned promise must be normalized to the api's TError — the clutch /
         // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
-        // are mapped at the machine boundary and removals inside currentResult;
+        // are mapped at the entry's error boundary and removals inside currentResult;
         // this guard converts anything thrown before the entry takes over
         // (argument normalization, cache bookkeeping) into a mapped rejection.
         try {
@@ -111,10 +111,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         const linkManager = this._linkManager;
 
         // Optimistic patches are applied inside wrappedQueryFn (first run only),
-        // so a throwing optimisticUpdate enters the machine like any other
+        // so a throwing optimisticUpdate enters the entry's state like any other
         // mutation failure — the entry exists and settles in `error`, state
         // observers (clutch / useCommand) see it, and mapError normalizes it at
-        // the single machine.fail() boundary.
+        // the single fail() boundary.
         let patchHandles: IPatchHandle[] = [];
         let optimisticApplied = false;
 
@@ -198,7 +198,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
             // Link orchestration runs per execution; the result itself is surfaced by
             // the entry's native promise (`entry.currentResult()`), settled where the
-            // machine transitions. This `.then` is registered before the one in
+            // entry transitions. This `.then` is registered before the one in
             // `_execute`, so `settle` runs before `execute()`'s promise resolves.
             promise.then(
                 (result) => {
@@ -218,7 +218,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
                     }
                     // Retry failed: nothing to settle — optimistic handles were already
                     // aborted and the original execute promise already rejected. The
-                    // machine stays in `error`, ready for another retry.
+                    // entry stays in `error`, ready for another retry.
                 },
             );
 
@@ -246,7 +246,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // replaces the current execution) so it reflects only the first attempt.
         const firstResult = entry.currentResult();
 
-        // machine$.peek() in _execute() leaves refcount at 0, which starts
+        // The state peek in _execute() leaves refcount at 0, which starts
         // timer(retentionTime). Hold refcount ≥ 1 until the mutation settles so
         // the GC timer cannot fire and complete() the entry mid-flight.
         // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives

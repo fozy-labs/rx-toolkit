@@ -7,7 +7,13 @@ import type { ICommandForClutch } from "@/query/core/command/CommandClutch";
 import { CommandClutch } from "@/query/core/command/CommandClutch";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { ICommandClutch, IQueryCacheEntry, TCommandClutchState, TLinkConfig, TMachineState } from "@/query/types";
+import type {
+    ICommandClutch,
+    IQueryCacheEntry,
+    TCommandClutchState,
+    TLinkConfig,
+    TQueryEntryState,
+} from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -15,49 +21,48 @@ import { Signal } from "@/signals/signals/Signal";
 /**
  * Create a minimal mock IQueryCacheEntry whose state$ is a controllable signal.
  */
-function createMockEntry<TArgs, TData>(initialState: TMachineState<TArgs, TData>) {
-    const machineSignal = Signal.state({ state: initialState } as any);
+function createMockEntry<TArgs, TData>(initialState: TQueryEntryState<TArgs, TData>) {
+    const state$ = Signal.state<TQueryEntryState<TArgs, TData>>(initialState);
     return {
         entry: {
-            state$: machineSignal as any,
+            state$,
             keyedArgs: { value: null, key: "k" } as any,
-            machine$: machineSignal as any,
             completed$: { subscribe: vi.fn() } as any,
-            peek: () => ({ state: initialState }),
+            peek: () => state$.peek(),
             set: vi.fn(),
             complete: vi.fn(),
             invalidate: vi.fn(),
             retry: vi.fn(),
             createPatch: vi.fn(),
         } as unknown as IQueryCacheEntry<TArgs, TData>,
-        setMachineState(state: TMachineState<TArgs, TData>) {
-            machineSignal.set({ state } as any);
+        setEntryState(state: TQueryEntryState<TArgs, TData>) {
+            state$.set(state);
         },
     };
 }
 
-function pendingState<TArgs>(args: TArgs): TMachineState<TArgs, any> {
+function pendingState<TArgs>(args: TArgs): TQueryEntryState<TArgs, any> {
     return { status: "pending", args, data: null, error: null, updatedAt: null } as any;
 }
 
 /** A pending run started by `retry()`: the failure it retries travels with it. */
-function retryingPendingState<TArgs>(args: TArgs, error: unknown): TMachineState<TArgs, any> {
+function retryingPendingState<TArgs>(args: TArgs, error: unknown): TQueryEntryState<TArgs, any> {
     return { status: "pending", args, data: null, error, updatedAt: null } as any;
 }
 
-function successState<TArgs, TData>(args: TArgs, data: TData): TMachineState<TArgs, TData> {
+function successState<TArgs, TData>(args: TArgs, data: TData): TQueryEntryState<TArgs, TData> {
     return { status: "success", args, data, error: null, updatedAt: Date.now(), patchState: null } as any;
 }
 
-function errorState<TArgs>(args: TArgs, error: unknown): TMachineState<TArgs, any> {
+function errorState<TArgs>(args: TArgs, error: unknown): TQueryEntryState<TArgs, any> {
     return { status: "error", args, data: null, error, updatedAt: null } as any;
 }
 
-function invalidatingState<TArgs, TData>(args: TArgs, data: TData): TMachineState<TArgs, TData> {
+function invalidatingState<TArgs, TData>(args: TArgs, data: TData): TQueryEntryState<TArgs, TData> {
     return { status: "invalidating", args, data, error: null, updatedAt: Date.now(), patchState: null } as any;
 }
 
-function invalidateErrorState<TArgs, TData>(args: TArgs, data: TData, error: unknown): TMachineState<TArgs, TData> {
+function invalidateErrorState<TArgs, TData>(args: TArgs, data: TData, error: unknown): TQueryEntryState<TArgs, TData> {
     return { status: "invalidate-error", args, data, error, updatedAt: Date.now(), patchState: null } as any;
 }
 
@@ -74,7 +79,7 @@ function createMockCommand<TArgs = string, TData = string>() {
     return {
         command,
         entries,
-        addEntry(entryKey: string, initialState: TMachineState<TArgs, TData>) {
+        addEntry(entryKey: string, initialState: TQueryEntryState<TArgs, TData>) {
             const mock = createMockEntry<TArgs, TData>(initialState);
             entries.set(entryKey, mock);
             return mock;
@@ -258,8 +263,8 @@ describe("CommandClutch trigger success", () => {
         expect(s.get().isPending).toBe(true);
         expect(s.get().args).toBe("hello");
 
-        // Simulate machine transitioning to success
-        entryMock.setMachineState(successState("hello", "result"));
+        // Simulate the entry transitioning to success
+        entryMock.setEntryState(successState("hello", "result"));
         expect(s.get().status).toBe("success");
         expect(s.get().data).toBe("result");
         expect(s.get().hasData).toBe(true);
@@ -291,8 +296,8 @@ describe("CommandClutch trigger error", () => {
         expect(result.status).toBe("error");
         expect(result.error).toBe(err);
 
-        // Simulate machine transitioning to error
-        entryMock.setMachineState(errorState("hello", err));
+        // Simulate the entry transitioning to error
+        entryMock.setEntryState(errorState("hello", err));
         expect(s.get().status).toBe("error");
         expect(s.get().error).toBe(err);
         expect(s.get().hasError).toBe(true);
@@ -470,18 +475,18 @@ describe("CommandClutch dispose", () => {
 
         // After dispose, the derived state is destroyed — further entry changes should not propagate
         const countAfterDispose = statuses.length;
-        entryMock.setMachineState(errorState("a", new Error("x")));
+        entryMock.setEntryState(errorState("a", new Error("x")));
         expect(statuses.length).toBe(countAfterDispose);
     });
 });
 
-// ==================== 6. Unreachable machine statuses ====================
+// ==================== 6. Unreachable entry statuses ====================
 
 // A command entry never invalidates, so `invalidating` / `invalidate-error`
 // cannot reach the clutch. That branch fails loudly instead of remapping into
 // `pending` with stale data (which would break the `data: null` typing of the
 // K2 / K5 rows). Only a hand-made entry can reach it.
-describe("CommandClutch unreachable machine statuses", () => {
+describe("CommandClutch unreachable entry statuses", () => {
     it('throws on "invalidating" instead of remapping it to pending', () => {
         const mock = createMockCommand<string, string>();
         mock.addEntry("k1", invalidatingState("a", "stale-data"));
@@ -523,7 +528,7 @@ describe("CommandClutch entry key switching", () => {
         expect(s.get().data).toBeNull();
 
         // Switch back — kA may have changed in the meantime
-        entryA.setMachineState(errorState("a", new Error("gone")));
+        entryA.setEntryState(errorState("a", new Error("gone")));
         clutch.setEntryKey("kA");
         expect(s.get().status).toBe("error");
     });
@@ -991,7 +996,7 @@ describe("CommandClutch + real Command (retentionTime: 0 teardown)", () => {
 
 // ==================== 14. Real Command integration — throwing optimisticUpdate ====================
 
-// A throwing optimisticUpdate used to bypass the machine entirely: the trigger
+// A throwing optimisticUpdate used to bypass the entry's state entirely: the trigger
 // envelope carried the error, but no cache entry was created, so the clutch's
 // state$ (and useCommand) stayed idle — the failure was invisible to state
 // observers. It must surface on the clutch like any other mutation failure.

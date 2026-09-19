@@ -401,8 +401,8 @@ describe("ProjectionResource", () => {
                 // Fresh items came through the live projection; the pending
                 // patch was replayed on top (Immer replace at [0].name wins).
                 expect(state.data?.map((user) => user.name)).toEqual(["patched", "user-2-v2", "user-4-v1"]);
-                const machine = patched.machine$.peek();
-                expect(machine.status === "success" && machine.state.patchState).not.toBeNull();
+                const patchedState = patched.state$.peek();
+                expect(patchedState.status === "success" && patchedState.patchState).not.toBeNull();
             } finally {
                 warnSpy.mockRestore();
             }
@@ -456,7 +456,7 @@ describe("ProjectionResource", () => {
 
             const overlapping = projection.getEntry([1, 2, 4])!;
             let transitions = 0;
-            const sub = overlapping.machine$.obs.subscribe(() => {
+            const sub = overlapping.state$.obs.subscribe(() => {
                 transitions += 1;
             });
             const baseline = transitions;

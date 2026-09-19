@@ -8,7 +8,7 @@
 
 ## Почему fetcher не встроен в API
 
-RxToolkit отвечает за **состояние**: кэш, реактивность, машину статусов, SWR, оптимистичные обновления, дедуп,
+RxToolkit отвечает за **состояние**: кэш, реактивность, статусы запроса, SWR, оптимистичные обновления, дедуп,
 синхронизацию вкладок. Он сознательно **не** берёт на себя транспорт — то, _как_ вы ходите в сеть, остаётся за вами.
 Причины:
 
@@ -110,10 +110,10 @@ const createUserCommand = api.createCommand({
 - [Стриминговые запросы][stream-query] — `Observable` в queryFn ресурса
 - [Команда][command] — мутации, `retry()`, request id
 - [Ключ кэша][cache] — адресация записей внутри toolkit (не путать с request id)
-- [Машина состояний][machine] — переходы между статусами запроса
+- [Состояние записи запроса][entry-state] — переходы между статусами запроса
 
 [resource]: ./resource.md
 [stream-query]: ./stream-query.md
 [command]: ./command.md
 [cache]: ../concepts/cache.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md

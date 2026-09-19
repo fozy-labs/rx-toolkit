@@ -87,7 +87,7 @@ const markRead = api.createCommand({
 Когда вкладка получает REQ и запись находится в одном из состояний ниже,
 она отвечает RES с соответствующими данными:
 
-| Состояние [машины][machine] | Данные в RES   |
+| Состояние [записи][entry-state] | Данные в RES   |
 |-----------------------------|----------------|
 | `pending`                   | —              |
 | `success`                   | `data`         |
@@ -199,6 +199,6 @@ function TodoApp() {
 [api-resource]: ../api/resource.md
 [cache]: ../concepts/cache.md
 [dataflows]: ../concepts/dataflows.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [patching]: ../concepts/patching.md
 [broadcast-channel]: https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel

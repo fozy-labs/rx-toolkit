@@ -78,9 +78,9 @@ export class Syncer {
 
             if (!entry) return;
 
-            const machine = entry.peek();
-            if (machine.state.status === "success") {
-                const data = machine.state.patchState ? machine.state.patchState.originalData : machine.state.data;
+            const state = entry.peek();
+            if (state.status === "success") {
+                const data = state.patchState ? state.patchState.originalData : state.data;
                 this.syncDriver.send({
                     type: "RES",
                     reqId: msg.reqId,

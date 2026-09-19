@@ -181,7 +181,7 @@ usersResource.invalidate({ page: 1 });
 // Проверить, есть ли данные в кэше
 const entry = usersResource.getEntry({ page: 1 });
 if (entry) {
-  console.log(entry.machine$().state.data);
+  console.log(entry.state$().data);
 }
 ```
 
@@ -192,7 +192,7 @@ if (entry) {
 
 ```ts
 const entry$ = usersResource.getEntry$({ page: 1 });
-Signal.effect(() => console.log(entry$()?.machine$().state.data));
+Signal.effect(() => console.log(entry$()?.state$().data));
 ```
 
 Если аргументы реактивны, сигнал пересоздаётся на каждом вычислении — читать его нужно сразу, иначе внешний `Computed` вернёт сигнал и не подпишется на кэш:
@@ -260,14 +260,14 @@ clutch.switch(SKIP);        // idle: data: null, dataSource: "none"
 
 - [Команда][command] — мутации (создание, обновление, удаление)
 - [Стриминговые запросы][stream-query] — `Observable` в queryFn: живые данные
-- [Машина состояний запроса][machine] — детали переходов между статусами
+- [Состояние записи запроса][entry-state] — детали переходов между статусами
 - [Кэш][cache] — система кэширования записей
 - [Сцепление][clutch] — SWR-наблюдатель, связывающий UI с записью кэша
 - [Кросс-табовая синхронизация][broadcast] — синхронизация кэша между вкладками
 
 [command]: ./command.md
 [stream-query]: ./stream-query.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [api-resource]: ../api/resource.md
 [prefetch-lint]: ../api/resource.md#prefetch-и-no-floating-promises
 [lifecycle]: ./lifecycle.md

@@ -1,4 +1,4 @@
-import type { TInvalidatingState, TPendingState, TSuccessState } from "@/query/types";
+import type { TQueryEntryState } from "@/query/types";
 
 import { MachineError } from "./MachineError";
 import { MachineInvalidateError } from "./MachineInvalidateError";
@@ -11,8 +11,9 @@ export { MachineBase } from "./MachineBase";
 /**
  * Union of all Machine subtypes.
  *
- * Backward-compatible: existing code typed as `Machine<A,D>` still works
- * because all subtypes extend `MachineBase<A,D>` and carry the same `.state` shape.
+ * Internal to the query core: a cache entry stores the flat
+ * {@link TQueryEntryState} record, and the machine is the transition algebra
+ * over it — rebuilt on demand with {@link Machine.of}, never published.
  */
 export type Machine<TArgs, TData> =
     | MachinePending<TArgs, TData>
@@ -23,41 +24,30 @@ export type Machine<TArgs, TData> =
 
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Machine {
-    export function pending<TArgs, TData>(args: TArgs): MachinePending<TArgs, TData> {
-        const state: TPendingState<TArgs> = {
-            status: "pending",
-            args,
-            data: null,
-            error: null,
-            updatedAt: null,
-        };
-        return new MachinePending<TArgs, TData>(state);
-    }
-
-    export function fromSnapshot<TArgs, TData>(
-        snapshot: { args: TArgs; data: TData; updatedAt: number },
-        isStale = false,
-    ): MachineSuccess<TArgs, TData> | MachineInvalidating<TArgs, TData> {
-        if (isStale) {
-            const state: TInvalidatingState<TArgs, TData> = {
-                status: "invalidating",
-                args: snapshot.args,
-                data: snapshot.data,
-                error: null,
-                updatedAt: snapshot.updatedAt,
-                patchState: null,
-            };
-            return new MachineInvalidating<TArgs, TData>(state);
+    /**
+     * Wrap a stored entry state into the machine that owns its transitions.
+     *
+     * A machine holds nothing beyond the record it wraps, so wrapping is free of
+     * identity concerns: nested references — notably `patchState.patches`, whose
+     * entries a live patch handle mutates — are carried over untouched.
+     */
+    export function of<TArgs, TData>(state: TQueryEntryState<TArgs, TData>): Machine<TArgs, TData> {
+        switch (state.status) {
+            case "pending":
+                return new MachinePending<TArgs, TData>(state);
+            case "success":
+                return new MachineSuccess<TArgs, TData>(state);
+            case "error":
+                return new MachineError<TArgs, TData>(state);
+            case "invalidating":
+                return new MachineInvalidating<TArgs, TData>(state);
+            case "invalidate-error":
+                return new MachineInvalidateError<TArgs, TData>(state);
+            default: {
+                // Compiler-checked exhaustiveness: the union has no other status.
+                const unexpected: never = state;
+                return unexpected;
+            }
         }
-
-        const state: TSuccessState<TArgs, TData> = {
-            status: "success",
-            args: snapshot.args,
-            data: snapshot.data,
-            error: null,
-            updatedAt: snapshot.updatedAt,
-            patchState: null,
-        };
-        return new MachineSuccess<TArgs, TData>(state);
     }
 }

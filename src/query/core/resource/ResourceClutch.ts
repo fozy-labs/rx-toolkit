@@ -6,8 +6,8 @@ import type {
     TArgsOrVoidOrSkip,
     TClutchSwitchOptions,
     TKeyed,
-    TMachineState,
-    TPendingState,
+    TQueryEntryPendingState,
+    TQueryEntryState,
     TResourceClutchState,
     TResourceEntryState,
 } from "@/query/types";
@@ -44,11 +44,11 @@ const SETTLED_FLAGS = {
 /**
  * Whether the entry behind `entry$` holds data worth keeping as SWR fallback.
  *
- * Asks the machine state, not `data`: `TData` may itself be `null`, and an
+ * Asks the entry's state, not `data`: `TData` may itself be `null`, and an
  * entry that successfully loaded `null` has data to fall back on like any other.
  */
 function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>): boolean {
-    const state = entry$.peek()?.machine$.peek().state;
+    const state = entry$.peek()?.state$.peek();
     return state !== undefined && isDataState(state);
 }
 
@@ -210,7 +210,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     invalidate = () => {
         const state = this.state$.peek();
 
-        // Rows 7, 8 and 13 are one and the same machine status (`error`): which
+        // Rows 7, 8 and 13 are one and the same entry status (`error`): which
         // of them is on screen depends on previous / placeholder data, and both
         // live in the clutch, invisible to the entry. The entry therefore has to
         // accept `invalidate()` from `error` (edges 8 → 4 and 13 → 3), and only
@@ -313,9 +313,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             return this._idleState;
         }
 
-        const machine = entry.machine$();
-
-        return this._deriveNotIdleState(tracking.keyed, machine.state);
+        return this._deriveNotIdleState(tracking.keyed, entry.state$());
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {
@@ -326,16 +324,16 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     private _deriveNotIdleState(
         keyed: TKeyed<TArgs>,
-        machineState: TMachineState<TArgs, TData>,
+        entryState: TQueryEntryState<TArgs, TData>,
     ): TResourceClutchState<TArgs, TData, TError> {
         // Rows whose data comes from the entry itself are the entry rows, shared
         // with `Resource.getState`; the clutch only adds its methods. Rows that
         // show what the entry does not have — a placeholder, or the previous
         // args' data — are built here, in display priority.
-        switch (machineState.status) {
+        switch (entryState.status) {
             // Rows 2 / 3 / 4, or 10 / 14 / 11 when the run retries a failure.
             case "pending": {
-                return this._createLoadingState(keyed, machineState);
+                return this._createLoadingState(keyed, entryState);
             }
 
             case "success": {
@@ -345,14 +343,14 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 this._previous$ = null;
                 this._placeholder = null;
 
-                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, entryState));
             }
 
             case "error": {
                 // Rows 13 / 8 / 7 — the entry holds nothing, so whatever the clutch
-                // can still show stays on screen. A machine `error` always carries
+                // can still show stays on screen. An entry `error` always carries
                 // its failure; the cast is sound per the mapError contract.
-                const errorSlot = { hasError: true, error: machineState.error as TError } as const;
+                const errorSlot = { hasError: true, error: entryState.error as TError } as const;
                 const placeholder = this._placeholderFor(keyed);
 
                 if (placeholder) {
@@ -385,14 +383,14 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                     };
                 }
 
-                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, entryState));
             }
 
             // Rows 6 / 12 and row 9 — the entry's own data is on screen, so
             // neither the placeholder nor the SWR fallback is consulted.
             case "invalidating":
             case "invalidate-error": {
-                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, machineState));
+                return this._withMethods(buildEntryState<TArgs, TData, TError>(keyed.value, entryState));
             }
         }
     }
@@ -405,17 +403,17 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     /**
      * Stale data of the previous entry (SWR fallback) together with the args it
      * was loaded for, or `null` when there is no previous entry or it holds no
-     * data. Reads the previous machine signal, subscribing the deriving computed
-     * to its changes.
+     * data. Reads the previous entry's state signal, subscribing the deriving
+     * computed to its changes.
      */
     private _previous(): { data: TData; args: TArgs } | null {
         const previousEntry = this._previous$?.();
         if (!previousEntry) return null;
 
-        // Presence is a property of the machine state, never of `data`: a query
+        // Presence is a property of the entry's state, never of `data`: a query
         // that resolved `null` holds data, and dropping it here would silently
         // turn row 4 into row 2 and row 8 into row 7.
-        const state = previousEntry.machine$().state;
+        const state = previousEntry.state$();
         return isDataState(state) ? { data: state.data, args: previousEntry.keyedArgs.value } : null;
     }
 
@@ -442,16 +440,16 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     /**
      * The in-flight state for `keyed`: a placeholder when the resource
      * synthesizes one (rows 3 / 14), else the previous args' data (rows 4 / 11),
-     * else nothing (rows 2 / 10). `machineState` is the entry's pending state,
+     * else nothing (rows 2 / 10). `entryState` is the entry's pending state,
      * or `null` before the entry exists — a started (or marked) clutch is
      * already loading, and the entry it is about to create starts without a
      * failure.
      */
     private _createLoadingState(
         keyed: TKeyed<TArgs>,
-        machineState: TPendingState<TArgs> | null,
+        entryState: TQueryEntryPendingState<TArgs> | null,
     ): TResourceClutchState<TArgs, TData, TError> {
-        const error = machineState?.error ?? null;
+        const error = entryState?.error ?? null;
         const placeholder = this._placeholderFor(keyed);
 
         if (placeholder) {

@@ -2,6 +2,8 @@
 
 Базовый реактивный контейнер, хранящий произвольное состояние `TState` с автоматической сборкой мусора (GC).
 
+`TState` — это и то, что запись хранит, и то, что она публикует: [QueryCacheEntry][query-cache-entry-api] подставляет сюда плоскую запись [`TQueryEntryState<TArgs, TData>`][entry-state-concept].
+
 
 ## Опции
 
@@ -10,7 +12,7 @@
 | `initialState`       | `TState`                    | (Обязательное поле) | Начальное состояние. Устанавливается при создании записи.                                               |
 | `retentionTime`      | `number \| false`           | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять.                  |
 | `devtoolsKey`        | `string`                    | (Обязательное поле) | Ключ для отображения в DevTools.                                                                        |
-| `beforeDevtoolsPush` | `(state: TState) => TState` | —                   | Функция для изменения состояния перед отправкой в DevTools. Полезно для удаления чувствительных данных. |
+| `beforeDevtoolsPush` | `TBeforeDevtoolsPushFn<TState>` | —               | Перехватывает состояние перед отправкой в DevTools. Полезно для удаления чувствительных данных. |
 
 
 ## Свойства
@@ -32,7 +34,12 @@
 
 ## См. также
 
-- [QueryCacheEntry — API](./_QueryCacheEntry.md) — расширение CacheEntry для query-слоя
+- [QueryCacheEntry — API][query-cache-entry-api] — расширение CacheEntry для query-слоя
 - [Кэш (концепция)](../concepts/cache.md) — общая архитектура кэша
-- [Машина состояний](../concepts/machine.md) — жизненный цикл состояния записи
+- [Состояние записи запроса][entry-state-concept] — пять статусов и переходы между ними
 - [Архитектура](../concepts/architecture.md) — обзор архитектуры query-модуля
+
+---
+
+[query-cache-entry-api]: ./_QueryCacheEntry.md
+[entry-state-concept]: ../concepts/query-entry-state.md

@@ -1,5 +1,5 @@
 import type {
-    TMachineState,
+    TQueryEntryState,
     TResourceEntryIdleState,
     TResourceEntryPendingNoneState,
     TResourceEntryState,
@@ -64,7 +64,7 @@ export function buildPendingEntryState<TArgs, TError>(
 }
 
 /**
- * The entry row of a machine state, for arguments `args`.
+ * The entry row of a query entry's state, for arguments `args`.
  *
  * `args` is what the reader observes and `dataArgs` what the data was loaded
  * for; on an entry read directly they are the same value, on a clutch they can
@@ -72,20 +72,20 @@ export function buildPendingEntryState<TArgs, TError>(
  */
 export function buildEntryState<TArgs, TData, TError>(
     args: TArgs,
-    machineState: TMachineState<TArgs, TData>,
+    entryState: TQueryEntryState<TArgs, TData>,
 ): TResourceEntryState<TArgs, TData, TError> {
-    switch (machineState.status) {
+    switch (entryState.status) {
         // Rows 2 / 10.
         case "pending":
-            return buildPendingEntryState<TArgs, TError>(args, machineState.error);
+            return buildPendingEntryState<TArgs, TError>(args, entryState.error);
 
         // Row 5 — fresh data of these arguments.
         case "success":
             return {
                 status: "success",
                 dataSource: "current",
-                data: machineState.data,
-                dataArgs: machineState.args,
+                data: entryState.data,
+                dataArgs: entryState.args,
                 args,
                 error: null,
                 hasData: true,
@@ -102,11 +102,11 @@ export function buildEntryState<TArgs, TData, TError>(
             return {
                 status: "pending",
                 dataSource: "current",
-                data: machineState.data,
-                dataArgs: machineState.args,
+                data: entryState.data,
+                dataArgs: entryState.args,
                 args,
                 hasData: true,
-                ...errorSlotOf<TError>(machineState.error),
+                ...errorSlotOf<TError>(entryState.error),
                 isPending: true,
                 isInitialLoading: false,
                 isSwitching: false,
@@ -118,14 +118,14 @@ export function buildEntryState<TArgs, TData, TError>(
             return {
                 status: "error",
                 dataSource: "current",
-                data: machineState.data,
-                dataArgs: machineState.args,
+                data: entryState.data,
+                dataArgs: entryState.args,
                 args,
                 hasData: true,
                 hasError: true,
-                // Sound per the mapError contract: the machine only ever holds
+                // Sound per the mapError contract: an entry only ever holds
                 // errors already normalized to TError at the queryFn boundary.
-                error: machineState.error as TError,
+                error: entryState.error as TError,
                 isPending: false,
                 isInitialLoading: false,
                 isSwitching: false,
@@ -143,7 +143,7 @@ export function buildEntryState<TArgs, TData, TError>(
                 hasData: false,
                 hasError: true,
                 // Sound per the mapError contract (see the invalidate-error branch).
-                error: machineState.error as TError,
+                error: entryState.error as TError,
                 isPending: false,
                 isInitialLoading: false,
                 isSwitching: false,
@@ -151,8 +151,8 @@ export function buildEntryState<TArgs, TData, TError>(
             };
 
         default: {
-            // Exhaustive: every machine status is mapped above.
-            const unhandled: never = machineState;
+            // Exhaustive: every entry status is mapped above.
+            const unhandled: never = entryState;
             return unhandled;
         }
     }

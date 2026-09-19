@@ -56,7 +56,7 @@ describe("Resource.ensure with beforeQuery (cross-tab sync)", () => {
         const resource = createResource<number, string>({ queryFn, beforeQuery });
 
         resource.trigger(1);
-        // Entry exists, machine is pending, beforeQuery has not settled yet.
+        // Entry exists, its state is pending, beforeQuery has not settled yet.
         await expect(resource.ensure(1)).resolves.toBe("from-query");
     });
 
@@ -109,7 +109,7 @@ describe("Resource.prefetch with beforeQuery (cross-tab sync)", () => {
         await prefetched;
 
         const entry = resource.getEntry(1)!;
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("from-query");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("from-query");
     });
 });

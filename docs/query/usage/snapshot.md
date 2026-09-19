@@ -70,7 +70,7 @@ const api = createApi({
 ## См. также
 
 - [Кэш][cache] — управление кэш-записями и жизненный цикл GC
-- [Машина состояний][machine] — восстановление из снимка через `Machine.fromSnapshot()`
+- [Состояние записи запроса][entry-state] — в каком статусе запись оживает после гидрации
 - [API-справочник][api-readme] — таблица опций `initialSnapshot`, `snapshotValidTime`, `getSnapshot()`
 
 ---
@@ -78,5 +78,5 @@ const api = createApi({
 [resource]: ./resource.md
 [command]: ./command.md
 [cache]: ../concepts/cache.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [api-readme]: ../api/README.md

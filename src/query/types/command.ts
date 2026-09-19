@@ -158,7 +158,7 @@ export interface ICommandConfig<TArgs, TData> {
     /** Optional prefix for cache keys and devtools display. */
     key?: string;
     /**
-     * Normalizes raw mutation errors before they enter the machine. The Api
+     * Normalizes raw mutation errors before they enter the entry's state. The Api
      * always supplies one (identity when the consumer configured no `mapError`);
      * defaults to identity if constructed directly. See {@link TMapError}.
      */

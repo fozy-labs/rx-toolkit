@@ -182,7 +182,7 @@ if (result.status === 'error') { /* ... */ }
 ```typescript
 const entry = addTodoCommand.getEntry('my-mutation-1');
 if (entry) {
-  console.log(entry.machine$().data);
+  console.log(entry.state$().data);
 }
 ```
 
@@ -253,13 +253,13 @@ clutch.setEntryKey('my-mutation-3');
 ## См. также
 
 - [Ресурс][resource] — чтение данных с кэшированием и SWR
-- [Машина состояний][machine] — детали переходов между статусами
+- [Состояние записи запроса][entry-state] — детали переходов между статусами
 - [Система кэширования][cache] — жизненный цикл записей кэша
 - [Сцепление][clutch] — реактивный наблюдатель, транслирующий состояние в UI
 - [Broadcast][broadcast] — синхронизация между вкладками; команды поддерживают опцию `sync: true`
 
 [resource]: ./resource.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [cache]: ../concepts/cache.md
 [clutch]: ../concepts/clutch.md
 [broadcast]: ./broadcast.md
