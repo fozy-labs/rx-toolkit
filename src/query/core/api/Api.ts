@@ -56,8 +56,8 @@ export class Api implements IApi {
     private readonly keyPrefix: string | null;
     private readonly plugins: NonNullable<TCreateApiOptions["plugins"]>;
     private readonly apiSerializeArgs: (args: any) => string;
-    private readonly apiResourceRetentionTime: number | false;
-    private readonly apiCommandRetentionTime: number | false;
+    private readonly apiResourceRetentionTime: NonNullable<TCreateApiOptions["resourceRetentionTime"]>;
+    private readonly apiCommandRetentionTime: NonNullable<TCreateApiOptions["commandRetentionTime"]>;
     private readonly snapshotter: Snapshotter;
     private readonly apiOnCacheEntryAdded: TCreateApiOptions["onCacheEntryAdded"];
     private readonly apiOnQueryStarted: TCreateApiOptions["onQueryStarted"];

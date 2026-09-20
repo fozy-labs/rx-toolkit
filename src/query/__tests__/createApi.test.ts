@@ -5,7 +5,17 @@ import { createApi } from "@/query/api/createApi";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/constants";
 import { composeHooks } from "@/query/core/api";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IPlugin, ISyncDriver, ISyncMessage, TApiSnapshot, TCreateApiOptions } from "@/query/types";
+import type {
+    IPlugin,
+    ISyncDriver,
+    ISyncMessage,
+    TApiSnapshot,
+    TCommandEntryIdleState,
+    TCommandEntryState,
+    TCreateApiOptions,
+    TResourceEntryIdleState,
+    TResourceEntryState,
+} from "@/query/types";
 
 // ==================== Helpers ====================
 
@@ -174,6 +184,140 @@ describe("createApi — custom options propagation", () => {
             retentionTime: 1_000,
         });
         expect(command).toBeDefined();
+    });
+});
+
+// ==================== Retention time as a function ====================
+
+/** The `state` an api- or resource-level `retentionTime` function receives. */
+type TResourceRetentionState<TArgs, TData> = Exclude<TResourceEntryState<TArgs, TData>, TResourceEntryIdleState>;
+
+/** The `state` an api- or command-level `retentionTime` function receives. */
+type TCommandRetentionState<TArgs, TData> = Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>;
+
+/**
+ * The api-level `resourceRetentionTime` / `commandRetentionTime` accept the same
+ * function form as the resource / command option, over `unknown` args and state.
+ * A resource- or command-level option replaces the api-level one entirely — the
+ * api-level function is then never called, exactly as with a static value.
+ */
+describe("createApi — retentionTime as a function", () => {
+    /** An api-level policy that retains everything and records what it was asked about. */
+    function createApiResourceRetention() {
+        return vi.fn((_args: unknown, _state: TResourceRetentionState<unknown, unknown>): number | false => false);
+    }
+
+    function createApiCommandRetention() {
+        return vi.fn((_args: unknown, _state: TCommandRetentionState<unknown, unknown>): number | false => false);
+    }
+
+    it("resourceRetentionTime function governs a resource that declares none", async () => {
+        const resourceRetentionTime = createApiResourceRetention();
+        const api = createApi({ resourceRetentionTime });
+        const resource = api.createResource({ queryFn: async (args: number) => args * 2 });
+
+        // `ensure` holds the entry alive until it settles; dropping that
+        // subscription is the `active → retention` transition.
+        await resource.ensure(1);
+        await flushMicrotasks();
+
+        expect(resourceRetentionTime).toHaveBeenCalledTimes(1);
+        expect(resourceRetentionTime.mock.calls[0]?.[0]).toBe(1);
+        expect(resourceRetentionTime.mock.calls[0]?.[1]).toMatchObject({
+            status: "success",
+            dataSource: "current",
+            hasData: true,
+            hasError: false,
+            data: 2,
+            args: 1,
+        });
+    });
+
+    it("a resource-level function replaces the api-level one entirely", async () => {
+        const resourceRetentionTime = createApiResourceRetention();
+        const ownRetentionTime = vi.fn(
+            (_args: number, _state: TResourceRetentionState<number, number>): number | false => false,
+        );
+        const api = createApi({ resourceRetentionTime });
+        const resource = api.createResource({
+            queryFn: async (args: number) => args * 2,
+            retentionTime: ownRetentionTime,
+        });
+
+        await resource.ensure(1);
+        await flushMicrotasks();
+
+        expect(ownRetentionTime).toHaveBeenCalledTimes(1);
+        expect(ownRetentionTime.mock.calls[0]?.[0]).toBe(1);
+        expect(resourceRetentionTime).not.toHaveBeenCalled();
+    });
+
+    it("a resource-level static value replaces the api-level function", async () => {
+        const resourceRetentionTime = createApiResourceRetention();
+        const api = createApi({ resourceRetentionTime });
+        const resource = api.createResource({
+            queryFn: async (args: number) => args * 2,
+            retentionTime: false,
+        });
+
+        await resource.ensure(1);
+        await flushMicrotasks();
+
+        expect(resourceRetentionTime).not.toHaveBeenCalled();
+        expect(resource.getEntry(1)).not.toBeNull();
+    });
+
+    it("commandRetentionTime function governs a command that declares none", async () => {
+        const commandRetentionTime = createApiCommandRetention();
+        const api = createApi({ commandRetentionTime });
+        const command = api.createCommand({ queryFn: async (args: string) => `result-${args}` });
+
+        await command.execute("a", "k1");
+        await flushMicrotasks();
+
+        expect(commandRetentionTime).toHaveBeenCalledTimes(1);
+        expect(commandRetentionTime.mock.calls[0]?.[0]).toBe("a");
+        expect(commandRetentionTime.mock.calls[0]?.[1]).toMatchObject({
+            status: "success",
+            hasData: true,
+            hasError: false,
+            data: "result-a",
+            args: "a",
+        });
+    });
+
+    it("a command-level function replaces the api-level one entirely", async () => {
+        const commandRetentionTime = createApiCommandRetention();
+        const ownRetentionTime = vi.fn(
+            (_args: string, _state: TCommandRetentionState<string, string>): number | false => false,
+        );
+        const api = createApi({ commandRetentionTime });
+        const command = api.createCommand({
+            queryFn: async (args: string) => `result-${args}`,
+            retentionTime: ownRetentionTime,
+        });
+
+        await command.execute("a", "k1");
+        await flushMicrotasks();
+
+        expect(ownRetentionTime).toHaveBeenCalledTimes(1);
+        expect(ownRetentionTime.mock.calls[0]?.[0]).toBe("a");
+        expect(commandRetentionTime).not.toHaveBeenCalled();
+    });
+
+    it("a command-level static value replaces the api-level function", async () => {
+        const commandRetentionTime = createApiCommandRetention();
+        const api = createApi({ commandRetentionTime });
+        const command = api.createCommand({
+            queryFn: async (args: string) => `result-${args}`,
+            retentionTime: false,
+        });
+
+        await command.execute("a", "k1");
+        await flushMicrotasks();
+
+        expect(commandRetentionTime).not.toHaveBeenCalled();
+        expect(command.getEntry("k1")).not.toBeNull();
     });
 });
 

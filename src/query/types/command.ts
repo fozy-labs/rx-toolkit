@@ -2,9 +2,9 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { TArgsOrKeyed } from "./common";
+import type { TArgsOrKeyed, TRetentionTime } from "./common";
 import type { IResource, TBoundResource } from "./resource";
-import type { TCommandClutchState } from "./state";
+import type { TCommandClutchState, TErrorSlot } from "./state";
 
 // ==================== Link Types ====================
 
@@ -116,6 +116,64 @@ export interface ICommandClutch<TArgs, TData, TError = unknown> {
     retry(): void;
 }
 
+// ==================== Command Entry State ====================
+
+// The entry state of a command is its clutch state stripped of the state
+// methods: the same five rows (K1-K5, see {@link TCommandClutchState}) over a
+// single cache entry. It is what a `retentionTime` function observes — the
+// counterpart of the resource's `TResourceEntryState`.
+
+/** K1 — no cache entry: nothing was triggered under this entry key. */
+export interface TCommandEntryIdleState {
+    status: "idle";
+    data: null;
+    hasData: false;
+    error: null;
+    hasError: false;
+    args: null;
+    isPending: false;
+}
+
+/**
+ * K2 / K5 — the mutation is running. `data` is always absent; `hasError` marks
+ * the run as a retry and keeps the failure it retries readable in `error`.
+ */
+export type TCommandEntryPendingState<TArgs, TError = unknown> = {
+    status: "pending";
+    data: null;
+    hasData: false;
+    args: TArgs;
+    isPending: true;
+} & TErrorSlot<TError>;
+
+/** K3 — the mutation succeeded: `data` is present, no error. */
+export interface TCommandEntrySuccessState<TArgs, TData> {
+    status: "success";
+    data: TData;
+    hasData: true;
+    error: null;
+    hasError: false;
+    args: TArgs;
+    isPending: false;
+}
+
+/** K4 — the mutation failed: `error` is present, no data. */
+export interface TCommandEntryErrorState<TArgs, TError = unknown> {
+    status: "error";
+    data: null;
+    hasData: false;
+    error: TError;
+    hasError: true;
+    args: TArgs;
+    isPending: false;
+}
+
+export type TCommandEntryState<TArgs, TData, TError = unknown> =
+    | TCommandEntryIdleState
+    | TCommandEntryPendingState<TArgs, TError>
+    | TCommandEntrySuccessState<TArgs, TData>
+    | TCommandEntryErrorState<TArgs, TError>;
+
 // ==================== Command Options ====================
 
 export interface TCommandOptions<TArgs, TData> {
@@ -128,7 +186,20 @@ export interface TCommandOptions<TArgs, TData> {
     queryFn: (args: TArgs, requestId: string) => Promise<TData>;
     key?: string;
     links?: TLinksInput<TArgs, TData>;
-    retentionTime?: number | false;
+    /**
+     * How long an entry of this command is kept after its last subscriber
+     * leaves; falls back to the api-level `commandRetentionTime`. The function
+     * form decides per entry — see {@link TRetentionTime} for when it runs and
+     * how its result is normalized. The `idle` row is excluded because the
+     * entry exists whenever it runs.
+     *
+     * The *first* evaluation always finds the entry settled (`success` or
+     * `error`): `execute()` holds it alive until the mutation resolves or
+     * rejects. A later run started by `retry()` carries no such keepalive, so
+     * losing the last subscriber while a retry is in flight does hand the
+     * function a `pending` row — with `hasError` marking it as a retry.
+     */
+    retentionTime?: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /**
      * Derives the request id passed to {@link queryFn}. Called once per cache
      * entry (its result is reused across retries). Defaults to `crypto.randomUUID()`.
@@ -165,8 +236,12 @@ export interface ICommandConfig<TArgs, TData> {
     mapError?: TMapError;
     /** Link descriptors that bind this command to related resources. */
     links: TLinkConfig<TArgs, TData, any, any>[];
-    /** Time (ms) to keep a cache entry after subscribers drop off. `false` disables auto-removal. */
-    retentionTime: number | false;
+    /**
+     * Time (ms) to keep a cache entry after subscribers drop off. `false`
+     * disables auto-removal. See {@link TCommandOptions.retentionTime} for the
+     * function form; the Api always supplies one.
+     */
+    retentionTime: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /** Called when a new cache entry is created. See lifecycle hooks documentation. */
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     /** Called every time `queryFn` starts. See lifecycle hooks documentation. */

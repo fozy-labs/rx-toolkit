@@ -123,7 +123,9 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             // that run can only be an initial (pending) load, so `false` is
             // always correct.
             const entry = this._resource?.getEntry(args as unknown as TArgsOrVoid<TArgs>) ?? null;
-            const isInvalidateRun = entry !== null && entry.state$.peek().status === "invalidating";
+            // `peek()`, not `state$.peek()`: reading through the refcounted
+            // stream would count as a retention cycle for the id-set entry.
+            const isInvalidateRun = entry !== null && entry.peek().status === "invalidating";
 
             const waits = new Set<Promise<unknown>>();
             const idsToFetch: TId[] = [];

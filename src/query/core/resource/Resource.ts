@@ -1,6 +1,7 @@
 import { firstValueFrom } from "rxjs";
 
 import type {
+    IQueryCacheEntryOptions,
     IResource,
     IResourceClutch,
     IResourceConfig,
@@ -46,7 +47,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     readonly _key: string | undefined;
     /** @internal Read by Snapshotter.getSnapshot to skip non-snapshotable resources. */
     readonly _snapshotable: boolean;
-    private readonly _retentionTime: number | false;
+    private readonly _retentionTime: IResourceConfig<TArgs, TData>["retentionTime"];
     private readonly _serializeArgs: (args: TArgs) => string;
     private readonly _mapError: TMapError;
     private readonly _onCacheEntryAdded;
@@ -309,8 +310,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return this._getOrCreate(keyed).whenLoaded(options?.signal);
         }
 
-        // A failed entry has no data to hand back — kick off a retry before awaiting.
-        if (existing.state$.peek().status === "error") {
+        // A failed entry has no data to hand back — kick off a retry before
+        // awaiting. `peek()`, not `state$.peek()`: the latter subscribes and
+        // unsubscribes the shared stream, which counts as a retention cycle.
+        if (existing.peek().status === "error") {
             existing.retry();
         }
 
@@ -348,7 +351,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return this._getOrCreate(keyed).whenFetched(options?.signal);
         }
 
-        const status = existing.state$.peek().status;
+        // See ensure: a read must not go through the refcounted `state$`.
+        const status = existing.peek().status;
         if (status === "success" || status === "invalidate-error") {
             existing.invalidate();
         } else if (status === "error") {
@@ -393,7 +397,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         // Row 1 — no entry for these arguments.
         if (!entry) return IDLE_ENTRY_STATE;
 
-        return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.state$.peek());
+        // `peek()` reads the stored record directly. Going through `state$`
+        // would subscribe and unsubscribe the shared stream, and that is an
+        // `active → retention` transition: it would restart the entry's
+        // retention countdown and evaluate a `retentionTime` function, neither
+        // of which a synchronous read is entitled to do.
+        return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.peek());
     }
 
     /** Clear all cache entries. */
@@ -451,6 +460,17 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         return this._createEntry(keyed);
     }
 
+    /**
+     * The retention option bound to one entry: the function form is re-expressed
+     * as a function of the entry's own raw record, which the entry evaluates on
+     * every `active → retention` transition.
+     */
+    private _entryRetentionTime(keyed: TKeyed<TArgs>): IQueryCacheEntryOptions<TArgs, TData>["retentionTime"] {
+        const configured = this._retentionTime;
+        if (typeof configured !== "function") return configured;
+        return (state) => configured(keyed.value, buildEntryState<TArgs, TData, unknown>(keyed.value, state));
+    }
+
     private _createEntry(
         keyed: TKeyed<TArgs>,
         initialState?: TQueryEntryState<TArgs, TData>,
@@ -499,7 +519,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
         entry = new QueryCacheEntry<TArgs, TData>({
             queryFn: wrappedQueryFn,
-            retentionTime: this._retentionTime,
+            retentionTime: this._entryRetentionTime(keyed),
             keyedArgs: keyed,
             resourceKey: this._key,
             mapError: this._mapError,
@@ -543,7 +563,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         // Create entry with an explicit pending state to PREVENT auto-execute
         const entry = new QueryCacheEntry<TArgs, TData>({
             queryFn: wrappedQueryFn,
-            retentionTime: this._retentionTime,
+            retentionTime: this._entryRetentionTime(keyed),
             keyedArgs: keyed,
             resourceKey: this._key,
             mapError: this._mapError,

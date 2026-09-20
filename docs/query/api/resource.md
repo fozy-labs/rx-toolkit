@@ -22,7 +22,7 @@ const usersResource = api.createResource({
 |----------------------|-------------------------------------------------------------|-------------------|---------------------------------------------------------------------|
 | `queryFn`            | `(args: TArgs, abortSignal: AbortSignal) => Promise<TData> \| Observable<TData>` | **обязательный**  | Функция запроса данных. `Observable` делает запись «живой»: она обновляется с каждой эмиссией. См. [стриминговые запросы][usage-stream]. |
 | `key`                | `string`                                                    | —                 | Префикс для ключей кэша и devtools.                                 |
-| `retentionTime`      | `number \| false`                                           | `60_000`          | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
+| `retentionTime`      | `number \| false \| ((args, state) => number \| false)`     | `60_000`          | Время (мс) удержания записи после потери подписчиков. `false` — не удалять. Функция вычисляется на каждом переходе записи в удержание; `state` — состояние записи (`TResourceEntryState`, то же, что у [`getState`](#getstate)) без варианта `idle`. См. [время удержания записи][cache-retention]. Переопределяет `resourceRetentionTime` из [API][api-readme]. |
 | `serializeArgs`      | `(args: TArgs) => string`                                   | `stableStringify` | Сериализация аргументов в кэш-ключ.                                 |
 | `onCacheEntryAdded`  | `TLifecycleHookOption<(args, ctx) => void>`                 | —                 | Вызывается при создании кэш-записи. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
 | `onQueryStarted`     | `TLifecycleHookOption<(args, ctx) => void \| Promise<void>>` | —                 | Вызывается при каждом запуске `queryFn`. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
@@ -266,6 +266,7 @@ void usersResource.prefetch({ page: 1 });
 [clutch-state]: ./resource-clutch.md#состояние-tresourceclutchstate
 [clutch-datasource]: ./resource-clutch.md#datasource
 [api-readme]: ./README.md
+[cache-retention]: ../concepts/cache.md#время-удержания-записи
 [usage-broadcast]: ../usage/broadcast.md
 [usage-snapshot]: ../usage/snapshot.md
 [usage-stream]: ../usage/stream-query.md

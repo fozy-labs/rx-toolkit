@@ -1,7 +1,31 @@
-import { finalize, Observable, ReplaySubject, share, Subject, timer } from "rxjs";
+import { finalize, NEVER, Observable, ReplaySubject, share, Subject, timer } from "rxjs";
 
+import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 import type { ICacheEntry, ICacheEntryOptions } from "@/query/types";
 import { signalize, State } from "@/signals";
+
+// ==================== Retention normalization ====================
+
+/**
+ * Delay a retention option value asks for; `null` — no timer at all.
+ *
+ * Total on purpose. The option's type is `number | false`, but the boundary it
+ * comes across is not always typed — a JS caller, an `any`, or a policy that
+ * forgets to return — and the two failure modes sit on opposite behaviours:
+ * `timer(undefined)` evicts at once while `null` is this function's own "keep
+ * it" answer. Anything that is not a real number is therefore read the same way
+ * as `NaN`: meaningless, so evict rather than guess a lifetime.
+ */
+function normalizeRetentionTime(value: number | false): number | null {
+    if (value === false) return null;
+    // NaN compares false against every bound, so non-numbers go first.
+    if (typeof value !== "number" || Number.isNaN(value)) return 0;
+    // Above the setTimeout limit a timer fires immediately, which would evict
+    // the entry instead of retaining it — so such values mean "keep it".
+    if (value > MAX_TIMEOUT_DELAY) return null;
+    if (value < 0) return 0;
+    return value;
+}
 
 /**
  * Internal reactive container wrapping a Signal.state<TState>.
@@ -27,7 +51,7 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
             }),
             share({
                 connector: () => new ReplaySubject(1),
-                resetOnRefCountZero: this._getResetOnRefCountZero(options.retentionTime),
+                resetOnRefCountZero: this._getResetOnRefCountZero(options.retentionTime, options.devtoolsKey),
                 resetOnComplete: true,
             }),
         );
@@ -69,9 +93,35 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         this._state$.dispose();
     }
 
-    private _getResetOnRefCountZero(retentionTime: number | false): boolean | (() => Observable<number>) {
-        if (retentionTime === false) return false;
-        const lifetime = Math.max(0, retentionTime);
-        return () => timer(lifetime);
+    /**
+     * The share's `resetOnRefCountZero`: what decides, on the `active →
+     * retention` transition, whether the entry is kept or torn down.
+     *
+     * A function option is evaluated per cycle, against the entry's state as it
+     * stands then, inside the teardown of the last subscriber. Its throw must
+     * never escape: `share` calls the factory from that teardown, so it would
+     * surface as an `UnsubscriptionError` on the unsubscribing consumer. A
+     * failed policy falls back to immediate eviction.
+     */
+    private _getResetOnRefCountZero(
+        retentionTime: ICacheEntryOptions<TState>["retentionTime"],
+        entryKey: string,
+    ): boolean | (() => Observable<unknown>) {
+        if (typeof retentionTime !== "function") {
+            const delay = normalizeRetentionTime(retentionTime);
+            if (delay === null) return false;
+            return () => timer(delay);
+        }
+
+        return () => {
+            let delay: number | null;
+            try {
+                delay = normalizeRetentionTime(retentionTime(this.peek()));
+            } catch (error) {
+                console.error(`[CacheEntry] retentionTime threw for entry "${entryKey}"`, error);
+                return timer(0);
+            }
+            return delay === null ? NEVER : timer(delay);
+        };
     }
 }

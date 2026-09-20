@@ -3,6 +3,7 @@ import type {
     ICommandClutch,
     ICommandConfig,
     IPatchHandle,
+    IQueryCacheEntryOptions,
     TArgsOrKeyed,
     TBoundCommand,
     TCacheEntryAddedContext,
@@ -17,6 +18,7 @@ import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 
 import { CommandClutch } from "./CommandClutch";
+import { buildCommandEntryState } from "./entry-state";
 import { LinkManager } from "./LinkManager";
 
 // ==================== Command ====================
@@ -235,7 +237,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
         entry = new QueryCacheEntry<TArgs, TData>({
             queryFn: wrappedQueryFn,
-            retentionTime: this._retentionTime,
+            retentionTime: this._entryRetentionTime(keyed),
             keyedArgs: keyed,
             resourceKey: this._key,
             mapError: this._mapError,
@@ -246,9 +248,15 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // replaces the current execution) so it reflects only the first attempt.
         const firstResult = entry.currentResult();
 
-        // The state peek in _execute() leaves refcount at 0, which starts
-        // timer(retentionTime). Hold refcount ≥ 1 until the mutation settles so
-        // the GC timer cannot fire and complete() the entry mid-flight.
+        // A freshly created entry has no subscribers, so with the default
+        // retentionTime: 0 it would be collected out from under the mutation.
+        // Hold refcount ≥ 1 until the first run settles: the GC timer cannot
+        // fire and complete() the entry mid-flight, and — since this is the
+        // only keepalive a command entry ever gets — the first
+        // `active → retention` transition is guaranteed to happen on a settled
+        // entry. That is what lets a `retentionTime` policy assume `success` or
+        // `error` on its first evaluation (a later run started by retry() has
+        // no such guarantee and can be observed as `pending`).
         // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
         // re-rejects with firstResult's error and nobody consumes it, so every
         // failed execute would surface a global unhandled rejection.
@@ -362,6 +370,19 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             key: entryKey ?? this._generateEntryKey(),
             [KEYED_BRAND]: true,
         } as TKeyed<TArgs>;
+    }
+
+    // ==================== Private — Retention ====================
+
+    /**
+     * The retention option bound to one entry: the function form is re-expressed
+     * as a function of the entry's own raw record, which the entry evaluates on
+     * every `active → retention` transition.
+     */
+    private _entryRetentionTime(keyed: TKeyed<TArgs>): IQueryCacheEntryOptions<TArgs, TData>["retentionTime"] {
+        const configured = this._retentionTime;
+        if (typeof configured !== "function") return configured;
+        return (state) => configured(keyed.value, buildCommandEntryState<TArgs, TData, unknown>(state));
     }
 
     // ==================== Private — Lifecycle Hooks ====================

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
@@ -8,7 +8,14 @@ import { isDataState } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
 import { toKeyed } from "@/query/lib/toKeyed";
-import type { ICommandConfig, IResourceConfig, TLinkConfig } from "@/query/types";
+import type {
+    ICommandConfig,
+    IResourceConfig,
+    TCommandClutchState,
+    TCommandEntryIdleState,
+    TCommandEntryState,
+    TLinkConfig,
+} from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -1904,6 +1911,190 @@ describe("execute() without observers — retentionTime: 0 regression", () => {
         await vi.runAllTimersAsync();
 
         await expect(promise).rejects.toBe(serverError);
+    });
+});
+
+// ==================== Retention time as a function ====================
+
+/**
+ * What a command-level `retentionTime` function receives as `state`: the command
+ * entry row — the clutch state without `retry()`. The entry exists whenever the
+ * function runs, so the idle row is excluded.
+ */
+type TCommandRetentionState<TArgs, TData, TError = unknown> = Exclude<
+    TCommandEntryState<TArgs, TData, TError>,
+    TCommandEntryIdleState
+>;
+
+/**
+ * `retentionTime` as a function of the mutation's args and its entry state. It
+ * runs on the `active → retention` transition. The *first* evaluation always
+ * finds the entry settled: `execute()` holds it alive until the mutation
+ * resolves or rejects. A later run started by `retry()` carries no such
+ * keepalive, so losing the last subscriber while a retry is in flight does hand
+ * the policy a `pending` row.
+ */
+describe("Command retentionTime as a function", () => {
+    it("the first evaluation sees the settled success state and the command's args", async () => {
+        const seen: TCommandRetentionState<string, string>[] = [];
+        const command = createCommand<string, string>({
+            queryFn: async () => "ok",
+            retentionTime: (_args: string, state: TCommandRetentionState<string, string>) => {
+                seen.push(state);
+                return false;
+            },
+        });
+
+        await command.execute("a", "k1");
+        await flushMicrotasks();
+
+        expect(seen.map((state) => state.status)).toEqual(["success"]);
+        expect(seen[0]).toMatchObject({
+            status: "success",
+            hasData: true,
+            hasError: false,
+            isPending: false,
+            data: "ok",
+            error: null,
+            args: "a",
+        });
+        // The entry row carries no state methods.
+        expect("retry" in seen[0]!).toBe(false);
+    });
+
+    it("the first evaluation sees the settled error state", async () => {
+        const failure = new Error("boom");
+        const seen: TCommandRetentionState<string, string>[] = [];
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                throw failure;
+            },
+            retentionTime: (_args: string, state: TCommandRetentionState<string, string>) => {
+                seen.push(state);
+                return false;
+            },
+        });
+
+        await expect(command.execute("a", "k1")).rejects.toBe(failure);
+        await flushMicrotasks();
+
+        expect(seen.map((state) => state.status)).toEqual(["error"]);
+        expect(seen[0]).toMatchObject({
+            status: "error",
+            hasData: false,
+            hasError: true,
+            isPending: false,
+            data: null,
+            error: failure,
+            args: "a",
+        });
+        expect("retry" in seen[0]!).toBe(false);
+    });
+
+    /**
+     * Only `execute()` holds a keepalive, and only for the first run. A retry is
+     * started through the entry, so dropping the last subscriber while it is in
+     * flight is an ordinary `active → retention` transition — and the policy
+     * does see a `pending` row, with `hasError` marking it as a retry. Pinned so
+     * the narrower "the first evaluation is settled" contract stays honest.
+     */
+    it("a retry in flight hands the policy a pending row", async () => {
+        const failure = new Error("boom");
+        const seen: TCommandRetentionState<string, string>[] = [];
+        let attempt = 0;
+        let resolveRetry!: (value: string) => void;
+        const command = createCommand<string, string>({
+            queryFn: () => {
+                attempt += 1;
+                if (attempt === 1) return Promise.reject(failure);
+                return new Promise<string>((resolve) => {
+                    resolveRetry = resolve;
+                });
+            },
+            retentionTime: (_args: string, state: TCommandRetentionState<string, string>) => {
+                seen.push(state);
+                return false;
+            },
+        });
+
+        await expect(command.execute("a", "k1")).rejects.toBe(failure);
+        await flushMicrotasks();
+
+        // Cycle 1 — execute()'s keepalive released on the settled failure.
+        expect(seen.map((state) => state.status)).toEqual(["error"]);
+
+        const entry = command.getEntry("k1")!;
+        const subscription = entry.obs.subscribe();
+        entry.retry();
+        await flushMicrotasks();
+        expect(entry.peek().status).toBe("pending");
+
+        // Cycle 2 — the retry is still running and nothing holds the entry.
+        subscription.unsubscribe();
+
+        expect(seen).toHaveLength(2);
+        expect(seen[1]).toMatchObject({
+            status: "pending",
+            isPending: true,
+            hasData: false,
+            data: null,
+            hasError: true,
+            error: failure,
+            args: "a",
+        });
+
+        resolveRetry("ok");
+        await flushMicrotasks();
+    });
+
+    /**
+     * A read-only look at an in-flight entry is not a loss of subscribers, so it
+     * must not evaluate the policy — that is what keeps the "first evaluation is
+     * settled" contract a guarantee rather than an accident of timing.
+     */
+    it("a read-only look at an in-flight entry does not evaluate the function", async () => {
+        const seen: TCommandRetentionState<string, string>[] = [];
+        let resolveQuery!: (value: string) => void;
+        const retentionTime = vi.fn((_args: string, state: TCommandRetentionState<string, string>) => {
+            seen.push(state);
+            return false as const;
+        });
+        const command = createCommand<string, string>({
+            queryFn: () =>
+                new Promise<string>((resolve) => {
+                    resolveQuery = resolve;
+                }),
+            retentionTime,
+        });
+
+        const result = command.execute("a", "k1");
+        await flushMicrotasks();
+
+        // The mutation is still running; reading the entry must not count as a
+        // retention cycle.
+        const entry = command.getEntry("k1");
+        expect(entry).not.toBeNull();
+        expect(entry!.peek().status).toBe("pending");
+        expect(retentionTime).not.toHaveBeenCalled();
+
+        resolveQuery("ok");
+        await expect(result).resolves.toBe("ok");
+        await flushMicrotasks();
+
+        expect(seen.map((state) => state.status)).toEqual(["success"]);
+    });
+
+    /**
+     * The two declarations must not drift: the clutch state is the entry row
+     * plus `retry()`, so each is assignable to the other once `retry` is added.
+     */
+    it("TCommandClutchState is TCommandEntryState plus retry()", () => {
+        expectTypeOf<TCommandClutchState<string, number, Error>>().toExtend<
+            TCommandEntryState<string, number, Error> & { retry: () => void }
+        >();
+        expectTypeOf<TCommandEntryState<string, number, Error> & { retry: () => void }>().toExtend<
+            TCommandClutchState<string, number, Error>
+        >();
     });
 });
 

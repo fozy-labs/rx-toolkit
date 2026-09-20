@@ -1,9 +1,9 @@
 import { Observable, of, Subject } from "rxjs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { toKeyed } from "@/query/lib/toKeyed";
-import type { IQueryCacheEntryOptions, TKeyed } from "@/query/types";
+import type { IQueryCacheEntryOptions, TKeyed, TQueryEntryState } from "@/query/types";
 
 import { QueryCacheEntry } from "./QueryCacheEntry";
 
@@ -14,14 +14,19 @@ type TData = { items: { n: number }[] };
 function createEntry<TArgs, TData>(
     options: Pick<IQueryCacheEntryOptions<TArgs, TData>, "queryFn" | "onStreamPatch" | "errorSource"> & {
         keyedArgs?: TKeyed<TArgs>;
+        retentionTime?: IQueryCacheEntryOptions<TArgs, TData>["retentionTime"];
+        resourceKey?: string;
     },
 ): QueryCacheEntry<TArgs, TData> {
     return new QueryCacheEntry<TArgs, TData>({
-        retentionTime: false,
+        // Absence defaults to `false`; any value given is passed through as it
+        // is, so a test can hand the entry something the types forbid.
+        retentionTime: options.retentionTime === undefined ? false : options.retentionTime,
         keyedArgs: options.keyedArgs ?? toKeyed(undefined as TArgs),
         queryFn: options.queryFn,
         onStreamPatch: options.onStreamPatch,
         errorSource: options.errorSource,
+        resourceKey: options.resourceKey,
     });
 }
 
@@ -369,5 +374,192 @@ describe("QueryCacheEntry — command entries never invalidate", () => {
 
         expect(runs).toHaveLength(2);
         expect(entry.state$.peek()).toMatchObject({ status: "pending", error: failure });
+    });
+});
+
+// ==================== retentionTime normalization ====================
+
+/**
+ * The normalization table holds for a static option value and for the result of
+ * a `retentionTime` function alike. Every row is exercised end to end: a cycle
+ * is armed by dropping the entry's last subscriber (the `active → retention`
+ * transition), and "removed" is read off {@link QueryCacheEntry.isCompleted} —
+ * the share's reset tears the state stream down and completes the entry.
+ */
+describe("QueryCacheEntry — retentionTime normalization", () => {
+    /** Outlives any timer this suite may arm: nothing retained "forever" may fire within it. */
+    const A_LONG_TIME = 24 * 60 * 60 * 1000;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    /** An entry parked in `success`, so every retention cycle observes a settled state. */
+    async function createSettledEntry(
+        retentionTime: IQueryCacheEntryOptions<number, string>["retentionTime"],
+        resourceKey?: string,
+    ): Promise<QueryCacheEntry<number, string>> {
+        const entry = createEntry<number, string>({
+            keyedArgs: toKeyed(1),
+            queryFn: async () => "data",
+            retentionTime,
+            resourceKey,
+        });
+        await flushMicrotasks();
+        return entry;
+    }
+
+    /** Arm one retention cycle: subscribe and drop the subscription again. */
+    function armRetention(entry: QueryCacheEntry<number, string>): void {
+        entry.obs.subscribe().unsubscribe();
+    }
+
+    /** Arms one cycle and asserts no timer was armed at all. */
+    function expectRetained(entry: QueryCacheEntry<number, string>): void {
+        armRetention(entry);
+        vi.advanceTimersByTime(A_LONG_TIME);
+        expect(entry.isCompleted).toBe(false);
+    }
+
+    /** Arms one cycle and asserts the entry is removed by `timer(delay)`, not earlier. */
+    function expectRemovedAfter(entry: QueryCacheEntry<number, string>, delay: number): void {
+        armRetention(entry);
+        if (delay > 0) {
+            vi.advanceTimersByTime(delay - 1);
+            expect(entry.isCompleted).toBe(false);
+        }
+        vi.advanceTimersByTime(1);
+        expect(entry.isCompleted).toBe(true);
+    }
+
+    // ==================== Static option value ====================
+
+    it("static false: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(false));
+    });
+
+    it("static Infinity: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(Infinity));
+    });
+
+    it("static value above the setTimeout limit: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(2_147_483_648));
+    });
+
+    it("static value at the setTimeout limit: timer(v)", async () => {
+        expectRemovedAfter(await createSettledEntry(2_147_483_647), 2_147_483_647);
+    });
+
+    it("static value within the limit: timer(v)", async () => {
+        expectRemovedAfter(await createSettledEntry(5_000), 5_000);
+    });
+
+    it("static negative value: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(-1), 0);
+    });
+
+    it("static NaN: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(NaN), 0);
+    });
+
+    // ==================== Function result ====================
+
+    it("function returning false: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(() => false));
+    });
+
+    it("function returning Infinity: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(() => Infinity));
+    });
+
+    it("function returning a value above the setTimeout limit: no timer is armed", async () => {
+        expectRetained(await createSettledEntry(() => 2_147_483_648));
+    });
+
+    it("function returning a value within the limit: timer(v)", async () => {
+        expectRemovedAfter(await createSettledEntry(() => 5_000), 5_000);
+    });
+
+    it("function returning a negative value: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(() => -1), 0);
+    });
+
+    it("function returning NaN: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(() => NaN), 0);
+    });
+
+    // ==================== Values the types forbid ====================
+
+    /**
+     * The option's type says `number | false`, but the boundary is not always
+     * typed: a JS caller, an `any` or a code path that forgets to return can
+     * hand over anything. Normalization must be total over that, and must not
+     * let `null` masquerade as the internal "no timer" answer.
+     */
+    function untypedRetentionTime(value: unknown): IQueryCacheEntryOptions<number, string>["retentionTime"] {
+        return value as IQueryCacheEntryOptions<number, string>["retentionTime"];
+    }
+
+    // `undefined` is not covered here: the option is required, so it reads as
+    // "absent" and the callers default it long before this layer. It is covered
+    // as a *result* below, where a policy forgetting to return produces it.
+    it("static non-numeric value: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(untypedRetentionTime(null)), 0);
+        expectRemovedAfter(await createSettledEntry(untypedRetentionTime("60000")), 0);
+    });
+
+    it("function returning a non-numeric value: timer(0)", async () => {
+        expectRemovedAfter(await createSettledEntry(untypedRetentionTime(() => null)), 0);
+        expectRemovedAfter(await createSettledEntry(untypedRetentionTime(() => undefined)), 0);
+        expectRemovedAfter(await createSettledEntry(untypedRetentionTime(() => "60000")), 0);
+    });
+
+    it("throwing function: logs the entry key and falls back to timer(0)", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const entry = await createSettledEntry(() => {
+            throw new Error("retention boom");
+        }, "users");
+
+        // A throw escaping the teardown would surface here as an
+        // UnsubscriptionError on the unsubscribing consumer.
+        expectRemovedAfter(entry, 0);
+
+        expect(consoleError).toHaveBeenCalledTimes(1);
+        expect(String(consoleError.mock.calls[0]?.[0])).toContain(`users:${toKeyed(1).key}`);
+    });
+
+    // ==================== One call per retention cycle ====================
+
+    it("is called once per retention cycle, with the state the entry holds then", async () => {
+        const seen: TQueryEntryState<number, string>[] = [];
+        const retentionTime = vi.fn((state: TQueryEntryState<number, string>): number | false => {
+            seen.push(state);
+            return false;
+        });
+
+        const run = deferred<string>();
+        const entry = createEntry<number, string>({
+            keyedArgs: toKeyed(1),
+            queryFn: () => run.promise,
+            retentionTime,
+        });
+
+        // Cycle 1 — the query is still in flight, so the function sees `pending`.
+        armRetention(entry);
+        expect(retentionTime).toHaveBeenCalledTimes(1);
+        expect(seen[0]).toMatchObject({ status: "pending", args: 1 });
+
+        run.resolve("data");
+        await flushMicrotasks();
+
+        // Cycle 2 — the next loss of subscribers re-evaluates with the new state.
+        armRetention(entry);
+        expect(retentionTime).toHaveBeenCalledTimes(2);
+        expect(seen[1]).toMatchObject({ status: "success", data: "data", args: 1 });
     });
 });

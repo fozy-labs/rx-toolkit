@@ -12,7 +12,7 @@
 | Опция                | Тип                                                                | По умолчанию        | Описание                                                                                                |
 |----------------------|--------------------------------------------------------------------|---------------------|---------------------------------------------------------------------------------------------------------|
 | `queryFn`            | `(keyedArgs: TKeyed<TArgs>, signal: AbortSignal) => Promise<TData>` | (Обязательное поле) | Функция для получения данных. Принимает аргументы и сигнал прерывания.                                  |
-| `retentionTime`      | `number \| false`                                                  | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять.                  |
+| `retentionTime`      | `number \| false \| ((state: TQueryEntryState<TArgs, TData>) => number \| false)` | (Обязательное поле) | Время (мс) удержания записи после отписки последнего подписчика. `false` — не удалять. Функция — частный случай опции [CacheEntry][cache-entry-api] с `TState` = [состоянием записи запроса][entry-state-concept]: опция уходит вниз без изменений, а вызов на каждом переходе `active → retention`, ловлю броска, [нормализацию результата][cache-normalize] и таймер выполняет базовый класс. |
 | `keyedArgs`          | `TKeyed<TArgs>`                                                     | (Обязательное поле) | Аргументы для `queryFn`. Используются для дедупликации и отображения в DevTools.                        |
 | `resourceKey`        | `string`                                                           | —                   | Ключ для отображения в DevTools.                                                                        |
 | `mapError`           | `TMapError` — `(error: unknown, ctx: TErrorContext) => unknown`    | `identity`          | Нормализует сырую ошибку в единственной точке её входа в состояние записи. Прокидывается из [API][api-readme]. |
@@ -80,6 +80,7 @@
 [cache-entry-api]: ./_CacheEntry.md
 [entry-state-concept]: ../concepts/query-entry-state.md
 [patching-concept]: ../concepts/patching.md
+[cache-normalize]: ../concepts/cache.md#нормализация-результата
 [resource-api]: ./resource.md
 [command-api]: ./command.md
 [query-execution]: #выполнение-запроса

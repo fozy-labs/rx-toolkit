@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
+import type { QueryCacheEntry } from "@/query/core/cache/QueryCacheEntry";
 import { CacheEntryRemovedError } from "@/query/core/errors";
 import { pendingEntryState } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { ResourceClutch } from "@/query/core/resource/ResourceClutch";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IResourceConfig, TResourceSnapshot } from "@/query/types";
+import type { IResourceConfig, TResourceEntryIdleState, TResourceEntryState, TResourceSnapshot } from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -1843,6 +1844,260 @@ describe("Retention time / GC", () => {
             await flushMicrotasks();
 
             // Entry should still exist — no retention GC
+            expect(resource.getEntry(1)).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+// ==================== Retention time as a function ====================
+
+/**
+ * What a resource-level `retentionTime` function receives as `state`: the entry
+ * row `getState` reports for those arguments. The entry exists whenever the
+ * function runs, so the idle row is excluded.
+ */
+type TRetentionState<TArgs, TData> = Exclude<TResourceEntryState<TArgs, TData>, TResourceEntryIdleState>;
+
+/**
+ * `retentionTime` as a function of the entry's arguments and state. It runs on
+ * the `active → retention` transition — synchronously inside the teardown of the
+ * last subscriber — and its result governs exactly one retention cycle.
+ */
+describe("Retention time as a function", () => {
+    /** Arm one retention cycle: subscribe to the entry and drop the subscription again. */
+    function armRetention<TArgs, TData>(entry: QueryCacheEntry<TArgs, TData>): void {
+        entry.obs.subscribe().unsubscribe();
+    }
+
+    it("receives the resource's own args: one args value is retained, another is dropped", async () => {
+        vi.useFakeTimers();
+        try {
+            const seenArgs: number[] = [];
+            const resource = createResource<number, string>({
+                queryFn: async () => "data",
+                // The index is retained, a single item is not.
+                retentionTime: (args: number) => {
+                    seenArgs.push(args);
+                    return args === 1 ? false : 0;
+                },
+            });
+
+            resource.trigger(1);
+            resource.trigger(2);
+            await flushMicrotasks();
+
+            armRetention(resource.getEntry(1)!);
+            armRetention(resource.getEntry(2)!);
+
+            expect(seenArgs).toEqual([1, 2]);
+
+            vi.advanceTimersByTime(1);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).not.toBeNull();
+            expect(resource.getEntry(2)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("receives the entry state row: a failed entry is dropped, a successful one is retained", async () => {
+        vi.useFakeTimers();
+        try {
+            const failure = new Error("boom");
+            const seen: TRetentionState<number, string>[] = [];
+            const resource = createResource<number, string>({
+                queryFn: async (args: number) => {
+                    if (args === 2) throw failure;
+                    return "data";
+                },
+                retentionTime: (_args: number, state: TRetentionState<number, string>) => {
+                    seen.push(state);
+                    return state.hasError ? 0 : false;
+                },
+            });
+
+            resource.trigger(1);
+            resource.trigger(2);
+            await flushMicrotasks();
+
+            armRetention(resource.getEntry(1)!);
+            armRetention(resource.getEntry(2)!);
+
+            // The derived entry row, not the raw entry record: `dataSource` and
+            // the flags only exist on the former.
+            expect(seen[0]).toMatchObject({
+                status: "success",
+                dataSource: "current",
+                hasData: true,
+                hasError: false,
+                data: "data",
+                args: 1,
+            });
+            expect(seen[1]).toMatchObject({
+                status: "error",
+                dataSource: "none",
+                hasData: false,
+                hasError: true,
+                data: null,
+                error: failure,
+                args: 2,
+            });
+
+            vi.advanceTimersByTime(1);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).not.toBeNull();
+            expect(resource.getEntry(2)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("false returned from the function keeps the entry alive", async () => {
+        vi.useFakeTimers();
+        try {
+            const resource = createResource<number, string>({
+                queryFn: async () => "data",
+                retentionTime: () => false,
+            });
+
+            resource.trigger(1);
+            await flushMicrotasks();
+
+            armRetention(resource.getEntry(1)!);
+
+            vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("is re-evaluated on the next loss of subscribers with the state as it is then", async () => {
+        let attempt = 0;
+        const seen: TRetentionState<number, string>[] = [];
+        const resource = createResource<number, string>({
+            queryFn: async () => {
+                attempt += 1;
+                if (attempt === 1) throw new Error("boom");
+                return "data";
+            },
+            retentionTime: (_args: number, state: TRetentionState<number, string>) => {
+                seen.push(state);
+                return false;
+            },
+        });
+
+        resource.trigger(1);
+        await flushMicrotasks();
+
+        const entry = resource.getEntry(1)!;
+
+        // Cycle 1 — the query failed.
+        armRetention(entry);
+
+        entry.retry();
+        await flushMicrotasks();
+
+        // Cycle 2 — same entry, the state it holds now.
+        armRetention(entry);
+
+        expect(seen).toHaveLength(2);
+        expect(seen[0]).toMatchObject({ status: "error", hasData: false, hasError: true, args: 1 });
+        expect(seen[1]).toMatchObject({ status: "success", hasData: true, hasError: false, data: "data", args: 1 });
+    });
+
+    it("a throwing function logs the entry key and evicts the entry immediately", async () => {
+        vi.useFakeTimers();
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const resource = createResource<number, string>({
+                key: "users",
+                queryFn: async () => "data",
+                retentionTime: () => {
+                    throw new Error("retention boom");
+                },
+            });
+
+            resource.trigger(1);
+            await flushMicrotasks();
+
+            // The throw must not escape the teardown: it would surface as an
+            // UnsubscriptionError on the unsubscribing consumer.
+            armRetention(resource.getEntry(1)!);
+
+            vi.advanceTimersByTime(1);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).toBeNull();
+            expect(consoleError).toHaveBeenCalledTimes(1);
+            expect(String(consoleError.mock.calls[0]?.[0])).toContain(`users:${stableStringify(1)}`);
+        } finally {
+            vi.useRealTimers();
+            vi.restoreAllMocks();
+        }
+    });
+
+    // A synchronous read is not a subscriber. `getState` must not count as one:
+    // it would evaluate the policy outside any real `active → retention`
+    // transition and restart a retention countdown that is already running.
+    it("getState() neither evaluates the function nor re-arms a running retention timer", async () => {
+        vi.useFakeTimers();
+        try {
+            const retentionTime = vi.fn((): number | false => 5_000);
+            const resource = createResource<number, string>({
+                queryFn: async () => "data",
+                retentionTime,
+            });
+
+            resource.trigger(1);
+            await flushMicrotasks();
+
+            // One real loss of subscribers: the policy runs once and arms 5 s.
+            armRetention(resource.getEntry(1)!);
+            expect(retentionTime).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(3_000);
+
+            // A read-only look at the entry, midway through the countdown.
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "data" });
+            expect(retentionTime).toHaveBeenCalledTimes(1);
+
+            // The original deadline still holds: the read did not restart it.
+            vi.advanceTimersByTime(1_999);
+            expect(resource.getEntry(1)).not.toBeNull();
+
+            vi.advanceTimersByTime(2);
+            await flushMicrotasks();
+            expect(resource.getEntry(1)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("getState() on an entry that was never subscribed does not arm a timer at all", async () => {
+        vi.useFakeTimers();
+        try {
+            const retentionTime = vi.fn((): number | false => 5_000);
+            const resource = createResource<number, string>({
+                queryFn: async () => "data",
+                retentionTime,
+            });
+
+            resource.trigger(1);
+            await flushMicrotasks();
+
+            expect(resource.getState(1)).toMatchObject({ status: "success" });
+            expect(retentionTime).not.toHaveBeenCalled();
+
+            vi.advanceTimersByTime(60_000);
+            await flushMicrotasks();
+
             expect(resource.getEntry(1)).not.toBeNull();
         } finally {
             vi.useRealTimers();

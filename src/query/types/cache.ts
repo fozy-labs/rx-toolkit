@@ -8,7 +8,16 @@ import type { IPatchHandle, TKeyed, TQueryEntryState } from "./common";
 // ==================== Cache Interfaces ====================
 
 export interface ICacheEntryOptions<TState> {
-    retentionTime: number | false;
+    /**
+     * How long the entry survives its last subscriber. The function form is
+     * evaluated on every `active → retention` transition — inside the last
+     * subscriber's teardown — and is handed the entry's own state as it stands
+     * then. Its result is normalized exactly like a static value (`false` /
+     * `Infinity` / over the `setTimeout` limit keep the entry, a negative value
+     * or `NaN` evicts it at once); a throw is caught, logged against
+     * {@link devtoolsKey} and treated as an immediate eviction.
+     */
+    retentionTime: number | false | ((state: TState) => number | false);
     devtoolsKey: string;
     beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TState>;
 }
@@ -30,7 +39,13 @@ export interface ICacheEntry<TState> {
 
 export interface IQueryCacheEntryOptions<TArgs, TData> {
     queryFn: (keyedArgs: TKeyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
-    retentionTime: number | false;
+    /**
+     * How long the entry survives its last subscriber. The function form is
+     * evaluated on every `active → retention` transition and receives the
+     * entry's own raw record as it stands then; the result is normalized like a
+     * static value (see {@link ICacheEntryOptions.retentionTime}).
+     */
+    retentionTime: number | false | ((state: TQueryEntryState<TArgs, TData>) => number | false);
     keyedArgs: TKeyed<TArgs>;
     resourceKey?: string;
     /**

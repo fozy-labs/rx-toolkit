@@ -67,7 +67,7 @@ flowchart LR
 | `serializeId`   | `(id: TId) => string`                                  | Сериализация id в ключ кэша элементов. По умолчанию — `stableStringify` (объектные id сравниваются структурно). |
 | `onCacheEntryAdded` | `TLifecycleHookOption<(args, ctx) => void>`        | [Lifecycle-хук](./lifecycle.md) над записями наборов (`args` — аргументы проекционного ресурса, `data` — собранный `TItem[]`). Компонуется с внутренним хуком рантайма. |
 | `onQueryStarted` | `TLifecycleHookOption<(args, ctx) => void \| Promise<void>>` | [Lifecycle-хук](./lifecycle.md) на каждый запуск запроса набора — включая запуски, целиком обслуженные кэшем элементов без сети. Реальные сетевые запросы наблюдайте хуками на обёрнутом ресурсе. |
-| `retentionTime` | `number` \| `false`                                    | Время удержания кэш-записей наборов; по умолчанию — значение API. |
+| `retentionTime` | `number` \| `false` \| `((args, state) => number \| false)` | [Время удержания](../concepts/cache.md#время-удержания-записи) кэш-записей наборов; по умолчанию — значение API. Функция вычисляется на каждом переходе записи набора в удержание и получает аргументы самого проекционного ресурса (набор id) и состояние записи набора (`TResourceEntryState` над `TItem[]`) без варианта `idle`. |
 | `serializeArgs` | `(args: TArgs) => string`                              | Сериализация аргументов проекционного ресурса в ключ кэш-записи набора. |
 
 

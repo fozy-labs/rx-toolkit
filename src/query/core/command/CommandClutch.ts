@@ -11,7 +11,8 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import { isKeyed } from "../../lib/toKeyed";
 import { wrapTrigger } from "../../lib/wrapTrigger";
-import { errorSlotOf } from "../machine/machine-helpers";
+
+import { buildCommandEntryState, IDLE_COMMAND_ENTRY_STATE } from "./entry-state";
 
 // Minimal contract that CommandClutch needs from Command.
 // If Command class doesn't exist yet, any object satisfying this works.
@@ -48,7 +49,7 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
                 const entry = tracking.current$();
                 if (!entry) return this._createIdleState();
 
-                return this._deriveState(entry, entry.state$());
+                return this._deriveState(entry.state$());
             },
             { isDisabled: true },
         );
@@ -111,92 +112,13 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
         this._tracking$.set({ entryKey, current$ });
     }
 
-    private _deriveState(
-        entry: IQueryCacheEntry<TArgs, TData>,
-        entryState: TQueryEntryState<TArgs, TData>,
-    ): TCommandClutchState<TArgs, TData, TError> {
-        // Each entry status maps to one row of the command state matrix,
-        // constructed per branch so the compiler verifies every field against the
-        // discriminated union. The switch stays exhaustive over TQueryEntryStatus:
-        // a new entry status makes this function fall off its end, which the
-        // declared return type rejects.
-        switch (entryState.status) {
-            // Rows K2 / K5 — a run is in flight. A command never carries data into
-            // pending: a repeated trigger creates a fresh entry, so there is no
-            // stale value to show. `hasError` distinguishes a retry (K5, keeping
-            // the failure it retries readable) from a first attempt (K2).
-            case "pending": {
-                return {
-                    status: "pending",
-                    data: null,
-                    hasData: false,
-                    ...errorSlotOf<TError>(entryState.error),
-                    args: entryState.args,
-                    isPending: true,
-                    retry: this.retry,
-                };
-            }
-
-            // Row K3.
-            case "success": {
-                return {
-                    status: "success",
-                    data: entryState.data,
-                    hasData: true,
-                    error: null,
-                    hasError: false,
-                    args: entryState.args,
-                    isPending: false,
-                    retry: this.retry,
-                };
-            }
-
-            // Row K4.
-            case "error": {
-                return {
-                    status: "error",
-                    data: null,
-                    hasData: false,
-                    // Sound per the mapError contract (see the pending branch above).
-                    error: entryState.error as TError,
-                    hasError: true,
-                    args: entryState.args,
-                    isPending: false,
-                    retry: this.retry,
-                };
-            }
-
-            case "invalidating":
-            case "invalidate-error": {
-                // Unreachable. Invalidation is the only way into these statuses, and
-                // QueryCacheEntry.invalidate() is a console.warn + no-op on every
-                // entry created with `errorSource: "command"` — which is every entry
-                // a Command creates. A repeated trigger does not reuse the entry
-                // either: Command.execute() completes the old one and builds a fresh
-                // pending entry under the same entry key.
-                //
-                // The branch is kept (rather than folded into `pending` with stale
-                // data) so the invariant fails loudly instead of silently producing a
-                // K2 / K5 state that violates its own `data: null` typing.
-                throw new Error(
-                    `[CommandClutch] unreachable entry status "${entryState.status}": ` +
-                        "a command cache entry never invalidates (see QueryCacheEntry.invalidate()).",
-                );
-            }
-        }
+    /** The clutch state of an entry: its entry row plus the state methods. */
+    private _deriveState(entryState: TQueryEntryState<TArgs, TData>): TCommandClutchState<TArgs, TData, TError> {
+        return { ...buildCommandEntryState<TArgs, TData, TError>(entryState), retry: this.retry };
     }
 
     /** Row K1 — nothing triggered and no cache entry bound. */
     private _createIdleState(): TCommandClutchState<TArgs, TData, TError> {
-        return {
-            status: "idle",
-            data: null,
-            hasData: false,
-            error: null,
-            hasError: false,
-            args: null,
-            isPending: false,
-            retry: this.retry,
-        };
+        return { ...IDLE_COMMAND_ENTRY_STATE, retry: this.retry };
     }
 }

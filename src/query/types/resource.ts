@@ -5,7 +5,7 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { TArgsOrKeyed, TArgsOrVoid, TKeyed } from "./common";
+import type { TArgsOrKeyed, TArgsOrVoid, TKeyed, TRetentionTime } from "./common";
 import type { TDataSlotCurrent, TDataSlotNone, TErrorSlot, TResourceClutchState } from "./state";
 
 // ==================== Resource Interface ====================
@@ -234,7 +234,15 @@ export type TQueryFnResult<TData> = Promise<TData> | Observable<TData>;
 export interface TResourceOptions<TArgs, TData> {
     queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     key?: string;
-    retentionTime?: number | false;
+    /**
+     * How long an entry of this resource is kept after its last subscriber
+     * leaves; falls back to the api-level `resourceRetentionTime`. The function
+     * form decides per entry — see {@link TRetentionTime} for when it runs and
+     * how its result is normalized. `state` is the row {@link IResource.getState}
+     * reports for those arguments; the entry exists whenever the function runs,
+     * so the `idle` row is excluded.
+     */
+    retentionTime?: TRetentionTime<TArgs, Exclude<TResourceEntryState<TArgs, TData>, TResourceEntryIdleState>>;
     serializeArgs?: (args: TArgs) => string;
     /** See {@link TLifecycleHookOption} for the array form. */
     onCacheEntryAdded?: TLifecycleHookOption<(args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void>;
@@ -283,7 +291,8 @@ export interface TResourceOptions<TArgs, TData> {
 export interface IResourceConfig<TArgs, TData> {
     queryFn: (args: TArgs, abortSignal: AbortSignal) => TQueryFnResult<TData>;
     key?: string;
-    retentionTime: number | false;
+    /** See {@link TResourceOptions.retentionTime}. The Api always supplies one. */
+    retentionTime: TRetentionTime<TArgs, Exclude<TResourceEntryState<TArgs, TData>, TResourceEntryIdleState>>;
     serializeArgs: (args: TArgs) => string;
     /**
      * Normalizes raw query errors before they enter the entry's state. The Api always

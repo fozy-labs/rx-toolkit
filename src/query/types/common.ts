@@ -110,6 +110,31 @@ export interface IPatchHandle {
  */
 export type TClutchStatus = "idle" | "pending" | "success" | "error";
 
+// ==================== Retention Time ====================
+
+/**
+ * How long a cache entry is kept once its last subscriber leaves: a fixed
+ * number of milliseconds, `false` to keep it until an explicit reset, or a
+ * function deciding per entry.
+ *
+ * The function is evaluated on the `active → retention` transition — that is,
+ * synchronously inside the last subscriber's teardown — and its result governs
+ * exactly one retention cycle: a new subscriber cancels the timer, and the next
+ * loss of subscribers calls the function again with the state as it is then.
+ * Keep it pure and cheap: it runs in a teardown.
+ *
+ * The result is normalized like a static value: `false`, `Infinity` and
+ * anything above `setTimeout`'s 2_147_483_647 ms limit keep the entry; a
+ * negative value or `NaN` evicts it immediately. A function that throws is
+ * reported through `console.error` and treated as an immediate eviction — the
+ * throw never escapes the teardown.
+ *
+ * @template TArgs - The entry's arguments.
+ * @template TState - The entry's state row at the moment of evaluation. The
+ *   entry exists whenever the function runs, so the `idle` row is excluded.
+ */
+export type TRetentionTime<TArgs, TState> = number | false | ((args: TArgs, state: TState) => number | false);
+
 // ==================== Deprecated Aliases ====================
 
 /**

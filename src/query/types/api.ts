@@ -1,5 +1,6 @@
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { ICommand, TCommandOptions } from "./command";
+import type { ICommand, TCommandEntryIdleState, TCommandEntryState, TCommandOptions } from "./command";
+import type { TRetentionTime } from "./common";
 import type {
     IPluginHKT,
     TCombinePluginCommandAugments,
@@ -7,7 +8,7 @@ import type {
     TCombinePluginResourceAugments,
 } from "./plugin-hkt";
 import type { TProjectionResourceOptions } from "./projection-resource";
-import type { IResource, TResourceOptions } from "./resource";
+import type { IResource, TResourceEntryIdleState, TResourceEntryState, TResourceOptions } from "./resource";
 import type { ISyncDriver, TApiSnapshot } from "./snapshot";
 
 // ==================== Error Mapping Types ====================
@@ -97,8 +98,24 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
     keyPrefix?: string | null;
     plugins?: TPlugins;
     serializeArgs?: (args: unknown) => string;
-    resourceRetentionTime?: number | false;
-    commandRetentionTime?: number | false;
+    /**
+     * Default retention of every resource entry. A resource's own
+     * {@link TResourceOptions.retentionTime} replaces this entirely — a
+     * function here is then never called. See {@link TRetentionTime}.
+     */
+    resourceRetentionTime?: TRetentionTime<
+        unknown,
+        Exclude<TResourceEntryState<unknown, unknown, unknown>, TResourceEntryIdleState>
+    >;
+    /**
+     * Default retention of every command entry. A command's own
+     * {@link TCommandOptions.retentionTime} replaces this entirely — a
+     * function here is then never called. See {@link TRetentionTime}.
+     */
+    commandRetentionTime?: TRetentionTime<
+        unknown,
+        Exclude<TCommandEntryState<unknown, unknown, unknown>, TCommandEntryIdleState>
+    >;
     initialSnapshot?: TApiSnapshot | null;
     snapshotValidTime?: number | false;
     defaultSync?: "none" | "resources" | "all";

@@ -1,6 +1,7 @@
 import type { TLifecycleHookOption } from "./api";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { IResource } from "./resource";
+import type { TRetentionTime } from "./common";
+import type { IResource, TResourceEntryIdleState, TResourceEntryState } from "./resource";
 
 // ==================== Projection Resource Types ====================
 
@@ -55,8 +56,13 @@ export interface TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResDat
     onQueryStarted?: TLifecycleHookOption<
         (args: TArgs, ctx: TQueryStartedContext<TArgs, TItem[]>) => void | Promise<void>
     >;
-    /** Retention for the per-id-set cache entries; falls back to the api default. */
-    retentionTime?: number | false;
+    /**
+     * Retention for the per-id-set cache entries; falls back to the api default.
+     * The function form decides per entry and receives the projection
+     * resource's own args and the id-set entry's row (data = the assembled
+     * `TItem[]`) — see {@link TRetentionTime}.
+     */
+    retentionTime?: TRetentionTime<TArgs, Exclude<TResourceEntryState<TArgs, TItem[]>, TResourceEntryIdleState>>;
     /** Serializes the projection resource's own args into a cache key. */
     serializeArgs?: (args: TArgs) => string;
 }

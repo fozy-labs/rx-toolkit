@@ -46,9 +46,13 @@ const SETTLED_FLAGS = {
  *
  * Asks the entry's state, not `data`: `TData` may itself be `null`, and an
  * entry that successfully loaded `null` has data to fall back on like any other.
+ *
+ * Non-reactive at both levels, and `peek()` rather than `state$.peek()`: the
+ * latter subscribes and unsubscribes the entry's shared stream, which would
+ * count as an `active → retention` transition.
  */
 function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null>): boolean {
-    const state = entry$.peek()?.state$.peek();
+    const state = entry$.peek()?.peek();
     return state !== undefined && isDataState(state);
 }
 

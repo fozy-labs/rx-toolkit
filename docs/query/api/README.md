@@ -24,8 +24,8 @@ const api = createApi({
 | `keyPrefix`          | `string` \| `null`        | `undefined`       | Префикс, который добавляется ко всем ключам ресурсов и команд, создаваемых через этот API.                                      |
 | `plugins`            | `IPlugin[]`               | `[]`              | Массив плагинов, которые будут использоваться этим API.                                                                         |
 | `serializeArgs`      | `(args: TArgs) => string` | `stableStringify` | Функция сериализации аргументов в строку.                                                                                       |
-| `resourceRetentionTime` | `number` \| `false`       | `60_000 ms`       | Время удержания кэша ресурсов. `false` — не удалять.                                            |
-| `commandRetentionTime`  | `number` \| `false`       | `0`               | Время удержания кэша команд. `false` — не удалять.                                              |
+| `resourceRetentionTime` | `number` \| `false` \| `((args: unknown, state) => number \| false)` | `60_000 ms`       | Время удержания кэша ресурсов. `false` — не удалять. Функция вычисляется на каждом переходе записи в удержание; `state` — состояние записи ресурса без варианта `idle`, `args` типизированы `unknown` (опция общая для всех ресурсов API). Собственный `retentionTime` [ресурса](./resource.md#опции) заменяет её целиком — функция уровня API тогда не вызывается. См. [время удержания записи][удержание]. |
+| `commandRetentionTime`  | `number` \| `false` \| `((args: unknown, state) => number \| false)` | `0`               | Время удержания кэша команд. `false` — не удалять. Функция вычисляется на каждом переходе записи в удержание; `state` — состояние записи команды без варианта `idle`, `args` типизированы `unknown`. Собственный `retentionTime` [команды](./command.md#опции) заменяет её целиком. См. [время удержания записи][удержание]. |
 | `initialSnapshot`    | `TApiSnapshot` \| `null`  | `null`            | Начальный [снимок] состояния всех ресурсов (для SSR или гидрации).                                                              |
 | `snapshotValidTime`  | `number` \| `false`       | `false`           | Время валидности данных в снимке. `false` - данные в [снимке][снимок] считаются всегда валидными.                               |
 | `defaultSync`        | `'none'` \| `'resources'` \| `'all'` | `'none'`          | Режим синхронизации по умолчанию для ресурсов. `'none'` — выключена, `'resources'` / `'all'` — включена. Команды не поддерживают синхронизацию. |
@@ -106,6 +106,7 @@ if (error && NetError.is(error)) {
 
 
 [снимок]: ../usage/snapshot.md
+[удержание]: ../concepts/cache.md#время-удержания-записи
 [синхронизация]: ../usage/broadcast.md
 [lifecycle]: ../usage/lifecycle.md
 [ресурс]: ../usage/resource.md

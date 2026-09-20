@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { MAX_TIMEOUT_DELAY } from "@/common/utils";
+
 export type StorageLike = {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
@@ -59,9 +61,6 @@ export const KEY_PREFIX = "__LSValue__";
 /** The bare prefix key holds the package meta for the whole namespace. */
 const META_KEY = KEY_PREFIX;
 const DATA_KEY_PREFIX = `${KEY_PREFIX}:`;
-
-/** setTimeout clamps delays above 2^31-1 to 0 — clamp and re-check instead. */
-const MAX_TIMEOUT = 2147483647;
 
 const metaSchema = z.object({
     v: z.number(),
@@ -335,7 +334,9 @@ export class LocalStateStorage {
             }
         }
 
-        const delay = Math.min(dueIn + Math.random() * GC_OPTIONS.randomOffset, MAX_TIMEOUT);
+        // An over-limit delay would fire immediately, so clamp it: the sweep
+        // then re-checks and re-arms instead of running early.
+        const delay = Math.min(dueIn + Math.random() * GC_OPTIONS.randomOffset, MAX_TIMEOUT_DELAY);
 
         this._gcTimer = setTimeout(() => {
             this._gcTimer = null;
@@ -484,7 +485,7 @@ export class LocalStateStorage {
                 this._touchLiveSlots();
                 this._armLiveTouchTimer(this._minLiveTouchThreshold());
             },
-            Math.min(interval, MAX_TIMEOUT),
+            Math.min(interval, MAX_TIMEOUT_DELAY),
         );
 
         unrefSafe(this._liveTouchTimer);

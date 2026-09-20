@@ -69,11 +69,15 @@ export function buildPendingEntryState<TArgs, TError>(
  * `args` is what the reader observes and `dataArgs` what the data was loaded
  * for; on an entry read directly they are the same value, on a clutch they can
  * only differ once previous data is involved — which never reaches this builder.
+ *
+ * The idle row is out of reach here: it says "no cache entry", and a raw entry
+ * record only exists once one does. Callers that need it (a clutch with no
+ * args, `getState` on an absent entry) use {@link IDLE_ENTRY_STATE} instead.
  */
 export function buildEntryState<TArgs, TData, TError>(
     args: TArgs,
     entryState: TQueryEntryState<TArgs, TData>,
-): TResourceEntryState<TArgs, TData, TError> {
+): Exclude<TResourceEntryState<TArgs, TData, TError>, TResourceEntryIdleState> {
     switch (entryState.status) {
         // Rows 2 / 10.
         case "pending":

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import { ProjectionItemMissingError } from "@/query/core/errors";
+import type { TResourceEntryIdleState, TResourceEntryState } from "@/query/types";
 
 type TUser = { id: number; name: string };
 
@@ -724,6 +725,56 @@ describe("ProjectionResource", () => {
 
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ keys: [{ tenant: "a", id: 2 }] });
+        });
+    });
+
+    // ==================== Retention time as a function ====================
+
+    describe("retentionTime as a function", () => {
+        /**
+         * The `state` the option receives: the id-set entry's row — over the
+         * projection resource's own args and its assembled `TItem[]`, not the
+         * wrapped resource's args or response.
+         */
+        type TProjectionRetentionState = Exclude<TResourceEntryState<number[], TUser[]>, TResourceEntryIdleState>;
+
+        it("receives the projection resource's own args and the id-set entry state", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> =>
+                args.userIds.map((id) => ({ id, name: `user-${id}` })),
+            );
+            const userResource = api.createResource({ queryFn });
+
+            const seen: { args: number[]; state: TProjectionRetentionState }[] = [];
+            const projection = api.unstable_createProjectionResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: (args: number[], state: TProjectionRetentionState) => {
+                    seen.push({ args, state });
+                    return false;
+                },
+            });
+
+            // `fetch` holds the id-set entry alive until it settles; dropping
+            // that subscription is the `active → retention` transition.
+            await projection.fetch([1, 2]);
+            await flushMicrotasks();
+
+            expect(seen.map((call) => call.args)).toEqual([[1, 2]]);
+
+            const { state } = seen[0]!;
+            expect(state).toMatchObject({
+                status: "success",
+                dataSource: "current",
+                hasData: true,
+                hasError: false,
+                args: [1, 2],
+            });
+            expect(state.data).toEqual([
+                { id: 1, name: "user-1" },
+                { id: 2, name: "user-2" },
+            ]);
         });
     });
 });

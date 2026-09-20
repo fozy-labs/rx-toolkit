@@ -61,6 +61,9 @@ export class QueryCacheEntry<TArgs, TData>
             ? `${options.resourceKey}:${options.keyedArgs.key}`
             : options.keyedArgs.key;
 
+        // The retention policy is already a function of this entry's state, and
+        // the state it would read belongs to the base class — so it is handed
+        // over untouched and evaluated there, once per retention cycle.
         super(initialState, {
             retentionTime: options.retentionTime,
             devtoolsKey,
