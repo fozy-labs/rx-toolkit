@@ -778,7 +778,7 @@ describe("ResourceClutch — args change, new args not in cache", () => {
             const t = harness({ placeholder: ALWAYS_PLACEHOLDER });
             await driveTo(t, 5);
 
-            t.resource.trigger(2);
+            t.resource.getEntry(2, true);
             await t.ok("A2");
             t.placeholder.mockClear();
 
@@ -792,7 +792,7 @@ describe("ResourceClutch — args change, new args not in cache", () => {
             const t = harness({ placeholder: ALWAYS_PLACEHOLDER });
             await driveTo(t, 5);
 
-            t.resource.trigger(2);
+            t.resource.getEntry(2, true);
             await t.ok("A2");
             t.resource.invalidate(2);
             t.placeholder.mockClear();
@@ -946,7 +946,7 @@ describe("ResourceClutch.switch(args)", () => {
 
     it("reflects an existing cache entry", async () => {
         const t = harness();
-        t.resource.trigger(1);
+        t.resource.getEntry(1, true);
         await t.ok("A1");
 
         t.clutch.switch(1);
@@ -1115,8 +1115,8 @@ describe("ResourceClutch — non-last entry removal (N1 regression)", () => {
 
     it("switch() to new args does not throw when the tracked NON-last entry was removed", async () => {
         const resource = twoEntryResource();
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const clutch = resource.createClutch();
@@ -1131,8 +1131,8 @@ describe("ResourceClutch — non-last entry removal (N1 regression)", () => {
 
     it("retry()/invalidate() are no-throw no-ops when the tracked NON-last entry was removed", async () => {
         const resource = twoEntryResource();
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const clutch = resource.createClutch();
@@ -1148,8 +1148,8 @@ describe("ResourceClutch — non-last entry removal (N1 regression)", () => {
 
     it("reading state$ does not throw after the tracked NON-last entry is removed", async () => {
         const resource = twoEntryResource();
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const clutch = resource.createClutch();
@@ -1180,8 +1180,8 @@ describe("ResourceClutch — stale re-trigger on rapid args change (microtask)",
 
     it("does not trigger the evicted-then-superseded key when args advance within one tick", async () => {
         const resource = evictableResource();
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const clutch = resource.createClutch();
@@ -1207,8 +1207,8 @@ describe("ResourceClutch — stale re-trigger on rapid args change (microtask)",
 
     it("re-triggers the same key after eviction when args are unchanged", async () => {
         const resource = evictableResource();
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const clutch = resource.createClutch();

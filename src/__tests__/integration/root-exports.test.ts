@@ -78,9 +78,9 @@ describe("Root module exports (@/index)", () => {
             expect(mod.SyncObservable).toBeDefined();
         });
 
-        it("exports signalize", async () => {
+        it("no longer exports the removed signalize", async () => {
             const mod = await import("@/index");
-            expect(mod.signalize).toBeDefined();
+            expect("signalize" in mod).toBe(false);
         });
 
         it("exports useSignal", async () => {

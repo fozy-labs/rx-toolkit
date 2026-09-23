@@ -24,7 +24,7 @@ describe("Snapshotter.getSnapshot", () => {
             queryFn: async () => ({ name: "Alice" }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -49,7 +49,7 @@ describe("Snapshotter.getSnapshot", () => {
                 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         // Entry is still pending — snapshot should exclude it
@@ -76,7 +76,7 @@ describe("Snapshotter.getSnapshot", () => {
             },
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -90,7 +90,7 @@ describe("Snapshotter.getSnapshot", () => {
             queryFn: async () => [1, 2, 3],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -104,7 +104,7 @@ describe("Snapshotter.getSnapshot", () => {
     it("stores timestamp as a recent Date.now() value", async () => {
         const before = Date.now();
         const api = createApi();
-        api.createResource({ key: "t", queryFn: async () => 1 }).trigger(undefined as void);
+        api.createResource({ key: "t", queryFn: async () => 1 }).getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -119,8 +119,8 @@ describe("Snapshotter.getSnapshot", () => {
         const r1 = api.createResource({ key: "a", queryFn: async () => "alpha" });
         const r2 = api.createResource({ key: "b", queryFn: async () => "beta" });
 
-        r1.trigger(undefined as void);
-        r2.trigger(undefined as void);
+        r1.getEntry(undefined as void, true);
+        r2.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -147,10 +147,10 @@ describe("Snapshotter.getSnapshot", () => {
             },
         });
 
-        resource.trigger("ok");
+        resource.getEntry("ok", true);
         await flushMicrotasks();
 
-        resource.trigger("pending-arg");
+        resource.getEntry("pending-arg", true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -178,7 +178,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
             queryFn: async () => ({ name: "Alice", age: 30 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -205,7 +205,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
             queryFn: async () => ({ name: "Alice", age: 30 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -226,7 +226,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
             queryFn: async () => ({ name: "Alice", age: 30 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -247,7 +247,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
             queryFn: async () => ({ name: "Alice", age: 30 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -280,7 +280,7 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
             },
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -314,7 +314,7 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
             },
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void)!;
@@ -514,8 +514,8 @@ describe("Snapshotter hydration — snapshot version migration", () => {
             },
         });
 
-        resource.trigger("stable");
-        resource.trigger("flaky");
+        resource.getEntry("stable", true);
+        resource.getEntry("flaky", true);
         await flushMicrotasks();
 
         const flaky = resource.getEntry("flaky")!;

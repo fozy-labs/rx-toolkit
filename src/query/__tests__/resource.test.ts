@@ -200,14 +200,14 @@ describe("Resource constructor", () => {
     });
 });
 
-// ==================== trigger ====================
+// ==================== getEntry(args, true) ====================
 
-describe("Resource.trigger", () => {
+describe("Resource.getEntry — initiating", () => {
     it("creates a new cache entry and starts a query", async () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         expect(queryFn).toHaveBeenCalledWith(1, expect.any(AbortSignal));
 
         await flushMicrotasks();
@@ -217,27 +217,15 @@ describe("Resource.trigger", () => {
         expect(entry!.state$.peek().data).toBe("data");
     });
 
-    it("returns existing entry without re-fetching on cache hit (doForce=false)", async () => {
+    it("returns existing entry without re-fetching on cache hit", async () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
-        resource.trigger(1); // second call, same args
+        resource.getEntry(1, true); // second call, same args
         expect(queryFn).toHaveBeenCalledTimes(1);
-    });
-
-    it("forces an invalidation on an existing entry when doForce=true", async () => {
-        const queryFn = vi.fn(async () => "data");
-        const resource = createResource<number, string>({ queryFn });
-
-        resource.trigger(1);
-        await flushMicrotasks();
-
-        resource.trigger(1, true);
-        // queryFn called twice: initial + forced invalidation
-        expect(queryFn).toHaveBeenCalledTimes(2);
     });
 
     it("multiple calls with same args reuse the same QueryCacheEntry instance", async () => {
@@ -245,10 +233,10 @@ describe("Resource.trigger", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const entry1 = resource.getEntry(1);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const entry2 = resource.getEntry(1);
 
         expect(entry1).toBe(entry2);
@@ -259,8 +247,8 @@ describe("Resource.trigger", () => {
             queryFn: async (n) => `data-${n}`,
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
 
         const entry1 = resource.getEntry(1);
         const entry2 = resource.getEntry(2);
@@ -284,7 +272,7 @@ describe("Resource.invalidate", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -326,7 +314,7 @@ describe("Resource.getEntry", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1);
@@ -369,7 +357,7 @@ describe("Resource.getEntry", () => {
             queryFn: async () => "void-data",
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(undefined as void);
@@ -395,7 +383,7 @@ describe("Resource.getEntry$ reactivity", () => {
         // Initially null (no entry yet)
         expect(results).toEqual([null]);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         // Effect should have re-run with the entry present
@@ -423,7 +411,7 @@ describe("Resource.getEntry$ reactivity", () => {
 
         expect(values).toEqual([false]);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(values.length).toBeGreaterThanOrEqual(2);
@@ -447,7 +435,7 @@ describe("Resource.getEntry$ reactivity", () => {
         // Initially null
         expect(results).toEqual([null]);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(results.length).toBeGreaterThanOrEqual(2);
@@ -470,10 +458,10 @@ describe("Resource.getEntry$ reactivity", () => {
             queryFn: async (n) => `data-${n}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
-        resource.trigger(2);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const entry1$ = resource.getEntry$(1);
@@ -497,7 +485,7 @@ describe("Resource.getEntry$ reactivity", () => {
         const entry$ = resource.getEntry$(1);
         expect(entry$()).toBeNull();
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(entry$()).not.toBeNull();
@@ -564,7 +552,7 @@ describe("Resource.getEntry$ reactivity", () => {
         const resource = createResource<number, string>({ queryFn });
 
         // A different key holds a live entry, so the resource status is "running".
-        resource.trigger(2);
+        resource.getEntry(2, true);
         await flushMicrotasks();
         queryFn.mockClear();
 
@@ -594,8 +582,8 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
     it("effect over a NON-last entry re-evaluates to null when that entry is completed", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
-        resource.trigger(1);
-        resource.trigger(2); // key 2 becomes _lastEntry$, so key 1 is the non-last entry
+        resource.getEntry(1, true);
+        resource.getEntry(2, true); // key 2 becomes _lastEntry$, so key 1 is the non-last entry
         await flushMicrotasks();
 
         const entry1$ = resource.getEntry$(1);
@@ -619,8 +607,8 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
     it("cold read of a NON-last entry returns null after that entry is completed", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const entry1$ = resource.getEntry$(1);
@@ -644,8 +632,8 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
                 retentionTime: 5000,
             });
 
-            resource.trigger(1);
-            resource.trigger(2);
+            resource.getEntry(1, true);
+            resource.getEntry(2, true);
             await flushMicrotasks();
 
             const entry1 = resource.getEntry(1)!;
@@ -679,8 +667,8 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
         const queryFn = vi.fn(async (n: number) => `d-${n}`);
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const entry1$ = resource.getEntry$(1, true);
@@ -710,7 +698,7 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
     it("an unrelated entry mutation does not spuriously notify a getEntry$ observer", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry1$ = resource.getEntry$(1);
@@ -724,7 +712,7 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
 
         // Creating an unrelated entry (key 2) must not emit a new value for key 1:
         // the observed entry object is unchanged, so distinctUntilChanged drops it.
-        resource.trigger(2);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         expect(results.length).toBe(countAfterInit);
@@ -735,8 +723,8 @@ describe("Resource.getEntry$ — non-last entry removal (N1 regression)", () => 
     it("reset() with multiple entries drives every getEntry$ observer to null", async () => {
         const resource = createResource<number, string>({ queryFn: async (n: number) => `d-${n}` });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const e1$ = resource.getEntry$(1);
@@ -823,12 +811,12 @@ describe("Resource.bind", () => {
         expect(bound.args).toBe(keyed);
     });
 
-    it("descriptor can be replayed via resource.trigger", async () => {
+    it("descriptor can be replayed via resource.getEntry", async () => {
         const queryFn = vi.fn(async (n: number) => `data-${n}`);
         const resource = createResource<number, string>({ queryFn });
 
         const bound = resource.bind(99);
-        bound.resource.trigger(bound.args);
+        bound.resource.getEntry(bound.args, true);
         await flushMicrotasks();
 
         expect(queryFn).toHaveBeenCalledWith(99, expect.anything());
@@ -854,9 +842,9 @@ describe("Resource.getEntries", () => {
             queryFn: async (n) => `data-${n}`,
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
-        resource.trigger(3);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
+        resource.getEntry(3, true);
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(3);
@@ -871,8 +859,8 @@ describe("Resource.reset", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         expect([...resource.getEntries()]).toHaveLength(2);
@@ -886,7 +874,7 @@ describe("Resource.reset", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.reset();
@@ -902,12 +890,12 @@ describe("Resource.reset", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.reset();
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1);
@@ -937,7 +925,7 @@ describe("Resource.createClutch", () => {
 // ==================== SWR (Stale-While-Revalidate) ====================
 
 describe("SWR scenarios", () => {
-    it("trigger with doForce=true serves stale data during background re-fetch", async () => {
+    it("invalidate serves stale data during background re-fetch", async () => {
         let callCount = 0;
         let resolveQuery!: (val: string) => void;
         const resource = createResource<number, string>({
@@ -950,12 +938,12 @@ describe("SWR scenarios", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().data).toBe("stale");
 
         // Force re-fetch
-        resource.trigger(1, true);
+        resource.invalidate(1);
 
         // Entry should be in invalidating state with stale data still accessible
         const entry = resource.getEntry(1)!;
@@ -985,7 +973,7 @@ describe("SWR scenarios", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -1005,7 +993,7 @@ describe("SWR scenarios", () => {
             queryFn: async () => `v${++callCount}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entryBefore = resource.getEntry(1);
@@ -1025,7 +1013,7 @@ describe("entry state interactions", () => {
             queryFn: () => new Promise(() => {}), // never resolves
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const entry = resource.getEntry(1)!;
         expect(entry.state$.peek().status).toBe("pending");
     });
@@ -1035,7 +1023,7 @@ describe("entry state interactions", () => {
             queryFn: async () => "ok",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
@@ -1048,7 +1036,7 @@ describe("entry state interactions", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1062,7 +1050,7 @@ describe("entry state interactions", () => {
             queryFn: async () => `v${++callCount}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -1106,7 +1094,7 @@ describe("entry state interactions", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1134,7 +1122,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         expect(addedArgs).toEqual([1]);
     });
 
@@ -1148,7 +1136,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(loadedData).toBe("loaded");
@@ -1172,7 +1160,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const entry = resource.getEntry(1)!;
 
         // Complete the entry before queryFn resolves (simulating removal)
@@ -1194,7 +1182,7 @@ describe("onCacheEntryAdded lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1213,7 +1201,7 @@ describe("onCacheEntryAdded lifecycle", () => {
         });
 
         // Should not throw
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         // Entry should still be created
@@ -1234,7 +1222,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(startedArgs).toEqual([1]);
@@ -1250,7 +1238,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -1269,7 +1257,7 @@ describe("onQueryStarted lifecycle", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(fulfilledData).toEqual({ data: "result" });
@@ -1284,7 +1272,7 @@ describe("onQueryStarted lifecycle", () => {
         });
 
         // Should not throw
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
@@ -1304,7 +1292,7 @@ describe("beforeQuery (cross-tab sync)", () => {
             beforeQuery,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(beforeQuery).toHaveBeenCalledWith("res", stableStringify(1));
@@ -1325,7 +1313,7 @@ describe("beforeQuery (cross-tab sync)", () => {
             beforeQuery,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(beforeQuery).toHaveBeenCalled();
@@ -1348,7 +1336,7 @@ describe("beforeQuery (cross-tab sync)", () => {
             beforeQuery,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         // beforeQuery rejects → catch calls _execute → queryFn resolves
         await flushMicrotasks();
         await flushMicrotasks();
@@ -1370,7 +1358,7 @@ describe("beforeQuery (cross-tab sync)", () => {
             beforeQuery,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(beforeQuery).not.toHaveBeenCalled();
@@ -1423,7 +1411,7 @@ describe("beforeQuery (cross-tab sync)", () => {
                 beforeQuery,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             resource.reset(); // completes the entry while beforeQuery is still pending
 
             resolveBeforeQuery(null);
@@ -1455,7 +1443,7 @@ describe("beforeQuery (cross-tab sync)", () => {
                 beforeQuery,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             resource.reset();
 
             resolveBeforeQuery({ data: "from-tab" });
@@ -1488,7 +1476,7 @@ describe("beforeQuery (cross-tab sync)", () => {
                 beforeQuery,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             resource.reset();
 
             rejectBeforeQuery(new Error("channel closed"));
@@ -1510,9 +1498,9 @@ describe("Concurrent triggers", () => {
             queryFn: () => new Promise(() => {}), // never resolves
         });
 
-        resource.trigger(1);
-        resource.trigger(1);
-        resource.trigger(1);
+        resource.getEntry(1, true);
+        resource.getEntry(1, true);
+        resource.getEntry(1, true);
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
@@ -1523,9 +1511,9 @@ describe("Concurrent triggers", () => {
             queryFn: () => new Promise(() => {}),
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
-        resource.trigger(3);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
+        resource.getEntry(3, true);
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(3);
@@ -1540,7 +1528,7 @@ describe("Cache entry completion", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1556,8 +1544,8 @@ describe("Cache entry completion", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const entry1 = resource.getEntry(1)!;
@@ -1581,7 +1569,7 @@ describe("Cache entry completion", () => {
             queryFn: async () => `v${++callCount}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry1 = resource.getEntry(1)!;
@@ -1590,7 +1578,7 @@ describe("Cache entry completion", () => {
         entry1.complete();
         await flushMicrotasks();
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry2 = resource.getEntry(1)!;
@@ -1610,7 +1598,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1625,7 +1613,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -1643,7 +1631,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
@@ -1667,7 +1655,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -1696,7 +1684,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -1740,7 +1728,7 @@ describe("Error flows", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
@@ -1766,7 +1754,7 @@ describe("Retention time / GC", () => {
                 retentionTime: 5000,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
@@ -1800,7 +1788,7 @@ describe("Retention time / GC", () => {
                 retentionTime: 5000,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
@@ -1833,7 +1821,7 @@ describe("Retention time / GC", () => {
                 retentionTime: false,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
@@ -1884,8 +1872,8 @@ describe("Retention time as a function", () => {
                 },
             });
 
-            resource.trigger(1);
-            resource.trigger(2);
+            resource.getEntry(1, true);
+            resource.getEntry(2, true);
             await flushMicrotasks();
 
             armRetention(resource.getEntry(1)!);
@@ -1919,8 +1907,8 @@ describe("Retention time as a function", () => {
                 },
             });
 
-            resource.trigger(1);
-            resource.trigger(2);
+            resource.getEntry(1, true);
+            resource.getEntry(2, true);
             await flushMicrotasks();
 
             armRetention(resource.getEntry(1)!);
@@ -1964,7 +1952,7 @@ describe("Retention time as a function", () => {
                 retentionTime: () => false,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             armRetention(resource.getEntry(1)!);
@@ -1993,7 +1981,7 @@ describe("Retention time as a function", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -2024,7 +2012,7 @@ describe("Retention time as a function", () => {
                 },
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             // The throw must not escape the teardown: it would surface as an
@@ -2055,7 +2043,7 @@ describe("Retention time as a function", () => {
                 retentionTime,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             // One real loss of subscribers: the policy runs once and arms 5 s.
@@ -2089,7 +2077,7 @@ describe("Retention time as a function", () => {
                 retentionTime,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             expect(resource.getState(1)).toMatchObject({ status: "success" });
@@ -2124,7 +2112,7 @@ describe("Lifecycle hooks error paths", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(rejection).toBeInstanceOf(Error);
@@ -2146,7 +2134,7 @@ describe("Lifecycle hooks error paths", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(loadedData).toBeUndefined();
 
@@ -2168,7 +2156,7 @@ describe("Lifecycle hooks error paths", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1);
@@ -2196,7 +2184,7 @@ describe("Lifecycle hooks error paths", () => {
                 },
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             // Entry should still be created and queryFn should resolve normally
@@ -2224,7 +2212,7 @@ describe("Lifecycle hooks error paths", () => {
                 },
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushUnhandledRejections();
 
             expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
@@ -2246,7 +2234,7 @@ describe("Lifecycle hooks error paths", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -2259,16 +2247,16 @@ describe("Lifecycle hooks error paths", () => {
 // ==================== Concurrent trigger abort/cancel ====================
 
 describe("Concurrent trigger abort/cancel", () => {
-    it("doForce on pending entry is a no-op (invalidate() is invalid from pending)", async () => {
+    it("invalidate on a pending entry is a no-op (invalidate() is invalid from pending)", async () => {
         const queryFn = vi.fn(() => new Promise<string>(() => {})); // never resolves
 
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         expect(queryFn).toHaveBeenCalledTimes(1);
 
-        // doForce calls existing.invalidate(), but invalidate() is invalid from pending
-        resource.trigger(1, true);
+        // invalidate() is invalid from pending
+        resource.invalidate(1);
         // queryFn should NOT be called again — invalidate() was a no-op
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
@@ -2284,7 +2272,7 @@ describe("Concurrent trigger abort/cancel", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -2308,7 +2296,7 @@ describe("Concurrent trigger abort/cancel", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
@@ -2334,7 +2322,7 @@ describe("Concurrent trigger abort/cancel", () => {
                 }),
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         // Query is in-flight
         expect(resource.getEntry(1)).not.toBeNull();
 
@@ -2362,7 +2350,7 @@ describe("Concurrent trigger abort/cancel", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -2391,7 +2379,7 @@ describe("Concurrent trigger abort/cancel", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
@@ -2416,7 +2404,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         const resource = createResource<number, Data>({
             queryFn: async () => ({ name: "Alice" }),
         });
-        resource.trigger(1);
+        resource.getEntry(1, true);
         return { resource, entry: () => resource.getEntry(1)! };
     }
 
@@ -2479,7 +2467,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
         const resource = createResource<number, Data>({
             queryFn: () => new Promise(() => {}), // never resolves — stays pending
         });
-        resource.trigger(1);
+        resource.getEntry(1, true);
 
         const entry = resource.getEntry(1)!;
         expect(entry.state$.peek().status).toBe("pending");
@@ -2496,7 +2484,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
                 throw new Error("fail");
             },
         });
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -2635,7 +2623,7 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
             },
         });
 
-        resource.trigger();
+        resource.getEntry(undefined, true);
         await flushMicrotasks();
         expect(fetchCount).toBe(1);
 
@@ -2674,7 +2662,7 @@ describe("Resource — retry() on non-error state is no-op", () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -2699,8 +2687,8 @@ describe("Resource — multi-key invalidation isolation", () => {
             },
         });
 
-        resource.trigger(1);
-        resource.trigger(2);
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
         await flushMicrotasks();
 
         const entry1 = resource.getEntry(1)!;
@@ -2729,7 +2717,7 @@ describe("CacheEntry — set after complete() is ignored", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -2766,7 +2754,7 @@ describe("Resource.ensure", () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const data = await resource.ensure(1);
@@ -2784,7 +2772,7 @@ describe("Resource.ensure", () => {
         );
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const p = resource.ensure(1);
         expect(queryFn).toHaveBeenCalledTimes(1);
 
@@ -2805,7 +2793,7 @@ describe("Resource.ensure", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -2838,7 +2826,7 @@ describe("Resource.ensure", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
@@ -2942,7 +2930,7 @@ describe("Resource.fetch", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("error");
 
@@ -3005,7 +2993,7 @@ describe("Resource.prefetch", () => {
         const queryFn = vi.fn(async () => "data");
         const resource = createResource<number, string>({ queryFn });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         await resource.prefetch(1);
@@ -3222,7 +3210,7 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(await resource.getEntry(1)!.whenLoaded()).toBe("data");
@@ -3233,7 +3221,7 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         const entry = resource.getEntry(1)!;
         const p = entry.whenLoaded();
         p.catch(() => {});
@@ -3255,7 +3243,7 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -3311,7 +3299,7 @@ describe("Resource.getState — entry-state matrix", () => {
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
 
         expect(resource.getState(1)).toEqual({
             status: "pending",
@@ -3334,7 +3322,7 @@ describe("Resource.getState — entry-state matrix", () => {
             queryFn: async () => "good-data",
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getState(1)).toEqual({
@@ -3363,7 +3351,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -3393,7 +3381,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const state = resource.getState(1);
@@ -3426,7 +3414,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -3466,7 +3454,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getState(1)).toMatchObject({ status: "error", dataSource: "none" });
 
@@ -3503,7 +3491,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -3544,7 +3532,7 @@ describe("Resource.getState — entry-state matrix", () => {
             placeholderData,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
 
         // Row 2, not row 3: the entry itself has nothing to show.
         expect(resource.getState(1)).toMatchObject({
@@ -3589,7 +3577,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getState(1)).toMatchObject({ status: "error", hasError: true });
 
@@ -3623,7 +3611,7 @@ describe("Resource.getState — entry-state matrix", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getState(1)).toMatchObject({ status: "error", hasError: true });
 
@@ -3650,13 +3638,13 @@ describe("Resource.getState — entry-state matrix", () => {
 // ==================== Synchronous throw from queryFn ====================
 //
 // A non-async queryFn can throw *synchronously*, before any promise exists.
-// That throw used to escape the QueryCacheEntry constructor — so trigger() /
+// That throw used to escape the QueryCacheEntry constructor — so getEntry() /
 // ensure() / fetch() threw synchronously and no entry was created — and, on
 // invalidate()/retry(), escaped _execute() after the entry had already moved to
 // invalidating/pending, stranding it there forever. The throw must instead flow
 // through the entry's state like any other query failure.
 describe("Resource — synchronous throw from queryFn", () => {
-    it("trigger() does not throw; the entry is created and settles in error state", async () => {
+    it("getEntry(args, true) does not throw; the entry is created and settles in error state", async () => {
         const error = new Error("sync boom");
         const resource = createResource<number, string>({
             queryFn: () => {
@@ -3664,7 +3652,7 @@ describe("Resource — synchronous throw from queryFn", () => {
             },
         });
 
-        expect(() => resource.trigger(1)).not.toThrow();
+        expect(() => resource.getEntry(1, true)).not.toThrow();
         await flushMicrotasks();
 
         const entry = resource.getEntry(1);
@@ -3717,7 +3705,7 @@ describe("Resource — synchronous throw from queryFn", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -3747,7 +3735,7 @@ describe("Resource — synchronous throw from queryFn", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
@@ -3792,7 +3780,7 @@ describe("Resource — synchronous throw from queryFn", () => {
                 },
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushUnhandledRejections();
 
             expect(tracker.unhandled).toEqual([]);
@@ -3817,7 +3805,7 @@ describe("Resource — synchronous throw from queryFn", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(seen).toEqual([error]);
@@ -3833,7 +3821,7 @@ describe("Resource — deprecated aliases", () => {
             queryFn: async () => `data-${++callCount}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const invalidate = vi.spyOn(resource, "invalidate");
@@ -3874,7 +3862,7 @@ describe("Resource — deprecated aliases", () => {
             queryFn: async () => `data-${++callCount}`,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;

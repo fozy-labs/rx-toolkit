@@ -81,7 +81,6 @@ placeholderData: (args) => {
 
 | Метод          | Параметры                                     | Возвращаемое значение     | Описание                                                                                                                             |
 |----------------|-----------------------------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `trigger`        | `args: TArgsOrKeyed<TArgs>, doForce = false`          | `void`                    | **Deprecated.** Используйте `prefetch`: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал. Будет удалён в одном из следующих релизов. |
 | `invalidate`   | `args: TArgsOrKeyed<TArgs>`                           | `void`                    | Помечает запись устаревшей и перезапрашивает её в фоне (SWR); упавшую — перезапрашивает, сняв ошибку.                                |
 | `getEntry`     | `args: TArgsOrVoid<TArgs>, doInitiate = false`       | `IQueryCacheEntry \| null` | Синхронно возвращает кэш-запись. При `doInitiate = true` создаёт отсутствующую, и тип сужается до `IQueryCacheEntry`.                  |
 | `getState`     | `args: TArgsOrVoid<TArgs>`                     | `TResourceEntryState<TArgs, TData, TError>` | Синхронно возвращает упрощённое состояние ресурса (`status`, `data`, `error`, флаги) без подписки на изменения. См. [getState](#getstate). |
@@ -121,7 +120,6 @@ placeholderData: (args) => {
 
 | Метод                      | Когда запускает запрос                                                                                  | Форсит свежие?                | Возврат                   | Abort-aware | Ошибка       |
 |----------------------------|--------------------------------------------------------------------------------------------------------|-------------------------------|---------------------------|-------------|--------------|
-| `trigger(args, doForce?)` *(deprecated)* | холодная → создаёт и запускает; запись есть и `doForce = true` → фоновая `invalidate`                   | только при `doForce = true`   | `void`                    | нет         | —            |
 | `ensure(args, opt?)`       | холодная → создаёт; `error` → ретрай                                                                    | нет (кэш/устаревшие отдаёт сразу) | `Promise<TData>`      | да          | реджект      |
 | `fetch(args, opt?)`        | холодная → создаёт; `success`/`invalidate-error` → `invalidate`; `error` → ретрай; in-flight → ждёт    | да                            | `Promise<TData>`          | да          | реджект      |
 | `prefetch(args, opt?)`     | холодная → создаёт; `error` → ретрай; с `force: true` — как `fetch`                                     | только при `force: true`      | `Promise<void>`           | нет         | проглатывает |

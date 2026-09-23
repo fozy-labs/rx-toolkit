@@ -49,13 +49,13 @@ describe("Resource.ensure with beforeQuery (cross-tab sync)", () => {
         expect(queryFn).toHaveBeenCalledTimes(1);
     });
 
-    it("awaits an entry created by trigger() while beforeQuery is still in flight", async () => {
+    it("awaits an entry created by getEntry(args, true) while beforeQuery is still in flight", async () => {
         const queryFn = vi.fn(async () => "from-query");
         const beforeQuery = vi.fn(async () => null);
 
         const resource = createResource<number, string>({ queryFn, beforeQuery });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         // Entry exists, its state is pending, beforeQuery has not settled yet.
         await expect(resource.ensure(1)).resolves.toBe("from-query");
     });

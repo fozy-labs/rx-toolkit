@@ -11,17 +11,6 @@ import type { TDataSlotCurrent, TDataSlotNone, TErrorSlot, TResourceClutchState 
 // ==================== Resource Interface ====================
 
 export interface IResource<TArgs, TData, TError = unknown> {
-    /**
-     * @deprecated Use {@link prefetch}: `trigger(args)` ≈ `prefetch(args)`,
-     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
-     * match on an `error`-state entry: `prefetch` retries it (the failure stays
-     * readable), while `trigger`'s force path invalidates it, which clears the
-     * failure. And unlike `trigger`, every `prefetch` call — cache hits
-     * included — holds a keepalive subscription until it settles and then
-     * restarts the entry's retention countdown. Will be removed in a future
-     * release.
-     */
-    trigger(args: TArgsOrKeyed<TArgs>, doForce?: boolean): void;
     /** Mark the entry for these arguments stale and re-query it in the background. */
     invalidate(args: TArgsOrKeyed<TArgs>): void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */

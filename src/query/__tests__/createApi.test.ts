@@ -89,7 +89,7 @@ describe("createApi — custom options propagation", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -116,7 +116,7 @@ describe("createApi — custom options propagation", () => {
             queryFn: async () => ({ id: 1 }),
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -439,7 +439,6 @@ describe("createApi.createResource", () => {
         const api = createApi();
         const resource = api.createResource({ queryFn: dummyQueryFn });
 
-        expect(resource.trigger).toBeTypeOf("function");
         expect(resource.invalidate).toBeTypeOf("function");
         expect(resource.getEntry).toBeTypeOf("function");
         expect(resource.getEntries).toBeTypeOf("function");
@@ -453,7 +452,7 @@ describe("createApi.createResource", () => {
             queryFn: async () => "hello",
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const entries = [...resource.getEntries()];
@@ -467,7 +466,7 @@ describe("createApi.createResource", () => {
             queryFn: async () => [1, 2, 3],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -491,7 +490,7 @@ describe("createApi.createCommand", () => {
         const command = api.createCommand({ queryFn: async () => "ok" });
 
         expect(command.execute).toBeTypeOf("function");
-        expect(command.trigger).toBeTypeOf("function");
+        expect(command.execute).toBeTypeOf("function");
         expect(command.getEntry).toBeTypeOf("function");
         expect(command.createClutch).toBeTypeOf("function");
     });
@@ -553,7 +552,7 @@ describe("createApi.getSnapshot", () => {
             queryFn: async () => "value",
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();
@@ -579,7 +578,7 @@ describe("createApi.resetAll", () => {
             queryFn: async () => [1, 2, 3],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect([...resource.getEntries()].length).toBe(1);
@@ -924,7 +923,7 @@ describe("createApi — lifecycle hooks integration", () => {
             queryFn: async () => "data",
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(apiOnQueryStarted).toHaveBeenCalled();
@@ -940,7 +939,7 @@ describe("createApi — lifecycle hooks integration", () => {
             onQueryStarted: localHook,
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(apiHook).toHaveBeenCalled();
@@ -963,7 +962,7 @@ describe("createApi — lifecycle hooks integration", () => {
             },
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(localLoaded).toBe("data");
@@ -987,7 +986,7 @@ describe("createApi — lifecycle hooks integration", () => {
             onQueryStarted: localHook,
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         // The local hook must run while the query is still in flight — that is
@@ -1012,7 +1011,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onQueryStarted: [hookA, hookB],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(hookA).toHaveBeenCalledTimes(1);
@@ -1029,7 +1028,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onCacheEntryAdded: [hookA, hookB],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(hookA).toHaveBeenCalledTimes(1);
@@ -1046,7 +1045,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onQueryStarted: [undefined, hook, isDev && vi.fn()],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(hook).toHaveBeenCalledTimes(1);
@@ -1077,7 +1076,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onQueryStarted: [throwing, after],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(throwing).toHaveBeenCalledTimes(1);
@@ -1098,7 +1097,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onCacheEntryAdded: [rejecting, after],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(rejecting).toHaveBeenCalledTimes(1);
@@ -1117,7 +1116,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onCacheEntryAdded: [longLived, after],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(after).toHaveBeenCalledTimes(1);
@@ -1140,7 +1139,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onCacheEntryAdded: [localA, false],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         // onQueryStarted: apiA, apiB, localA, localB; onCacheEntryAdded: apiA, localA.
@@ -1162,7 +1161,7 @@ describe("createApi — lifecycle hook arrays", () => {
             onQueryStarted: [localA, localB],
         });
 
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         expect(apiHook).toHaveBeenCalledTimes(1);
@@ -1237,7 +1236,7 @@ describe("createApi — key prefixing edge cases", () => {
         });
 
         // Should not crash
-        resource.trigger(undefined as void);
+        resource.getEntry(undefined as void, true);
         await flushMicrotasks();
         expect([...resource.getEntries()].length).toBe(1);
     });
@@ -1265,7 +1264,7 @@ describe("createApi — key prefixing edge cases", () => {
         // Both are tracked in resources array (both reset on resetAll)
         // The second one should be the one in resourcesByKey map
         // We can verify by triggering r2 and checking snapshot
-        r2.trigger(undefined as void);
+        r2.getEntry(undefined as void, true);
         await flushMicrotasks();
 
         const snapshot = api.getSnapshot();

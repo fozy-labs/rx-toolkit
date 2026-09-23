@@ -50,7 +50,7 @@ async function withPendingPatch(nextRuns: Items[]) {
         return index === 0 ? { items: [{ n: 1 }] } : nextRuns[index - 1]!;
     });
 
-    resource.trigger();
+    resource.getEntry(undefined, true);
     await flushMicrotasks();
 
     const entry = resource.getEntry(undefined, true);

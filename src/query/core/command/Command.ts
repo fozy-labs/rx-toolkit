@@ -97,14 +97,6 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    /**
-     * @deprecated Renamed to {@link execute} (identical contract). Will be
-     * removed in a future release.
-     */
-    trigger(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
-        return this.execute(argsOrKeyed, entryKey);
-    }
-
     private _execute(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
         const keyed = this._toKeyed(argsOrKeyed, entryKey);
         const args = keyed.value;

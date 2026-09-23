@@ -14,8 +14,6 @@ import {
     // proxy
     produce,
     Signal,
-    // operators
-    signalize,
     SourceSignal,
     // signals
     State,
@@ -58,13 +56,6 @@ describe("Signals module exports", () => {
         it("exports SyncObservable", () => {
             expect(SyncObservable).toBeDefined();
             expect(typeof SyncObservable).toBe("function"); // class
-        });
-    });
-
-    describe("operators", () => {
-        it("exports signalize", () => {
-            expect(signalize).toBeDefined();
-            expect(typeof signalize).toBe("function");
         });
     });
 

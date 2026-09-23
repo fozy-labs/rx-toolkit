@@ -24,7 +24,7 @@ export class Signal {
      * Wraps an RxJS Observable into a read-only signal with a shared upstream
      * subscription. While the subscription is hot, reads are free (served from
      * the replay cache); `options.keepAlive` controls how long the subscription
-     * survives after the last consumer. Replaces the deprecated `signalize`.
+     * survives after the last consumer.
      */
     static from<T>(source: Observable<T>, options?: SignalFromOptions<T>): DisposableSignal<T> {
         return FromSignal.create(source, options);

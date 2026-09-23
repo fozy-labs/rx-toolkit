@@ -2,7 +2,7 @@ import { finalize, NEVER, Observable, ReplaySubject, share, Subject, timer } fro
 
 import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 import type { ICacheEntry, ICacheEntryOptions } from "@/query/types";
-import { signalize, State } from "@/signals";
+import { SourceSignal, State } from "@/signals";
 
 // ==================== Retention normalization ====================
 
@@ -56,7 +56,7 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
             }),
         );
 
-        this.state$ = signalize(this.obs);
+        this.state$ = SourceSignal.create<TState>((destination) => this.obs.subscribe(destination));
     }
 
     /**

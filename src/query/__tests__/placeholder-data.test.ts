@@ -235,7 +235,7 @@ describe("placeholderData — cache hit", () => {
     it("is never called when the entry already holds data", async () => {
         const t = harness(SKELETON);
 
-        t.resource.trigger(1);
+        t.resource.getEntry(1, true);
         await t.ok("A1");
         t.placeholder.mockClear();
 
@@ -251,7 +251,7 @@ describe("placeholderData — cache hit", () => {
     it("is never called when the cached entry is stale and revalidating", async () => {
         const t = harness(SKELETON);
 
-        t.resource.trigger(1);
+        t.resource.getEntry(1, true);
         await t.ok("A1");
         t.resource.invalidate(1);
         t.placeholder.mockClear();
@@ -312,7 +312,7 @@ describe("placeholderData — memo reset", () => {
 
         // A second entry, created after the tracked one, keeps the cache
         // non-empty when the tracked entry is evicted below.
-        t.resource.trigger(2);
+        t.resource.getEntry(2, true);
         await t.ok("A1");
         await t.ok("A2");
         expect(state().dataSource).toBe("current");

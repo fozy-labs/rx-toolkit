@@ -46,7 +46,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const state = resource.getState(1);
@@ -65,7 +65,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getState(1).error).toBe(cause);
@@ -83,7 +83,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(produced).toBeInstanceOf(NetUnknownError);
@@ -102,7 +102,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getState(1).status).toBe("success");
 
@@ -128,7 +128,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect((resource.getState(1).error as NetError).status).toBe(1);
 
@@ -200,7 +200,7 @@ describe("mapError — context", () => {
             retentionTime: false,
         });
 
-        resource.trigger({ id: 7 });
+        resource.getEntry({ id: 7 }, true);
         await flushMicrotasks();
 
         expect(mapError).toHaveBeenCalledTimes(1);
@@ -221,7 +221,7 @@ describe("mapError — context", () => {
             },
         });
 
-        await command.trigger("payload", "k1").catch(() => {});
+        await command.execute("payload", "k1").catch(() => {});
         await flushMicrotasks();
 
         expect(mapError).toHaveBeenCalledTimes(1);
@@ -245,7 +245,7 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         // Abort the in-flight run before its rejection is processed.
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
@@ -268,7 +268,7 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const state = resource.getState(1);
@@ -289,7 +289,7 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getState(1).error).toBe(raw);
@@ -313,7 +313,7 @@ describe("mapError — robustness", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         await flushMicrotasks();
 
@@ -388,7 +388,7 @@ describe("mapError — command", () => {
             queryFn: async () => "seed",
             retentionTime: false,
         });
-        target.trigger(1);
+        target.getEntry(1, true);
         await flushMicrotasks();
 
         const command = api.createCommand<number, string>({

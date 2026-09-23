@@ -1007,7 +1007,7 @@ describe("CommandClutch + real Command (throwing optimisticUpdate)", () => {
             serializeArgs: stableStringify,
             queryFn: async (n) => ({ value: `original-${n}` }),
         });
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const link: TLinkConfig<number, number, number, { value: string }> = {

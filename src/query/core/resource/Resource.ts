@@ -89,24 +89,6 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     // ==================== Public API ====================
 
     /**
-     * Execute a query with the given arguments.
-     *
-     * @deprecated Use {@link prefetch}: `trigger(args)` ≈ `prefetch(args)`,
-     * `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Not an exact
-     * match on an `error`-state entry: `prefetch` retries it (the failure stays
-     * readable), while `trigger`'s force path invalidates it, which clears the
-     * failure. And unlike `trigger`, every `prefetch` call — cache hits
-     * included — holds a keepalive subscription until it settles and then
-     * restarts the entry's retention countdown. Will be removed in a future
-     * release.
-     * @param args - Query arguments.
-     * @param doForce - When `true`, forces an invalidation even if data is cached.
-     */
-    trigger(args: TArgsOrKeyed<TArgs>, doForce = false): void {
-        this._getOrCreate(args, doForce);
-    }
-
-    /**
      * Re-check what the entry shows and re-query it, clearing any failure it
      * holds: data is re-fetched behind itself (SWR), and a failed entry starts
      * over as a plain load. No-op when no entry exists for these arguments.
@@ -447,13 +429,12 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         );
     };
 
-    /** Get an existing cache entry (invalidating it when `doForce`) or create a new one. */
-    private _getOrCreate(args: TArgsOrKeyed<TArgs>, doForce = false): QueryCacheEntry<TArgs, TData> {
+    /** Get an existing cache entry or create a new one. */
+    private _getOrCreate(args: TArgsOrKeyed<TArgs>): QueryCacheEntry<TArgs, TData> {
         const keyed = this.toKeyed(args);
         const existing = this._cache.get(keyed.key);
 
         if (existing) {
-            if (doForce) existing.invalidate();
             return existing;
         }
 

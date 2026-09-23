@@ -160,8 +160,6 @@ const fresh = await usersResource.fetch({ page: 1 });
 
 `void` перед `prefetch` нужен только чтобы унять `@typescript-eslint/no-floating-promises`: сам промис не реджектится, обрабатывать нечего. Как разрешить вызов в конфиге линтера и писать без `void` — в [API ресурса][prefetch-lint].
 
-Прежний метод `trigger(args, doForce?)` объявлен **deprecated**: `trigger(args)` ≈ `prefetch(args)`, `trigger(args, true)` ≈ `prefetch(args, { force: true })`. Отличие: на записи в состоянии `error` `prefetch` в обоих режимах делает ретрай, а `trigger` её не трогал.
-
 ### invalidate
 
 ```typescript

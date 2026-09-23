@@ -119,7 +119,7 @@ const effect = Signal.effect(() => {
 
 ### Signal.from
 
-Оборачивает RxJS Observable в read-only сигнал с общей (shared) подпиской на источник. Пока подписка «горячая», чтения бесплатны — значение отдаётся из replay-кеша; опция `keepAlive` управляет тем, как долго подписка живёт после ухода последнего потребителя (подписчика `.obs` или pull-чтения). Заменяет устаревший [`signalize`](#signalize-устаревшее).
+Оборачивает RxJS Observable в read-only сигнал с общей (shared) подпиской на источник. Пока подписка «горячая», чтения бесплатны — значение отдаётся из replay-кеша; опция `keepAlive` управляет тем, как долго подписка живёт после ухода последнего потребителя (подписчика `.obs` или pull-чтения).
 
 ```typescript
 import { debounceTime, fromEvent, scan, startWith } from 'rxjs';
@@ -151,7 +151,7 @@ const debounced$ = Signal.from(query$.obs.pipe(debounceTime(300)), { default: ''
 
 **`keepAlive`:**
 
-- `'none'` — без удержания: каждое чтение подписывается и сразу отписывается (поведение старого `signalize`);
+- `'none'` — без удержания: каждое чтение подписывается и сразу отписывается (поведение удалённого в 0.13.0 `signalize`);
 - `'microtask'` — до конца текущей очереди микротасок: чтения в одном синхронном «бёрсте» разделяют одну подписку;
 - `'task'` — до следующей макротаски;
 - `'forever'` — от первого обращения до `dispose()`;
@@ -189,7 +189,7 @@ stateDiagram-v2
 
 | Тип | Возможности | Откуда |
 |---|---|---|
-| `ReadonlySignal<T>` | `()`, `get()`, `peek()`, `obs` | `signalize(...)`, `SourceSignal.create(...)` |
+| `ReadonlySignal<T>` | `()`, `get()`, `peek()`, `obs` | `SourceSignal.create(...)` |
 | `DisposableSignal<T>` | `ReadonlySignal<T>` + `dispose()` / `[Symbol.dispose]` | `Signal.compute(...)`, `Signal.from(...)` |
 | `StateSignal<T>` | `DisposableSignal<T>` + `set()`, `update()` | `Signal.state(...)` |
 
@@ -248,7 +248,7 @@ const logEffect = new Effect(() => console.log(doubled.get()));
 
 ### SourceSignal
 
-Базовый класс для сигналов только для чтения, оборачивающий произвольную логику подписки. Используется внутри `signalize` и для создания кастомных read-only сигналов. Возвращает `ReadonlySignal<T>`.
+Базовый класс для сигналов только для чтения, оборачивающий произвольную логику подписки. Используется для создания кастомных read-only сигналов. Возвращает `ReadonlySignal<T>`.
 
 ```typescript
 import { SourceSignal } from '@fozy-labs/rx-toolkit';
@@ -431,28 +431,6 @@ users.dispose();   // освобождение
 - Дремлющий `Computed`, читавший ключ через `get$`, остаётся корректным даже после сбора узла: при следующем чтении он видит актуальное значение коллекции.
 
 **Интеграция с React.** Оберните конкретный ключ в `Signal.compute(() => users.get$(id))` и передайте в `useSignal` — компонент перерисуется только при изменении этого ключа. Для списка оберните `values$()`: перерисовка только на добавление/удаление позиций. Живой пример — вкладка «Корзина» на странице «Сигналы» в демо.
-
-## Операторы
-
-### signalize (устаревшее)
-
-> **Deprecated.** Используйте [`Signal.from`](#signalfrom). `signalize` не удерживает подписку: каждое чтение подписывается на источник и тут же отписывается. Поэтому источник без синхронной (реплеящейся) эмиссии **навсегда** возвращает `defaultValue` (или бросает `"No value emitted"`), а stateful-пайплайны (`scan`, `startWith` и т.п.) перезапускаются «с нуля» на каждом чтении. Точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`.
-
-Преобразует RxJS Observable в read-only сигнал. Работает корректно только с источниками, которые синхронно эмитят значение при **каждой** подписке: `BehaviorSubject`, `ReplaySubject`, `shareReplay(1)`, `of(...)` и т.п.
-
-```typescript
-import { BehaviorSubject } from 'rxjs';
-import { signalize } from '@fozy-labs/rx-toolkit';
-
-const source$ = new BehaviorSubject(0);
-const value$ = signalize(source$);
-
-console.log(value$()); // 0 — BehaviorSubject реплеит текущее значение при подписке
-source$.next(1);
-console.log(value$()); // 1
-```
-
-**Значение по умолчанию (`defaultValue`):** возвращается, когда источник не эмитит синхронно. Для асинхронных источников (`Subject`, `interval`, HTTP-запрос) это означает, что чтение будет возвращать `defaultValue` **всегда**, а не «до первой эмиссии»: при этом `.obs` эмитит корректно, поэтому `Effect`/`Computed` будут просыпаться, но читать устаревший `defaultValue`. Для таких источников переходите на `Signal.from`.
 
 ## Батчинг обновлений (Batcher)
 

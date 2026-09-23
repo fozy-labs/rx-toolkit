@@ -199,29 +199,6 @@ describe("Command.execute", () => {
     });
 });
 
-// ==================== trigger (deprecated alias) ====================
-
-describe("Command.trigger (deprecated alias of execute)", () => {
-    it("resolves with the mutation result, identical to execute", async () => {
-        const queryFn = vi.fn(async (args: string) => `result-${args}`);
-        const command = createCommand<string, string>({ queryFn });
-
-        await expect(command.trigger("hello", "k1")).resolves.toBe("result-hello");
-        expect(command.getEntry("k1")).not.toBeNull();
-    });
-
-    it("rejects with the raw error, identical to execute", async () => {
-        const error = new Error("mutation failed");
-        const command = createCommand<string, string>({
-            queryFn: async () => {
-                throw error;
-            },
-        });
-
-        await expect(command.trigger("x", "k1")).rejects.toBe(error);
-    });
-});
-
 // ==================== getEntry ====================
 
 describe("Command.getEntry", () => {
@@ -632,7 +609,7 @@ describe("Link scenarios", () => {
             const { command, resource } = setupLinkedCommand({ invalidate: true });
 
             // Seed the resource cache
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
@@ -665,7 +642,7 @@ describe("Link scenarios", () => {
                 links: [link],
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const invalidateSpy = vi.spyOn(resource, "invalidate");
@@ -684,7 +661,7 @@ describe("Link scenarios", () => {
             });
 
             // Seed the resource
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const link: TLinkConfig<string, string, number, string> = {
@@ -717,7 +694,7 @@ describe("Link scenarios", () => {
             });
 
             // Seed the resource
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
@@ -754,8 +731,8 @@ describe("Link scenarios", () => {
                 queryFn: async (n) => ({ value: `original-${n}` }),
             });
 
-            resourceA.trigger(1);
-            resourceB.trigger(1);
+            resourceA.getEntry(1, true);
+            resourceB.getEntry(1, true);
             await flushMicrotasks();
 
             const entryA = resourceA.getEntry(1)!;
@@ -820,7 +797,7 @@ describe("Link scenarios", () => {
                 queryFn: async (n) => `original-${n}`,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const updateSpy = vi.fn((_draft: string, _cmdArgs: string, _result: string) => {});
@@ -851,7 +828,7 @@ describe("Link scenarios", () => {
                 queryFn: async (n) => `original-${n}`,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const updateSpy = vi.fn();
@@ -893,8 +870,8 @@ describe("Link scenarios", () => {
                         queryFn: async (n) => `inv-${n}`,
                     });
 
-                    patched.trigger(1);
-                    invalidated.trigger(1);
+                    patched.getEntry(1, true);
+                    invalidated.getEntry(1, true);
                     await flushMicrotasks();
 
                     const patchedEntry = patched.getEntry(1)!;
@@ -956,8 +933,8 @@ describe("Link scenarios", () => {
                         queryFn: async (n) => ({ value: `B-${n}` }),
                     });
 
-                    throwing.trigger(1);
-                    applied.trigger(1);
+                    throwing.getEntry(1, true);
+                    applied.getEntry(1, true);
                     await flushMicrotasks();
 
                     const appliedEntry = applied.getEntry(1)!;
@@ -1008,7 +985,7 @@ describe("Link scenarios", () => {
                 queryFn: async (n) => `resource-${n}`,
             });
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             const invalidateSpy = vi.spyOn(resource, "invalidate");
@@ -1421,7 +1398,7 @@ describe("Edge cases", () => {
         });
 
         // Seed the resource so optimistic patches have data to work on
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         const resourceEntry = resource.getEntry(1)!;
         expect(resourceEntry.state$.peek().data).toEqual({ value: "original-1" });
@@ -1659,7 +1636,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
             queryFn: async (n) => ({ value: `original-${n}` }),
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         const entry = resource.getEntry(1)!;
 
@@ -1709,7 +1686,7 @@ describe("Command — synchronous throw from queryFn / generateRequestId", () =>
 
 // ==================== Throwing optimisticUpdate goes through the entry state ====================
 //
-// A throwing optimisticUpdate used to be handled pre-flight: trigger() rejected,
+// A throwing optimisticUpdate used to be handled pre-flight: execute() rejected,
 // but no cache entry was created — state observers (clutch / useCommand) never
 // saw the failure, contradicting the "every failure enters the entry state"
 // principle. Patches are now applied inside the entry's queryFn run, so the
@@ -1737,7 +1714,7 @@ describe("Command — throwing optimisticUpdate goes through the entry state", (
         const queryFn = vi.fn(async () => "cmd-result");
         const { resource, command } = createThrowingOptimisticSetup(queryFn);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         await command.execute("1", "k1").catch(() => {});
@@ -1754,7 +1731,7 @@ describe("Command — throwing optimisticUpdate goes through the entry state", (
         const queryFn = vi.fn(async () => "cmd-result");
         const { resource, command } = createThrowingOptimisticSetup(queryFn);
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         const resourceEntry = resource.getEntry(1)!;
 
@@ -1781,7 +1758,7 @@ describe("Command — throwing optimisticUpdate goes through the entry state", (
         try {
             const { resource, command } = createThrowingOptimisticSetup(async () => "cmd-result");
 
-            resource.trigger(1);
+            resource.getEntry(1, true);
             await flushMicrotasks();
 
             await command.execute("1", "k1").catch(() => {});
@@ -1842,7 +1819,7 @@ describe("Command retry", () => {
             ],
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         await command.execute("1", "k1").catch(() => {});

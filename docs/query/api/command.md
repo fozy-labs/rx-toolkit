@@ -43,7 +43,6 @@ const addTodoCommand = api.createCommand({
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
 | `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
-| `trigger`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | **Deprecated.** Прежнее имя `execute` — контракт идентичен. Будет удалён в одном из следующих релизов. |
 | `createClutch` | `entryKey?: string` | `ICommandClutch<TArgs, TData, TError>` | Создаёт реактивное [сцепление][clutch] — наблюдатель за командой. Необязательный ключ записи привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |

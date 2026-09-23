@@ -173,8 +173,6 @@ const result = await wrapTrigger(addTodoCommand.execute({ text: 'Задача' }
 if (result.status === 'error') { /* ... */ }
 ```
 
-Прежнее имя `Command.trigger` объявлено **deprecated** (контракт идентичен `execute`) и будет удалено в одном из следующих релизов.
-
 ### getEntry
 
 Синхронно возвращает кэш-запись для указанного ключа, или `null` если записи нет.

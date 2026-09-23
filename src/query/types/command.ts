@@ -30,11 +30,6 @@ export interface ICommand<TArgs, TData, TError = unknown> {
      * the mapError-normalized error (`TError`). Never throws synchronously.
      */
     execute(args: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData>;
-    /**
-     * @deprecated Renamed to {@link execute} (identical contract). Will be
-     * removed in a future release.
-     */
-    trigger(args: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData>;
     getEntry(entryKey: string): IQueryCacheEntry<TArgs, TData> | null;
     getEntry$(entryKey: string): IQueryCacheEntry<TArgs, TData> | null;
     createClutch(entryKey?: string): ICommandClutch<TArgs, TData, TError>;

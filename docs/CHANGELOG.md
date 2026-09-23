@@ -46,6 +46,7 @@ Breaking-релиз модуля Query: словарь (Agent → Clutch, `refre
 Без алиасов остаются типы состояний сцепления: у них меняется форма, и алиас на другую форму был бы ложью. Типы состояния записи кэша алиасы получили — у них изменилось имя, а не форма; сама же обёртка `.state` над этой формой удалена без алиаса.
 
 ### Removed
+- 💥 **Breaking. Удалены API, объявленные deprecated в 0.11.1:** `Resource.trigger` (замена — `prefetch`; точный эквивалент — `getEntry(args, true)`, а для `trigger(args, true)` — `invalidate(args)` перед ним), `Command.trigger` (замена — `execute`, контракт идентичен), `signalize` (замена — `Signal.from`; точный эквивалент старого поведения — `Signal.from(obs, { keepAlive: 'none' })`). `clutch.trigger()` и `trigger` из `useCommand` не затронуты. См. [гайд по миграции](./migrations/0.13.0.md#удалены-deprecated-из-0111);
 - флаги `isLoading`, `isRefreshing`, `isRefreshError`, `isRetrying`, `isSuccess`, `isError` — из состояния сцепления ресурса и `resource.getState()`; `isLoading`, `isSuccess`, `isError` — из состояния команды; `isLoading`, `isFetchingNext`, `isError` — из `useInfiniteResource`. Таблицы замен — в [гайде по миграции](./migrations/0.13.0.md#флаги-что-чем-заменить);
 - статусы `refreshing` / `refresh-error` — из состояния сцепления и `getState()` (у записи кэша они переименованы в `invalidating` / `invalidate-error`);
 - поле `isRetrying` — из состояний записи `TQueryEntryPendingState` / `TQueryEntryInvalidatingState`: повтор в полёте — это `error !== null`;

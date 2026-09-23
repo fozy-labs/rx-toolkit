@@ -170,7 +170,7 @@ describe("useSuspenseResource", () => {
         });
 
         // Warm the cache before the component mounts.
-        resource.trigger({ id: 7 });
+        resource.getEntry({ id: 7 }, true);
         await flushMicrotasks();
         await flushMicrotasks();
 
