@@ -1,5 +1,3 @@
-import { z } from "zod/v4";
-
 import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 
 export type StorageLike = {
@@ -62,25 +60,54 @@ export const KEY_PREFIX = "__LSValue__";
 const META_KEY = KEY_PREFIX;
 const DATA_KEY_PREFIX = `${KEY_PREFIX}:`;
 
-const metaSchema = z.object({
-    v: z.number(),
-    nextGcAt: z.number(),
-});
+type Meta = {
+    v: number;
+    nextGcAt: number;
+};
 
 /**
  * Per-slot envelope:
  * - `at` — last-touched timestamp, the LRU input for the sweep (refreshed by
  *   throttled touch-on-read and by the periodic live-slot re-touch);
  * - `ttl` — `null` = slot is GC-exempt, number = per-slot `maxUnreadTime`,
- *   absent = `LOCAL_STATE_GC_DEFAULTS.maxUnreadTime` applies at sweep time.
+ *   absent = `LOCAL_STATE_GC_DEFAULTS.maxUnreadTime` applies at sweep time;
+ * - `data` — the stored value; absent when it is `undefined` (JSON drops it).
  */
-const envelopeSchema = z.object({
-    at: z.number(),
-    ttl: z.number().nullable().optional(),
-    data: z.unknown(),
-});
+type Envelope = {
+    at: number;
+    ttl?: number | null;
+    data: unknown;
+};
 
-type Envelope = z.infer<typeof envelopeSchema>;
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Validates parsed JSON; returns a fresh object so unknown fields are dropped. */
+function toMeta(json: unknown): Meta | null {
+    if (!isPlainRecord(json) || !isFiniteNumber(json.v) || !isFiniteNumber(json.nextGcAt)) return null;
+
+    return { v: json.v, nextGcAt: json.nextGcAt };
+}
+
+/** Validates parsed JSON; returns a fresh object so unknown fields are dropped. */
+function toEnvelope(json: unknown): Envelope | null {
+    if (!isPlainRecord(json) || !isFiniteNumber(json.at)) return null;
+
+    const { ttl } = json;
+
+    if (ttl !== undefined && ttl !== null && !isFiniteNumber(ttl)) return null;
+
+    const envelope: Envelope = { at: json.at, data: json.data };
+
+    if (ttl !== undefined) envelope.ttl = ttl;
+
+    return envelope;
+}
 
 export type SlotTtl = number | null | undefined;
 
@@ -280,8 +307,7 @@ export class LocalStateStorage {
             return null;
         }
 
-        const parsed = metaSchema.safeParse(json);
-        return parsed.success ? parsed.data : null;
+        return toMeta(json);
     }
 
     private _writeMeta(nextGcAt: number) {
@@ -535,8 +561,7 @@ export class LocalStateStorage {
             return null;
         }
 
-        const parsed = envelopeSchema.safeParse(json);
-        return parsed.success ? parsed.data : null;
+        return toEnvelope(json);
     }
 
     private _enumerateKeys(): string[] | null {

@@ -282,7 +282,7 @@ enum FILTER {
 const selectedFilter$ = LocalSignal.state({
     key: 'memberships-list-selected-filter',
     defaultValue: FILTER.ALL,
-    zodSchema: z.nativeEnum(FILTER), // Опционально: валидация через Zod
+    schema: z.enum(FILTER), // Опционально: любая Standard Schema (Zod, Valibot, ArkType…)
 });
 
 // Использование
@@ -297,7 +297,11 @@ function logout() {
 **Опции `LocalSignal.state(...)` (`LocalStateOptions`):**
 - `key` — ключ для localStorage
 - `defaultValue` — значение по умолчанию
-- `zodSchema` — опциональная Zod-схема для валидации
+- `schema` — опциональная схема [Standard Schema](https://standardschema.dev) для проверки
+  значения из хранилища при создании сигнала. Сигнал получает результат схемы (с её
+  преобразованиями); при ошибке слот удаляется и берётся `defaultValue`. Схема должна быть
+  синхронной: асинхронная даёт `console.error`, значение из хранилища игнорируется, слот
+  остаётся
 - `userId` — опциональный идентификатор пользователя для изоляции данных
 - `checkEffect` — функция валидации значения
 - `devtoolsOptions` — настройки для devtools

@@ -1,5 +1,4 @@
-import { ZodType } from "zod/v4";
-
+import { type StandardSchemaV1 } from "@/common/standard-schema";
 import { type SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
@@ -25,7 +24,13 @@ export type LocalStateGcOptions = {
 };
 
 export type LocalStateOptions<T> = {
-    zodSchema?: ZodType<T>;
+    /**
+     * Validates the stored value on load — any Standard Schema implementation
+     * (zod, valibot, arktype, ...). The schema output becomes the value;
+     * a failure drops the slot and falls back to `defaultValue`. Must be
+     * synchronous: an async schema is reported and the stored value ignored.
+     */
+    schema?: StandardSchemaV1<unknown, T>;
     key: string;
     userId?: string;
     checkEffect?: (value: T) => boolean;
@@ -51,6 +56,11 @@ function resolveDefaultDriver(): StorageLike | null {
     } catch {
         return null;
     }
+}
+
+/** Duck-typed on purpose: a thenable from another realm fails `instanceof Promise`. */
+function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
+    return typeof (value as { then?: unknown } | null)?.then === "function";
 }
 
 /**
@@ -144,12 +154,23 @@ export class LocalState<T = string | null | number | undefined> {
 
         if (!slot.found) return NONE;
 
-        if (!options.zodSchema) return slot.data as T;
+        if (!options.schema) return slot.data as T;
 
-        const parsed = options.zodSchema.safeParse(slot.data);
+        const result = options.schema["~standard"].validate(slot.data);
 
-        if (!parsed.success) {
-            console.warn(`[LocalSignal]: invalid value for key "${options.key}" in storage`, parsed.error);
+        if (isPromiseLike(result)) {
+            // The initial value is needed synchronously, so an async schema is
+            // a configuration error. The slot is kept: the data may be valid.
+            result.then(undefined, () => {});
+            console.error(
+                `[LocalSignal]: the schema for key "${options.key}" validates asynchronously; ` +
+                    "only synchronous schemas are supported, the stored value is ignored",
+            );
+            return NONE;
+        }
+
+        if (result.issues) {
+            console.warn(`[LocalSignal]: invalid value for key "${options.key}" in storage`, result.issues);
             // Self-heal: invalid data never becomes valid on its own — drop it
             // so it does not resurface. Gated on format ownership (healSlot):
             // data that only looks invalid to an older package must survive.
@@ -157,7 +178,7 @@ export class LocalState<T = string | null | number | undefined> {
             return NONE;
         }
 
-        return parsed.data;
+        return result.value;
     }
 
     // === static ===

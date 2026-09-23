@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { type StandardSchemaV1 } from "@/common/standard-schema";
+
 import { LocalSignal } from "./LocalSignal";
 import { LocalState } from "./LocalState";
 import { LOCAL_STATE_GC_DEFAULTS } from "./LocalStateStorage";
@@ -250,12 +252,24 @@ describe("LocalState", () => {
         });
     });
 
-    describe("zod schema validation", () => {
-        it("valid data accepted from storage", () => {
+    describe("schema validation (Standard Schema)", () => {
+        /** A hand-written Standard Schema — proves no dependency on a particular vendor. */
+        function numberSchema(): StandardSchemaV1<unknown, number> {
+            return {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: (value) =>
+                        typeof value === "number" ? { value } : { issues: [{ message: "Expected a number" }] },
+                },
+            };
+        }
+
+        it("valid data accepted from storage (zod schema)", () => {
             seedStorage("zod1", 42);
             const s = LocalSignal.state({
                 key: "zod1",
-                zodSchema: z.number(),
+                schema: z.number(),
                 defaultValue: 0,
             });
             const sub = activate(s);
@@ -263,13 +277,13 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("invalid data in storage → uses defaultValue and drops the slot", () => {
+        it("invalid data in storage → uses defaultValue and drops the slot (zod schema)", () => {
             seedStorage("zod2", "not-a-number");
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
             const s = LocalSignal.state({
                 key: "zod2",
-                zodSchema: z.number(),
+                schema: z.number(),
                 defaultValue: 0,
             });
             const sub = activate(s);
@@ -278,6 +292,62 @@ describe("LocalState", () => {
             expect(warnSpy).toHaveBeenCalled();
 
             warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("a vendor-agnostic schema validates stored data", () => {
+            seedStorage("std1", 42);
+            seedStorage("std2", "not-a-number");
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const valid = LocalSignal.state({ key: "std1", schema: numberSchema(), defaultValue: 0 });
+            const invalid = LocalSignal.state({ key: "std2", schema: numberSchema(), defaultValue: 0 });
+            const subs = [activate(valid), activate(invalid)];
+
+            expect(valid.peek()).toBe(42);
+            expect(invalid.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("std2"))).toBeNull();
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"std2"'), [{ message: "Expected a number" }]);
+
+            warnSpy.mockRestore();
+            subs.forEach((sub) => sub.unsubscribe());
+        });
+
+        it("serves the schema output, not the raw stored value", () => {
+            seedStorage("out", "  padded  ");
+
+            const s = LocalSignal.state({ key: "out", schema: z.string().trim(), defaultValue: "" });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe("padded");
+            sub.unsubscribe();
+        });
+
+        it("an async schema is rejected without touching the stored slot", () => {
+            const slot = envelope(42);
+            localStorage.setItem(storageKey("async"), slot);
+            const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+            // A thenable (not a native Promise) also covers cross-realm promises.
+            const then = vi.fn();
+            const asyncSchema: StandardSchemaV1<unknown, number> = {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: () => ({ then }) as unknown as Promise<{ value: number }>,
+                },
+            };
+
+            const s = LocalSignal.state({ key: "async", schema: asyncSchema, defaultValue: 0 });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("async"))).toBe(slot);
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("asynchronously"));
+            // A rejection handler is attached, so the discarded result is never an unhandled rejection.
+            expect(then).toHaveBeenCalledWith(undefined, expect.any(Function));
+
+            errorSpy.mockRestore();
             sub.unsubscribe();
         });
     });
@@ -307,6 +377,38 @@ describe("LocalState", () => {
             expect(localStorage.getItem(storageKey("bad-shape"))).toBeNull();
 
             warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it.each([
+            ["an array", JSON.stringify([1, 2])],
+            ["null", "null"],
+            ["a non-numeric `at`", JSON.stringify({ at: "now", data: 1 })],
+            ["a non-numeric `ttl`", JSON.stringify({ at: Date.now(), ttl: "1d", data: 1 })],
+        ])("an envelope that is %s → defaultValue, entry removed", (_, raw) => {
+            localStorage.setItem(storageKey("bad-env"), raw);
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad-env", defaultValue: 7 });
+            const sub = activate(s);
+            expect(s.peek()).toBe(7);
+            expect(localStorage.getItem(storageKey("bad-env"))).toBeNull();
+
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("an envelope without `data` (a stored undefined) is valid", () => {
+            const s1 = LocalSignal.state<number | undefined>({ key: "undef", defaultValue: 7 });
+            s1.set(undefined);
+
+            const raw = localStorage.getItem(storageKey("undef"))!;
+            expect(JSON.parse(raw)).not.toHaveProperty("data");
+
+            const s2 = LocalSignal.state<number | undefined>({ key: "undef", defaultValue: 7 });
+            const sub = activate(s2);
+            expect(s2.peek()).toBeUndefined();
+            expect(localStorage.getItem(storageKey("undef"))).toBe(raw);
             sub.unsubscribe();
         });
 
@@ -449,6 +551,25 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it.each([
+            ["a non-numeric version", JSON.stringify({ v: "1", nextGcAt: Date.now() + WEEK })],
+            ["no `nextGcAt`", JSON.stringify({ v: 1 })],
+            ["an array", JSON.stringify([1, Date.now() + WEEK])],
+        ])("meta with %s is treated as missing → wipe", (_, rawMeta) => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: rawMeta,
+                [storageKey("m")]: envelope(3),
+            });
+
+            const s = LocalSignal.state({ key: "m", defaultValue: -1, driver });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe(-1);
+            expect(driver.getItem(storageKey("m"))).toBeNull();
+            expect(readMeta(driver)?.v).toBe(1);
+            sub.unsubscribe();
+        });
+
         it("meta with an older version → wipe", () => {
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(0, Date.now() + WEEK),
@@ -509,7 +630,7 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("zod-schema failure does not delete a slot owned by a newer format", () => {
+        it("schema failure does not delete a slot owned by a newer format", () => {
             const slot = envelope({ migrated: true });
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(2, Date.now() + WEEK),
@@ -517,7 +638,7 @@ describe("LocalState", () => {
             });
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-            const s = LocalSignal.state({ key: "mig", zodSchema: z.number(), defaultValue: 0, driver });
+            const s = LocalSignal.state({ key: "mig", schema: z.number(), defaultValue: 0, driver });
             const sub = activate(s);
 
             expect(s.peek()).toBe(0);

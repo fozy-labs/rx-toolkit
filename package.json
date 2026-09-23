@@ -45,8 +45,7 @@
   },
   "peerDependencies": {
     "react": "^19.0.0",
-    "rxjs": "^7.0.0",
-    "zod": "^4.0.0"
+    "rxjs": "^7.0.0"
   },
   "description": "Набор инструментов для реактивного управления состоянием, построенный поверх RxJS.",
   "author": "Vladimir Panev <vova6255@gmail.com>",
