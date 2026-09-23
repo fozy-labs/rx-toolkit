@@ -480,6 +480,73 @@ describe("createApi.createResource", () => {
         const snapshot = api.getSnapshot();
         expect(Object.keys(snapshot.resources)).toHaveLength(0);
     });
+
+    describe("invalidateInFlight pass-through", () => {
+        function createControlled(invalidateInFlight?: "cancel" | "trail" | "join") {
+            const api = createApi();
+            const runs: { resolve: (v: string) => void; signal: AbortSignal }[] = [];
+            const resource = api.createResource<number, string>({
+                invalidateInFlight,
+                queryFn: (_args, signal) =>
+                    new Promise<string>((resolve) => {
+                        runs.push({ resolve, signal });
+                    }),
+            });
+            const entry = resource.getEntry(1, true);
+            entry.hold();
+            expect(runs).toHaveLength(1);
+            return { resource, entry, runs };
+        }
+
+        it("omitted: invalidate() on a run in flight cancels it (the default)", () => {
+            const { resource, entry, runs } = createControlled();
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(2);
+            expect(runs[0]!.signal.aborted).toBe(true);
+            expect(entry.isInvalidated).toBe(false);
+        });
+
+        it("'trail' reaches the entries: invalidate() on a run in flight marks and re-queries after the settle", async () => {
+            const { resource, entry, runs } = createControlled("trail");
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(1);
+            expect(runs[0]!.signal.aborted).toBe(false);
+            expect(entry.isInvalidated).toBe(true);
+
+            runs[0]!.resolve("first");
+            await flushMicrotasks();
+            expect(runs).toHaveLength(2);
+            expect(entry.isInvalidated).toBe(false);
+        });
+
+        it("'join' reaches the entries: invalidate() on a run in flight leaves it alone", async () => {
+            const { resource, entry, runs } = createControlled("join");
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(1);
+            expect(runs[0]!.signal.aborted).toBe(false);
+            expect(entry.isInvalidated).toBe(false);
+
+            runs[0]!.resolve("first");
+            await flushMicrotasks();
+            expect(runs).toHaveLength(1);
+        });
+
+        it("the call parameter still overrides the option", () => {
+            const { resource, entry, runs } = createControlled("trail");
+
+            resource.invalidate(1, { inFlight: "cancel" });
+
+            expect(runs).toHaveLength(2);
+            expect(runs[0]!.signal.aborted).toBe(true);
+            expect(entry.isInvalidated).toBe(false);
+        });
+    });
 });
 
 // ==================== createCommand Factory ====================
@@ -744,7 +811,7 @@ describe("createApi — snapshot hydration", () => {
         expect(resource).toBeDefined();
     });
 
-    it("stale snapshot entry hydrates as 'invalidating'", () => {
+    it("stale snapshot entry hydrates as 'success' marked for revalidation", () => {
         const staleTimestamp = Date.now() - 120_000; // 2 minutes ago
         const initialSnapshot: TApiSnapshot = {
             version: CURRENT_SNAPSHOT_VERSION,
@@ -769,15 +836,24 @@ describe("createApi — snapshot hydration", () => {
             snapshotValidTime: 60_000, // 1 minute — snapshot is 2 min old → stale
         });
 
+        const queryFn = vi.fn(async () => "fresh-data");
         const resource = api.createResource({
             key: "items",
-            queryFn: async () => "fresh-data",
+            queryFn,
         });
 
+        // Hydrated as settled data marked for revalidation: no query goes out
+        // at createApi time, the first hold re-queries.
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        expect(entries[0].state$.peek().status).toBe("invalidating");
+        expect(entries[0].state$.peek().status).toBe("success");
         expect(entries[0].state$.peek().data).toBe("old-data");
+        expect(entries[0].isInvalidated).toBe(true);
+        expect(queryFn).not.toHaveBeenCalled();
+
+        entries[0].hold();
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entries[0].state$.peek().status).toBe("invalidating");
     });
 
     it("fresh snapshot entry hydrates as 'success'", () => {

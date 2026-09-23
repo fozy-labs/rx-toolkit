@@ -1,10 +1,29 @@
-import { Observable } from "rxjs";
+import { Observable, type Subscriber } from "rxjs";
 
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IResource, TArgsOrVoid, TCacheEntryAddedContext, TProjectionResourceOptions } from "@/query/types";
-import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
+import type {
+    IResource,
+    TArgsOrVoid,
+    TCacheEntryAddedContext,
+    TInFlightPolicy,
+    TProjectionResourceOptions,
+} from "@/query/types";
+import { Batcher, Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
 
+import type { QueryCacheEntry } from "../cache/QueryCacheEntry";
 import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } from "../errors";
+
+// ==================== Types ====================
+
+/**
+ * How a run loads its ids: `null` for a cold load (the item cache first, then
+ * the requests in flight, then the network), an in-flight policy for a load
+ * that answers an invalidation (see {@link ProjectionRuntime._load}).
+ */
+type TLoadPolicy = TInFlightPolicy | null;
+
+/** A batch fetch in flight, resolving with the serialized ids its response covered. */
+type TBatch = Promise<ReadonlySet<string>>;
 
 // ==================== ProjectionRuntime ====================
 
@@ -13,14 +32,15 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  *
  * The projection resource itself is an ordinary {@link IResource} caching one entry
  * per id-set, so clutches, React hooks, SWR and plugin augmentation work
- * unchanged. This runtime plugs into that resource (as its `queryFn` +
- * `onCacheEntryAdded`) and deduplicates the traffic underneath.
+ * unchanged. This runtime plugs into that resource (as its `queryFn`,
+ * `onCacheEntryAdded` and in-place revalidation) and deduplicates the
+ * traffic underneath.
  *
  * The item cache is reactive (a keyed signal of per-id boxes) and the outer
- * queryFn returns a *stream*: once the initial fetches land, the run projects
- * the watched ids over the item cache and keeps emitting for as long as the
- * entry lives. Cross-set consistency falls out of that projection — when one
- * set's invalidation distributes fresh items, every overlapping live entry re-emits
+ * queryFn returns a *stream*: once its ids are loaded, the run projects them
+ * over the item cache and keeps emitting for as long as the entry lives.
+ * Cross-set consistency falls out of that projection — when one set's
+ * invalidation distributes fresh items, every overlapping live entry re-emits
  * with them (rebasing its active optimistic patches), with no write-back pass.
  *
  * - a shared per-id item cache is consulted first — only the ids that are
@@ -28,10 +48,15 @@ import { CacheEntryRemovedError, PreMappedError, ProjectionItemMissingError } fr
  *   (`makeArgs(missingIds)`);
  * - a run whose ids are all covered by cache/in-flight batches performs no
  *   request at all;
- * - an invalidation run bypasses the item cache and refetches every requested id,
- *   without joining requests begun before it — they may carry pre-invalidation
- *   data (detected via the entry's state, which `_execute` moves to
- *   `invalidating` before calling `queryFn`);
+ * - invalidating an id-set never restarts its run: the live run reloads its
+ *   ids through the wrapped resource under the in-flight policy — `cancel`
+ *   requests them all afresh now, `trail` once the requests in flight for them
+ *   have settled, `join` takes those requests as the answer and requests
+ *   only the rest — and re-emits once the reload lands (see
+ *   {@link revalidateInRun});
+ * - responses may land in any order, but an item is never overwritten by a
+ *   batch issued before the one that wrote it — a late answer to a request
+ *   an invalidation superseded cannot replace the fresh items;
  * - items are reference-counted by the entries whose args mention them and
  *   evicted once the last such entry is removed (retention GC / reset).
  */
@@ -54,10 +79,27 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     /** How many live outer entries reference each serialized id. */
     private readonly _refCounts = new Map<string, number>();
     /**
-     * Serialized id → the in-flight batch fetch covering it, resolving with
-     * the serialized ids the response actually covered.
+     * Serialized id → the most recently issued batch fetch covering it that
+     * is still in flight. An older batch still in flight for the id is no
+     * longer listed: whatever it brings, it cannot overwrite the newer one's
+     * item (see {@link _itemSeq}).
      */
-    private readonly _inFlight = new Map<string, Promise<ReadonlySet<string>>>();
+    private readonly _inFlight = new Map<string, TBatch>();
+    /** Issue order of batch fetches: every batch takes the next number when it goes out. */
+    private _batchSeq = 0;
+    /**
+     * Serialized id → issue number of the batch whose response the cached
+     * item came from. Responses may land out of order; a batch never
+     * overwrites an item written by a batch issued after it (see
+     * {@link _distribute}). Kept in step with {@link _items}.
+     */
+    private readonly _itemSeq = new Map<string, number>();
+    /**
+     * The open runs, by the abort signal their queryFn call received — the
+     * identity under which an outer entry hands a revalidation over (see
+     * {@link revalidateInRun}).
+     */
+    private readonly _runs = new Map<AbortSignal, ProjectionRun<TId, TItem>>();
 
     /** One warning per projection resource about set-local patch semantics. */
     private _didWarnSetLocalPatch = false;
@@ -78,26 +120,30 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     /**
      * The outer resource's queryFn — a stream per run:
      *
-     * 1. On subscribe, the ids missing from the item cache are fetched through
-     *    the wrapped resource; ids already in flight are awaited instead of
-     *    re-requested. An invalidation run bypasses both: it must observe the server
-     *    state as of the invalidation call, so it issues a fresh request for every
-     *    requested id — joining a request begun before the invalidation could
-     *    settle it with pre-invalidation data. The fresh request replaces the
-     *    in-flight registrations, so runs started later join it as usual.
-     * 2. Once the initial fetches land, the run emits the assembled `TItem[]`
-     *    and stays subscribed to the watched ids: whenever another run
-     *    distributes a fresh instance of one of them, the projection re-emits.
-     *    The stream never completes — it is torn down with the run
-     *    (invalidate/retry resubscribe, entry eviction unsubscribes).
-     * 3. A failed fetch errors the stream; so does a response that did not
-     *    cover every requested id ({@link ProjectionItemMissingError}).
+     * 1. On subscribe, the run loads its ids (see {@link _load}): a cold load
+     *    fetches only the ids missing from the item cache and awaits those
+     *    already in flight; a run started to answer an invalidation (a failed
+     *    entry invalidated, or retried after a failed revalidation) loads
+     *    under that invalidation's in-flight policy instead.
+     * 2. Once the load lands, the run emits the assembled `TItem[]` and stays
+     *    subscribed to the watched ids: whenever another run distributes a
+     *    fresh instance of one of them, the projection re-emits. The stream
+     *    never completes — it is torn down with the run (retry resubscribes,
+     *    entry eviction unsubscribes).
+     * 3. An invalidation of the entry reloads the ids in place
+     *    ({@link revalidateInRun}); emissions are held back until the reload
+     *    lands, then the run emits once — whether or not an item changed —
+     *    which settles the entry's revalidation.
+     * 4. A failed load errors the stream; so does a load whose responses did
+     *    not cover every requested id ({@link ProjectionItemMissingError}).
      *
-     * The abort signal is intentionally ignored: a batch fetch may be shared by
-     * several id-set entries, so one entry's teardown must not cancel it — the
-     * torn-down run simply unsubscribes and ignores the late result.
+     * The abort signal is not wired to the requests: a batch fetch may be
+     * shared by several id-set entries, so one entry's teardown must not
+     * cancel it — the torn-down run simply ignores the late result. Nor can
+     * that late result replace items a batch issued after it has written.
+     * The signal only identifies the run for {@link revalidateInRun}.
      */
-    queryFn = (args: TArgs, _abortSignal: AbortSignal): Observable<TItem[]> => {
+    queryFn = (args: TArgs, abortSignal: AbortSignal): Observable<TItem[]> => {
         return new Observable<TItem[]>((subscriber) => {
             let requestedSids: string[];
             let idBySid: Map<string, TId>;
@@ -116,109 +162,47 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 return;
             }
 
-            // `_execute` moves the entry to `invalidating` before subscribing,
-            // so an invalidation run is observable here: it must bypass the item
-            // cache and refetch every requested id instead of only the missing
-            // ones. On the very first run the entry is not registered yet —
-            // that run can only be an initial (pending) load, so `false` is
-            // always correct.
-            const entry = this._resource?.getEntry(args as unknown as TArgsOrVoid<TArgs>) ?? null;
-            // `peek()`, not `state$.peek()`: reading through the refcounted
-            // stream would count as a retention cycle for the id-set entry.
-            const isInvalidateRun = entry !== null && entry.peek().status === "invalidating";
+            // The entry knows whether this run answers an invalidation, and
+            // under which policy — the status alone does not: a cold load
+            // cancelled by `invalidate()` restarts from `pending`. On the very
+            // first run the entry is not registered yet — that run can only be
+            // a cold load, so `null` is always correct. The outer resource is
+            // built by `Api.createResource`, so its entries are `QueryCacheEntry`s.
+            const entry =
+                (this._resource?.getEntry(args as unknown as TArgsOrVoid<TArgs>) as QueryCacheEntry<
+                    TArgs,
+                    TItem[]
+                > | null) ?? null;
+            const policy = entry?._invalidationRunPolicy ?? null;
 
-            const waits = new Set<Promise<unknown>>();
-            const idsToFetch: TId[] = [];
-            const sidsToFetch: string[] = [];
-
-            for (const [sid, id] of idBySid) {
-                if (!isInvalidateRun) {
-                    const inFlight = this._inFlight.get(sid);
-                    if (inFlight) {
-                        // Join the in-flight batch covering this id instead of duplicating it.
-                        waits.add(inFlight);
-                        continue;
-                    }
-                    if (this._items.has(sid)) continue;
-                }
-                // An invalidation run neither reads the item cache nor joins requests
-                // begun before it (they may predate the invalidation and carry
-                // pre-invalidation data) — every requested id is refetched.
-                idsToFetch.push(id);
-                sidsToFetch.push(sid);
-            }
-
-            // The ids this run's own response covered — an invalidation run judges
-            // missing ids by it (its ids' stale boxes are still in the item
-            // cache, so cache membership would mask an id the server no longer
-            // returns).
-            let ownCoverage: ReadonlySet<string> | null = null;
-
-            if (idsToFetch.length > 0) {
-                waits.add(
-                    this._fetchBatch(idsToFetch, sidsToFetch).then((covered) => {
-                        ownCoverage = covered;
-                    }),
-                );
-            }
-
-            let projectionSub: { unsubscribe(): void } | null = null;
-            let isClosed = false;
-
-            // Live phase is gated behind the initial fetches: on an invalidation run
-            // the stale items are still cached, and emitting them right away
-            // would complete the invalidation with old data.
-            void Promise.all(waits).then(
-                () => {
-                    if (isClosed) return;
-
-                    // The response(s) may not have covered every requested id.
-                    // An invalidation run fetched all its ids itself and is judged by
-                    // its own response's coverage; a regular run by item-cache
-                    // membership (ids served from cache were never requested,
-                    // fetched/joined ids land in the cache when covered).
-                    const missingIds: TId[] = [];
-                    const missingSids: string[] = [];
-                    for (const [sid, id] of idBySid) {
-                        const isCovered = isInvalidateRun ? (ownCoverage?.has(sid) ?? false) : this._items.has(sid);
-                        if (!isCovered) {
-                            missingIds.push(id);
-                            missingSids.push(sid);
-                        }
-                    }
-                    if (missingSids.length > 0) {
-                        subscriber.error(new ProjectionItemMissingError(missingIds, missingSids));
-                        return;
-                    }
-
-                    // One item per requested position (duplicates included).
-                    // `null` (an id evicted mid-recompute) is transient and not
-                    // emitted; refcounting guarantees this run's own ids stay
-                    // cached for as long as its entry lives.
-                    const projection = Signal.compute(() => {
-                        const items: TItem[] = [];
-                        for (const sid of requestedSids) {
-                            const slot = this._items.get$(sid);
-                            if (slot === undefined) return null;
-                            items.push(slot.item);
-                        }
-                        return items;
-                    });
-
-                    projectionSub = projection.obs.subscribe((items) => {
-                        if (items !== null) subscriber.next(items);
-                    });
-                },
-                (error: unknown) => {
-                    if (!isClosed) subscriber.error(error);
-                },
-            );
+            const run = new ProjectionRun<TId, TItem>({
+                idBySid,
+                subscriber,
+                load: (loadPolicy) => this._load(idBySid, loadPolicy),
+                projection: this._project(requestedSids),
+            });
+            this._runs.set(abortSignal, run);
+            run.load(policy);
 
             return () => {
-                isClosed = true;
-                projectionSub?.unsubscribe();
+                run.close();
+                if (this._runs.get(abortSignal) === run) this._runs.delete(abortSignal);
             };
         });
+    };
+
+    /**
+     * The outer entries' in-place revalidation (see
+     * `TRevalidateInRun` in `QueryCacheEntry`): the open run identified by
+     * `signal` reloads its ids under `policy` and re-emits once they land. A
+     * reload supersedes a load of the run still in flight. `false` when no
+     * such run is open.
+     */
+    revalidateInRun = (signal: AbortSignal, policy: TInFlightPolicy): boolean => {
+        const run = this._runs.get(signal);
+        if (!run || run.isClosed) return false;
+        run.load(policy);
+        return true;
     };
 
     /**
@@ -269,6 +253,7 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                     if (next <= 0) {
                         this._refCounts.delete(sid);
                         this._items.delete(sid);
+                        this._itemSeq.delete(sid);
                     } else {
                         this._refCounts.set(sid, next);
                     }
@@ -291,16 +276,110 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
     }
 
     /**
+     * The assembled items of one run, one per requested position (duplicates
+     * included). `null` while an id is not cached — before its load lands, or
+     * transiently mid-eviction; refcounting keeps a live entry's own ids
+     * cached once written.
+     */
+    private _project(requestedSids: readonly string[]): ReadonlySignal<TItem[] | null> {
+        return Signal.compute(() => {
+            const items: TItem[] = [];
+            for (const sid of requestedSids) {
+                const slot = this._items.get$(sid);
+                if (slot === undefined) return null;
+                items.push(slot.item);
+            }
+            return items;
+        });
+    }
+
+    /**
+     * Load a run's ids into the item cache. Resolves with the serialized ids
+     * the load found covered — by the item cache (a cold load only) or by the
+     * responses it relied on — and rejects when a request it relied on fails.
+     *
+     * - `null` (cold load) — cached ids are served as they are, ids in flight
+     *   await that request, the rest go out in one batch.
+     * - `cancel` — one fresh batch for every id, issued now: neither the
+     *   item cache nor the requests begun before it are trusted.
+     * - `trail` — the requests in flight for these ids settle first (failures
+     *   included), then one fresh batch for every id goes out.
+     * - `join` — ids in flight await that request, which answers for them;
+     *   the rest (cached or not) go out in one batch.
+     *
+     * The requests in flight are those this runtime issued, as listed in
+     * {@link _inFlight} — the latest per id. The ones not awaited here are
+     * not cancelled: they may be shared with other id-set entries, and their
+     * answers cannot overwrite a later batch's items.
+     */
+    private async _load(idBySid: ReadonlyMap<string, TId>, policy: TLoadPolicy): Promise<ReadonlySet<string>> {
+        if (policy === "trail") {
+            const running = new Set<TBatch>();
+            for (const sid of idBySid.keys()) {
+                const batch = this._inFlight.get(sid);
+                if (batch) running.add(batch);
+            }
+            if (running.size > 0) await Promise.allSettled(running);
+        }
+
+        const covered = new Set<string>();
+        const waits = new Set<TBatch>();
+        const idsToFetch: TId[] = [];
+        const sidsToFetch: string[] = [];
+
+        for (const [sid, id] of idBySid) {
+            if (policy === null || policy === "join") {
+                const batch = this._inFlight.get(sid);
+                if (batch) {
+                    waits.add(batch);
+                    continue;
+                }
+            }
+            if (policy === null && this._items.has(sid)) {
+                covered.add(sid);
+                continue;
+            }
+            idsToFetch.push(id);
+            sidsToFetch.push(sid);
+        }
+
+        if (idsToFetch.length > 0) {
+            waits.add(this._fetchBatch(idsToFetch, sidsToFetch, policy === "cancel" || policy === "trail"));
+        }
+
+        for (const batchCovered of await Promise.all(waits)) {
+            for (const sid of batchCovered) covered.add(sid);
+        }
+        return covered;
+    }
+
+    /**
      * Fetch one batch of ids through the wrapped resource and register it as
      * in-flight for each id (replacing any previous registration — later runs
      * join this request). Resolves with the serialized ids the response
      * actually covered.
+     *
+     * @param isFresh - The batch must reach the server now. A run of the
+     *   wrapped resource already in flight for the same args — begun earlier,
+     *   it may predate the invalidation this batch answers — is cancelled
+     *   first, whatever the wrapped resource's `invalidateInFlight`; whoever
+     *   else awaits it receives the fresh result. A batch that is not fresh
+     *   (a cold load, the ids a `join` found nothing in flight for) accepts
+     *   such a run as its answer.
      */
-    private _fetchBatch(ids: TId[], sids: string[]): Promise<ReadonlySet<string>> {
-        const promise: Promise<ReadonlySet<string>> = (async () => {
+    private _fetchBatch(ids: TId[], sids: string[], isFresh: boolean): TBatch {
+        // Taken synchronously: the number orders batches by when they went out.
+        const seq = ++this._batchSeq;
+
+        const promise: TBatch = (async () => {
             let data: TResData;
             try {
-                data = await this._wrapped.fetch(this._makeArgs(ids));
+                const args = this._wrapped.toKeyed(this._makeArgs(ids));
+                // The invalidation makes a run go out now (or, on an entry
+                // nobody holds, on the hold `fetch` takes); `fetch` then
+                // awaits whichever run is in flight.
+                if (isFresh) this._wrapped.invalidate(args, { inFlight: "cancel" });
+                data = await this._wrapped.fetch(args, { inFlight: "join" });
             } catch (error) {
                 // The wrapped resource rejects with its entry error, which
                 // already passed the api's mapError at that entry's
@@ -311,7 +390,7 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 // outer entry maps it once, like any of its own failures.
                 throw error instanceof CacheEntryRemovedError ? error : new PreMappedError(error);
             }
-            return this._distribute(data);
+            return this._distribute(data, seq);
         })().finally(() => {
             for (const sid of sids) {
                 if (this._inFlight.get(sid) === promise) this._inFlight.delete(sid);
@@ -330,10 +409,15 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
      * one response produces a single emission per affected entry.
      *
      * Returns the serialized ids the response covered — independent of whether
-     * each item was actually (re)cached (unreferenced or identical instances
-     * are skipped but still covered).
+     * each item was actually (re)cached (unreferenced or identical instances,
+     * and items already written by a later-issued batch, are skipped but still
+     * covered).
+     *
+     * @param seq - Issue number of the batch the response answers: an item
+     *   written by a batch issued later is newer than this response, whatever
+     *   the order the two landed in, and is kept.
      */
-    private _distribute(data: TResData): ReadonlySet<string> {
+    private _distribute(data: TResData, seq: number): ReadonlySet<string> {
         const parsed = this._parseData(data);
         const covered = new Set<string>();
 
@@ -346,6 +430,10 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
                 // entries were reset/GC'd mid-flight.
                 if ((this._refCounts.get(sid) ?? 0) <= 0) continue;
 
+                const writtenBy = this._itemSeq.get(sid);
+                if (writtenBy !== undefined && writtenBy > seq) continue;
+                this._itemSeq.set(sid, seq);
+
                 // Keep the box stable for an identical instance — no wake-ups
                 // for consumers when nothing actually changed.
                 const previous = this._items.get(sid);
@@ -356,5 +444,113 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         });
 
         return covered;
+    }
+}
+
+// ==================== ProjectionRun ====================
+
+/**
+ * One open run of an id-set entry: the stream subscriber, the live projection
+ * of its ids and the load its emissions wait for.
+ *
+ * Loads are numbered; only the latest counts — a reload supersedes a load
+ * still in flight, whose outcome is then ignored. While a load is in flight
+ * the projection's emissions are held back: on a reload the entry is
+ * `invalidating`, and an emission would settle it before the reload landed.
+ * When the latest load lands, the run emits once — even if no item changed —
+ * and the live projection flows again.
+ */
+class ProjectionRun<TId, TItem> {
+    private readonly _idBySid: ReadonlyMap<string, TId>;
+    private readonly _subscriber: Subscriber<TItem[]>;
+    private readonly _loadIds: (policy: TLoadPolicy) => Promise<ReadonlySet<string>>;
+    private readonly _projection: ReadonlySignal<TItem[] | null>;
+
+    private _loadSeq = 0;
+    private _isLoading = false;
+    private _isClosed = false;
+    private _projectionSub: { unsubscribe(): void } | null = null;
+
+    constructor(options: {
+        idBySid: ReadonlyMap<string, TId>;
+        subscriber: Subscriber<TItem[]>;
+        load: (policy: TLoadPolicy) => Promise<ReadonlySet<string>>;
+        projection: ReadonlySignal<TItem[] | null>;
+    }) {
+        this._idBySid = options.idBySid;
+        this._subscriber = options.subscriber;
+        this._loadIds = options.load;
+        this._projection = options.projection;
+    }
+
+    /** Whether the run was torn down or failed: it takes no more loads. */
+    get isClosed(): boolean {
+        return this._isClosed;
+    }
+
+    /** Start a load under `policy`, superseding the one in flight, if any. */
+    load(policy: TLoadPolicy): void {
+        if (this._isClosed) return;
+        const seq = ++this._loadSeq;
+        this._isLoading = true;
+
+        const isCurrent = (): boolean => !this._isClosed && seq === this._loadSeq;
+
+        this._loadIds(policy).then(
+            (covered) => {
+                if (!isCurrent()) return;
+
+                // The responses may not have covered every requested id.
+                const missingIds: TId[] = [];
+                const missingSids: string[] = [];
+                for (const [sid, id] of this._idBySid) {
+                    if (!covered.has(sid)) {
+                        missingIds.push(id);
+                        missingSids.push(sid);
+                    }
+                }
+                if (missingSids.length > 0) {
+                    this._fail(new ProjectionItemMissingError(missingIds, missingSids));
+                    return;
+                }
+
+                this._isLoading = false;
+                this._emitLanded();
+            },
+            (error: unknown) => {
+                if (isCurrent()) this._fail(error);
+            },
+        );
+    }
+
+    /** Tear the run down: nothing is emitted after this. */
+    close(): void {
+        this._isClosed = true;
+        this._projectionSub?.unsubscribe();
+        this._projectionSub = null;
+    }
+
+    private _fail(error: unknown): void {
+        // Closed first: the error tears the stream down, and a revalidation
+        // handed over meanwhile must be turned down, not swallowed.
+        this.close();
+        this._subscriber.error(error);
+    }
+
+    /**
+     * The latest load landed: emit the current projection. The first time
+     * this opens the live subscription, whose replay is that emission; later
+     * it emits the current value explicitly, because a reload that changed
+     * no item wakes no projection, yet must still settle the entry.
+     */
+    private _emitLanded(): void {
+        if (!this._projectionSub) {
+            this._projectionSub = this._projection.obs.subscribe((items) => {
+                if (!this._isLoading && items !== null) this._subscriber.next(items);
+            });
+            return;
+        }
+        const items = this._projection.peek();
+        if (items !== null) this._subscriber.next(items);
     }
 }

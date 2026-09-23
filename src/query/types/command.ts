@@ -2,7 +2,7 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { TArgsOrKeyed, TRetentionTime } from "./common";
+import type { TArgsOrKeyed, TInvalidateOptions, TRetentionTime } from "./common";
 import type { IResource, TBoundResource } from "./resource";
 import type { TCommandClutchState, TErrorSlot } from "./state";
 
@@ -11,7 +11,13 @@ import type { TCommandClutchState, TErrorSlot } from "./state";
 export interface TLinkConfig<TArgs, TData, TResArgs, TResData> {
     resource: IResource<TResArgs, TResData>;
     forwardArgs: (commandArgs: TArgs) => TResArgs | undefined;
-    invalidate?: boolean;
+    /**
+     * Re-query the linked entry once the mutation succeeds. The object form
+     * also says what to do with a run in flight on that entry
+     * (`{ inFlight: "cancel" | "trail" | "join" }`); `true` is `{}` — the resource's
+     * `invalidateInFlight` default applies.
+     */
+    invalidate?: boolean | TInvalidateOptions;
     optimisticUpdate?: (draft: TResData, commandArgs: TArgs) => void;
     update?: (draft: TResData, commandArgs: TArgs, result: TData) => void;
 }

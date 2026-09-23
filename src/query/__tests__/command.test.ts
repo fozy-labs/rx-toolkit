@@ -606,22 +606,96 @@ describe("Link scenarios", () => {
 
     describe("Invalidation", () => {
         it("invalidates linked resource on successful mutation", async () => {
-            const { command, resource } = setupLinkedCommand({ invalidate: true });
+            let resourceCall = 0;
+            const resource = createLinkedResource<number, string>({
+                queryFn: async (n) => `resource-data-${n}-v${++resourceCall}`,
+            });
+            const command = createCommand<string, string>({
+                queryFn: async (args) => `cmd-result-${args}`,
+                links: [{ resource, forwardArgs: (cmdArgs: string) => parseInt(cmdArgs, 10), invalidate: true }],
+            });
 
             // Seed the resource cache
             resource.getEntry(1, true);
             await flushMicrotasks();
 
             const entry = resource.getEntry(1)!;
-            expect(entry.state$.peek().status).toBe("success");
+            entry.hold();
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "resource-data-1-v1" });
 
-            // Execute command — should trigger invalidate on the linked resource
-            const invalidateSpy = vi.spyOn(resource, "invalidate");
+            const settled = command.execute("1", "k1");
+            await settled;
+
+            // The held entry re-queried at once: the mutation's settle left it
+            // invalidating, and the re-query brings fresh data.
+            expect(resourceCall).toBe(2);
+            await flushMicrotasks();
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "resource-data-1-v2" });
+        });
+
+        it("marks a linked entry nobody holds; it re-queries on its next hold", async () => {
+            let resourceCall = 0;
+            const resource = createLinkedResource<number, string>({
+                queryFn: async (n) => `resource-data-${n}-v${++resourceCall}`,
+            });
+            const command = createCommand<string, string>({
+                queryFn: async (args) => `cmd-result-${args}`,
+                links: [{ resource, forwardArgs: (cmdArgs: string) => parseInt(cmdArgs, 10), invalidate: true }],
+            });
+
+            resource.getEntry(1, true);
+            await flushMicrotasks();
+            const entry = resource.getEntry(1)!;
 
             await command.execute("1", "k1");
             await flushMicrotasks();
 
-            expect(invalidateSpy).toHaveBeenCalledWith(1);
+            // Melting: only marked, data untouched, no request.
+            expect(resourceCall).toBe(1);
+            expect(entry.isInvalidated).toBe(true);
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "resource-data-1-v1" });
+
+            // The next hold — a component mounting — re-queries.
+            const subscription = entry.obs.subscribe();
+            expect(resourceCall).toBe(2);
+            expect(entry.state$.peek().status).toBe("invalidating");
+
+            await flushMicrotasks();
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "resource-data-1-v2" });
+            subscription.unsubscribe();
+        });
+
+        it("invalidates only the held linked entries at once; the others are marked", async () => {
+            const resourceCalls: number[] = [];
+            const resource = createLinkedResource<number, string>({
+                queryFn: async (n) => {
+                    resourceCalls.push(n);
+                    return `resource-data-${n}`;
+                },
+            });
+            const command = createCommand<string, string>({
+                queryFn: async (args) => `cmd-result-${args}`,
+                links: [
+                    { resource, forwardArgs: () => 1, invalidate: true },
+                    { resource, forwardArgs: () => 2, invalidate: true },
+                ],
+            });
+
+            resource.getEntry(1, true);
+            resource.getEntry(2, true);
+            await flushMicrotasks();
+            resourceCalls.length = 0;
+
+            const held = resource.getEntry(1)!;
+            const melting = resource.getEntry(2)!;
+            held.hold();
+
+            await command.execute("x", "k1");
+            await flushMicrotasks();
+
+            expect(resourceCalls).toEqual([1]);
+            expect(held.isInvalidated).toBe(false);
+            expect(melting.isInvalidated).toBe(true);
         });
 
         it("does not invalidate on failed mutation", async () => {
@@ -651,6 +725,137 @@ describe("Link scenarios", () => {
             await flushMicrotasks();
 
             expect(invalidateSpy).not.toHaveBeenCalled();
+        });
+
+        /**
+         * `invalidate` on a link, when the linked entry has a run in flight: the
+         * link config's `inFlight` wins, otherwise the resource's
+         * `invalidateInFlight` default (`cancel`) applies.
+         */
+        describe("with a run in flight on the linked entry", () => {
+            function createInFlight(
+                linkInvalidate: TLinkConfig<string, string, number, string>["invalidate"],
+                resourceOverrides: Partial<Omit<IResourceConfig<number, string>, "queryFn">> = {},
+            ) {
+                const runs: { resolve: (v: string) => void; signal: AbortSignal }[] = [];
+                const resource = createLinkedResource<number, string>({
+                    ...resourceOverrides,
+                    queryFn: (_n, signal) =>
+                        new Promise<string>((resolve) => {
+                            runs.push({ resolve, signal });
+                        }),
+                });
+                const command = createCommand<string, string>({
+                    queryFn: async (args) => `cmd-result-${args}`,
+                    links: [
+                        {
+                            resource,
+                            forwardArgs: (cmdArgs: string) => parseInt(cmdArgs, 10),
+                            invalidate: linkInvalidate,
+                        },
+                    ],
+                });
+
+                // Held, as a mounted consumer would; the first run stays in flight.
+                const entry = resource.getEntry(1, true);
+                entry.hold();
+                expect(runs).toHaveLength(1);
+
+                return { command, resource, entry, runs };
+            }
+
+            it("invalidate: true — the resource default (cancel) aborts the run and starts another", async () => {
+                const { command, entry, runs } = createInFlight(true);
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(2);
+                expect(runs[0]!.signal.aborted).toBe(true);
+                expect(entry.isInvalidated).toBe(false);
+                expect(entry.state$.peek().status).toBe("pending");
+            });
+
+            it("invalidate: { inFlight: 'trail' } — the run settles, then the entry re-queries", async () => {
+                const { command, entry, runs } = createInFlight({ inFlight: "trail" });
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(1);
+                expect(runs[0]!.signal.aborted).toBe(false);
+                expect(entry.isInvalidated).toBe(true);
+
+                runs[0]!.resolve("before-mutation");
+                await flushMicrotasks();
+
+                // The pre-mutation data landed and is being re-checked right away.
+                expect(runs).toHaveLength(2);
+                expect(entry.isInvalidated).toBe(false);
+                expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "before-mutation" });
+
+                runs[1]!.resolve("after-mutation");
+                await flushMicrotasks();
+                expect(entry.state$.peek()).toMatchObject({ status: "success", data: "after-mutation" });
+            });
+
+            it("invalidate: { inFlight: 'cancel' } overrides a resource whose default is trail", async () => {
+                const { command, entry, runs } = createInFlight(
+                    { inFlight: "cancel" },
+                    { invalidateInFlight: "trail" },
+                );
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(2);
+                expect(runs[0]!.signal.aborted).toBe(true);
+                expect(entry.isInvalidated).toBe(false);
+            });
+
+            it("invalidate: {} is the same as true — the resource default applies", async () => {
+                const { command, entry, runs } = createInFlight({}, { invalidateInFlight: "trail" });
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(1);
+                expect(runs[0]!.signal.aborted).toBe(false);
+                expect(entry.isInvalidated).toBe(true);
+            });
+
+            it("invalidate: { inFlight: 'join' } — the run in flight is accepted as the answer", async () => {
+                const { command, entry, runs } = createInFlight({ inFlight: "join" });
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(1);
+                expect(runs[0]!.signal.aborted).toBe(false);
+                expect(entry.isInvalidated).toBe(false);
+
+                runs[0]!.resolve("before-mutation");
+                await flushMicrotasks();
+
+                // Nothing re-queries: the run started before the mutation stands.
+                expect(runs).toHaveLength(1);
+                expect(entry.state$.peek()).toMatchObject({ status: "success", data: "before-mutation" });
+            });
+
+            it("invalidate: true on a resource whose default is join — the run is left alone", async () => {
+                const { command, entry, runs } = createInFlight(true, { invalidateInFlight: "join" });
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(1);
+                expect(runs[0]!.signal.aborted).toBe(false);
+                expect(entry.isInvalidated).toBe(false);
+            });
+
+            it("invalidate: false — nothing happens to the run", async () => {
+                const { command, entry, runs } = createInFlight(false);
+
+                await command.execute("1", "k1");
+
+                expect(runs).toHaveLength(1);
+                expect(runs[0]!.signal.aborted).toBe(false);
+                expect(entry.isInvalidated).toBe(false);
+            });
         });
     });
 
@@ -1839,6 +2044,39 @@ describe("Command retry", () => {
 describe("execute() without observers — retentionTime: 0 regression", () => {
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it("holds the entry until the mutation settles, then releases it", async () => {
+        let resolveQuery!: (val: string) => void;
+        const command = createCommand<string, string>({
+            queryFn: () =>
+                new Promise<string>((r) => {
+                    resolveQuery = r;
+                }),
+        });
+
+        const promise = command.execute("x", "k1");
+        const entry = command.getEntry("k1")!;
+        expect(entry.isMelting).toBe(false);
+
+        resolveQuery("result");
+        await promise;
+        await flushMicrotasks();
+
+        expect(entry.isMelting).toBe(true);
+    });
+
+    it("releases the hold on a failed mutation too", async () => {
+        const command = createCommand<string, string>({
+            queryFn: async () => {
+                throw new Error("boom");
+            },
+        });
+
+        await expect(command.execute("x", "k1")).rejects.toThrow("boom");
+        await flushMicrotasks();
+
+        expect(command.getEntry("k1")!.isMelting).toBe(true);
     });
 
     it("resolves correctly when GC timer fires before queryFn settles", async () => {

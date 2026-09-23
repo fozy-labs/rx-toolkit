@@ -1,6 +1,6 @@
 // ==================== Hook State Types (for React consumers) ====================
 
-import type { TArgsOrKeyed } from "./common";
+import type { TArgsOrKeyed, TInvalidateOptions } from "./common";
 
 // Clutch states are discriminated unions: `status`, `dataSource` and every
 // boolean flag are literals per variant, so narrowing works through any of
@@ -90,9 +90,11 @@ interface TResourceClutchStateMethods {
     retry: () => void;
     /**
      * Re-query the current args and clear the failure: rows 5 → 6, 8 → 4,
-     * 9 → 6, 13 → 3. A `console.warn` and no-op elsewhere.
+     * 9 → 6, 13 → 3. On a run in flight (rows 2–4, 6, 10–12) `opts.inFlight`
+     * — else the resource's `invalidateInFlight` — decides whether it is
+     * cancelled, trailed or joined. A `console.warn` and no-op on row 7.
      */
-    invalidate: () => void;
+    invalidate: (opts?: TInvalidateOptions) => void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh: () => void;
 }
@@ -247,8 +249,13 @@ export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
      * failed re-query that kept its data — in which case it is retried.
      */
     fetchNext: (args: TArgsOrKeyed<TArgs>) => void;
-    /** Re-validate the whole feed: invalidate pages with data, retry failed ones. */
-    invalidate: () => void;
+    /**
+     * Re-validate the whole feed: every page is invalidated — a page with a
+     * query in flight included, under `opts.inFlight` (else the resource's
+     * `invalidateInFlight`) — except a failed page with nothing on screen,
+     * which is retried.
+     */
+    invalidate: (opts?: TInvalidateOptions) => void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh: () => void;
     /** Drop every page after the first one. */

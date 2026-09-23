@@ -53,7 +53,10 @@ async function withPendingPatch(nextRuns: Items[]) {
     resource.getEntry(undefined, true);
     await flushMicrotasks();
 
+    // Held, as an entry with a mounted consumer is: `invalidate()` re-runs at
+    // once instead of only marking the entry.
     const entry = resource.getEntry(undefined, true);
+    entry.hold();
     entry.createPatch((draft) => {
         draft.items[0]!.n = 99;
     });

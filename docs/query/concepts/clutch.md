@@ -52,11 +52,11 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 У сцепления четыре статуса — они описывают только запрос:
 
 - **idle** — передан `SKIP` или args ещё не заданы, наблюдение не активно.
-- **pending** — запрос в полёте.
+- **pending** — запрос в полёте. Точнее — запрос в полёте либо причитающийся: у записи без удержаний `invalidate()` в режиме `cancel` прерывает запрос и только помечает запись, а новый уходит при следующем удержании. Работающее сцепление запись удерживает, поэтому у него это состояние сразу сменяется запросом в полёте; см. [инварианты][api-res-clutch-invariants].
 - **success** — данные текущих args получены.
 - **error** — последний запрос текущих args завершился ошибкой.
 
-У [записи кэша][entry-state] состояний пять: её `invalidating` и `invalidate-error` — «запрос в полёте поверх данных» и «упавший перезапрос». Отдельными статусами сцепление их не транслирует, а раскладывает по двум осям: `pending` / `error` плюс `dataSource: "current"`. Ошибка живёт в `error` до следующего settle, поэтому повтор в полёте — это `isPending && hasError`, без отдельного флага.
+У [записи кэша][entry-state] состояний пять: её `invalidating` и `invalidate-error` — «запрос в полёте (или причитающийся) поверх данных» и «упавший перезапрос». Отдельными статусами сцепление их не транслирует, а раскладывает по двум осям: `pending` / `error` плюс `dataSource: "current"`. Ошибка живёт в `error` до следующего settle, поэтому повтор в полёте — это `isPending && hasError`, без отдельного флага.
 
 | Состояние записи | Слоты сцепления | status | dataSource | Строки |
 |---|---|---|---|---|
@@ -97,3 +97,4 @@ React-хуки (`useResource`, `useSuspenseResource`, `useInfiniteResource`) н�
 [api-res-clutch-rows]: ../api/resource-clutch.md#варианты-состояния
 [api-cmd-clutch]: ../api/command-clutch.md#варианты-состояния
 [placeholder]: ../api/resource.md#placeholderdata
+[api-res-clutch-invariants]: ../api/resource-clutch.md#инварианты

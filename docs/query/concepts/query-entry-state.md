@@ -26,7 +26,7 @@ if (state?.status === 'invalidate-error') {
 
 ¹ Загрузка, запущенная через `retry()`, сохраняет в `error` ошибку, которую повторяет; загрузка после `invalidate()` эту ошибку снимает. Отдельного флага у повтора нет: в `pending` и `invalidating` повтор — это `error !== null`.
 
-`invalidate-error` — провал перезапроса после инвалидации; сама инвалидация не проваливается: `invalidate()` переводит запись в `invalidating` всегда, ошибку приносит запущенный ею запрос.
+`invalidate-error` — провал перезапроса после инвалидации; сама инвалидация не проваливается, ошибку приносит запущенный ею запрос. Из `success` / `invalidate-error` `invalidate()` ведёт в `invalidating`, из `error` — в `pending`; из `pending` / `invalidating` статус не меняется — по [правилу для запроса в полёте][cache-inflight] перезапускается или дорабатывает сам запрос.
 
 Записи команд не инвалидируются: `invalidate()` на такой записи выводит `console.warn` и ничего не делает, поэтому `invalidating` и `invalidate-error` для команды недостижимы.
 
@@ -39,7 +39,6 @@ stateDiagram-v2
 
     [*] --> pending : создание записи
     [*] --> success : гидрация из снимка
-    [*] --> invalidating : гидрация устаревшего снимка
 
     state "invalidate-error" as invalidate_error
 
@@ -63,9 +62,11 @@ stateDiagram-v2
     invalidate_error --> invalidate_error : createPatch() / finishPatch() / finishAllPatches()
 ```
 
-Подписи на рёбрах — имена **внутренних** переходов: `success`, `fail`, `rebase`, `next`, `finishPatch` и `finishAllPatches` запись выполняет сама, когда запрос завершается, падает или приносит очередную эмиссию стрима. Снаружи доступны три входа — [`entry.invalidate()`, `entry.retry()` и `entry.createPatch()`][api-entry]; вызов любого из них из статуса, откуда диаграмма ребра не рисует, — `console.warn` и no-op.
+Устаревший снимок гидрируется тем же ребром в `success`, но с меткой `entry.isInvalidated`: машина о метке не знает, перезапрос уходит на первом удержании записи — см. [инвалидацию тающей записи][cache-invalidation].
 
-Петля `invalidating → invalidating` — [нарушение консистентности патчей][patching]: переигрывание не удалось, серверные данные отброшены, и запись сразу запускает следующий запрос, не публикуя `success` за отброшенный ран.
+Подписи на рёбрах — имена **внутренних** переходов: `success`, `fail`, `rebase`, `next`, `finishPatch` и `finishAllPatches` запись выполняет сама, когда запрос завершается, падает или приносит очередную эмиссию стрима. Снаружи доступны три входа — [`entry.invalidate()`, `entry.retry()` и `entry.createPatch()`][api-entry]. `retry()` и `createPatch()` из статуса, откуда диаграмма ребра не рисует, — `console.warn` и no-op. `invalidate()` допустим из любого статуса: из `pending` / `invalidating` ребра нет, потому что статус не меняется — запрос в полёте прерывается или дорабатывает по [правилу в полёте][cache-inflight].
+
+Петля `invalidating → invalidating` — [нарушение консистентности патчей][patching]: переигрывание не удалось, серверные данные отброшены, и запись инвалидирует себя, не публикуя `success` за отброшенный ран: удерживаемая запускает следующий запрос сразу, тающая — при следующем удержании; открытый стрим — по режиму [`inFlight`][cache-inflight] ресурса.
 
 `retry()` и `invalidate()` из одной и той же ошибки ведут в одно и то же состояние, но по-разному: `invalidate()` — перепроверка с очисткой `error`, `retry()` — повтор после неудачи с сохранённой ошибкой. Патч-операции ошибку не сбрасывают; она очищается, когда загрузка завершается (`rebase` / `success` / `fail`).
 
@@ -149,6 +150,8 @@ type TQueryEntryState<TArgs, TData> =
 ---
 
 [cache]: cache.md
+[cache-invalidation]: cache.md#инвалидация-тающей-записи
+[cache-inflight]: cache.md#инвалидация-в-полёте
 [clutch]: clutch.md
 [stream-query]: ../usage/stream-query.md
 [usage-res]: ../usage/resource.md

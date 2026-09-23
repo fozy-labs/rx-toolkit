@@ -110,6 +110,47 @@ export interface IPatchHandle {
  */
 export type TClutchStatus = "idle" | "pending" | "success" | "error";
 
+// ==================== In-Flight Policy ====================
+
+/**
+ * What a call does to a query run that is in flight — a promise not yet
+ * settled, or a stream whose subscription is open (`success` with a live
+ * stream included). Taken by `invalidate()` (described below) and by `fetch` /
+ * `prefetch({ force: true })`, which resolve with the run the policy leaves
+ * as the answer (see `TResourceFetchOptions.inFlight`).
+ *
+ * For `invalidate()`:
+ *
+ * - `"cancel"` — the run is aborted and, when the entry is held, a new one
+ *   starts at once; an entry nobody holds is marked and re-queries on its next
+ *   hold. The data that finally lands is guaranteed to be from after the
+ *   invalidation.
+ * - `"trail"` — the run is left to settle; the entry is marked and re-queries
+ *   when the run settles (held) or on its next hold (melting). A stream that
+ *   never completes is trusted and never re-queried on this path.
+ * - `"join"` — a no-op for the run in flight: it is not aborted, the entry is
+ *   not marked and nothing re-queries after it settles — its result is taken
+ *   as the answer to this invalidation. Beware: that run may have started
+ *   before whatever made the data stale (e.g. a mutation), so pre-mutation
+ *   data is accepted as fresh. Pick it only when a run in flight is known to
+ *   be recent enough. An open stream is trusted as it is.
+ *
+ * Without a run in flight all values behave the same: the entry is marked
+ * and re-queries lazily. A consistency violation (a patch that could not be
+ * replayed) invalidates under the resource's value too, `join` included. Set per
+ * resource with `invalidateInFlight` (defaults to `"cancel"`), overridden per
+ * call. On a projection resource the id-set entry's own run is never
+ * restarted: the policy applies to the wrapped resource's requests for the
+ * set's ids (see `TProjectionResourceOptions.invalidateInFlight`).
+ */
+export type TInFlightPolicy = "cancel" | "trail" | "join";
+
+/** Options of `invalidate()` on a resource, a clutch and a cache entry. */
+export interface TInvalidateOptions {
+    /** Overrides the resource's `invalidateInFlight` for this call. */
+    inFlight?: TInFlightPolicy;
+}
+
 // ==================== Retention Time ====================
 
 /**

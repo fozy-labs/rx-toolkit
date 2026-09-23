@@ -78,8 +78,10 @@ export class Syncer {
 
             if (!entry) return;
 
+            // Only settled data the entry still vouches for: an entry marked for
+            // revalidation must not seed another tab's cold entry as fresh.
             const state = entry.peek();
-            if (state.status === "success") {
+            if (state.status === "success" && !entry.isInvalidated) {
                 const data = state.patchState ? state.patchState.originalData : state.data;
                 this.syncDriver.send({
                     type: "RES",

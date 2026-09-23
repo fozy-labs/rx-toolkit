@@ -42,13 +42,13 @@ sequenceDiagram
     opt синхронно
         Hook->>Clutch: start()
         Clutch->>Res: getEntry(keyedArgs, doInitiate=true)
-        Res-->>Res: _getOrCreate(keyedArgs, doForce=false)
+        Res-->>Res: _getOrCreate(keyedArgs)
         Res->>Cache: get(key)
         Cache-->>Res: null
         Res->>Entry: new Entry(options)
 
         opt beforeQuery настроен (sync: true)
-            Res->>BQ: beforeQuery(key, keyedArgs)
+            Entry->>BQ: beforeQuery(key, keyedArgs) — первый запуск
             BQ->>Sync: REQ { keys, reqId }
             Note over Sync: BroadcastChannel.postMessage
             Sync-->>BQ: RES { data } или таймаут
@@ -60,8 +60,8 @@ sequenceDiagram
                 Clutch-->>Hook: success
                 Hook-->>UI: { status: success, data }
             else таймаут
-                BQ-->>Res: null
-                Note over Res: queryFn вызывается далее
+                BQ-->>Entry: null
+                Note over Entry: тот же запуск вызывает queryFn
             end
         end
 
@@ -186,6 +186,52 @@ sequenceDiagram
         Clutch-->>Hook: строка 9
         Hook-->>UI: { status: error, dataSource: current, data: v1, error }
     end
+```
+
+### Инвалидация тающей записи → подписка
+
+Запись без удержаний `invalidate()` только помечает; перезапрос уходит на первом удержании — до того, как подписчик получит первый снимок. Правило — в [кэше][cache-invalidation].
+
+```mermaid
+sequenceDiagram
+    participant Lnk as Link / Resource.invalidate
+    participant Entry as QueryCacheEntry
+    participant Ret as Retainer (удержание)
+    participant Clutch as Clutch (useSignal)
+    participant Query as queryFn
+
+    Note over Entry: состояние: success (data v1), удержаний нет
+
+    Lnk->>Entry: invalidate()
+    Entry->>Ret: isMelting?
+    Ret-->>Entry: true
+    Entry->>Entry: isInvalidated = true, запроса нет
+    Entry-->>Lnk: void
+
+    Note over Clutch: компонент монтируется позже
+
+    Clutch->>Ret: obs.subscribe
+    Ret->>Ret: holds 0 → 1, таймер снят
+    Ret->>Entry: onActive()
+    Entry->>Entry: isInvalidated = false, success → invalidating
+    Entry->>Query: queryFn(args, abortSignal)
+    Query-->>Entry: Promise (pending)
+    Entry-->>Ret: void
+    Ret-->>Clutch: первый снимок — invalidating (data v1)
+
+    alt ответ OK
+        Query-->>Entry: data v2
+        Entry->>Entry: invalidating → success (rebase)
+        Entry-->>Clutch: state$ → success (data v2)
+    else ошибка
+        Query-->>Entry: error
+        Entry->>Entry: invalidating → invalidate-error (fail)
+        Entry-->>Clutch: state$ → invalidate-error (data v1)
+    end
+
+    Clutch->>Ret: unsubscribe
+    Ret->>Ret: holds 1 → 0, таймер по retentionTime(state)
+    Ret-->>Clutch: void
 ```
 
 ### SWR-fallback при смене аргументов
@@ -327,22 +373,28 @@ sequenceDiagram
     Res->>Cache: get(key)
     Cache-->>Res: Entry
     Res->>Entry: invalidate()
-    Entry->>Entry: success → invalidating
 
-    Note over Entry: подписчики записи ресурса получат invalidating
+    alt запись удерживается (isMelting = false)
+        Entry->>Entry: success → invalidating
 
-    Entry->>Query: queryFn(args, abortSignal)
+        Note over Entry: подписчики записи ресурса получат invalidating
 
-    alt ответ OK
-        Query-->>Entry: fresh data
-        Entry->>Entry: invalidating → success (rebase)
-        Note over Entry: подписчики записи ресурса получат success
-    else ошибка
-        Query-->>Entry: error
-        Entry->>Entry: invalidating → invalidate-error (fail)
-        Note over Entry: подписчики записи ресурса получат invalidate-error
+        Entry->>Query: queryFn(args, abortSignal)
+
+        alt ответ OK
+            Query-->>Entry: fresh data
+            Entry->>Entry: invalidating → success (rebase)
+            Note over Entry: подписчики записи ресурса получат success
+        else ошибка
+            Query-->>Entry: error
+            Entry->>Entry: invalidating → invalidate-error (fail)
+            Note over Entry: подписчики записи ресурса получат invalidate-error
+        end
+    else запись тает (isMelting = true)
+        Entry->>Entry: isInvalidated = true, запроса нет
+        Note over Entry: перезапрос — на первом удержании,<br/>см. «Инвалидация тающей записи → подписка»
     end
-    
+
     Entry-->>Res: void
     Res-->>Lnk: void
     Lnk-->>Cmd: void
@@ -414,7 +466,7 @@ sequenceDiagram
     Res->>Entry: new Entry(options)
 
     opt beforeQuery настроен (sync: true)
-        Res->>BQ: beforeQuery(key, keyedArgs)
+        Entry->>BQ: beforeQuery(key, keyedArgs) — первый запуск
         BQ->>Sync: REQ { keys, reqId }
         Note over Sync: BroadcastChannel.postMessage
         Sync-->>Sync2: ISyncMessage { type: "REQ", reqId, keys }
@@ -433,8 +485,8 @@ sequenceDiagram
         else таймаут
             Note over Sync2: Нет данных / нет других вкладок → нет ответа
             Note over BQ: Таймаут — RES не получен
-            BQ-->>Res: null
-            Note over Res: queryFn вызывается далее
+            BQ-->>Entry: null
+            Note over Entry: тот же запуск вызывает queryFn
         end
     end
 
@@ -469,5 +521,6 @@ sequenceDiagram
 [clutch]: clutch.md
 [entry-state]: query-entry-state.md
 [cache]: cache.md
+[cache-invalidation]: cache.md#инвалидация-тающей-записи
 [usage-links]: ../usage/links.md
 [usage-broadcast]: ../usage/broadcast.md

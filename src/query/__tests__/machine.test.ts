@@ -76,23 +76,14 @@ describe("Machine", () => {
     describe("snapshotEntryState()", () => {
         const snapshot = { args: ARGS, data: DATA, updatedAt: 500 };
 
-        it("isStale=false → status 'success', patchState null", () => {
-            const state = snapshotEntryState<TestArgs, TestData>(snapshot, false);
-            expect(state.status).toBe("success");
-            expect(state.data).toBe(DATA);
-            expect(state.patchState).toBeNull();
-        });
-
-        it("isStale=true → status 'invalidating', patchState null", () => {
-            const state = snapshotEntryState<TestArgs, TestData>(snapshot, true);
-            expect(state.status).toBe("invalidating");
-            expect(state.data).toBe(DATA);
-            expect(state.patchState).toBeNull();
-        });
-
-        it("defaults isStale to false", () => {
+        // Staleness is not a state: a stale snapshot hydrates as the same
+        // `success` and is marked on the entry (`isInvalidated`) instead.
+        it("→ status 'success', patchState null", () => {
             const state = snapshotEntryState<TestArgs, TestData>(snapshot);
             expect(state.status).toBe("success");
+            expect(state.data).toBe(DATA);
+            expect(state.patchState).toBeNull();
+            expect(state.error).toBeNull();
         });
 
         it("preserves args, data, updatedAt from snapshot", () => {
@@ -103,8 +94,9 @@ describe("Machine", () => {
         });
 
         it("wraps into the machine that owns the snapshot's transitions", () => {
-            expect(Machine.of<TestArgs, TestData>(snapshotEntryState(snapshot, false)).status).toBe("success");
-            expect(Machine.of<TestArgs, TestData>(snapshotEntryState(snapshot, true)).status).toBe("invalidating");
+            const machine = Machine.of<TestArgs, TestData>(snapshotEntryState(snapshot));
+            expect(machine.status).toBe("success");
+            expect(machine.invalidate().state.status).toBe("invalidating");
         });
     });
 

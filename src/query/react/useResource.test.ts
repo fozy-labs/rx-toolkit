@@ -156,6 +156,69 @@ describe("useResource", () => {
         expect(c.state.hasData).toBe(false);
     });
 
+    it("mounting on an entry marked for revalidation shows its data at once, then isInvalidating, then fresh data", async () => {
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++call}` }),
+        });
+
+        // Warm the cache, then invalidate with nobody holding the entry: the
+        // invalidation is only recorded on the entry.
+        await resource.ensure({ id: 1 });
+        resource.invalidate({ id: 1 });
+        expect(call).toBe(1);
+        expect(resource.getEntry({ id: 1 })!.isInvalidated).toBe(true);
+
+        const c = setup(resource.useResource, { id: 1 });
+
+        // Every render has the marked data on screen — no empty flash.
+        expect(c.history.map((s) => s.hasData)).not.toContain(false);
+        expect(c.history[0].data).toEqual({ id: 1, name: "user-1-v1" });
+
+        // The hook's subscription is the first hold: the re-query goes out and the
+        // clutch reports it as an invalidation behind the data.
+        await settle();
+        expect(call).toBe(2);
+        expect(c.history.some((s) => s.status === "pending" && s.isInvalidating && s.dataSource === "current")).toBe(
+            true,
+        );
+
+        expect(c.state.status).toBe("success");
+        expect(c.state.isInvalidating).toBe(false);
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
+    it("unmounting the last consumer and invalidating leaves the entry marked until the next mount", async () => {
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++call}` }),
+        });
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v1" });
+
+        // Switch away: the entry for id 1 loses its only consumer.
+        c.rerender({ id: 2 });
+        await settle();
+        const entry = resource.getEntry({ id: 1 })!;
+        expect(entry.isMelting).toBe(true);
+
+        resource.invalidate({ id: 1 });
+        expect(call).toBe(2);
+        expect(entry.isInvalidated).toBe(true);
+
+        // Coming back re-queries: the stale data shows first, then the fresh one.
+        c.history.length = 0;
+        c.rerender({ id: 1 });
+        expect(c.history[0].data).toEqual({ id: 1, name: "user-1-v1" });
+        await settle();
+        expect(call).toBe(3);
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v3" });
+    });
+
     it("re-rendering with an equal args literal keeps the same clutch state", async () => {
         const { resource } = createSetup();
 

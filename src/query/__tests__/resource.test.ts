@@ -1,3 +1,4 @@
+import { Observable } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -8,7 +9,14 @@ import { pendingEntryState } from "@/query/core/machine/machine-helpers";
 import { Resource } from "@/query/core/resource/Resource";
 import { ResourceClutch } from "@/query/core/resource/ResourceClutch";
 import { stableStringify } from "@/query/lib/stableStringify";
-import type { IResourceConfig, TResourceEntryIdleState, TResourceEntryState, TResourceSnapshot } from "@/query/types";
+import type {
+    IResourceConfig,
+    TArgsOrVoid,
+    TInFlightPolicy,
+    TResourceEntryIdleState,
+    TResourceEntryState,
+    TResourceSnapshot,
+} from "@/query/types";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Helpers ====================
@@ -31,6 +39,15 @@ function createResource<TArgs = void, TData = string>(
     },
 ) {
     return new Resource<TArgs, TData>(createConfig(overrides));
+}
+
+/**
+ * Hold the entry for `args`, as a mounted consumer would. An entry nobody holds
+ * is only *marked* by `invalidate()`; a held one re-runs at once — which is
+ * what most invalidation tests below exercise.
+ */
+function holdEntry<TArgs, TData>(resource: Resource<TArgs, TData>, args: TArgsOrVoid<TArgs>): () => void {
+    return resource.getEntry(args, true).hold();
 }
 
 // ==================== Constructor ====================
@@ -69,7 +86,7 @@ describe("Resource constructor", () => {
         expect(state.data).toBe("cached");
     });
 
-    it("hydration with isStale produces entry in invalidating state with the query in flight", () => {
+    it("hydration with isStale produces a marked success entry without a query in flight", () => {
         const queryFn = vi.fn(async () => "fresh");
         const snapshot: TResourceSnapshot = {
             entries: {
@@ -88,17 +105,17 @@ describe("Resource constructor", () => {
             snapshot,
         });
 
+        // Settled data that owes a revalidation: hydration creates entries
+        // nobody holds, so the query waits for the first hold.
         const entry = resource.getEntry(99);
         expect(entry).not.toBeNull();
-        const state = entry!.state$.peek();
-        expect(state.status).toBe("invalidating");
-        expect(state.data).toBe("stale-data");
-        // "invalidating" must mean an actual query is in flight — otherwise the
-        // entry is stuck: invalidate()/retry() are invalid from this state.
-        expect(queryFn).toHaveBeenCalledWith(99, expect.any(AbortSignal));
+        expect(entry!.state$.peek()).toMatchObject({ status: "success", data: "stale-data", updatedAt: 1000 });
+        expect(entry!.isInvalidated).toBe(true);
+        expect(entry!.isMelting).toBe(true);
+        expect(queryFn).not.toHaveBeenCalled();
     });
 
-    it("hydration with isStale runs the SWR invalidation and settles to success", async () => {
+    it("hydration with isStale runs the SWR invalidation on the first hold and settles to success", async () => {
         const queryFn = vi.fn(async () => "fresh");
         const snapshot: TResourceSnapshot = {
             entries: {
@@ -116,16 +133,24 @@ describe("Resource constructor", () => {
             queryFn,
             snapshot,
         });
+
+        const entry = resource.getEntry(99)!;
+        const statuses: string[] = [];
+        const subscription = entry.obs.subscribe((state) => statuses.push(state.status));
+
+        // The subscriber's first state is already the in-flight one.
+        expect(queryFn).toHaveBeenCalledWith(99, expect.any(AbortSignal));
+        expect(statuses).toEqual(["invalidating"]);
+        expect(entry.isInvalidated).toBe(false);
 
         await flushMicrotasks();
 
-        const state = resource.getEntry(99)!.state$.peek();
-        expect(state.status).toBe("success");
-        expect(state.data).toBe("fresh");
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "fresh" });
         expect(queryFn).toHaveBeenCalledTimes(1);
+        subscription.unsubscribe();
     });
 
-    it("hydration with isStale settles to invalidate-error when the invalidation fails, keeping stale data", async () => {
+    it("hydration with isStale settles to invalidate-error when the revalidation fails, keeping stale data", async () => {
         const error = new Error("invalidation failed");
         const queryFn = vi.fn(async () => {
             throw error;
@@ -147,6 +172,7 @@ describe("Resource constructor", () => {
             snapshot,
         });
 
+        holdEntry(resource, 99);
         await flushMicrotasks();
 
         const state = resource.getEntry(99)!.state$.peek();
@@ -155,7 +181,7 @@ describe("Resource constructor", () => {
         expect(state.error).toBe(error);
     });
 
-    it("fetch() on a stale-hydrated entry resolves with the invalidated data", { timeout: 1000 }, async () => {
+    it("fetch() on a stale-hydrated entry resolves with the revalidated data", { timeout: 1000 }, async () => {
         const snapshot: TResourceSnapshot = {
             entries: {
                 [stableStringify(99)]: {
@@ -173,9 +199,35 @@ describe("Resource constructor", () => {
             snapshot,
         });
 
-        // fetch() sees "invalidating" and awaits the in-flight query's outcome —
-        // it must not hang forever on a hydrated entry.
+        // fetch()'s hold starts the revalidation and its result is awaited —
+        // the marked data must not settle the promise.
         await expect(resource.fetch(99)).resolves.toBe("fresh");
+    });
+
+    it("ensure() on a stale-hydrated entry resolves with the stale data and revalidates behind", async () => {
+        const queryFn = vi.fn(async () => "fresh");
+        const snapshot: TResourceSnapshot = {
+            entries: {
+                [stableStringify(99)]: {
+                    status: "success",
+                    args: 99,
+                    data: "stale-data",
+                    updatedAt: 1000,
+                    isStale: true,
+                },
+            },
+        };
+
+        const resource = createResource<number, string>({ queryFn, snapshot });
+
+        const ensured = resource.ensure(99);
+        // The hold `ensure` takes starts the revalidation before it resolves.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry(99)!.state$.peek().status).toBe("invalidating");
+        await expect(ensured).resolves.toBe("stale-data");
+
+        await flushMicrotasks();
+        expect(resource.getEntry(99)!.state$.peek()).toMatchObject({ status: "success", data: "fresh" });
     });
 
     it("hydration skips entries where serialized key doesn't match snapshot key", () => {
@@ -279,6 +331,8 @@ describe("Resource.invalidate", () => {
         expect(entry.state$.peek().status).toBe("success");
         expect(entry.state$.peek().data).toBe("data-1");
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
 
         // During the invalidation, the entry transitions to the invalidating state
@@ -303,6 +357,989 @@ describe("Resource.invalidate", () => {
 
         const entry = resource.getEntry(999);
         expect(entry).toBeNull();
+    });
+});
+
+// ==================== Lazy invalidation ====================
+
+/**
+ * `invalidate()` on an entry nobody holds only marks it: the re-query waits for
+ * the next hold — a subscription, `ensure`, `fetch` or `prefetch`.
+ */
+describe("Resource.invalidate — lazy on an entry nobody holds", () => {
+    async function createSettled(queryFn = vi.fn(async (args: number) => `data-${args}`)) {
+        const resource = createResource<number, string>({ queryFn });
+        resource.getEntry(1, true);
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "data-1" });
+        return { resource, queryFn, entry: resource.getEntry(1)! };
+    }
+
+    it("does not call queryFn; the entry keeps its state and is marked", async () => {
+        const { resource, queryFn, entry } = await createSettled();
+
+        resource.invalidate(1);
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "data-1", isInvalidating: false });
+    });
+
+    it("calls queryFn when the marked entry is subscribed; the subscriber sees the in-flight state first", async () => {
+        let call = 0;
+        const { resource, queryFn, entry } = await createSettled(vi.fn(async () => `data-${++call}`));
+        resource.invalidate(1);
+        // Nothing happens before the hold: the run below is the hold's.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        const statuses: string[] = [];
+        const subscription = entry.obs.subscribe((state) => statuses.push(state.status));
+
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(statuses).toEqual(["invalidating"]);
+        expect(entry.isInvalidated).toBe(false);
+
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "data-2" });
+        subscription.unsubscribe();
+    });
+
+    it("a clutch subscribed to the marked entry sees data with isInvalidating, then the fresh result", async () => {
+        let call = 0;
+        const { resource, queryFn, entry } = await createSettled(vi.fn(async () => `data-${++call}`));
+        resource.invalidate(1);
+        // Nothing happens before the hold: the run below is the hold's.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        const clutch = new ResourceClutch<number, string>(resource);
+        clutch.switch(1);
+        clutch.start();
+
+        const seen: Array<{ status: string; isInvalidating: boolean; data: string | null }> = [];
+        const subscription = clutch.state$.obs.subscribe((state) =>
+            seen.push({ status: state.status, isInvalidating: state.isInvalidating, data: state.data }),
+        );
+
+        expect(seen[0]).toEqual({ status: "pending", isInvalidating: true, data: "data-1" });
+
+        await flushMicrotasks();
+        expect(seen.at(-1)).toEqual({ status: "success", isInvalidating: false, data: "data-2" });
+        subscription.unsubscribe();
+    });
+
+    it("fetch() on the marked entry resolves with fresh data", async () => {
+        let call = 0;
+        const { resource, queryFn, entry } = await createSettled(vi.fn(async () => `data-${++call}`));
+        resource.invalidate(1);
+        // Nothing happens before the hold: the run below is the hold's.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        await expect(resource.fetch(1)).resolves.toBe("data-2");
+        expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("ensure() on the marked entry resolves with the old data and revalidates behind", async () => {
+        let call = 0;
+        const { resource, queryFn, entry } = await createSettled(vi.fn(async () => `data-${++call}`));
+        resource.invalidate(1);
+        // Nothing happens before the hold: the run below is the hold's.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        const ensured = resource.ensure(1);
+        // The hold `ensure` takes starts the revalidation before it resolves.
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(entry.state$.peek().status).toBe("invalidating");
+        await expect(ensured).resolves.toBe("data-1");
+
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "data-2" });
+    });
+
+    it("prefetch() on the marked entry revalidates it", async () => {
+        let call = 0;
+        const { resource, queryFn, entry } = await createSettled(vi.fn(async () => `data-${++call}`));
+        resource.invalidate(1);
+        // Nothing happens before the hold: the run below is the hold's.
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        await resource.prefetch(1);
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "data-2" });
+    });
+
+    it("a marked entry evicted before anyone holds it never queries", async () => {
+        vi.useFakeTimers();
+        try {
+            const queryFn = vi.fn(async (args: number) => `data-${args}`);
+            const resource = createResource<number, string>({ queryFn, retentionTime: 1000 });
+
+            // One hold cycle arms retention; the entry then melts, marked.
+            await resource.ensure(1);
+            resource.invalidate(1);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(true);
+
+            vi.advanceTimersByTime(1000);
+            await flushMicrotasks();
+
+            expect(resource.getEntry(1)).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("a consistency violation on an entry nobody holds marks it instead of re-querying", async () => {
+        type Items = { items: { id: number; name: string }[] };
+        let fetchCount = 0;
+        const resource = createResource<void, Items>({
+            queryFn: async () => {
+                fetchCount++;
+                return { items: [{ id: 1, name: `v${fetchCount}` }] };
+            },
+        });
+
+        resource.getEntry(undefined, true);
+        await flushMicrotasks();
+        const entry = resource.getEntry()!;
+
+        // Patch 2 depends on the item patch 1 adds; aborting patch 1 makes
+        // patch 2's replay fail — a consistency violation asking to re-query.
+        const h1 = entry.createPatch((d: Items) => {
+            d.items.push({ id: 2, name: "added" });
+        })!;
+        entry.createPatch((d: Items) => {
+            d.items[1]!.name = "modified";
+        });
+        h1.abort();
+        await flushMicrotasks();
+
+        // Nobody holds the entry: marked, not re-queried.
+        expect(fetchCount).toBe(1);
+        expect(entry.isInvalidated).toBe(true);
+        expect(entry.state$.peek().status).toBe("success");
+
+        entry.hold();
+        expect(fetchCount).toBe(2);
+        expect(entry.state$.peek().status).toBe("invalidating");
+    });
+});
+
+// ==================== Invalidation in flight ====================
+
+/**
+ * `invalidateInFlight` decides what `invalidate()` does to a run in flight:
+ * `cancel` (default) aborts it and re-queries, `trail` lets it settle and
+ * re-queries after, `join` takes it as the answer and does nothing. The
+ * resource option is the default; the call parameter
+ * overrides it per call.
+ */
+describe("Resource — invalidateInFlight", () => {
+    /** A resource whose runs the test settles; `runs[i].signal` tells whether run `i` was aborted. */
+    function createControlled<TData = string>(overrides: Partial<IResourceConfig<number, TData>> = {}) {
+        const runs: { resolve: (v: TData) => void; reject: (error: unknown) => void; signal: AbortSignal }[] = [];
+        const resource = createResource<number, TData>({
+            queryFn: (_args, signal) =>
+                new Promise<TData>((resolve, reject) => {
+                    runs.push({ resolve, reject, signal });
+                }),
+            ...overrides,
+        });
+        return { resource, runs };
+    }
+
+    /**
+     * A held entry with data and a second run in flight behind it, then a
+     * consistency violation: patch 2 depends on the item patch 1 adds, and
+     * aborting patch 1 makes patch 2's replay fail.
+     */
+    async function violationInFlight(invalidateInFlight: TInFlightPolicy) {
+        type Items = { items: { id: number }[] };
+        const { resource, runs } = createControlled<Items>({ invalidateInFlight });
+        holdEntry(resource, 1);
+        runs[0]!.resolve({ items: [{ id: 1 }] });
+        await flushMicrotasks();
+        const entry = resource.getEntry(1)!;
+
+        // Run 2 in flight behind the data.
+        resource.invalidate(1);
+        expect(runs).toHaveLength(2);
+
+        const h1 = entry.createPatch((d) => {
+            d.items.push({ id: 2 });
+        })!;
+        entry.createPatch((d) => {
+            d.items[1]!.id = 3;
+        });
+        h1.abort();
+        await flushMicrotasks();
+        expect(entry.state$.peek()).toMatchObject({ patchState: { isConsistencyViolation: true } });
+
+        return { resource, runs, entry };
+    }
+
+    it("defaults to cancel: invalidate() on a held entry in flight aborts the run and starts another", async () => {
+        const { resource, runs } = createControlled();
+        holdEntry(resource, 1);
+        expect(runs).toHaveLength(1);
+
+        resource.invalidate(1);
+
+        expect(runs).toHaveLength(2);
+        expect(runs[0]!.signal.aborted).toBe(true);
+        expect(resource.getEntry(1)!.isInvalidated).toBe(false);
+        expect(resource.getState(1).status).toBe("pending");
+
+        runs[1]!.resolve("fresh");
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "fresh" });
+    });
+
+    it("invalidateInFlight: 'trail' from the config: the run settles first, then the entry re-queries", async () => {
+        const { resource, runs } = createControlled({ invalidateInFlight: "trail" });
+        holdEntry(resource, 1);
+
+        resource.invalidate(1);
+
+        expect(runs).toHaveLength(1);
+        expect(runs[0]!.signal.aborted).toBe(false);
+        expect(resource.getEntry(1)!.isInvalidated).toBe(true);
+
+        runs[0]!.resolve("first");
+        await flushMicrotasks();
+
+        expect(runs).toHaveLength(2);
+        expect(resource.getState(1)).toMatchObject({ status: "pending", data: "first", isInvalidating: true });
+
+        runs[1]!.resolve("second");
+        await flushMicrotasks();
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: "second" });
+    });
+
+    it("the call parameter overrides the resource default", () => {
+        const cancel = createControlled();
+        holdEntry(cancel.resource, 1);
+        cancel.resource.invalidate(1, { inFlight: "trail" });
+        expect(cancel.runs).toHaveLength(1);
+        expect(cancel.runs[0]!.signal.aborted).toBe(false);
+        expect(cancel.resource.getEntry(1)!.isInvalidated).toBe(true);
+
+        const trail = createControlled({ invalidateInFlight: "trail" });
+        holdEntry(trail.resource, 1);
+        trail.resource.invalidate(1, { inFlight: "cancel" });
+        expect(trail.runs).toHaveLength(2);
+        expect(trail.runs[0]!.signal.aborted).toBe(true);
+        expect(trail.resource.getEntry(1)!.isInvalidated).toBe(false);
+    });
+
+    it("clutch.invalidate(opts) forwards the parameter to the entry", () => {
+        const { resource, runs } = createControlled();
+        const clutch = new ResourceClutch<number, string>(resource);
+        clutch.switch(1);
+        clutch.start();
+        const subscription = clutch.state$.obs.subscribe();
+        expect(runs).toHaveLength(1);
+
+        clutch.invalidate({ inFlight: "trail" });
+        expect(runs).toHaveLength(1);
+        expect(resource.getEntry(1)!.isInvalidated).toBe(true);
+
+        clutch.invalidate();
+        expect(runs).toHaveLength(2);
+        expect(runs[0]!.signal.aborted).toBe(true);
+        subscription.unsubscribe();
+    });
+
+    it("the clutch state's invalidate(opts) does the same", () => {
+        const { resource, runs } = createControlled();
+        const clutch = new ResourceClutch<number, string>(resource);
+        clutch.switch(1);
+        clutch.start();
+        const subscription = clutch.state$.obs.subscribe();
+
+        clutch.state$.peek().invalidate({ inFlight: "trail" });
+        expect(runs).toHaveLength(1);
+        expect(resource.getEntry(1)!.isInvalidated).toBe(true);
+        subscription.unsubscribe();
+    });
+
+    it.each(["cancel", "trail", "join"] as const)(
+        "invalidateInFlight: %s — fetch() on a run in flight cancels it by default, whatever the resource's policy",
+        async (invalidateInFlight) => {
+            const { resource, runs } = createControlled({ invalidateInFlight });
+
+            const first = resource.fetch(1);
+            const second = resource.fetch(1);
+
+            expect(runs).toHaveLength(2);
+            expect(runs[0]!.signal.aborted).toBe(true);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(false);
+
+            // The cancelled run's late answer is ignored; both callers get the fresh one.
+            runs[0]!.resolve("stale");
+            runs[1]!.resolve("fresh");
+            await expect(first).resolves.toBe("fresh");
+            await expect(second).resolves.toBe("fresh");
+            expect(runs).toHaveLength(2);
+        },
+    );
+
+    it.each(["cancel", "trail", "join"] as const)(
+        "invalidateInFlight: %s — prefetch({ force: true }) forwards its own inFlight, cancel by default",
+        async (invalidateInFlight) => {
+            const { resource, runs } = createControlled({ invalidateInFlight });
+            holdEntry(resource, 1);
+
+            const warmed = resource.prefetch(1, { force: true });
+            expect(runs).toHaveLength(2);
+            expect(runs[0]!.signal.aborted).toBe(true);
+            runs[1]!.resolve("fresh");
+            await warmed;
+
+            // `join` awaits the run in flight instead.
+            resource.invalidate(1, { inFlight: "cancel" });
+            const joined = resource.prefetch(1, { force: true, inFlight: "join" });
+            expect(runs).toHaveLength(3);
+            runs[2]!.resolve("joined");
+            await joined;
+            expect(runs).toHaveLength(3);
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "joined" });
+        },
+    );
+
+    it("prefetch without force ignores an untyped inFlight: a run in flight is awaited", async () => {
+        const { resource, runs } = createControlled();
+        holdEntry(resource, 1);
+
+        // A compile error (see prefetch-options-types.test.ts); an untyped
+        // caller can still pass it, and it is ignored.
+        // @ts-expect-error — `inFlight` without `force: true`.
+        const warmed = resource.prefetch(1, { inFlight: "cancel" });
+
+        expect(runs).toHaveLength(1);
+        expect(runs[0]!.signal.aborted).toBe(false);
+        runs[0]!.resolve("data");
+        await warmed;
+        expect(runs).toHaveLength(1);
+    });
+
+    /**
+     * `fetch(args, { inFlight })` on a promise run in flight, held by another
+     * consumer or not (the fetch holds the entry for as long as it waits).
+     */
+    describe.each([
+        ["held", true],
+        ["unheld", false],
+    ] as const)("fetch inFlight on a promise run in flight (%s)", (_label, isHeld) => {
+        /** An entry with data and a run in flight behind it. */
+        async function inFlightEntry() {
+            const controlled = createControlled();
+            const release = holdEntry(controlled.resource, 1);
+            controlled.runs[0]!.resolve("initial");
+            await flushMicrotasks();
+            controlled.resource.invalidate(1);
+            expect(controlled.runs).toHaveLength(2);
+            if (!isHeld) release();
+            const entry = controlled.resource.getEntry(1)!;
+            expect(entry.isMelting).toBe(!isHeld);
+            return { ...controlled, entry, running: controlled.runs[1]! };
+        }
+
+        it("cancel: aborts the run and resolves with a fresh run's result", async () => {
+            const { resource, runs, running } = await inFlightEntry();
+
+            const fetched = resource.fetch(1, { inFlight: "cancel" });
+
+            expect(running.signal.aborted).toBe(true);
+            expect(runs).toHaveLength(3);
+            running.resolve("stale");
+            runs[2]!.resolve("fresh");
+            await expect(fetched).resolves.toBe("fresh");
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "fresh" });
+        });
+
+        it("trail: lets the run settle, then resolves with a fresh run's result", async () => {
+            const { resource, runs, entry, running } = await inFlightEntry();
+            let settledWith: string | null = null;
+
+            const fetched = resource.fetch(1, { inFlight: "trail" });
+            void fetched.then((data) => (settledWith = data));
+
+            expect(running.signal.aborted).toBe(false);
+            expect(runs).toHaveLength(2);
+            expect(entry.isInvalidated).toBe(true);
+
+            running.resolve("trailed");
+            await flushMicrotasks();
+            // The trailed run's result is not the answer: a fresh run follows.
+            expect(settledWith).toBeNull();
+            expect(runs).toHaveLength(3);
+            expect(entry.isInvalidated).toBe(false);
+
+            runs[2]!.resolve("fresh");
+            await expect(fetched).resolves.toBe("fresh");
+        });
+
+        it("trail: a failed trailed run is skipped too — the fresh run answers", async () => {
+            const { resource, runs, running } = await inFlightEntry();
+
+            const fetched = resource.fetch(1, { inFlight: "trail" });
+            running.reject(new Error("trailed"));
+            await flushMicrotasks();
+            expect(runs).toHaveLength(3);
+
+            runs[2]!.resolve("fresh");
+            await expect(fetched).resolves.toBe("fresh");
+        });
+
+        it("join: resolves with the run in flight's result, starting nothing", async () => {
+            const { resource, runs, entry, running } = await inFlightEntry();
+
+            const fetched = resource.fetch(1, { inFlight: "join" });
+
+            expect(running.signal.aborted).toBe(false);
+            expect(entry.isInvalidated).toBe(false);
+            running.resolve("joined");
+            await expect(fetched).resolves.toBe("joined");
+            expect(runs).toHaveLength(2);
+        });
+
+        it("the signal only detaches the caller: the run the fetch started goes on", async () => {
+            const { resource, runs, running } = await inFlightEntry();
+            const controller = new AbortController();
+
+            const fetched = resource.fetch(1, { inFlight: "trail", signal: controller.signal });
+            controller.abort(new Error("detached"));
+
+            await expect(fetched).rejects.toThrow("detached");
+            expect(running.signal.aborted).toBe(false);
+            running.resolve("trailed");
+            await flushMicrotasks();
+            // Held, the entry re-queries after the trailed run; unheld, it
+            // keeps the mark for its next hold.
+            expect(runs).toHaveLength(isHeld ? 3 : 2);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(!isHeld);
+        });
+
+        it("with nothing in flight the policy makes no difference: a fresh run answers", async () => {
+            const { resource, runs, running } = await inFlightEntry();
+            running.resolve("settled");
+            await flushMicrotasks();
+
+            const fetched = resource.fetch(1, { inFlight: "join" });
+
+            expect(runs).toHaveLength(3);
+            runs[2]!.resolve("fresh");
+            await expect(fetched).resolves.toBe("fresh");
+        });
+    });
+
+    /** `fetch(args, { inFlight })` on a stream open at `success`: the run is still in flight. */
+    describe.each([
+        ["held", true],
+        ["unheld", false],
+    ] as const)("fetch inFlight on an open stream at success (%s)", (_label, isHeld) => {
+        function openStream() {
+            const subscribers: Array<{ next: (value: string) => void; complete: () => void }> = [];
+            let teardowns = 0;
+            const resource = createResource<number, string>({
+                queryFn: () =>
+                    new Observable<string>((subscriber) => {
+                        subscribers.push(subscriber);
+                        return () => {
+                            teardowns += 1;
+                        };
+                    }),
+            });
+            const release = holdEntry(resource, 1);
+            subscribers[0]!.next("first");
+            if (!isHeld) release();
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "first" });
+            return { resource, subscribers, teardowns: () => teardowns };
+        }
+
+        it("cancel: reopens the stream and resolves with its first emission", async () => {
+            const { resource, subscribers, teardowns } = openStream();
+
+            const fetched = resource.fetch(1);
+
+            expect(teardowns()).toBe(1);
+            expect(subscribers).toHaveLength(2);
+            subscribers[1]!.next("reopened");
+            await expect(fetched).resolves.toBe("reopened");
+        });
+
+        it("trail: waits for the stream to end, then resolves with the next stream's first emission", async () => {
+            const { resource, subscribers, teardowns } = openStream();
+            let settledWith: string | null = null;
+
+            const fetched = resource.fetch(1, { inFlight: "trail" });
+            void fetched.then((data) => (settledWith = data));
+
+            // Emissions of the trailed stream are not the answer.
+            subscribers[0]!.next("second");
+            await flushMicrotasks();
+            expect(settledWith).toBeNull();
+            expect(teardowns()).toBe(0);
+            expect(subscribers).toHaveLength(1);
+
+            subscribers[0]!.complete();
+            expect(subscribers).toHaveLength(2);
+            subscribers[1]!.next("fresh");
+            await expect(fetched).resolves.toBe("fresh");
+        });
+
+        it("join: resolves with the data the stream already delivered", async () => {
+            const { resource, subscribers, teardowns } = openStream();
+
+            await expect(resource.fetch(1, { inFlight: "join" })).resolves.toBe("first");
+            expect(teardowns()).toBe(0);
+            expect(subscribers).toHaveLength(1);
+        });
+    });
+
+    /**
+     * A run trailed by an invalidation predates it: whatever it brings is
+     * already known to be suspect. `fetch` promises a fresh result, so on a
+     * marked entry it must not settle on that run — it cancels it and awaits a
+     * run started after the invalidation, held or not, from `pending` (a cold
+     * load in flight) as from `invalidating` (a run behind data).
+     */
+    describe.each([
+        ["held", true],
+        ["unheld", false],
+    ] as const)("fetch on an entry marked by a trailed invalidation (%s)", (_label, isHeld) => {
+        async function markedEntry(hasData: boolean) {
+            const controlled = createControlled({ invalidateInFlight: "trail" });
+            const { resource, runs } = controlled;
+            const release = holdEntry(resource, 1);
+            const entry = resource.getEntry(1)!;
+
+            if (hasData) {
+                runs[0]!.resolve("initial");
+                await flushMicrotasks();
+                // The run behind the data.
+                resource.invalidate(1);
+                expect(runs).toHaveLength(2);
+                expect(entry.state$.peek().status).toBe("invalidating");
+            }
+            if (!isHeld) release();
+
+            // The trailed invalidation: the run in flight is left alone and
+            // the entry is marked.
+            resource.invalidate(1);
+            const staleRun = runs.at(-1)!;
+            expect(staleRun.signal.aborted).toBe(false);
+            expect(entry.isInvalidated).toBe(true);
+            expect(entry.isMelting).toBe(!isHeld);
+            return { ...controlled, entry, staleRun, runsBefore: runs.length };
+        }
+
+        it.each([
+            ["pending", false],
+            ["invalidating", true],
+        ] as const)("fetch() from %s resolves with a run started after the invalidation", async (_status, hasData) => {
+            const { resource, runs, entry, staleRun, runsBefore } = await markedEntry(hasData);
+
+            const fetched = resource.fetch(1);
+
+            // The stale run is cancelled and a fresh one goes out at once.
+            expect(staleRun.signal.aborted).toBe(true);
+            expect(runs).toHaveLength(runsBefore + 1);
+            expect(entry.isInvalidated).toBe(false);
+
+            // A late answer of the cancelled run is ignored.
+            staleRun.resolve("stale");
+            await flushMicrotasks();
+            runs.at(-1)!.resolve("fresh");
+
+            await expect(fetched).resolves.toBe("fresh");
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "fresh" });
+            expect(entry.isInvalidated).toBe(false);
+            expect(runs).toHaveLength(runsBefore + 1);
+        });
+
+        it("prefetch({ force: true }) warms with a run started after the invalidation, leaving no mark", async () => {
+            const { resource, runs, entry, staleRun, runsBefore } = await markedEntry(true);
+
+            const warmed = resource.prefetch(1, { force: true });
+
+            expect(staleRun.signal.aborted).toBe(true);
+            expect(runs).toHaveLength(runsBefore + 1);
+
+            runs.at(-1)!.resolve("fresh");
+            await warmed;
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "fresh" });
+            expect(entry.isInvalidated).toBe(false);
+            expect(entry.isMelting).toBe(!isHeld);
+        });
+    });
+
+    it.each([
+        ["cancel", true, 3],
+        ["trail", false, 2],
+    ] as const)(
+        "a consistency violation while a run is in flight uses the resource default (%s)",
+        async (invalidateInFlight, isAborted, runsAfter) => {
+            const { resource, runs, entry } = await violationInFlight(invalidateInFlight);
+
+            expect(runs[1]!.signal.aborted).toBe(isAborted);
+            expect(runs).toHaveLength(runsAfter);
+            expect(entry.isInvalidated).toBe(!isAborted);
+            expect(entry.state$.peek().status).toBe("invalidating");
+
+            // Either way a run from after the violation follows.
+            runs[runsAfter - 1]!.resolve({ items: [{ id: 1 }] });
+            await flushMicrotasks();
+            expect(runs).toHaveLength(3);
+            expect(entry.isInvalidated).toBe(false);
+        },
+    );
+
+    it("a consistency violation while a run is in flight under join: the run in flight is the answer", async () => {
+        const { resource, runs, entry } = await violationInFlight("join");
+
+        expect(runs[1]!.signal.aborted).toBe(false);
+        expect(runs).toHaveLength(2);
+        expect(entry.isInvalidated).toBe(false);
+
+        runs[1]!.resolve({ items: [{ id: 1 }] });
+        await flushMicrotasks();
+        expect(runs).toHaveLength(2);
+        expect(resource.getState(1)).toMatchObject({ status: "success", data: { items: [{ id: 1 }] } });
+    });
+
+    describe("join", () => {
+        it("invalidateInFlight: 'join' from the config: invalidate() on a run in flight is a no-op", async () => {
+            const { resource, runs } = createControlled({ invalidateInFlight: "join" });
+            holdEntry(resource, 1);
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(1);
+            expect(runs[0]!.signal.aborted).toBe(false);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(false);
+
+            runs[0]!.resolve("first");
+            await flushMicrotasks();
+
+            // The joined run answered the invalidation: nothing follows it.
+            expect(runs).toHaveLength(1);
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "first" });
+        });
+
+        it("without a run in flight, join invalidates like the other values", async () => {
+            const { resource, runs } = createControlled({ invalidateInFlight: "join" });
+            holdEntry(resource, 1);
+            runs[0]!.resolve("first");
+            await flushMicrotasks();
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(2);
+            expect(resource.getState(1)).toMatchObject({ status: "pending", data: "first", isInvalidating: true });
+        });
+
+        it("the call parameter { inFlight: 'join' } overrides a cancel default, and vice versa", () => {
+            const cancel = createControlled();
+            holdEntry(cancel.resource, 1);
+            cancel.resource.invalidate(1, { inFlight: "join" });
+            expect(cancel.runs).toHaveLength(1);
+            expect(cancel.runs[0]!.signal.aborted).toBe(false);
+            expect(cancel.resource.getEntry(1)!.isInvalidated).toBe(false);
+
+            const join = createControlled({ invalidateInFlight: "join" });
+            holdEntry(join.resource, 1);
+            join.resource.invalidate(1, { inFlight: "cancel" });
+            expect(join.runs).toHaveLength(2);
+            expect(join.runs[0]!.signal.aborted).toBe(true);
+        });
+
+        it("clutch.invalidate({ inFlight: 'join' }) leaves the run in flight alone", () => {
+            const { resource, runs } = createControlled();
+            const clutch = new ResourceClutch<number, string>(resource);
+            clutch.switch(1);
+            clutch.start();
+            const subscription = clutch.state$.obs.subscribe();
+
+            clutch.invalidate({ inFlight: "join" });
+            clutch.state$.peek().invalidate({ inFlight: "join" });
+
+            expect(runs).toHaveLength(1);
+            expect(runs[0]!.signal.aborted).toBe(false);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(false);
+            subscription.unsubscribe();
+        });
+    });
+
+    describe("with beforeQuery (cross-tab sync) still pending", () => {
+        it("invalidate() on a held entry starts a run of its own; the other tab's late answer is dropped", async () => {
+            let answer!: (result: { data: string } | null) => void;
+            const { resource, runs } = createControlled({
+                key: "res",
+                beforeQuery: () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        answer = resolve;
+                    }),
+            });
+            holdEntry(resource, 1);
+            expect(runs).toHaveLength(0);
+            expect(resource.getState(1).status).toBe("pending");
+
+            resource.invalidate(1);
+
+            expect(runs).toHaveLength(1);
+            expect(resource.getEntry(1)!.isInvalidated).toBe(false);
+
+            // The other tab answers while the run is in flight: it is not fresher
+            // than the run that went out after the invalidation.
+            answer({ data: "from-tab" });
+            await flushMicrotasks();
+            expect(resource.getState(1).status).toBe("pending");
+
+            runs[0]!.resolve("from-query");
+            await flushMicrotasks();
+            expect(resource.getState(1)).toMatchObject({ status: "success", data: "from-query" });
+        });
+
+        it("a `null` answer while a run is in flight does not start a second run", async () => {
+            let answer!: (result: { data: string } | null) => void;
+            const { resource, runs } = createControlled({
+                key: "res",
+                beforeQuery: () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        answer = resolve;
+                    }),
+            });
+            holdEntry(resource, 1);
+            resource.invalidate(1);
+            expect(runs).toHaveLength(1);
+
+            answer(null);
+            await flushMicrotasks();
+
+            expect(runs).toHaveLength(1);
+            expect(runs[0]!.signal.aborted).toBe(false);
+        });
+
+        it.each([null, { data: "from-tab" }])(
+            "an answer (%o) arriving after the invalidate()-started run has settled is dropped: no second run",
+            async (lateAnswer) => {
+                let answer!: (result: { data: string } | null) => void;
+                const { resource, runs } = createControlled({
+                    key: "res",
+                    beforeQuery: () =>
+                        new Promise<{ data: string } | null>((resolve) => {
+                            answer = resolve;
+                        }),
+                });
+                holdEntry(resource, 1);
+                resource.invalidate(1);
+                expect(runs).toHaveLength(1);
+
+                runs[0]!.resolve("from-query");
+                await flushMicrotasks();
+                expect(resource.getState(1)).toMatchObject({ status: "success", data: "from-query" });
+
+                // The run that went out after the invalidation owns the entry:
+                // the other tab's answer is older than it and must neither
+                // replace its data nor re-fetch behind it.
+                answer(lateAnswer);
+                await flushMicrotasks();
+
+                expect(runs).toHaveLength(1);
+                expect(resource.getState(1)).toMatchObject({ status: "success", data: "from-query" });
+            },
+        );
+
+        it("invalidate() under cancel on an entry nobody holds drops the wait: the answer is ignored, the first hold loads", async () => {
+            let answer!: (result: { data: string } | null) => void;
+            const { resource, runs } = createControlled({
+                key: "res",
+                beforeQuery: () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        answer = resolve;
+                    }),
+            });
+            resource.getEntry(1, true);
+            const entry = resource.getEntry(1)!;
+            resource.invalidate(1);
+            expect(entry.isInvalidated).toBe(true);
+            expect(entry._isInFlight).toBe(false);
+
+            answer({ data: "from-tab" });
+            await flushMicrotasks();
+            expect(runs).toHaveLength(0);
+            expect(entry.state$.peek().status).toBe("pending");
+
+            entry.hold();
+            expect(runs).toHaveLength(1);
+            expect(entry.isInvalidated).toBe(false);
+            runs[0]!.resolve("from-query");
+            await flushMicrotasks();
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "from-query" });
+        });
+
+        it("invalidate() under trail on an entry nobody holds only marks it; the other tab's answer lands and the first hold revalidates", async () => {
+            let answer!: (result: { data: string } | null) => void;
+            const { resource, runs } = createControlled({
+                key: "res",
+                beforeQuery: () =>
+                    new Promise<{ data: string } | null>((resolve) => {
+                        answer = resolve;
+                    }),
+            });
+            resource.getEntry(1, true);
+            const entry = resource.getEntry(1)!;
+
+            resource.invalidate(1, { inFlight: "trail" });
+            expect(runs).toHaveLength(0);
+            expect(entry.isInvalidated).toBe(true);
+
+            answer({ data: "from-tab" });
+            await flushMicrotasks();
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "from-tab" });
+            expect(entry.isInvalidated).toBe(true);
+
+            entry.hold();
+            expect(runs).toHaveLength(1);
+            expect(entry.state$.peek().status).toBe("invalidating");
+        });
+
+        /**
+         * The other-tab round-trip of an existing entry counts as its run in
+         * flight: every in-flight policy applies to it as to any run.
+         */
+        describe("the round-trip is the run in flight", () => {
+            function setup(overrides: Partial<IResourceConfig<number, string>> = {}) {
+                let answer!: (result: { data: string } | null) => void;
+                const asked = vi.fn(
+                    () =>
+                        new Promise<{ data: string } | null>((resolve) => {
+                            answer = resolve;
+                        }),
+                );
+                const { resource, runs } = createControlled({ key: "res", beforeQuery: asked, ...overrides });
+                resource.getEntry(1, true);
+                const entry = resource.getEntry(1)!;
+                return { resource, runs, entry, asked, answer: (result: { data: string } | null) => answer(result) };
+            }
+
+            it("the entry reports a run in flight while it waits for the other tabs", () => {
+                const { entry, asked } = setup();
+                expect(asked).toHaveBeenCalledTimes(1);
+                expect(entry._isInFlight).toBe(true);
+                expect(entry.state$.peek().status).toBe("pending");
+            });
+
+            it("fetch join: resolves with the other tab's answer, no query of its own", async () => {
+                const { resource, runs, answer } = setup();
+                const fetched = resource.fetch(1, { inFlight: "join" });
+                expect(runs).toHaveLength(0);
+
+                answer({ data: "from-tab" });
+                await expect(fetched).resolves.toBe("from-tab");
+                expect(runs).toHaveLength(0);
+            });
+
+            it("fetch join: a `null` answer falls through to the query, and that result is the answer", async () => {
+                const { resource, runs, answer } = setup();
+                const fetched = resource.fetch(1, { inFlight: "join" });
+
+                answer(null);
+                await flushMicrotasks();
+                expect(runs).toHaveLength(1);
+                runs[0]!.resolve("from-query");
+                await expect(fetched).resolves.toBe("from-query");
+            });
+
+            it("fetch cancel: drops the wait and queries at once; the late answer is ignored", async () => {
+                const { resource, runs, answer } = setup();
+                const fetched = resource.fetch(1);
+                expect(runs).toHaveLength(1);
+
+                answer({ data: "from-tab" });
+                await flushMicrotasks();
+                expect(resource.getState(1).status).toBe("pending");
+
+                runs[0]!.resolve("from-query");
+                await expect(fetched).resolves.toBe("from-query");
+                expect(runs).toHaveLength(1);
+            });
+
+            it.each([{ data: "from-tab" }, null])(
+                "fetch trail: lets the round-trip (answer %o) and its run finish, then resolves with a fresh query",
+                async (result) => {
+                    const { resource, runs, answer } = setup();
+                    let settled: string | null = null;
+                    const fetched = resource.fetch(1, { inFlight: "trail" }).then((data) => {
+                        settled = data;
+                        return data;
+                    });
+                    expect(runs).toHaveLength(0);
+
+                    answer(result);
+                    await flushMicrotasks();
+                    if (result === null) {
+                        // The round-trip turned into the query; that run is trailed too.
+                        expect(runs).toHaveLength(1);
+                        runs[0]!.resolve("fallback");
+                        await flushMicrotasks();
+                    }
+                    expect(runs).toHaveLength(result === null ? 2 : 1);
+                    expect(settled).toBeNull();
+
+                    runs.at(-1)!.resolve("fresh");
+                    await expect(fetched).resolves.toBe("fresh");
+                },
+            );
+
+            it("prefetch({ force: true, inFlight: 'join' }) settles with the other tab's answer", async () => {
+                const { resource, runs, answer } = setup();
+                let isSettled = false;
+                const prefetched = resource.prefetch(1, { force: true, inFlight: "join" }).then(() => {
+                    isSettled = true;
+                });
+
+                answer({ data: "from-tab" });
+                await flushMicrotasks();
+                await flushMicrotasks();
+                expect(isSettled).toBe(true);
+                await prefetched;
+                expect(runs).toHaveLength(0);
+                expect(resource.getState(1)).toMatchObject({ status: "success", data: "from-tab" });
+            });
+
+            it("invalidate() under join on a held entry is a no-op: the answer lands, nothing follows", async () => {
+                const { resource, runs, answer, entry } = setup();
+                entry.hold();
+
+                resource.invalidate(1, { inFlight: "join" });
+                expect(entry.isInvalidated).toBe(false);
+
+                answer({ data: "from-tab" });
+                await flushMicrotasks();
+                expect(runs).toHaveLength(0);
+                expect(entry.state$.peek()).toMatchObject({ status: "success", data: "from-tab" });
+            });
+
+            it("invalidate() under trail on a held entry re-queries once the answer landed", async () => {
+                const { resource, runs, answer, entry } = setup();
+                entry.hold();
+
+                resource.invalidate(1, { inFlight: "trail" });
+                expect(runs).toHaveLength(0);
+
+                answer({ data: "from-tab" });
+                await flushMicrotasks();
+                expect(runs).toHaveLength(1);
+                expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "from-tab" });
+            });
+        });
     });
 });
 
@@ -938,7 +1975,8 @@ describe("SWR scenarios", () => {
             },
         });
 
-        resource.getEntry(1, true);
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().data).toBe("stale");
 
@@ -976,6 +2014,8 @@ describe("SWR scenarios", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
 
         const entry = resource.getEntry(1);
@@ -1053,6 +2093,8 @@ describe("entry state interactions", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         const entry = resource.getEntry(1)!;
         expect(entry.state$.peek().status).toBe("invalidating");
@@ -1241,6 +2283,8 @@ describe("onQueryStarted lifecycle", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -1635,6 +2679,8 @@ describe("Error flows", () => {
         await flushMicrotasks();
         expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -1658,6 +2704,8 @@ describe("Error flows", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -1687,6 +2735,8 @@ describe("Error flows", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -2237,6 +3287,8 @@ describe("Lifecycle hooks error paths", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -2247,18 +3299,25 @@ describe("Lifecycle hooks error paths", () => {
 // ==================== Concurrent trigger abort/cancel ====================
 
 describe("Concurrent trigger abort/cancel", () => {
-    it("invalidate on a pending entry is a no-op (invalidate() is invalid from pending)", async () => {
-        const queryFn = vi.fn(() => new Promise<string>(() => {})); // never resolves
+    it("invalidate on a pending entry restarts the run (the default in-flight policy is cancel)", async () => {
+        const signals: AbortSignal[] = [];
+        const queryFn = vi.fn((_args: number, signal: AbortSignal) => {
+            signals.push(signal);
+            return new Promise<string>(() => {}); // never resolves
+        });
 
         const resource = createResource<number, string>({ queryFn });
 
-        resource.getEntry(1, true);
+        // Held, as an entry with a mounted consumer is.
+        holdEntry(resource, 1);
         expect(queryFn).toHaveBeenCalledTimes(1);
 
-        // invalidate() is invalid from pending
+        // The run in flight is cancelled and started over.
         resource.invalidate(1);
-        // queryFn should NOT be called again — invalidate() was a no-op
-        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(signals[0]!.aborted).toBe(true);
+        expect(signals[1]!.aborted).toBe(false);
+        expect(resource.getState(1).status).toBe("pending");
     });
 
     it("each execution receives a distinct AbortSignal", async () => {
@@ -2275,6 +3334,8 @@ describe("Concurrent trigger abort/cancel", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -2301,6 +3362,8 @@ describe("Concurrent trigger abort/cancel", () => {
         expect(resource.getEntry(1)!.state$.peek().status).toBe("success");
 
         // Start the invalidation → entry goes to invalidating, _execute creates new AbortController
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
@@ -2353,6 +3416,8 @@ describe("Concurrent trigger abort/cancel", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
@@ -2641,6 +3706,8 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
 
         // Abort patch 1 → patch 2's forward patches reference items[1] which won't exist
         // This should trigger consistency violation + automatic invalidation
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        entry.hold();
         h1.abort();
 
         // After consistency violation, the automatic invalidation kicks in
@@ -2698,6 +3765,8 @@ describe("Resource — multi-key invalidation isolation", () => {
 
         const entry2DataBefore = entry2.state$.peek().data;
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -2796,6 +3865,8 @@ describe("Resource.ensure", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         expect(resource.getEntry(1)!.state$.peek().status).toBe("invalidating");
 
@@ -2883,7 +3954,7 @@ describe("Resource.fetch", () => {
         expect(callCount).toBe(2);
     });
 
-    it("dedups against an in-flight query instead of starting another", async () => {
+    it("with inFlight: 'join' dedups against an in-flight query instead of starting another", async () => {
         let resolveQuery!: (v: string) => void;
         const queryFn = vi.fn(
             () =>
@@ -2894,7 +3965,7 @@ describe("Resource.fetch", () => {
         const resource = createResource<number, string>({ queryFn });
 
         const p1 = resource.fetch(1);
-        const p2 = resource.fetch(1);
+        const p2 = resource.fetch(1, { inFlight: "join" });
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         resolveQuery("data");
@@ -3048,7 +4119,7 @@ describe("Resource.prefetch", () => {
         expect(callCount).toBe(2);
     });
 
-    it("force: awaits an in-flight query instead of starting another", async () => {
+    it("force with inFlight: 'join' awaits an in-flight query instead of starting another", async () => {
         let resolveQuery!: (v: string) => void;
         const queryFn = vi.fn(
             () =>
@@ -3059,7 +4130,7 @@ describe("Resource.prefetch", () => {
         const resource = createResource<number, string>({ queryFn });
 
         void resource.prefetch(1);
-        const p = resource.prefetch(1, { force: true });
+        const p = resource.prefetch(1, { force: true, inFlight: "join" });
         expect(queryFn).toHaveBeenCalledTimes(1);
 
         resolveQuery("data");
@@ -3247,6 +4318,8 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        entry.hold();
         entry.invalidate();
         expect(entry.state$.peek().status).toBe("invalidating");
 
@@ -3354,6 +4427,8 @@ describe("Resource.getState — entry-state matrix", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -3417,6 +4492,8 @@ describe("Resource.getState — entry-state matrix", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
 
@@ -3494,6 +4571,8 @@ describe("Resource.getState — entry-state matrix", () => {
         resource.getEntry(1, true);
         await flushMicrotasks();
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
         await flushMicrotasks();
         expect(resource.getState(1)).toMatchObject({ status: "error", dataSource: "current" });
@@ -3581,6 +4660,8 @@ describe("Resource.getState — entry-state matrix", () => {
         await flushMicrotasks();
         expect(resource.getState(1)).toMatchObject({ status: "error", hasError: true });
 
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.invalidate(1);
 
         expect(resource.getState(1)).toEqual({
@@ -3709,6 +4790,8 @@ describe("Resource — synchronous throw from queryFn", () => {
         await flushMicrotasks();
 
         const entry = resource.getEntry(1)!;
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        entry.hold();
         entry.invalidate();
         await flushMicrotasks();
 
@@ -3825,6 +4908,8 @@ describe("Resource — deprecated aliases", () => {
         await flushMicrotasks();
 
         const invalidate = vi.spyOn(resource, "invalidate");
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        holdEntry(resource, 1);
         resource.refresh(1);
 
         expect(invalidate).toHaveBeenCalledTimes(1);
@@ -3867,6 +4952,8 @@ describe("Resource — deprecated aliases", () => {
 
         const entry = resource.getEntry(1)!;
         const invalidate = vi.spyOn(entry, "invalidate");
+        // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
+        entry.hold();
         entry.refresh();
 
         expect(invalidate).toHaveBeenCalledTimes(1);

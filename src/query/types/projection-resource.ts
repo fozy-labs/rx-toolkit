@@ -1,6 +1,6 @@
 import type { TLifecycleHookOption } from "./api";
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { TRetentionTime } from "./common";
+import type { TInFlightPolicy, TRetentionTime } from "./common";
 import type { IResource, TResourceEntryIdleState, TResourceEntryState } from "./resource";
 
 // ==================== Projection Resource Types ====================
@@ -65,4 +65,26 @@ export interface TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResDat
     retentionTime?: TRetentionTime<TArgs, Exclude<TResourceEntryState<TArgs, TItem[]>, TResourceEntryIdleState>>;
     /** Serializes the projection resource's own args into a cache key. */
     serializeArgs?: (args: TArgs) => string;
+    /**
+     * What invalidating an id-set entry does to the wrapped resource's
+     * requests in flight for its ids, unless the call says otherwise. The
+     * id-set entry's own run — a live projection of the item cache — is never
+     * restarted: it re-fetches its ids through the wrapped resource and
+     * re-emits once the fresh items land.
+     *
+     * - `"cancel"` — one fresh request for every id of the set, issued now; a
+     *   request in flight for exactly the same ids is aborted and reissued,
+     *   answers of other requests begun earlier never overwrite its items.
+     * - `"trail"` — the requests in flight for the set's ids settle first,
+     *   then one fresh request for every id goes out.
+     * - `"join"` — the requests in flight for the set's ids are the answer
+     *   for the ids they cover; only the rest are requested. Beware: such a
+     *   request may predate whatever made the data stale.
+     *
+     * Independent of the wrapped resource's own `invalidateInFlight`, which
+     * governs invalidations of the wrapped resource itself.
+     *
+     * @default "cancel"
+     */
+    invalidateInFlight?: TInFlightPolicy;
 }

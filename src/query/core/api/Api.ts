@@ -13,6 +13,7 @@ import type {
     TResourceOptions,
 } from "@/query/types";
 
+import type { TQueryCacheEntryInternals } from "../cache/QueryCacheEntry";
 import { Command } from "../command/Command";
 import { ProjectionRuntime } from "../projection-resource/ProjectionRuntime";
 import { Resource } from "../resource/Resource";
@@ -95,7 +96,18 @@ export class Api implements IApi {
         this.syncer?.connect();
     }
 
-    createResource = <TArgs = void, TData = unknown>(opts: TResourceOptions<TArgs, TData>): IResource<TArgs, TData> => {
+    createResource = <TArgs = void, TData = unknown>(opts: TResourceOptions<TArgs, TData>): IResource<TArgs, TData> =>
+        this._createResource(opts);
+
+    /**
+     * {@link createResource} plus the internal wiring a resource built by the
+     * library itself may need (the projection resource's in-place
+     * revalidation) — kept out of the public {@link TResourceOptions}.
+     */
+    private _createResource<TArgs, TData>(
+        opts: TResourceOptions<TArgs, TData>,
+        entryInternals: TQueryCacheEntryInternals = {},
+    ): IResource<TArgs, TData> {
         const effectiveRetentionTime =
             opts.retentionTime !== undefined ? opts.retentionTime : this.apiResourceRetentionTime;
 
@@ -127,12 +139,13 @@ export class Api implements IApi {
             snapshot: initialEntries,
             snapshotable: opts.snapshotable,
             allowStreamPatches: opts.allowStreamPatches,
+            invalidateInFlight: opts.invalidateInFlight,
             beforeQuery: syncEnabled
                 ? (this.syncer!.beforeQuery as IResourceConfig<TArgs, TData>["beforeQuery"])
                 : undefined,
         };
 
-        const resource = new Resource<TArgs, TData>(config);
+        const resource = new Resource<TArgs, TData>(config, entryInternals);
 
         // Track for resetAll / getSnapshot
         this.resources.push(resource);
@@ -154,7 +167,7 @@ export class Api implements IApi {
         Object.assign(resource, augmented);
 
         return resource;
-    };
+    }
 
     /**
      * Create a projection resource: a wrapper over an existing resource that fetches
@@ -174,20 +187,27 @@ export class Api implements IApi {
         // wrapped resource owns the data that goes into SSR snapshots. The
         // generic stream-patch warning is suppressed: projection runs are always
         // open streams (live item-cache projections), and the runtime raises
-        // its own, more precise set-local patch warning instead.
-        const resource = this.createResource<TArgs, TItem[]>({
-            queryFn: runtime.queryFn,
-            key: opts.key,
-            retentionTime: opts.retentionTime,
-            serializeArgs: opts.serializeArgs,
-            // Runtime bookkeeping first: its synchronous item refcounting must
-            // be in place before any consumer hook observes the entry.
-            onCacheEntryAdded: mergeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
-            onQueryStarted: opts.onQueryStarted,
-            snapshotable: false,
-            sync: false,
-            allowStreamPatches: true,
-        });
+        // its own, more precise set-local patch warning instead. An id-set
+        // entry never restarts its run to revalidate: the live run re-fetches
+        // its ids through the wrapped resource under the in-flight policy
+        // (`revalidateInRun`), and re-emits once the fresh items land.
+        const resource = this._createResource<TArgs, TItem[]>(
+            {
+                queryFn: runtime.queryFn,
+                key: opts.key,
+                retentionTime: opts.retentionTime,
+                serializeArgs: opts.serializeArgs,
+                // Runtime bookkeeping first: its synchronous item refcounting must
+                // be in place before any consumer hook observes the entry.
+                onCacheEntryAdded: mergeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
+                onQueryStarted: opts.onQueryStarted,
+                invalidateInFlight: opts.invalidateInFlight,
+                snapshotable: false,
+                sync: false,
+                allowStreamPatches: true,
+            },
+            { revalidateInRun: runtime.revalidateInRun },
+        );
 
         runtime.attach(resource);
 

@@ -5,14 +5,19 @@ import type { ReadonlySignal } from "@/signals/types";
 
 import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { TArgsOrKeyed, TArgsOrVoid, TKeyed, TRetentionTime } from "./common";
+import type { TArgsOrKeyed, TArgsOrVoid, TInFlightPolicy, TInvalidateOptions, TKeyed, TRetentionTime } from "./common";
 import type { TDataSlotCurrent, TDataSlotNone, TErrorSlot, TResourceClutchState } from "./state";
 
 // ==================== Resource Interface ====================
 
 export interface IResource<TArgs, TData, TError = unknown> {
-    /** Mark the entry for these arguments stale and re-query it in the background. */
-    invalidate(args: TArgsOrKeyed<TArgs>): void;
+    /**
+     * Mark the entry for these arguments stale and re-query it: at once when
+     * the entry is held, on its next hold otherwise. With a run in flight,
+     * `opts.inFlight` (else the resource's `invalidateInFlight`) decides whether
+     * it is cancelled, trailed or joined.
+     */
+    invalidate(args: TArgsOrKeyed<TArgs>, opts?: TInvalidateOptions): void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(args: TArgsOrKeyed<TArgs>): void;
     getEntry(args: TArgsOrVoid<TArgs>, doInitiate: true): IQueryCacheEntry<TArgs, TData>;
@@ -29,7 +34,7 @@ export interface IResource<TArgs, TData, TError = unknown> {
     /** @deprecated Renamed to {@link bind}. Will be removed in 0.14.0. */
     pack(args: TArgsOrKeyed<TArgs>): TBoundResource<TArgs, TData, TError>;
     /** Resolve with cached data, loading it first when absent. Rejects on failure/abort. */
-    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
+    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceEnsureOptions): Promise<TData>;
     /** Resolve with the result of a fresh query. Rejects on failure/abort. */
     fetch(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData>;
     /** Fire-and-forget cache warm-up; creates the entry synchronously, never rejects. */
@@ -38,11 +43,8 @@ export interface IResource<TArgs, TData, TError = unknown> {
 
 // ==================== Fetch Options ====================
 
-/**
- * Options for the imperative {@link IResource.ensure} / {@link IResource.fetch}
- * methods.
- */
-export interface TResourceFetchOptions {
+/** Options for the imperative {@link IResource.ensure}. */
+export interface TResourceEnsureOptions {
     /**
      * Detaches the caller from the awaited query when aborted: the returned
      * promise rejects with the signal's reason. The underlying query is left
@@ -53,14 +55,65 @@ export interface TResourceFetchOptions {
     signal?: AbortSignal;
 }
 
-/** Options for {@link IResource.prefetch}. */
-export interface TResourcePrefetchOptions {
+/** Options for the imperative {@link IResource.fetch}. */
+export interface TResourceFetchOptions extends TResourceEnsureOptions {
     /**
-     * When `true`, warms the cache with *fresh* data: an existing entry is
-     * invalidated (or retried after an error) instead of being reused as-is —
-     * the fire-and-forget counterpart of {@link IResource.fetch}.
+     * What `fetch` does with a query run already in flight for these args — a
+     * promise not yet settled, or a stream whose subscription is open
+     * (`success` included):
+     *
+     * - `"cancel"` — the run is aborted and `fetch` resolves with a fresh
+     *   run's result;
+     * - `"trail"` — the run is left to settle, then a fresh run goes out and
+     *   `fetch` resolves with its result (on an open stream: once the stream
+     *   ends);
+     * - `"join"` — `fetch` resolves with the run in flight's result (an open
+     *   stream at `success` already has it).
+     *
+     * With nothing in flight it makes no difference: the entry is re-queried
+     * (or retried after an error) and the fresh result awaited. On a
+     * projection resource an id-set whose load has landed has nothing in
+     * flight: `fetch` reloads its ids under this policy, applied to the
+     * wrapped resource's requests. Deliberately not the resource's
+     * `invalidateInFlight`: a `fetch` asks for a fresh result.
+     *
+     * @default "cancel"
      */
-    force?: boolean;
+    inFlight?: TInFlightPolicy;
+}
+
+/**
+ * Options for {@link IResource.prefetch}: a warm-up that reuses cached data,
+ * or — with `force: true` — one that warms with fresh data. Discriminated by
+ * `force`, so `inFlight` only type-checks together with `force: true` (it
+ * would be ignored otherwise). A `force` held in a `boolean` variable is
+ * accepted without `inFlight`.
+ */
+export type TResourcePrefetchOptions = TResourcePrefetchCachedOptions | TResourcePrefetchForceOptions;
+
+/** {@link TResourcePrefetchOptions} of a warm-up that reuses cached data. */
+export interface TResourcePrefetchCachedOptions {
+    /** Reuse cached data as-is (the default). */
+    force?: false;
+    /** Only valid with `force: true`: without it there is no in-flight decision to make. */
+    inFlight?: never;
+}
+
+/** {@link TResourcePrefetchOptions} of a warm-up with fresh data. */
+export interface TResourcePrefetchForceOptions {
+    /**
+     * Warm the cache with *fresh* data: an existing entry is invalidated (or
+     * retried after an error) instead of being reused as-is — the
+     * fire-and-forget counterpart of {@link IResource.fetch}.
+     */
+    force: true;
+    /**
+     * What happens to a query run already in flight — see
+     * {@link TResourceFetchOptions.inFlight}.
+     *
+     * @default "cancel"
+     */
+    inFlight?: TInFlightPolicy;
 }
 
 // ==================== Bound Descriptor ====================
@@ -190,7 +243,12 @@ export interface IResourceClutch<TArgs, TData, TError = unknown> {
      */
     adoptPrevious(source: IResourceClutch<TArgs, TData, TError>): void;
     retry(): void;
-    invalidate(): void;
+    /**
+     * Re-query the current args and clear the failure. With a run in flight,
+     * `opts.inFlight` (else the resource's `invalidateInFlight`) decides whether
+     * it is cancelled, trailed or joined.
+     */
+    invalidate(opts?: TInvalidateOptions): void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(): void;
     /**
@@ -273,6 +331,14 @@ export interface TResourceOptions<TArgs, TData> {
      * is intended. Defaults to `false`.
      */
     allowStreamPatches?: boolean;
+    /**
+     * What `invalidate()` does to a query run in flight — from a call, a
+     * command link or a consistency violation — unless the call says otherwise.
+     * See {@link TInFlightPolicy}.
+     *
+     * @default "cancel"
+     */
+    invalidateInFlight?: TInFlightPolicy;
 }
 
 // ==================== Resource Config (internal) ====================
@@ -301,6 +367,8 @@ export interface IResourceConfig<TArgs, TData> {
     beforeQuery?: (resourceKey: string, entryKey: string) => Promise<{ data: TData } | null>;
     /** See {@link TResourceOptions.allowStreamPatches}. Defaults to `false`. */
     allowStreamPatches?: boolean;
+    /** See {@link TResourceOptions.invalidateInFlight}. Defaults to `"cancel"`. */
+    invalidateInFlight?: TInFlightPolicy;
 }
 
 // ==================== Deprecated Aliases ====================

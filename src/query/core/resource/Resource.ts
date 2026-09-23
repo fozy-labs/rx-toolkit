@@ -9,11 +9,14 @@ import type {
     TArgsOrVoid,
     TBoundResource,
     TCacheEntryAddedContext,
+    TInFlightPolicy,
+    TInvalidateOptions,
     TKeyed,
     TMapError,
     TQueryEntryState,
     TQueryFnResult,
     TQueryStartedContext,
+    TResourceEnsureOptions,
     TResourceEntryState,
     TResourceFetchOptions,
     TResourcePrefetchOptions,
@@ -22,8 +25,8 @@ import { Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
 
 import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
-import { QueryCacheEntry } from "../cache/QueryCacheEntry";
-import { pendingEntryState, snapshotEntryState } from "../machine/machine-helpers";
+import { QueryCacheEntry, type TQueryCacheEntryInternals } from "../cache/QueryCacheEntry";
+import { snapshotEntryState } from "../machine/machine-helpers";
 
 import { buildEntryState, IDLE_ENTRY_STATE } from "./entry-state";
 import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
@@ -54,6 +57,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private readonly _onQueryStarted;
     private readonly _beforeQuery?;
     private readonly _allowStreamPatches: boolean;
+    private readonly _invalidateInFlight: TInFlightPolicy | undefined;
+    /** Core-only wiring handed to every entry as is (see {@link TQueryCacheEntryInternals}). */
+    private readonly _entryInternals: TQueryCacheEntryInternals;
     private _streamPatchWarned = false;
     /**
      * @internal Read by {@link ResourceClutch} to build its placeholder state.
@@ -61,7 +67,13 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      */
     readonly _placeholderData: IResourceConfig<TArgs, TData>["placeholderData"];
 
-    constructor(config: IResourceConfig<TArgs, TData>) {
+    /**
+     * @param config - The resource's configuration.
+     * @param entryInternals - Core-only wiring for the library's own resources
+     *   (the projection resource's in-place revalidation), handed to every
+     *   entry as is. Not part of the public {@link IResourceConfig}.
+     */
+    constructor(config: IResourceConfig<TArgs, TData>, entryInternals: TQueryCacheEntryInternals = {}) {
         this._queryFn = config.queryFn;
         this._key = config.key;
         this._snapshotable = config.snapshotable ?? true;
@@ -72,6 +84,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._onQueryStarted = config.onQueryStarted;
         this._beforeQuery = config.beforeQuery;
         this._allowStreamPatches = config.allowStreamPatches ?? false;
+        this._invalidateInFlight = config.invalidateInFlight;
+        this._entryInternals = entryInternals;
         this._placeholderData = config.placeholderData;
 
         if (config.snapshot) {
@@ -91,19 +105,25 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Re-check what the entry shows and re-query it, clearing any failure it
      * holds: data is re-fetched behind itself (SWR), and a failed entry starts
-     * over as a plain load. No-op when no entry exists for these arguments.
-     * Use `getEntry(args)?.retry()` to re-run a failed query with the failure
-     * kept on screen instead.
+     * over as a plain load. Lazy: an entry nobody holds is only marked and
+     * re-queries on its next hold — a subscription, {@link ensure} or
+     * {@link fetch}. With a query in flight, `opts.inFlight` — else the
+     * resource's `invalidateInFlight` — decides whether that run is
+     * cancelled, trailed or joined. No-op when no entry exists for these
+     * arguments. Use
+     * `getEntry(args)?.retry()` to re-run a failed query with the failure kept
+     * on screen instead.
      *
      * @param args - Query arguments identifying the cache entry.
+     * @param opts - See {@link TInvalidateOptions}.
      */
-    invalidate(args: TArgsOrKeyed<TArgs>): void {
+    invalidate(args: TArgsOrKeyed<TArgs>, opts?: TInvalidateOptions): void {
         const keyed = this.toKeyed(args);
 
         const entry = this._cache.get(keyed.key);
 
         if (entry) {
-            entry.invalidate();
+            entry.invalidate(opts);
         }
     }
 
@@ -270,9 +290,9 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * data, then a component mounts and subscribes within the retention window.
      *
      * @param args - Query arguments (or a {@link TKeyed} wrapper).
-     * @param options - See {@link TResourceFetchOptions}.
+     * @param options - See {@link TResourceEnsureOptions}.
      */
-    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceFetchOptions): Promise<TData> {
+    ensure(args: TArgsOrKeyed<TArgs>, options?: TResourceEnsureOptions): Promise<TData> {
         if (options?.signal?.aborted) {
             return Promise.reject(abortReason(options.signal));
         }
@@ -293,8 +313,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
 
         // A failed entry has no data to hand back — kick off a retry before
-        // awaiting. `peek()`, not `state$.peek()`: the latter subscribes and
-        // unsubscribes the shared stream, which counts as a retention cycle.
+        // awaiting. A marked (lazily invalidated) entry resolves with the data
+        // it has; the hold `whenLoaded` takes starts its revalidation behind.
         if (existing.peek().status === "error") {
             existing.retry();
         }
@@ -305,12 +325,17 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     /**
      * Fetch fresh data for the given arguments and resolve with it.
      *
-     * Unlike {@link ensure}, this always reflects the result of a fresh query: a
-     * cached entry is invalidated (or retried) and the new result awaited; an
-     * in-flight query is awaited rather than duplicated. Rejects if the query
-     * fails, the entry is removed, or `options.signal` aborts. With cross-tab
-     * sync enabled, a cold entry may be filled from another tab's cache
-     * (`beforeQuery`) instead of this tab's own network round-trip.
+     * Unlike {@link ensure}, this reflects the result of a fresh query: a
+     * cached entry is invalidated (or retried) and the new result awaited. A
+     * query run already in flight — a stream open at `success` included — is
+     * handled by `options.inFlight`, `"cancel"` by default whatever the
+     * resource's `invalidateInFlight`: aborted and replaced (`cancel`), left
+     * to settle and followed by a fresh run (`trail`; an open stream is
+     * waited out), or taken as the answer (`join`). Rejects if the query
+     * fails, the entry is removed, or `options.signal` aborts — which only
+     * detaches the caller. With cross-tab sync enabled, a cold entry may be
+     * filled from another tab's cache (`beforeQuery`) instead of this tab's
+     * own network round-trip; that round-trip is the entry's run in flight.
      *
      * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @param options - See {@link TResourceFetchOptions}.
@@ -333,16 +358,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return this._getOrCreate(keyed).whenFetched(options?.signal);
         }
 
-        // See ensure: a read must not go through the refcounted `state$`.
-        const status = existing.peek().status;
-        if (status === "success" || status === "invalidate-error") {
-            existing.invalidate();
-        } else if (status === "error") {
-            existing.retry();
-        }
-        // pending / invalidating → a query is already in flight; await its result.
-
-        return existing.whenFetched(options?.signal);
+        // The in-flight policy is the call's own — `cancel` unless it says
+        // otherwise — never the resource's `invalidateInFlight`: a fetch asks
+        // for a fresh result. See `QueryCacheEntry._fetch`.
+        return existing._fetch(options?.inFlight ?? "cancel", options?.signal);
     }
 
     /**
@@ -352,13 +371,14 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * the entry synchronously, never rejects, and — unlike {@link ensure} — is
      * intentionally not abort-aware so speculative warm-ups survive navigation.
      * With `options.force` it warms with *fresh* data instead (a fire-and-forget
-     * {@link fetch}): an existing entry is invalidated, or retried after an error.
+     * {@link fetch}, `options.inFlight` included): an existing entry is
+     * invalidated, or retried after an error.
      *
      * @param args - Query arguments (or a {@link TKeyed} wrapper).
      * @param options - See {@link TResourcePrefetchOptions}.
      */
     prefetch(args: TArgsOrKeyed<TArgs>, options?: TResourcePrefetchOptions): Promise<void> {
-        const settled = options?.force ? this.fetch(args) : this.ensure(args);
+        const settled = options?.force ? this.fetch(args, { inFlight: options.inFlight }) : this.ensure(args);
         return settled.then(
             () => undefined,
             () => undefined,
@@ -379,11 +399,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         // Row 1 — no entry for these arguments.
         if (!entry) return IDLE_ENTRY_STATE;
 
-        // `peek()` reads the stored record directly. Going through `state$`
-        // would subscribe and unsubscribe the shared stream, and that is an
-        // `active → retention` transition: it would restart the entry's
-        // retention countdown and evaluate a `retentionTime` function, neither
-        // of which a synchronous read is entitled to do.
+        // A plain read of the stored record: no hold, so it neither counts as
+        // a retention cycle nor starts the revalidation a marked entry owes.
         return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.peek());
     }
 
@@ -429,16 +446,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         );
     };
 
-    /** Get an existing cache entry or create a new one. */
+    /** Get the existing cache entry or create a new one. */
     private _getOrCreate(args: TArgsOrKeyed<TArgs>): QueryCacheEntry<TArgs, TData> {
         const keyed = this.toKeyed(args);
-        const existing = this._cache.get(keyed.key);
-
-        if (existing) {
-            return existing;
-        }
-
-        return this._createEntry(keyed);
+        return this._cache.get(keyed.key) ?? this._createEntry(keyed);
     }
 
     /**
@@ -455,6 +466,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private _createEntry(
         keyed: TKeyed<TArgs>,
         initialState?: TQueryEntryState<TArgs, TData>,
+        isInvalidated = false,
     ): QueryCacheEntry<TArgs, TData> {
         // ── beforeQuery sync intercept ──
         // If beforeQuery is set AND there's no snapshot (initialState), intercept
@@ -463,13 +475,14 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return this._createEntryWithBeforeQuery(keyed);
         }
 
-        return this._createEntryDirect(keyed, initialState);
+        return this._createEntryDirect(keyed, initialState, isInvalidated);
     }
 
-    /** Standard entry creation: queryFn auto-executes in constructor. */
+    /** Standard entry creation: queryFn auto-executes in constructor (unless hydrated). */
     private _createEntryDirect(
         keyed: TKeyed<TArgs>,
         initialState?: TQueryEntryState<TArgs, TData>,
+        isInvalidated = false,
     ): QueryCacheEntry<TArgs, TData> {
         // Capture the initial run's lifecycle context for onQueryStarted.
         // During the QueryCacheEntry constructor, _execute() fires synchronously,
@@ -498,17 +511,22 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return result;
         };
 
-        entry = new QueryCacheEntry<TArgs, TData>({
-            queryFn: wrappedQueryFn,
-            retentionTime: this._entryRetentionTime(keyed),
-            keyedArgs: keyed,
-            resourceKey: this._key,
-            mapError: this._mapError,
-            errorSource: "query",
-            initialState,
-            beforeDevtoolsPush: undefined,
-            onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
-        });
+        entry = new QueryCacheEntry<TArgs, TData>(
+            {
+                queryFn: wrappedQueryFn,
+                retentionTime: this._entryRetentionTime(keyed),
+                keyedArgs: keyed,
+                resourceKey: this._key,
+                mapError: this._mapError,
+                errorSource: "query",
+                initialState,
+                isInvalidated,
+                invalidateInFlight: this._invalidateInFlight,
+                beforeDevtoolsPush: undefined,
+                onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
+            },
+            this._entryInternals,
+        );
 
         // Register in cache
         this._cache.set(keyed.key, entry);
@@ -529,8 +547,15 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         return entry;
     }
 
-    /** Entry creation with beforeQuery intercept: starts in pending, asks other tabs first. */
+    /**
+     * Entry creation with the beforeQuery intercept: the first run asks other
+     * tabs first and falls back to queryFn. The round-trip is that run in
+     * flight (see `TQueryCacheEntryInternals.coldLoad`), so `invalidate()`,
+     * `fetch` and the other in-flight paths treat it as any run.
+     */
     private _createEntryWithBeforeQuery(keyed: TKeyed<TArgs>): QueryCacheEntry<TArgs, TData> {
+        // queryFn is only reached after the round-trip, never during the
+        // constructor — `entry` is assigned by then.
         const wrappedQueryFn = (keyedArgs: TKeyed<TArgs>, signal: AbortSignal): TQueryFnResult<TData> => {
             const raw = this._callQueryFn(keyedArgs.value, signal);
 
@@ -541,18 +566,23 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return result;
         };
 
-        // Create entry with an explicit pending state to PREVENT auto-execute
-        const entry = new QueryCacheEntry<TArgs, TData>({
-            queryFn: wrappedQueryFn,
-            retentionTime: this._entryRetentionTime(keyed),
-            keyedArgs: keyed,
-            resourceKey: this._key,
-            mapError: this._mapError,
-            errorSource: "query",
-            initialState: pendingEntryState<TArgs>(keyed.value),
-            beforeDevtoolsPush: undefined,
-            onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
-        });
+        const beforeQuery = this._beforeQuery!;
+        const resourceKey = this._key!;
+
+        const entry: QueryCacheEntry<TArgs, TData> = new QueryCacheEntry<TArgs, TData>(
+            {
+                queryFn: wrappedQueryFn,
+                retentionTime: this._entryRetentionTime(keyed),
+                keyedArgs: keyed,
+                resourceKey: this._key,
+                mapError: this._mapError,
+                errorSource: "query",
+                invalidateInFlight: this._invalidateInFlight,
+                beforeDevtoolsPush: undefined,
+                onStreamPatch: this._allowStreamPatches ? undefined : this._warnStreamPatch,
+            },
+            { ...this._entryInternals, coldLoad: () => beforeQuery(resourceKey, keyed.key) },
+        );
 
         // Register in cache immediately (UI sees pending state)
         this._cache.set(keyed.key, entry);
@@ -563,36 +593,16 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
 
         this._fireOnCacheEntryAdded(entry, keyed);
 
-        // Ask other tabs for data, fall back to queryFn. The rejection handler is
-        // passed as the second `then` argument so it only covers beforeQuery
-        // itself — a throw in the success path must not turn into a fallback run.
-        this._beforeQuery!(this._key!, keyed.key).then(
-            (result) => {
-                // The entry may have been completed (reset / retention GC) while
-                // the cross-tab request was in flight — its state is disposed and
-                // must not be revived or re-executed.
-                if (entry.isCompleted) return;
-
-                if (result) {
-                    const machine = entry._machine;
-                    if (machine.status === "pending") {
-                        entry._setMachine(machine.success(result.data), "sync");
-                    }
-                } else {
-                    entry._execute();
-                }
-            },
-            () => {
-                if (entry.isCompleted) return;
-                entry._execute();
-            },
-        );
-
         return entry;
     }
 
+    /**
+     * Revive a snapshot entry as settled data. A stale one is marked instead of
+     * re-queried: hydration creates entries nobody holds yet, and the query
+     * goes out with the first hold — a subscription, `ensure` or `fetch`.
+     */
     private _hydrateEntry(key: string, meta: { args: TArgs; data: TData; updatedAt: number; isStale: boolean }): void {
-        const initialState = snapshotEntryState<TArgs, TData>(meta, meta.isStale);
+        const initialState = snapshotEntryState<TArgs, TData>(meta);
 
         const keyed = toKeyedUtil<TArgs>(meta.args as TArgsOrKeyed<TArgs>, this._serializeArgs);
 
@@ -604,7 +614,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             return;
         }
 
-        this._createEntry(keyed, initialState);
+        this._createEntry(keyed, initialState, meta.isStale);
     }
 
     private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {

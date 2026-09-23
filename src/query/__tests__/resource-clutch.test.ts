@@ -539,9 +539,12 @@ describe("ResourceClutch — invalidate edges", () => {
 
 describe("ResourceClutch — undrawn edges are a warn + no-op", () => {
     const RETRY_ROWS: TRow[] = [2, 3, 4, 5, 6, 10, 11, 12, 14];
-    // Row 7 is rejected by the clutch, not by the entry: the entry cannot tell
-    // rows 7 / 8 / 13 apart, they are all `error`.
-    const INVALIDATE_ROWS: TRow[] = [2, 3, 4, 6, 7, 10, 11, 12, 14];
+    // The pending rows: a run is in flight. `invalidate()` is not an undrawn
+    // edge there — it applies the resource's in-flight policy (`cancel` by
+    // default: the run restarts, the row stays). Row 7 is rejected by the
+    // clutch, not by the entry: the entry cannot tell rows 7 / 8 / 13 apart,
+    // they are all `error`.
+    const IN_FLIGHT_ROWS: TRow[] = [2, 3, 4, 6, 10, 11, 12, 14];
 
     /** The placeholder-bearing rows need the option; the others must not see it. */
     function harnessFor(row: TRow): Harness {
@@ -587,18 +590,53 @@ describe("ResourceClutch — undrawn edges are a warn + no-op", () => {
         expectRow(t.state(), row, fieldsFor(row));
     });
 
-    it.each(INVALIDATE_ROWS)("invalidate() from row %i warns and changes nothing", async (row) => {
-        const t = harnessFor(row);
-        await driveTo(t, row);
-        warn.mockClear();
-        const before = t.runs();
+    it.each(IN_FLIGHT_ROWS)(
+        "invalidate() from row %i restarts the run in flight (cancel) and keeps the row",
+        async (row) => {
+            const t = harnessFor(row);
+            await driveTo(t, row);
+            warn.mockClear();
+            const before = t.runs();
 
-        expect(() => t.clutch.invalidate()).not.toThrow();
+            expect(() => t.clutch.invalidate()).not.toThrow();
 
-        expect(warn).toHaveBeenCalledTimes(1);
-        expect(t.runs()).toBe(before);
-        expectRow(t.state(), row, fieldsFor(row));
-    });
+            expect(warn).not.toHaveBeenCalled();
+            expect(t.runs()).toBe(before + 1);
+            expectRow(t.state(), row, fieldsFor(row));
+        },
+    );
+
+    it.each(IN_FLIGHT_ROWS)(
+        "invalidate({ inFlight: 'trail' }) from row %i lets the run settle and keeps the row",
+        async (row) => {
+            const t = harnessFor(row);
+            await driveTo(t, row);
+            warn.mockClear();
+            const before = t.runs();
+
+            expect(() => t.clutch.invalidate({ inFlight: "trail" })).not.toThrow();
+
+            expect(warn).not.toHaveBeenCalled();
+            expect(t.runs()).toBe(before);
+            expectRow(t.state(), row, fieldsFor(row));
+        },
+    );
+
+    it.each(IN_FLIGHT_ROWS)(
+        "invalidate({ inFlight: 'join' }) from row %i leaves the run in flight alone and keeps the row",
+        async (row) => {
+            const t = harnessFor(row);
+            await driveTo(t, row);
+            warn.mockClear();
+            const before = t.runs();
+
+            expect(() => t.clutch.invalidate({ inFlight: "join" })).not.toThrow();
+
+            expect(warn).not.toHaveBeenCalled();
+            expect(t.runs()).toBe(before);
+            expectRow(t.state(), row, fieldsFor(row));
+        },
+    );
 
     it("invalidate() from row 7 is rejected by the clutch, while retry() (7 → 10) still works", async () => {
         const t = harness({ placeholder: false });

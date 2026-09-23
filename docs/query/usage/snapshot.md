@@ -5,14 +5,14 @@
 
 ## getSnapshot()
 
-Метод `api.getSnapshot()` собирает **только успешные** записи всех зарегистрированных ресурсов и возвращает объект `TApiSnapshot`:
+Метод `api.getSnapshot()` собирает записи **с данными** (`success`, `invalidate-error`) всех зарегистрированных ресурсов и возвращает объект `TApiSnapshot`:
 
 ```typescript
 const snapshot = api.getSnapshot();
 // → { version, keyPrefix, timestamp, resources: { ... } }
 ```
 
-Каждая запись содержит `args`, `data` и `updatedAt`. Записи в состояниях pending, error и invalidating — пропускаются.
+Поля записи — в [Что сериализуется](#что-сериализуется). Записи в состояниях `pending` и `error` пропускаются, `invalidating` — пока его запрос в полёте. Запись, оставшаяся в `invalidating` без запроса в полёте (её запрос прервал `invalidate()` в режиме `cancel`, пока её никто не удерживал), сериализуется как `success` с `isStale: true`: её данные — последние подтверждённые, а перезапрос ей причитается.
 
 
 ## initialSnapshot
@@ -37,9 +37,9 @@ const api = createApi({
 | Значение | Поведение |
 |---|---|
 | `false` (по умолчанию) | Данные из снимка считаются всегда валидными. |
-| `number` (мс) | Если `Date.now() - updatedAt > snapshotValidTime`, запись автоматически инвалидируется после гидрации. |
+| `number` (мс) | Если `Date.now() - updatedAt > snapshotValidTime`, запись гидрируется помеченной (`entry.isInvalidated`). |
 
-Инвалидация запускает перезапрос — компонент получит свежие данные без дополнительного кода.
+Помеченной гидрируется и запись с `isStale: true` или статусом `invalidate-error` в снимке — независимо от `snapshotValidTime`. Такая запись рождается в `success` с данными снимка; перезапрос уходит при первом [удержании][cache-holds] — подписке компонента, `ensure` / `fetch` / `prefetch`, — а не в момент `createApi`. Компонент видит данные снимка и `isInvalidating: true`, затем свежие. Правило — в [инвалидации тающей записи][cache-invalidation].
 
 Опция ресурса `snapshotable: false` полностью исключает ресурс из механики снимков: он не сериализуется в `getSnapshot()` и не гидрируется из `initialSnapshot`. Используется для производных ресурсов, чьи данные принадлежат другому ресурсу (например, [проекционные ресурсы](./projection-resource.md) выставляют её автоматически).
 
@@ -50,19 +50,21 @@ const api = createApi({
 2. **Передача** — снимок передаётся клиенту как JSON (через `<script>`, props, cookie и т.д.).
 3. **Создание API** — `createApi({ initialSnapshot })` валидирует версию и keyPrefix, сохраняет deep-клон.
 4. **Гидрация ресурсов** — каждый `createResource()` достаёт свой slice и восстанавливает записи в [кэш][cache].
-5. **Авто-инвалидация** — если задан `snapshotValidTime` и запись устарела, она инвалидируется с перезапросом.
+5. **Метка устаревших** — запись, устаревшая по `snapshotValidTime`, `isStale` или статусу, гидрируется помеченной; перезапрос — при первом удержании.
 6. **Consume** — использованный slice удаляется; `resetAll()` обнуляет снимок целиком.
 
 
 ## Что сериализуется
 
-Каждая [успешная запись][cache] содержит три поля:
+Каждая [запись][cache] с данными сериализуется так:
 
 | Поле | Описание |
 |---|---|
+| `status` | `success` или `invalidate-error` (`invalidating` без запроса в полёте пишется как `success`) |
 | `args` | Аргументы запроса |
-| `data` | Данные ответа |
+| `data` | Данные ответа; при незавершённых оптимистичных патчах — подтверждённая база (`originalData`) |
 | `updatedAt` | Время последнего успешного ответа |
+| `isStale` | `entry.isInvalidated` на момент снимка: запись помечена, но перезапрос ещё не ушёл. Всегда `true` у `invalidating` без запроса в полёте |
 
 Версия снимка (`version`) записывается в снимок и используется при гидрации для чтения снимков более старых версий — см. [initialSnapshot](#initialsnapshot).
 
@@ -80,3 +82,5 @@ const api = createApi({
 [cache]: ../concepts/cache.md
 [entry-state]: ../concepts/query-entry-state.md
 [api-readme]: ../api/README.md
+[cache-holds]: ../concepts/cache.md#кто-удерживает-запись
+[cache-invalidation]: ../concepts/cache.md#инвалидация-тающей-записи

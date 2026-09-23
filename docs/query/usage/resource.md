@@ -156,7 +156,7 @@ const data = await usersResource.ensure({ page: 1 });
 const fresh = await usersResource.fetch({ page: 1 });
 ```
 
-Параллельные вызовы с одинаковыми аргументами дедуплицируются — все ждут один общий in-flight запрос. Детали (отмена, retention, `force`) — в [API ресурса][api-resource].
+`ensure` и `prefetch` без `force` своего запроса не отправляют: есть данные (в том числе устаревшие, пока идёт перезапрос) — резолвятся ими сразу; данных нет — дедуплицируются с запросом в полёте и ждут его. `fetch` по умолчанию его прерывает и ждёт новый (`inFlight: 'cancel'`); дождаться текущего — `fetch(args, { inFlight: 'join' })`, дать ему доработать и дождаться следующего — `{ inFlight: 'trail' }`. Детали (отмена, retention, `force`, `inFlight`) — в [API ресурса][api-resource].
 
 `void` перед `prefetch` нужен только чтобы унять `@typescript-eslint/no-floating-promises`: сам промис не реджектится, обрабатывать нечего. Как разрешить вызов в конфиге линтера и писать без `void` — в [API ресурса][prefetch-lint].
 
@@ -166,7 +166,30 @@ const fresh = await usersResource.fetch({ page: 1 });
 usersResource.invalidate({ page: 1 });
 ```
 
-Помечает существующую кэш-запись устаревшей и запускает перезапрос — немедленно и независимо от того, есть ли у неё подписчики. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает из статусов `success`, `invalidate-error` и `error`; на записи с запросом в полёте (`pending` / `invalidating`) — предупреждение в консоль и no-op.
+Помечает существующую кэш-запись устаревшей. Перезапрос **ленивый**: запись, которую кто-то [удерживает][cache-holds] (смонтированный `useResource`, ожидающий `ensure` / `fetch`), перезапрашивается сразу; запись без удержаний только помечается и перезапрашивается при следующем удержании — подписке или `ensure` / `fetch` / `prefetch`. Отсутствующую запись **не создаёт**: на неизвестных аргументах это no-op (в отличие от `fetch`). Работает из статусов `success`, `invalidate-error` и `error`; на записи с запросом в полёте — по режиму `inFlight` (ниже). Правило и таблица удержаний — в [кэше][cache-invalidation].
+
+На помеченной записи `fetch(args)` и `prefetch(args, { force: true })` резолвятся свежими данными; `ensure(args)` и `prefetch(args)` отдают прежние данные сразу и запускают перезапрос в фоне — как на записи, гидрированной из устаревшего [снимка][snapshot]. Нужен запрос прямо сейчас, независимо от подписчиков, — это `fetch` / `prefetch(args, { force: true })`, а не `invalidate`.
+
+#### Запрос уже в полёте: `cancel`, `trail` или `join`
+
+Запрос, ушедший до мутации, может привезти данные «до мутации» — и после ответа запись считалась бы свежей. Поэтому `invalidate()` на записи с запросом в полёте не игнорируется; что он делает с этим запросом, выбирает режим:
+
+- **`cancel`** (по умолчанию) — прерывает запрос через его `AbortSignal`; новый уходит сразу на удерживаемой записи и при следующем удержании на тающей. Результат гарантированно получен после инвалидации.
+- **`trail`** — даёт запросу доработать и перезапрашивает следом, ничего не прерывая.
+- **`join`** — ничего не делает: результат текущего запроса и есть ответ на инвалидацию. Если запрос ушёл до мутации, его данные «до мутации» будут приняты как свежие — выбирайте `join`, только когда запрос в полёте заведомо достаточно свежий. Нарушение консистентности [патчей][patching] идёт тем же путём: под `join` запрос в полёте считается ответом и на него.
+
+Режим задаётся опцией ресурса и перекрывается в вызове:
+
+```typescript
+const usersResource = api.createResource({
+  queryFn: fetchUsers,
+  invalidateInFlight: 'trail', // для всех invalidate этого ресурса
+});
+
+usersResource.invalidate({ page: 1 }, { inFlight: 'cancel' }); // разово
+```
+
+Тот же параметр есть у `clutch.invalidate({ inFlight })` и у [связи][links] (`invalidate: { inFlight }`). Записи без запроса в полёте режим не касается. `fetch(args, { inFlight })` — не инвалидация, и режим у него свой: по умолчанию `cancel`, независимо от `invalidateInFlight` ресурса (см. [API ресурса][api-resource]). Полная таблица, в том числе для стримов, — в [кэше][cache-inflight] и [стриминговых запросах][stream-query-invalidate].
 
 Ошибку `invalidate()` снимает, `retry()` — сохраняет до следующего ответа. Отсюда и выбор: `retry()`, когда упавший запрос повторяет пользователь и ошибку надо оставить на экране; `invalidate()`, когда данные перепроверяются сами (см. [переходы сцепления][clutch-transitions]).
 
@@ -271,9 +294,15 @@ clutch.switch(SKIP);        // idle: data: null, dataSource: "none"
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
 [cache]: ../concepts/cache.md
+[cache-holds]: ../concepts/cache.md#кто-удерживает-запись
+[cache-invalidation]: ../concepts/cache.md#инвалидация-тающей-записи
+[cache-inflight]: ../concepts/cache.md#инвалидация-в-полёте
+[stream-query-invalidate]: ./stream-query.md#инвалидация-при-открытом-стриме
+[snapshot]: ./snapshot.md
 [clutch]: ../concepts/clutch.md
 [api-res-clutch]: ../api/resource-clutch.md
 [clutch-transitions]: ../api/resource-clutch.md#переходы
 [api-getstate]: ../api/resource.md#getstate
 [placeholder]: ../api/resource.md#placeholderdata
 [broadcast]: ./broadcast.md
+[patching]: ../concepts/patching.md

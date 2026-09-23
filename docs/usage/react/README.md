@@ -88,7 +88,7 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `isSwitching`      | `boolean`        | Запрос в полёте, на экране данные предыдущих аргументов (SWR) |
 | `isInvalidating`   | `boolean`        | Запрос в полёте поверх данных текущих аргументов |
 | `retry()`          | `() => void`     | Повторить упавший запрос, оставив ошибку на экране |
-| `invalidate()`     | `() => void`     | Перезапросить показанное, сняв ошибку |
+| `invalidate()`     | `(options?: { inFlight?: 'cancel' \| 'trail' \| 'join' }) => void` | Перезапросить показанное, сняв ошибку; `inFlight` — что делать с запросом в полёте, см. [инвалидацию в полёте](../../query/concepts/cache.md#инвалидация-в-полёте) |
 
 Полная таблица вариантов состояния — в [API сцепления ресурса](../../query/api/resource-clutch.md#варианты-состояния).
 

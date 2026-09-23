@@ -3,7 +3,7 @@ import type { Observable, Subject } from "rxjs";
 import type { ReadonlySignal, TBeforeDevtoolsPushFn } from "@/signals/types";
 
 import type { TMapError } from "./api";
-import type { IPatchHandle, TKeyed, TQueryEntryState } from "./common";
+import type { IPatchHandle, TInFlightPolicy, TInvalidateOptions, TKeyed, TQueryEntryState } from "./common";
 
 // ==================== Cache Interfaces ====================
 
@@ -29,7 +29,15 @@ export interface ICacheEntryOptions<TState> {
  */
 export interface ICacheEntry<TState> {
     readonly completed$: Subject<void>;
+    /** The state as a signal: reading it in a `Computed` / `Effect` holds the entry, `peek()` does not. */
     readonly state$: ReadonlySignal<TState>;
+    /** Whether nobody holds the entry — it is in retention, its `retentionTime` counting down. */
+    readonly isMelting: boolean;
+    /**
+     * Keep the entry `active` without subscribing to its state. Returns the
+     * release; idempotent, and a no-op on a completed entry.
+     */
+    hold(): () => void;
     peek(): TState;
     set(state: TState, actionName?: string): void;
     complete(): void;
@@ -57,10 +65,23 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
     errorSource?: "query" | "command";
     /**
      * State the entry starts in. Supplying it also suppresses the automatic
-     * first run — except for an `invalidating` state (a stale snapshot), which
-     * means "query in flight" and therefore requires a real run.
+     * first run: a `pending` state is a load nobody has started yet (with
+     * {@link isInvalidated} the first hold starts it), a data state is a
+     * hydrated snapshot.
      */
     initialState?: TQueryEntryState<TArgs, TData>;
+    /**
+     * Start the entry marked for revalidation (a stale snapshot): it re-queries
+     * on its first hold instead of at creation. Only meaningful together with
+     * {@link initialState}: without it the automatic first run starts at
+     * creation and clears the mark. Defaults to `false`.
+     */
+    isInvalidated?: boolean;
+    /**
+     * What `invalidate()` does to a run in flight when the call does not say.
+     * See {@link TInFlightPolicy}. Defaults to `"cancel"`.
+     */
+    invalidateInFlight?: TInFlightPolicy;
     beforeDevtoolsPush?: TBeforeDevtoolsPushFn<TQueryEntryState<TArgs, TData>>;
     /**
      * Invoked on every `createPatch` made while a query stream is open. Lets
@@ -73,7 +94,23 @@ export interface IQueryCacheEntryOptions<TArgs, TData> {
 export interface IQueryCacheEntry<TArgs, TData> extends ICacheEntry<TQueryEntryState<TArgs, TData>> {
     readonly keyedArgs: TKeyed<TArgs>;
     // state$ / peek() / set() are inherited from ICacheEntry<TQueryEntryState<TArgs, TData>>
-    invalidate(): void;
+    /**
+     * Whether the entry owes a revalidation: it was invalidated while melting,
+     * or while a run it was told to trail is in flight, or a run left flight
+     * without landing the load the entry waits for. The owed run starts as
+     * soon as the entry is held with nothing in flight — on the next hold, or
+     * when the trailed run settles.
+     */
+    readonly isInvalidated: boolean;
+    /**
+     * Re-check what the entry shows: an active entry re-queries at once, a
+     * melting one is marked and re-queries on its first hold. With a run in
+     * flight, `opts.inFlight` (else the entry's `invalidateInFlight`) decides
+     * whether that run is cancelled, trailed or joined — see
+     * {@link TInFlightPolicy}.
+     * Never throws.
+     */
+    invalidate(opts?: TInvalidateOptions): void;
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
     refresh(): void;
     retry(): void;

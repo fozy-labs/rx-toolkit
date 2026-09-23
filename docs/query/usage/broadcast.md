@@ -5,6 +5,8 @@
     если другая вкладка уже располагает данными, она отвечает (RES) — и сетевой запрос не выполняется.
 Внутри это реализовано через хук `beforeQuery`, который `createApi` автоматически внедряет в каждый ресурс с включённой синхронизацией:
     непосредственно перед вызовом `queryFn` хук отправляет REQ через `syncDriver` и, получив RES, возвращает данные из другой вкладки, минуя сеть.
+Ожидание ответа — запрос холодной записи в полёте, вместе с `queryFn`, в который оно переходит без ответа: `invalidate()`, `fetch` и `prefetch(args, { force: true })` применяют к нему режим `inFlight` ([инвалидация в полёте][cache-inflight]). `join` дожидается ответа, `cancel` бросает ожидание и отправляет свой запрос (поздний ответ игнорируется), `trail` отправляет свежий запрос, когда ожидание закончилось.
+
 Синхронизация управляется через `syncDriver` — опцию `createApi`,
     принимающую реализацию интерфейса `ISyncDriver`.
 
@@ -87,14 +89,17 @@ const markRead = api.createCommand({
 Когда вкладка получает REQ и запись находится в одном из состояний ниже,
 она отвечает RES с соответствующими данными:
 
-| Состояние [записи][entry-state] | Данные в RES   |
-|-----------------------------|----------------|
-| `pending`                   | —              |
-| `success`                   | `data`         |
-| `success` (с патчами)       | `originalData` |
-| `error`                     | —              |
-| `invalidating`              | —              |
-| `invalidate-error`          | —              |
+| Состояние [записи][entry-state]                      | Данные в RES   |
+|------------------------------------------------------|----------------|
+| `pending`                                            | —              |
+| `success`                                            | `data`         |
+| `success` (с патчами)                                | `originalData` |
+| `success`, помеченная инвалидацией (`isInvalidated`) | —              |
+| `error`                                              | —              |
+| `invalidating`                                       | —              |
+| `invalidate-error`                                   | —              |
+
+Помеченная запись ждёт перезапроса ([инвалидация тающей записи][cache-invalidation]) — её данные не заселяют холодную запись другой вкладки как свежие.
 
 
 ## Кастомный syncDriver
@@ -198,6 +203,8 @@ function TodoApp() {
 [api-readme]: ../api/README.md
 [api-resource]: ../api/resource.md
 [cache]: ../concepts/cache.md
+[cache-invalidation]: ../concepts/cache.md#инвалидация-тающей-записи
+[cache-inflight]: ../concepts/cache.md#инвалидация-в-полёте
 [dataflows]: ../concepts/dataflows.md
 [entry-state]: ../concepts/query-entry-state.md
 [patching]: ../concepts/patching.md

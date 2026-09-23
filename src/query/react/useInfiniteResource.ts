@@ -7,6 +7,7 @@ import type {
     TArgsOrKeyed,
     TArgsOrVoidOrSkip,
     TInfiniteResourceState,
+    TInvalidateOptions,
     TKeyed,
     TResourceClutchState,
 } from "@/query/types";
@@ -118,24 +119,25 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
     };
 
     /** See {@link TInfiniteResourceState.invalidate}. */
-    invalidate = (): void => {
+    invalidate = (opts?: TInvalidateOptions): void => {
         for (const page of this._pages$.peek()) {
             const state = page.clutch.state$.peek();
 
-            // A query is already in flight: both `invalidate()` and `retry()`
-            // would be an undrawn edge of the transition diagram — a
-            // `console.warn` plus a no-op. Checked first, because a pending
-            // page may well carry data (an invalidation) or an error (a retry).
-            if (state.isPending) continue;
-
-            if (state.hasData) {
-                // Rows 5 and 9 — re-check what is on screen, clearing the error.
-                page.clutch.invalidate();
-            } else if (state.hasError) {
-                // Row 7 — nothing to re-check, only a failure to repeat.
-                page.clutch.retry();
-            }
             // Row 1 (idle) — the page observes nothing yet.
+            if (state.status === "idle") continue;
+
+            // Row 7 — nothing on screen to re-check, only a failure to repeat
+            // (the clutch rejects `invalidate()` there).
+            if (state.status === "error" && !state.hasData) {
+                page.clutch.retry();
+                continue;
+            }
+
+            // Every other row, a page with a query in flight included: the
+            // clutch re-checks the page, and `opts.inFlight` — else the
+            // resource's `invalidateInFlight` — decides what happens to that
+            // query, exactly as on a single clutch.
+            page.clutch.invalidate(opts);
         }
     };
 

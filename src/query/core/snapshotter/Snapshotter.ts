@@ -71,8 +71,11 @@ export class Snapshotter {
             // An invalidate-error entry's data is last-known-good (a successful
             // fetch that a later invalidation failed to update). The error itself is
             // transient and not worth reviving, so hydrate it as a stale success:
-            // the data shows immediately and a refetch is forced on subscription.
-            let isStale = status === "invalidate-error";
+            // the data shows immediately and a refetch follows the first hold.
+            // Likewise an entry the writing side had already marked for
+            // revalidation (`isStale` persisted by `getSnapshot`): however fresh
+            // its `updatedAt`, that side no longer vouched for the data.
+            let isStale = status === "invalidate-error" || snapEntry.isStale === true;
             if (!isStale && effectiveSnapshotValidTime !== false && typeof snapEntry.updatedAt === "number") {
                 isStale = snapEntry.updatedAt + effectiveSnapshotValidTime < now;
             }
@@ -107,7 +110,16 @@ export class Snapshotter {
 
             for (const entry of resource.getEntries()) {
                 const state = entry.peek();
-                if (state.status !== "success" && state.status !== "invalidate-error") continue;
+
+                // `invalidating` with nothing in flight: the revalidation run
+                // was aborted and the entry only owes one on its next hold
+                // (lazy invalidation). Its data is the last good one and
+                // nothing is on its way to replace it, so it is persisted as a
+                // stale success — the hydrating side re-queries it on its
+                // first hold. An `invalidating` entry with a run in flight is
+                // skipped, as before: that run is about to replace the data.
+                const isIdleInvalidating = state.status === "invalidating" && !entry._isInFlight;
+                if (state.status !== "success" && state.status !== "invalidate-error" && !isIdleInvalidating) continue;
 
                 // A non-null patchState means unconfirmed optimistic patches are
                 // still pending; `state.data` reflects them, so persist the
@@ -115,10 +127,13 @@ export class Snapshotter {
                 const data = state.patchState ? state.patchState.originalData : state.data;
 
                 entries[entry.keyedArgs.key] = {
-                    status: state.status,
+                    status: isIdleInvalidating ? "success" : state.status,
                     args: state.args,
                     data,
                     updatedAt: state.updatedAt,
+                    // An entry marked for revalidation carries data it no longer
+                    // vouches for: the hydrating side must re-query it too.
+                    isStale: isIdleInvalidating || entry.isInvalidated,
                 };
                 hasEntries = true;
             }

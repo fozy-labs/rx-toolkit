@@ -11,7 +11,7 @@
 |----------|-----|-------------|----------|
 | `resource` | `IResource<TResArgs, TResData>` | да | Целевой [ресурс][resource] |
 | `forwardArgs` | `(commandArgs: TArgs) => TResArgs \| undefined` | да | Маппинг аргументов команды в ключ кэша ресурса. `undefined` — все записи |
-| `invalidate` | `boolean` | нет | Инвалидировать запись после успеха команды |
+| `invalidate` | `boolean \| { inFlight?: 'cancel' \| 'trail' \| 'join' }` | нет | Инвалидировать запись после успеха команды. `true` ≡ `{}`. `inFlight` — что делать с запросом ресурса в полёте; без него — опция ресурса [`invalidateInFlight`][api-res-options] |
 | `optimisticUpdate` | `(draft: TResData, commandArgs: TArgs) => void` | нет | Immer-рецепт, применяется немедленно |
 | `update` | `(draft: TResData, commandArgs: TArgs, result: TData) => void` | нет | Immer-рецепт, применяется после успеха |
 
@@ -54,14 +54,22 @@ execute(args)
 
 - **optimisticUpdate** — применяется мгновенно, UI обновляется без ожидания. Использует Immer-патч; при ошибке команды откат происходит автоматически через систему [патчинга][patching].
 - **update** — применяется после успеха, получает `result` из ответа сервера.
-- **invalidate** — помечает запись устаревшей после успеха; ресурс будет перезапрошен при следующем обращении.
+- **invalidate** — помечает запись устаревшей после успеха: [удерживаемая][cache-holds] запись (смонтированный `useResource`) перезапрашивается сразу, остальные — при следующей подписке или `ensure` / `fetch`. См. [инвалидация тающей записи][cache-invalidation]. Запрос ресурса, ушедший до ответа команды, может привезти данные «до мутации»; что с ним делать, задаёт `inFlight` — см. [инвалидация в полёте][cache-inflight]:
+
+```typescript
+link({
+  resource: userResource,
+  forwardArgs: (args) => args.userId,
+  invalidate: { inFlight: 'trail' }, // дать запросу в полёте доработать, перезапросить следом
+})
+```
 
 
 ## Комбинирование стратегий
 
 ### В одной связи
 
-`optimisticUpdate` и `invalidate` можно объединить: UI обновляется мгновенно, а после успеха кэш инвалидируется и перезапрашивается с сервера. Это даёт и мгновенный отклик, и гарантию консистентности:
+`optimisticUpdate` и `invalidate` можно объединить: UI обновляется мгновенно, а после успеха кэш инвалидируется и показанные данные перезапрашиваются с сервера. Это даёт и мгновенный отклик, и гарантию консистентности:
 
 ```typescript
 const updateTodoCommand = api.createCommand({
@@ -122,5 +130,9 @@ const deleteProjectCommand = api.createCommand({
 [command]: ./command.md
 [resource]: ./resource.md
 [patching]: ../concepts/patching.md
+[cache-holds]: ../concepts/cache.md#кто-удерживает-запись
+[cache-invalidation]: ../concepts/cache.md#инвалидация-тающей-записи
+[cache-inflight]: ../concepts/cache.md#инвалидация-в-полёте
+[api-res-options]: ../api/resource.md#опции
 [broadcast]: ./broadcast.md
 [dataflows]: ../concepts/dataflows.md

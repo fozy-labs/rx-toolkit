@@ -106,6 +106,8 @@ describe("mapError — resource state", () => {
         await flushMicrotasks();
         expect(resource.getState(1).status).toBe("success");
 
+        // Held: an active entry re-runs at once on invalidate.
+        resource.getEntry(1)!.hold();
         resource.invalidate(1);
         await flushMicrotasks();
 

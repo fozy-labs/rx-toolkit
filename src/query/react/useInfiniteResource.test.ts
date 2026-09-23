@@ -47,6 +47,7 @@ function createProjectionSetup(options?: {
 
 interface DeferredCall {
     args: TBatchQueryArgs;
+    signal: AbortSignal;
     resolve: (users: TUser[]) => void;
     reject: (error: unknown) => void;
 }
@@ -56,9 +57,9 @@ function createDeferredSetup() {
     const api = createApi({ plugins: [reactHooksPlugin()] });
     const calls: DeferredCall[] = [];
     const queryFn = vi.fn(
-        (args: TBatchQueryArgs) =>
+        (args: TBatchQueryArgs, signal: AbortSignal) =>
             new Promise<TUser[]>((resolve, reject) => {
-                calls.push({ args, resolve, reject });
+                calls.push({ args, signal, resolve, reject });
             }),
     );
     const userResource = api.createResource({ queryFn });
@@ -580,34 +581,70 @@ describe("useInfiniteResource — flags", () => {
 // ==================== Per-page dispatch and invariants ====================
 
 describe("useInfiniteResource — per-page dispatch", () => {
-    it("invalidate() invalidates pages with data, retries failed ones and skips in-flight ones", async () => {
+    /** A feed of three pages: loaded, failed, and with its first load in flight. */
+    async function mixedFeed() {
+        const setupResult = createDeferredSetup();
+        const { projection, queryFn, calls } = setupResult;
+
+        const c = setup(projection.useInfiniteResource, [1]);
+        await settleCall(calls[0], users([1]));
+
+        // Page 1 fails; page 2 stays in flight.
+        await act(async () => {
+            c.state.fetchNext([2]);
+            await flushMicrotasks();
+        });
+        await settleCall(calls[1], new Error("page 2 down"));
+        await act(async () => {
+            c.state.fetchNext([3]);
+            await flushMicrotasks();
+        });
+
+        expect(c.state.pages.map((page) => page.status)).toEqual(["success", "error", "pending"]);
+        expect(queryFn).toHaveBeenCalledTimes(3);
+        return { ...setupResult, c };
+    }
+
+    it("invalidate() invalidates pages with data and in-flight ones under the default policy, and retries failed ones", async () => {
         const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
-            const { projection, queryFn, calls } = createDeferredSetup();
-
-            const c = setup(projection.useInfiniteResource, [1]);
-            await settleCall(calls[0], users([1]));
-
-            // Page 1 fails; page 2 stays in flight.
-            await act(async () => {
-                c.state.fetchNext([2]);
-                await flushMicrotasks();
-            });
-            await settleCall(calls[1], new Error("page 2 down"));
-            await act(async () => {
-                c.state.fetchNext([3]);
-                await flushMicrotasks();
-            });
-
-            expect(c.state.pages.map((page) => page.status)).toEqual(["success", "error", "pending"]);
-            expect(queryFn).toHaveBeenCalledTimes(3);
+            const { queryFn, calls, c } = await mixedFeed();
 
             await act(async () => {
                 c.state.invalidate();
                 await flushMicrotasks();
             });
 
-            // Page 0 → invalidate(), page 1 → retry(), page 2 → skipped.
+            // Page 0 → invalidate(), page 1 → retry(), page 2 → invalidate():
+            // the default `cancel` aborts its request and sends a fresh one.
+            expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
+                { userIds: [1] },
+                { userIds: [2] },
+                { userIds: [3] },
+                { userIds: [1] },
+                { userIds: [2] },
+                { userIds: [3] },
+            ]);
+            expect(calls[2].signal.aborted).toBe(true);
+            // The failed page is retried, so its error stays on screen.
+            expect(c.state.pages[1]).toMatchObject({ status: "pending", hasError: true });
+            // Nothing was dispatched along an undrawn edge.
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it("invalidate({ inFlight: 'join' }) forwards the policy: the in-flight page keeps its request", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { queryFn, calls, c } = await mixedFeed();
+
+            await act(async () => {
+                c.state.invalidate({ inFlight: "join" });
+                await flushMicrotasks();
+            });
+
             expect(queryFn.mock.calls.map((call) => call[0])).toEqual([
                 { userIds: [1] },
                 { userIds: [2] },
@@ -615,11 +652,35 @@ describe("useInfiniteResource — per-page dispatch", () => {
                 { userIds: [1] },
                 { userIds: [2] },
             ]);
-            // Nothing was dispatched along an undrawn edge.
+            expect(calls[2].signal.aborted).toBe(false);
+
+            // The joined request answers the page.
+            await settleCall(calls[2], users([3]));
+            expect(c.state.pages[2]).toMatchObject({ status: "success", data: users([3]) });
+            expect(queryFn).toHaveBeenCalledTimes(5);
             expect(warnSpy).not.toHaveBeenCalled();
         } finally {
             warnSpy.mockRestore();
         }
+    });
+
+    it("invalidate({ inFlight: 'trail' }) forwards the policy: the in-flight page is re-queried after its request settles", async () => {
+        const { queryFn, calls, c } = await mixedFeed();
+
+        await act(async () => {
+            c.state.invalidate({ inFlight: "trail" });
+            await flushMicrotasks();
+        });
+
+        expect(queryFn).toHaveBeenCalledTimes(5);
+        expect(calls[2].signal.aborted).toBe(false);
+
+        await settleCall(calls[2], users([3], "-stale"));
+        expect(queryFn).toHaveBeenCalledTimes(6);
+        expect(queryFn.mock.calls[5]![0]).toEqual({ userIds: [3] });
+
+        await settleCall(calls[5], users([3], "-fresh"));
+        expect(c.state.pages[2]).toMatchObject({ status: "success", data: users([3], "-fresh") });
     });
 
     it("invalidate() on an idle feed does nothing and does not warn", () => {

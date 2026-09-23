@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import { CURRENT_SNAPSHOT_VERSION } from "@/query/constants";
+import type { QueryCacheEntry } from "@/query/core/cache/QueryCacheEntry";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { TApiSnapshot, TResourceSnapshotEntry } from "@/query/types";
 
@@ -283,9 +284,12 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
         resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
+        // Only an active entry re-runs at once: hold it for the failing run.
         const entry = resource.getEntry(undefined as void)!;
+        const release = entry.hold();
         entry.invalidate();
         await flushMicrotasks();
+        release();
 
         expect(entry.peek().status).toBe("invalidate-error");
 
@@ -299,10 +303,148 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
         expect(value.status).toBe("invalidate-error");
         expect(value.data).toEqual({ reading: 1 });
     });
+
+    it("writes isStale: false for a settled entry and isStale: true for one marked for revalidation", async () => {
+        const api = createApi();
+        const resource = api.createResource<number, string>({
+            key: "items",
+            queryFn: async (id) => `item-${id}`,
+        });
+
+        resource.getEntry(1, true);
+        resource.getEntry(2, true);
+        await flushMicrotasks();
+
+        // Entry 2 is melting: invalidate() only marks it, its data stays.
+        resource.invalidate(2);
+        expect(resource.getEntry(2)!.isInvalidated).toBe(true);
+
+        const entries = api.getSnapshot().resources["items"].entries;
+        expect(entries[stableStringify(1)]).toMatchObject({ status: "success", data: "item-1", isStale: false });
+        expect(entries[stableStringify(2)]).toMatchObject({ status: "success", data: "item-2", isStale: true });
+    });
+
+    it("snapshots an entry left `invalidating` with nothing in flight as a stale success with its last good data", async () => {
+        const api = createApi();
+        let calls = 0;
+        const resource = api.createResource<number, string>({
+            key: "items",
+            // The first run loads; every later run hangs until aborted.
+            queryFn: (id) => (++calls === 1 ? Promise.resolve(`item-${id}`) : new Promise<string>(() => {})),
+        });
+
+        await resource.ensure(1);
+        const entry = resource.getEntry(1)! as QueryCacheEntry<number, string>;
+
+        // Held: invalidate() re-queries at once.
+        const release = entry.hold();
+        resource.invalidate(1);
+        expect(entry.peek().status).toBe("invalidating");
+        expect(entry._isInFlight).toBe(true);
+        release();
+
+        // Melting: the default `cancel` aborts that run and only marks the
+        // entry, which stays `invalidating` until its next hold.
+        resource.invalidate(1);
+        expect(entry._isInFlight).toBe(false);
+        expect(entry.peek().status).toBe("invalidating");
+        expect(entry.isInvalidated).toBe(true);
+
+        const entries = api.getSnapshot().resources["items"]?.entries;
+        expect(entries?.[stableStringify(1)]).toEqual({
+            status: "success",
+            args: 1,
+            data: "item-1",
+            updatedAt: entry.peek().updatedAt,
+            isStale: true,
+        });
+    });
+
+    it("snapshots the confirmed base of an idle `invalidating` entry with a pending patch, and hydrates it marked", async () => {
+        const api = createApi();
+        let calls = 0;
+        const resource = api.createResource<number, { v: number }>({
+            key: "items",
+            queryFn: () => (++calls === 1 ? Promise.resolve({ v: 1 }) : new Promise<{ v: number }>(() => {})),
+        });
+
+        await resource.ensure(1);
+        const entry = resource.getEntry(1)!;
+        const release = entry.hold();
+        resource.invalidate(1);
+        release();
+        resource.invalidate(1);
+        expect(entry.createPatch((draft) => void (draft.v = 99))).not.toBeNull();
+        expect(entry.peek().data).toEqual({ v: 99 });
+
+        const snapshot = api.getSnapshot();
+        expect(snapshot.resources["items"]?.entries[stableStringify(1)]).toMatchObject({
+            status: "success",
+            data: { v: 1 },
+            isStale: true,
+        });
+
+        const hydratedApi = createApi({ initialSnapshot: snapshot, snapshotValidTime: 3_600_000 });
+        const hydrated = hydratedApi.createResource<number, { v: number }>({
+            key: "items",
+            queryFn: async () => ({ v: 2 }),
+        });
+        const hydratedEntry = hydrated.getEntry(1)!;
+        expect(hydratedEntry.peek()).toMatchObject({ status: "success", data: { v: 1 } });
+        expect(hydratedEntry.isInvalidated).toBe(true);
+    });
+
+    it("still skips an entry that is `invalidating` with its run in flight", async () => {
+        const api = createApi();
+        let calls = 0;
+        const resource = api.createResource<number, string>({
+            key: "items",
+            queryFn: (id) => (++calls === 1 ? Promise.resolve(`item-${id}`) : new Promise<string>(() => {})),
+        });
+
+        await resource.ensure(1);
+        // The core entry, for its in-flight state.
+        const entry = resource.getEntry(1)! as QueryCacheEntry<number, string>;
+        const release = entry.hold();
+        resource.invalidate(1);
+        expect(entry._isInFlight).toBe(true);
+
+        expect(api.getSnapshot().resources["items"]).toBeUndefined();
+        release();
+    });
+
+    it("a persisted isStale: true hydrates marked and is snapshotted as stale again", () => {
+        const initialSnapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: Date.now(),
+            resources: {
+                items: {
+                    entries: {
+                        [stableStringify(1)]: {
+                            status: "success",
+                            args: 1,
+                            data: "item-1",
+                            updatedAt: Date.now(),
+                            isStale: true,
+                        },
+                    },
+                },
+            },
+        };
+        const api = createApi({ initialSnapshot, snapshotValidTime: 3_600_000 });
+        const resource = api.createResource<number, string>({ key: "items", queryFn: async (id) => `fresh-${id}` });
+
+        // Fresh by `updatedAt`, yet the writing side no longer vouched for it.
+        expect(resource.getEntry(1)!.isInvalidated).toBe(true);
+
+        const entries = api.getSnapshot().resources["items"].entries;
+        expect(entries[stableStringify(1)]).toMatchObject({ status: "success", data: "item-1", isStale: true });
+    });
 });
 
 describe("Snapshotter hydration — invalidate-error entries", () => {
-    it("round-trips an invalidate-error entry: persisted last-known-good data hydrates as invalidating", async () => {
+    it("round-trips an invalidate-error entry: persisted last-known-good data hydrates marked for revalidation", async () => {
         let call = 0;
         const source = createApi();
         const resource = source.createResource({
@@ -317,9 +459,12 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
         resource.getEntry(undefined as void, true);
         await flushMicrotasks();
 
+        // Only an active entry re-runs at once: hold it for the failing run.
         const entry = resource.getEntry(undefined as void)!;
+        const release = entry.hold();
         entry.invalidate();
         await flushMicrotasks();
+        release();
 
         // The entry holds last-known-good data but its latest invalidate failed.
         expect(entry.peek().status).toBe("invalidate-error");
@@ -328,20 +473,27 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
         expect(Object.values(snapshot.resources["sensor"].entries)[0].status).toBe("invalidate-error");
 
         // Hydrate a fresh API from that snapshot.
+        const hydratedQueryFn = vi.fn(async () => ({ reading: 999 }));
         const hydrated = createApi({ initialSnapshot: snapshot });
         const hydratedResource = hydrated.createResource({
             key: "sensor",
-            queryFn: async () => ({ reading: 999 }),
+            queryFn: hydratedQueryFn,
         });
 
         const entries = [...hydratedResource.getEntries()];
         expect(entries).toHaveLength(1);
 
-        // The invalidate-error's last-known-good data is revived...
+        // The invalidate-error's last-known-good data is revived as settled
+        // data marked for revalidation: shown at once, re-queried on the first hold.
         const state = entries[0].state$.peek();
         expect(state.data).toEqual({ reading: 1 });
-        // ...as a stale entry (invalidating), so it shows data immediately and refetches.
-        expect(state.status).toBe("invalidating");
+        expect(state.status).toBe("success");
+        expect(entries[0].isInvalidated).toBe(true);
+        expect(hydratedQueryFn).not.toHaveBeenCalled();
+
+        entries[0].hold();
+        expect(hydratedQueryFn).toHaveBeenCalledTimes(1);
+        expect(entries[0].peek().status).toBe("invalidating");
     });
 
     it("forces an invalidate-error entry stale regardless of snapshotValidTime", () => {
@@ -376,8 +528,9 @@ describe("Snapshotter hydration — invalidate-error entries", () => {
 
         const entries = [...resource.getEntries()];
         expect(entries).toHaveLength(1);
-        // Despite the fresh timestamp, the failed-invalidate entry must refetch.
-        expect(entries[0].state$.peek().status).toBe("invalidating");
+        // Despite the fresh timestamp, the failed-invalidate entry is marked to refetch.
+        expect(entries[0].isInvalidated).toBe(true);
+        expect(entries[0].state$.peek().status).toBe("success");
         expect(entries[0].state$.peek().data).toBe("last-known-good");
     });
 });
@@ -406,6 +559,7 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         return [...resource.getEntries()].map((entry) => ({
             key: entry.keyedArgs.key,
             state: entry.state$.peek(),
+            isInvalidated: entry.isInvalidated,
         }));
     }
 
@@ -424,8 +578,9 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         expect(hydrated).toHaveLength(1);
         expect(hydrated[0].key).toBe(stableStringify("a"));
         expect(hydrated[0].state.data).toBe("last-known-good");
-        // invalidate-error hydrates as a stale success: data shows now, refetch on subscription.
-        expect(hydrated[0].state.status).toBe("invalidating");
+        // invalidate-error hydrates as a stale success: data shows now, refetch on the first hold.
+        expect(hydrated[0].state.status).toBe("success");
+        expect(hydrated[0].isInvalidated).toBe(true);
     });
 
     it("reads a v1 `refreshing` entry as `invalidating`, which does not hydrate, and keeps its `success` sibling", () => {
@@ -473,7 +628,8 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         expect(hydrated).toHaveLength(1);
         expect(hydrated[0].key).toBe(stableStringify("a"));
         expect(hydrated[0].state.data).toBe("last-known-good");
-        expect(hydrated[0].state.status).toBe("invalidating");
+        expect(hydrated[0].state.status).toBe("success");
+        expect(hydrated[0].isInvalidated).toBe(true);
     });
 
     it("does not apply the legacy status map to a current-version snapshot", () => {
@@ -518,9 +674,12 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         resource.getEntry("flaky", true);
         await flushMicrotasks();
 
+        // Only an active entry re-runs at once: hold it for the failing run.
         const flaky = resource.getEntry("flaky")!;
+        const release = flaky.hold();
         flaky.invalidate();
         await flushMicrotasks();
+        release();
         expect(flaky.peek().status).toBe("invalidate-error");
 
         const snapshot = api.getSnapshot();

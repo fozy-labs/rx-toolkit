@@ -5,6 +5,7 @@ import type {
     TArgsOrKeyed,
     TArgsOrVoidOrSkip,
     TClutchSwitchOptions,
+    TInvalidateOptions,
     TKeyed,
     TQueryEntryPendingState,
     TQueryEntryState,
@@ -209,9 +210,11 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     /**
      * Re-query the current args and clear the failure: rows 5 → 6, 8 → 4,
-     * 9 → 6, 13 → 3. Outside those edges it is a warning and a no-op.
+     * 9 → 6, 13 → 3. On a run in flight, `opts.inFlight` — else the resource's
+     * `invalidateInFlight` — decides whether it is cancelled, trailed or
+     * joined. On row 7 it is a warning and a no-op.
      */
-    invalidate = () => {
+    invalidate = (opts?: TInvalidateOptions) => {
         const state = this.state$.peek();
 
         // Rows 7, 8 and 13 are one and the same entry status (`error`): which
@@ -228,7 +231,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             return;
         }
 
-        this._tracking$.peek()?.current$.peek()?.invalidate();
+        this._tracking$.peek()?.current$.peek()?.invalidate(opts);
     };
 
     /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */

@@ -294,6 +294,71 @@ describe("Syncer", () => {
             });
         });
 
+        it("does not answer REQ from an entry marked for revalidation", async () => {
+            const resource = createRealResource();
+            await resource.ensure({ id: 1 });
+
+            // Nobody holds the entry: invalidate() only marks it, the data stays.
+            resource.invalidate({ id: 1 });
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.isInvalidated).toBe(true);
+            expect(entry.peek().status).toBe("success");
+
+            const { syncer, driver } = createSyncer({
+                keyPrefix: "ns",
+                resourcesByKey: new Map([["res", resource as Resource<any, any>]]),
+            });
+            syncer.connect();
+
+            driver.simulateMessage({
+                type: "REQ",
+                reqId: "req-marked",
+                keys: ["ns", "res", resource.serialize({ id: 1 })],
+            });
+
+            // Marked data must not seed another tab's cold entry as fresh.
+            expect(driver.lastSent).toBeNull();
+        });
+
+        it("does not answer REQ from an entry left `invalidating` with nothing in flight", async () => {
+            let calls = 0;
+            const resource = new Resource<{ id: number }, { id: number; name: string }>({
+                queryFn: (args) =>
+                    ++calls === 1
+                        ? Promise.resolve({ id: args.id, name: "loaded" })
+                        : new Promise<{ id: number; name: string }>(() => {}),
+                key: "res",
+                retentionTime: false,
+                serializeArgs: stableStringify,
+            });
+            await resource.ensure({ id: 1 });
+            const entry = resource.getEntry({ id: 1 })!;
+
+            // Held, invalidated (a run goes out), released, invalidated again:
+            // the default `cancel` aborts the run and only marks the entry.
+            const release = entry.hold();
+            resource.invalidate({ id: 1 });
+            release();
+            resource.invalidate({ id: 1 });
+            expect(entry._isInFlight).toBe(false);
+            expect(entry.peek().status).toBe("invalidating");
+            expect(entry.isInvalidated).toBe(true);
+
+            const { syncer, driver } = createSyncer({
+                keyPrefix: "ns",
+                resourcesByKey: new Map([["res", resource as Resource<any, any>]]),
+            });
+            syncer.connect();
+
+            driver.simulateMessage({
+                type: "REQ",
+                reqId: "req-idle-invalidating",
+                keys: ["ns", "res", resource.serialize({ id: 1 })],
+            });
+
+            expect(driver.lastSent).toBeNull();
+        });
+
         it("round-trip: requesting tab receives data instead of hitting the timeout", async () => {
             // Two syncers wired through an in-memory bus = two tabs.
             const handlers: Array<(msg: ISyncMessage) => void> = [];

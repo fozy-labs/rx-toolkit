@@ -187,6 +187,43 @@ describe("useSuspenseResource", () => {
         expect(screen.getByTestId("name").textContent).toBe("cached");
     });
 
+    it("does not suspend on an entry marked for revalidation: data renders at once and refreshes", async () => {
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<{ id: number }, { name: string }>({
+            queryFn: async () => ({ name: `v${++call}` }),
+        });
+
+        // Warm the cache, then invalidate with nobody holding the entry.
+        await resource.ensure({ id: 7 });
+        resource.invalidate({ id: 7 });
+        expect(call).toBe(1);
+        expect(resource.getEntry({ id: 7 })!.isInvalidated).toBe(true);
+
+        const seen: Array<{ name: string; isInvalidating: boolean }> = [];
+        function View() {
+            const state = resource.useSuspenseResource({ id: 7 });
+            seen.push({ name: state.data.name, isInvalidating: state.isInvalidating });
+            return h("span", { "data-testid": "name" }, state.data.name);
+        }
+
+        await act(async () => {
+            render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
+        });
+
+        // The marked data rendered without a fallback; the subscription started
+        // the re-query, which then delivered fresh data.
+        expect(screen.queryByTestId("fallback")).toBeNull();
+        expect(seen[0]).toEqual({ name: "v1", isInvalidating: false });
+        await act(async () => {
+            await flushMicrotasks();
+            await flushMicrotasks();
+        });
+        expect(call).toBe(2);
+        expect(seen.some((s) => s.name === "v1" && s.isInvalidating)).toBe(true);
+        expect(screen.getByTestId("name").textContent).toBe("v2");
+    });
+
     it("settles an args change made inside startTransition without a render loop", async () => {
         const d = defer<{ name: string }>();
         const api = createApi({ plugins: [reactHooksPlugin()] });

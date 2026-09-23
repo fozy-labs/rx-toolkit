@@ -67,11 +67,19 @@ export class LinkManager<TArgs, TData> {
         for (const link of this._links) {
             if (!link.invalidate) continue;
 
+            const { invalidate } = link;
+
             // Isolated per link: one throwing forwardArgs()/invalidate() must not
             // skip invalidation of the remaining links.
             this._runIsolated(() => {
                 const forwardedArgs = link.forwardArgs(args);
-                link.resource.invalidate(forwardedArgs);
+                // `true` is the plain call — the resource's own in-flight default
+                // applies, and the call shape stays what it was without the option.
+                if (invalidate === true) {
+                    link.resource.invalidate(forwardedArgs);
+                } else {
+                    link.resource.invalidate(forwardedArgs, invalidate);
+                }
             });
         }
     }

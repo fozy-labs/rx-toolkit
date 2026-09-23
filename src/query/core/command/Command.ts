@@ -242,19 +242,18 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
         // A freshly created entry has no subscribers, so with the default
         // retentionTime: 0 it would be collected out from under the mutation.
-        // Hold refcount ≥ 1 until the first run settles: the GC timer cannot
-        // fire and complete() the entry mid-flight, and — since this is the
-        // only keepalive a command entry ever gets — the first
-        // `active → retention` transition is guaranteed to happen on a settled
-        // entry. That is what lets a `retentionTime` policy assume `success` or
-        // `error` on its first evaluation (a later run started by retry() has
-        // no such guarantee and can be observed as `pending`).
+        // Hold it until the first run settles: the GC timer cannot fire and
+        // complete() the entry mid-flight, and — since this is the only
+        // keepalive a command entry ever gets — the first `active → retention`
+        // transition is guaranteed to happen on a settled entry. That is what
+        // lets a `retentionTime` policy assume `success` or `error` on its
+        // first evaluation (a later run started by retry() has no such
+        // guarantee and can be observed as `pending`).
         // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
         // re-rejects with firstResult's error and nobody consumes it, so every
         // failed execute would surface a global unhandled rejection.
-        const keepalive = entry.obs.subscribe();
-        const releaseKeepalive = () => keepalive.unsubscribe();
-        void firstResult.then(releaseKeepalive, releaseKeepalive);
+        const release = entry.hold();
+        void firstResult.then(release, release);
 
         // Register in cache
         this._cache.set(resolvedEntryKey, entry);

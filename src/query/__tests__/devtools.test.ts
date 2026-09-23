@@ -131,7 +131,8 @@ describe("query devtools — action names", () => {
             },
         });
 
-        resource.getEntry(1, true);
+        // Held: an active entry re-runs at once on invalidate.
+        resource.getEntry(1, true).hold();
         await flushMicrotasks();
 
         resource.invalidate(1);
@@ -170,13 +171,37 @@ describe("query devtools — action names", () => {
             },
         });
 
-        resource.getEntry(1, true);
+        resource.getEntry(1, true).hold();
         await flushMicrotasks();
 
         resource.invalidate(1);
         await flushMicrotasks();
 
         expect(devtools.actions()).toEqual(["success", "invalidate", "invalidate-error"]);
+    });
+
+    it('labels a deferred revalidation as "revalidate" when the marked entry is first held', async () => {
+        const devtools = installDevtools();
+        let attempt = 0;
+        const resource = createResource<number, string>({
+            key: "user",
+            queryFn: async () => {
+                attempt += 1;
+                return `data-${attempt}`;
+            },
+        });
+
+        resource.getEntry(1, true);
+        await flushMicrotasks();
+
+        // Nobody holds the entry: the invalidation is only recorded.
+        resource.invalidate(1);
+        expect(devtools.actions()).toEqual(["success"]);
+
+        resource.getEntry(1, true).hold();
+        await flushMicrotasks();
+
+        expect(devtools.actions()).toEqual(["success", "revalidate", "rebase"]);
     });
 
     it('labels an aborted patch as "patch-settled" too', async () => {

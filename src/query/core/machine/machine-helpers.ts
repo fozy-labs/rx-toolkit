@@ -28,25 +28,16 @@ export function pendingEntryState<TArgs>(args: TArgs): TQueryEntryPendingState<T
 }
 
 /**
- * The state a cache entry hydrated from a snapshot starts in. A stale snapshot
- * lands in `invalidating`: the data shows immediately and the entry re-queries
- * on creation.
+ * The state a cache entry hydrated from a snapshot starts in: its data, as a
+ * settled `success`. Staleness is not a state — a stale snapshot hydrates the
+ * same way and marks the entry for revalidation on its first hold (see the
+ * `isInvalidated` entry option).
  */
-export function snapshotEntryState<TArgs, TData>(
-    snapshot: { args: TArgs; data: TData; updatedAt: number },
-    isStale = false,
-): TQueryEntrySuccessState<TArgs, TData> | TQueryEntryInvalidatingState<TArgs, TData> {
-    if (isStale) {
-        return {
-            status: "invalidating",
-            args: snapshot.args,
-            data: snapshot.data,
-            error: null,
-            updatedAt: snapshot.updatedAt,
-            patchState: null,
-        };
-    }
-
+export function snapshotEntryState<TArgs, TData>(snapshot: {
+    args: TArgs;
+    data: TData;
+    updatedAt: number;
+}): TQueryEntrySuccessState<TArgs, TData> {
     return {
         status: "success",
         args: snapshot.args,
