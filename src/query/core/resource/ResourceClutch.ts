@@ -5,6 +5,7 @@ import type {
     TArgsOrKeyed,
     TArgsOrVoidOrSkip,
     TClutchSwitchOptions,
+    TClutchWhenSettledOptions,
     TInvalidateOptions,
     TKeyed,
     TQueryEntryPendingState,
@@ -12,7 +13,7 @@ import type {
     TResourceClutchState,
     TResourceEntryState,
 } from "@/query/types";
-import { Batcher, Signal, type ReadonlySignal } from "@/signals";
+import { Batcher, Signal, SourceSignal, type ReadonlySignal } from "@/signals";
 
 import { SKIP } from "../../constants";
 import type { QueryCacheEntry } from "../cache/QueryCacheEntry";
@@ -58,6 +59,21 @@ function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TAr
 }
 
 /**
+ * The Suspense rule: a state is settled once there is something to render
+ * (`hasData` — current, placeholder or previous data) or the query failed with
+ * nothing to show. Only rows 1, 2 and 10 are unsettled: a switching or
+ * invalidating load is `pending`, but it has data and must not re-suspend.
+ */
+function isRenderable(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
+    return state.hasData || state.status === "error";
+}
+
+/** The `waitForDone` rule: no query is in flight — `idle`, `success` or `error`. */
+function isDone(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
+    return !state.isPending;
+}
+
+/**
  * Reactive observer for a {@link Resource} with SWR behaviour.
  *
  * The clutch tracks a single cache entry at a time, deriving a flat
@@ -81,11 +97,28 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         isDisabled: true,
     });
 
+    /**
+     * Subscribers of {@link state$}. Counted through a source the derivation
+     * reads: a subscribed `state$` subscribes to it like to any dependency, a
+     * cold read only peeks it.
+     */
+    private _observers = 0;
+    private readonly _observed$ = SourceSignal.create<void>(() => {
+        this._observers += 1;
+        return () => {
+            this._observers -= 1;
+        };
+    }, undefined);
+
     private _previous$: ReadonlySignal<QueryCacheEntry<TArgs, TData> | null> | null = null;
     private _placeholder: PlaceholderMemo<TData> | null = null;
     private _isStarted = false;
     private _isMarked = false;
-    private _settledPromise: Promise<void> | null = null;
+    /** The pending {@link whenSettled} promise of each mode, for one loading phase. */
+    private readonly _whenSettled: { renderable: Promise<void> | null; done: Promise<void> | null } = {
+        renderable: null,
+        done: null,
+    };
 
     constructor(resource: Resource<TArgs, TData, TError>) {
         this._resource = resource;
@@ -240,7 +273,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
-     * Promise resolving once the clutch has something to render (see
+     * Promise resolving once the clutch has something to render, or with
+     * `waitForDone` once no query is in flight (see
      * {@link IResourceClutch.whenSettled}).
      *
      * Consumed by `useSuspenseResource`: a suspended render aborts its effects,
@@ -251,14 +285,19 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      *
      * The instance is cached for the duration of one loading phase so repeated
      * renders throw the same promise (a fresh promise every render would loop),
-     * and cleared on settle so a later argument change can suspend again.
+     * and cleared on settle so a later argument change can suspend again. Each
+     * mode has its own instance.
      */
-    whenSettled(): Promise<void> {
-        if (this._settledPromise) {
-            return this._settledPromise;
+    whenSettled(options?: TClutchWhenSettledOptions): Promise<void> {
+        const mode = options?.waitForDone ? "done" : "renderable";
+        const isReady = mode === "done" ? isDone : isRenderable;
+        const cached = this._whenSettled[mode];
+
+        if (cached) {
+            return cached;
         }
 
-        if (this._isSettled(this.state$.peek())) {
+        if (isReady(this.state$.peek())) {
             return Promise.resolve();
         }
 
@@ -267,28 +306,15 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         // later loading phase can suspend again. The instance is cached so repeated
         // renders throw the same promise.
         const settle = (): void => {
-            this._settledPromise = null;
+            this._whenSettled[mode] = null;
         };
-        const promise = firstValueFrom(this.state$.obs.pipe(first((state) => this._isSettled(state)))).then(
-            settle,
-            settle,
-        );
+        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady))).then(settle, settle);
 
-        this._settledPromise = promise;
+        this._whenSettled[mode] = promise;
         return promise;
     }
 
     // ==================== Private ====================
-
-    /**
-     * The Suspense rule: a state is settled once there is something to render
-     * (`hasData` — current, placeholder or previous data) or the query failed
-     * with nothing to show. Only rows 1, 2 and 10 are unsettled: a switching or
-     * invalidating load is `pending`, but it has data and must not re-suspend.
-     */
-    private _isSettled(state: TResourceClutchState<TArgs, TData, TError>): boolean {
-        return state.hasData || state.status === "error";
-    }
 
     private _deriveState(): TResourceClutchState<TArgs, TData, TError> {
         const tracking = this._tracking$();
@@ -304,11 +330,23 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 // args may have advanced, or the clutch may have been stopped/cleared,
                 // within the same tick. Creating the captured key then would spawn a
                 // phantom cache entry + fetch for args nobody tracks anymore.
-                queueMicrotask(() => {
-                    if (this._isStarted && this._tracking$.peek()?.keyed.key === tracking.keyed.key) {
-                        this._resource.getEntry(tracking.keyed, true);
-                    }
-                });
+                //
+                // Only while observed, on both ends: an entry nobody holds was never
+                // held, so it would never expire. A cold read creates nothing, and a
+                // subscription dropped before the microtask cancels the creation.
+                this._observed$();
+
+                if (this._observers > 0) {
+                    queueMicrotask(() => {
+                        if (
+                            this._isStarted &&
+                            this._observers > 0 &&
+                            this._tracking$.peek()?.keyed.key === tracking.keyed.key
+                        ) {
+                            this._resource.getEntry(tracking.keyed, true);
+                        }
+                    });
+                }
 
                 return this._createLoadingState(tracking.keyed, null);
             }

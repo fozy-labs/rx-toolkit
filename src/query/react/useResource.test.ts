@@ -219,6 +219,42 @@ describe("useResource", () => {
         expect(c.state.data).toEqual({ id: 1, name: "user-1-v3" });
     });
 
+    it("under a hidden <Activity>, an expired entry is not re-queried until shown", async () => {
+        let calls = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            retentionTime: 20,
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++calls}` }),
+        });
+
+        let state!: TResourceClutchState<TArgs, TUser>;
+        function Probe(_props: { tick: number }) {
+            state = resource.useResource({ id: 1 });
+            return null;
+        }
+        const app = (mode: "visible" | "hidden", tick: number) =>
+            h(React.Activity, { mode, children: h(Probe, { tick }) });
+
+        const view = render(app("visible", 0));
+        await settle();
+        expect(calls).toBe(1);
+
+        view.rerender(app("hidden", 0));
+        await act(() => sleep(50));
+        expect(resource.getEntry({ id: 1 })).toBeNull();
+
+        // A render of the hidden tree reads the clutch without observing it.
+        view.rerender(app("hidden", 1));
+        await act(() => sleep(50));
+        expect(calls).toBe(1);
+        expect(resource.getEntry({ id: 1 })).toBeNull();
+
+        view.rerender(app("visible", 1));
+        await settle();
+        expect(calls).toBe(2);
+        expect(state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
     it("re-rendering with an equal args literal keeps the same clutch state", async () => {
         const { resource } = createSetup();
 

@@ -1,4 +1,5 @@
 import { DependencyTracker } from "./DependencyTracker";
+import { SignalCycleError } from "./SignalCycleError";
 
 /**
  * Кеш для хранения вычисленного значения и его зависимостей
@@ -22,7 +23,9 @@ export class ComputeCache<T> {
             try {
                 const currentValue = dep.peek();
                 return Object.is(currentValue, dep.lastValue);
-            } catch {
+            } catch (error) {
+                // A cycle is not a stale cache: a recompute would only hit it again.
+                if (error instanceof SignalCycleError) throw error;
                 // Если не удалось получить значение, считаем кеш невалидным
                 return false;
             }

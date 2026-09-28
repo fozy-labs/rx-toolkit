@@ -53,15 +53,32 @@ export class Effect implements SubscriptionLike {
                 return;
             }
 
-            const sub = obs.subscribe(() => {
-                if (this._isRunning) {
-                    return;
-                }
+            // An error the dependency hits while starting (its computeFn threw,
+            // a cycle) belongs to this read: it is rethrown here, synchronously,
+            // instead of surfacing later as an unhandled error. A later error
+            // stays unhandled, as before.
+            let isSubscribing = true;
+            let startError: { error: unknown } | null = null;
 
-                // Ранг читается в момент эмиссии: подписка переживает запуск,
-                // в котором была создана, поэтому замыкать ранг нельзя
-                Batcher.scheduler(this._rang).schedule(this._scheduledFn);
+            const sub = obs.subscribe({
+                next: () => {
+                    if (this._isRunning) {
+                        return;
+                    }
+
+                    // Ранг читается в момент эмиссии: подписка переживает запуск,
+                    // в котором была создана, поэтому замыкать ранг нельзя
+                    Batcher.scheduler(this._rang).schedule(this._scheduledFn);
+                },
+                error: (error: unknown) => {
+                    if (!isSubscribing) throw error;
+                    startError = { error };
+                },
             });
+
+            isSubscribing = false;
+
+            if (startError) throw (startError as { error: unknown }).error;
 
             this._subscriptions.set(obs, sub);
             return sub;

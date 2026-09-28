@@ -378,6 +378,20 @@ describe("Effect", () => {
             eff.unsubscribe();
         });
 
+        it("a computed that throws on start fails the read once and synchronously", () => {
+            const computeFn = vi.fn((): number => {
+                throw new Error("compute-error");
+            });
+            const c = Signal.compute(computeFn);
+
+            expect(() =>
+                Signal.effect(() => {
+                    c();
+                }),
+            ).toThrow("compute-error");
+            expect(computeFn).toHaveBeenCalledOnce();
+        });
+
         it("re-run scheduled in a batch does not execute after unsubscribe", () => {
             const count = Signal.state(0);
             const fn = vi.fn(() => {

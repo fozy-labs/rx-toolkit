@@ -119,7 +119,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     const batchStrategy = options.batchStrategy ?? "microtask";
     const taskDelay = options.taskDelay ?? 0;
 
-    let state = {} as Record<string, any>;
+    const tree = createTreeNode();
     // Ownership bookkeeping. Every state() call is one distinct source instance,
     // so the call itself is the identity — nothing extra is required from the
     // caller. The map holds only strings and numbers (never a reference to the
@@ -128,7 +128,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
     const owners = new Map<string, number>();
     let lastInstanceId = 0;
     const connection = devtools.connect({ name: options.name ?? "RxToolkit" });
-    connection.init(state);
+    connection.init(tree.view);
 
     const scheduler = createBatchScheduler(batchStrategy, taskDelay);
 
@@ -210,7 +210,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
         // batch behind to mislabel — and inflate — the next one.
         pending.clear();
 
-        connection.send({ type }, state);
+        connection.send({ type }, tree.view);
     };
 
     return {
@@ -226,7 +226,7 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
 
             owners.set(name, instanceId);
 
-            state = applyState(keys, initState, state);
+            setTreeValue(tree, keys, initState);
             markPending(name, isRecreate ? "recreate" : "create");
             scheduler.schedule(flushToDevtools);
 
@@ -251,13 +251,13 @@ export function reduxDevtools(options: Options = {}): DevtoolsLike {
 
                 if (newState === "$COMPLETED" || newState === "$CLEANED") {
                     owners.delete(name);
-                    state = deleteState(keys, state);
+                    deleteTreeValue(tree, keys);
                     markPending(name, "clear", actionName);
                     scheduler.schedule(flushToDevtools);
                     return;
                 }
 
-                state = applyState(keys, newState, state);
+                setTreeValue(tree, keys, newState);
                 markPending(name, "update", actionName);
                 scheduler.schedule(flushToDevtools);
             };
@@ -282,51 +282,87 @@ Consider using a unique path for each state or ensure that states are properly d
     return true;
 }
 
-function applyState(keys: string[], newState: any, state: any) {
-    const acc = { ...state };
-    let current = acc;
+// ==================== State tree ====================
+//
+// Keys are split on "/" into a tree. A key may be a leaf and a parent at once
+// ("a/b" next to "a/b/c"), so a node keeps its own value apart from its
+// children: the one never overwrites or deletes the other. The rendered view of
+// such a node puts its own value under OWN_VALUE_KEY next to the children.
 
-    keys.forEach((key, i, arr) => {
-        if (i === arr.length - 1) {
-            current[key] = newState;
-        } else {
-            current[key] = { ...(current[key] ?? {}) };
-            current = current[key];
-        }
-    });
+const OWN_VALUE_KEY = "$value";
 
-    return acc;
+interface TreeNode {
+    hasValue: boolean;
+    value: unknown;
+    readonly children: Map<string, TreeNode>;
+    /** The rendered view, rebuilt along the path of every change (immutable for the extension). */
+    view: unknown;
 }
 
-// Идем по ключам и удалаем последний, если оставется пустой объект, удаляем его рекурсивно
-function deleteState(keys: string[], state: any) {
-    if (keys.length === 0) return state;
+function createTreeNode(): TreeNode {
+    return { hasValue: false, value: undefined, children: new Map(), view: {} };
+}
 
-    const acc = { ...state };
+function renderNode(node: TreeNode): unknown {
+    if (node.children.size === 0) return node.value;
 
-    // Рекурсивная функция для удаления с очисткой пустых объектов
-    const deleteRecursive = (obj: any, pathKeys: string[], index: number): boolean => {
-        const key = pathKeys[index];
+    const view: Record<string, unknown> = {};
+    if (node.hasValue) view[OWN_VALUE_KEY] = node.value;
+    node.children.forEach((child, segment) => {
+        view[segment] = child.view;
+    });
+    return view;
+}
 
-        if (!obj || !Object.prototype.hasOwnProperty.call(obj, key)) {
-            return false;
+/** Re-render the nodes of `path` bottom-up; the root always renders as an object. */
+function renderPath(path: TreeNode[]): void {
+    for (let i = path.length - 1; i > 0; i--) {
+        path[i].view = renderNode(path[i]);
+    }
+    const root = path[0];
+    root.view = root.children.size === 0 ? {} : renderNode(root);
+}
+
+function setTreeValue(root: TreeNode, keys: string[], value: unknown): void {
+    const path = [root];
+    let node = root;
+
+    for (const key of keys) {
+        let child = node.children.get(key);
+        if (!child) {
+            child = createTreeNode();
+            node.children.set(key, child);
         }
+        node = child;
+        path.push(node);
+    }
 
-        if (index === pathKeys.length - 1) {
-            delete obj[key];
-        } else {
-            obj[key] = { ...obj[key] };
-            deleteRecursive(obj[key], pathKeys, index + 1);
+    node.hasValue = true;
+    node.value = value;
+    renderPath(path);
+}
 
-            // Если объект стал пустым, удаляем его
-            if (Object.keys(obj[key]).length === 0) {
-                delete obj[key];
-            }
-        }
+function deleteTreeValue(root: TreeNode, keys: string[]): void {
+    const path = [root];
+    let node = root;
 
-        return true;
-    };
+    for (const key of keys) {
+        const child = node.children.get(key);
+        if (!child) return;
+        node = child;
+        path.push(node);
+    }
 
-    deleteRecursive(acc, keys, 0);
-    return acc;
+    node.hasValue = false;
+    node.value = undefined;
+
+    // Drop the nodes left with neither a value nor children.
+    for (let i = path.length - 1; i > 0; i--) {
+        const current = path[i];
+        if (current.hasValue || current.children.size > 0) break;
+        path[i - 1].children.delete(keys[i - 1]);
+        path.length = i;
+    }
+
+    renderPath(path);
 }

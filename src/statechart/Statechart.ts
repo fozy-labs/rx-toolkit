@@ -54,7 +54,7 @@ const DEFAULT_CLOCK: MachineClock = {
 const DEFAULT_LOGGER: MachineLogger = (...args) => console.log(...args);
 
 interface ResolvedStatechartOptions {
-    /** `null` = no key given: a per-instance default is allocated (`acquireDefaultKeySlot`). */
+    /** `null` = no key given: the default `{base}/<machine id>` is used. */
     readonly key: string | null;
     readonly isDisabled: boolean | undefined;
     /** `null` = off; resolved against `SharedOptions.MACHINE_DEVTOOLS` at construction time. */
@@ -80,46 +80,6 @@ function resolveOptions(options: StatechartOptionsOrKey | undefined): ResolvedSt
     };
 }
 
-// --- default Redux DevTools keys ---------------------------------------------
-
-/**
- * Ordinal slots of the live keyless instances of each machine id. Slot 1
- * renders as `{base}/<id>`, slot n as `{base}/<id>#n`; the lowest free slot
- * is taken and released again on `dispose()` (or by the finalizer). So
- * concurrent keyless instances of one definition never fight over a single
- * Redux DevTools entry, while a re-created instance (React re-mount,
- * StrictMode) gets its predecessor's name back.
- */
-const defaultKeySlots = new Map<string, Set<number>>();
-
-interface DefaultKeySlot {
-    readonly machineId: string;
-    readonly slot: number;
-}
-
-function acquireDefaultKeySlot(machineId: string): DefaultKeySlot {
-    let taken = defaultKeySlots.get(machineId);
-    if (taken === undefined) {
-        taken = new Set();
-        defaultKeySlots.set(machineId, taken);
-    }
-    let slot = 1;
-    while (taken.has(slot)) slot += 1;
-    taken.add(slot);
-    return { machineId, slot };
-}
-
-function releaseDefaultKeySlot({ machineId, slot }: DefaultKeySlot): void {
-    const taken = defaultKeySlots.get(machineId);
-    if (taken === undefined) return;
-    taken.delete(slot);
-    if (taken.size === 0) defaultKeySlots.delete(machineId);
-}
-
-function formatDefaultKey({ machineId, slot }: DefaultKeySlot): string {
-    return slot === 1 ? `{base}/${machineId}` : `{base}/${machineId}#${slot}`;
-}
-
 // --- inspector ---------------------------------------------------------------
 
 function reportInspectorFailure(error: unknown): void {
@@ -128,12 +88,6 @@ function reportInspectorFailure(error: unknown): void {
         "[RxToolkit Statechart] the inspector adapter threw; the inspector is disabled for this instance",
         error,
     );
-}
-
-/** What the finalizer releases for an engine that was garbage-collected without `dispose()`. */
-interface FinalizationTarget {
-    readonly actorHandle: MachineDevtoolsActor | null;
-    readonly keySlot: DefaultKeySlot | null;
 }
 
 /**
@@ -160,8 +114,6 @@ export class unstable_Statechart<
     private readonly _scope: InterpreterScope<TContext, TEvent>;
     private readonly _options: ResolvedStatechartOptions;
     private readonly _state$: State<MachineSnapshot<TContext, TOutput>>;
-    /** Allocated only for keyless instances; released by `dispose()` / the finalizer. */
-    private readonly _keySlot: DefaultKeySlot | null;
     /** Best-effort: set to `null` after the adapter threw once (`_notifyInspector`). */
     private _actorHandle: MachineDevtoolsActor | null;
 
@@ -207,24 +159,18 @@ export class unstable_Statechart<
 
         // Everything below allocates resources that `dispose()` releases; the
         // catch at the end covers a constructor that throws after this point.
-        let key = this._options.key;
-        let keySlot: DefaultKeySlot | null = null;
-        if (key === null) {
-            keySlot = acquireDefaultKeySlot(definition.id);
-            key = formatDefaultKey(keySlot);
-        }
-        this._keySlot = keySlot;
+        // Keyless instances of one definition share the default key, as keyless
+        // signals share theirs: the newest one owns the Redux DevTools entry.
         this._state$ = new State<MachineSnapshot<TContext, TOutput>>(this._snapshot, {
-            key,
+            key: this._options.key ?? `{base}/${definition.id}`,
             base: DEVTOOLS_BASE,
             isDisabled: this._options.isDisabled,
         });
         this.state = unstable_Statechart._createReadonlySignal(this._state$);
 
         this._actorHandle = this._createActorHandle();
-        if (this._actorHandle !== null || this._keySlot !== null) {
-            const target: FinalizationTarget = { actorHandle: this._actorHandle, keySlot: this._keySlot };
-            unstable_Statechart._finalizationRegistry.register(this, target, this);
+        if (this._actorHandle !== null) {
+            unstable_Statechart._finalizationRegistry.register(this, this._actorHandle, this);
         }
 
         // Nobody can call `dispose()` on an instance whose constructor threw:
@@ -568,7 +514,6 @@ export class unstable_Statechart<
         this._status = "disposed";
         unstable_Statechart._finalizationRegistry.unregister(this);
         this._state$.dispose();
-        if (this._keySlot !== null) releaseDefaultKeySlot(this._keySlot);
         this._notifyInspector((handle) => handle.stop());
         this._actorHandle = null;
     }
@@ -661,15 +606,12 @@ export class unstable_Statechart<
 
     // === static ===
 
-    /** Releases the inspector actor and the default key slot of an engine that was garbage-collected without `dispose()`. */
-    private static _finalizationRegistry = new FinalizationRegistry((target: FinalizationTarget) => {
-        if (target.keySlot !== null) releaseDefaultKeySlot(target.keySlot);
-        if (target.actorHandle !== null) {
-            try {
-                target.actorHandle.stop();
-            } catch (error) {
-                reportInspectorFailure(error);
-            }
+    /** Releases the inspector actor of an engine that was garbage-collected without `dispose()`. */
+    private static _finalizationRegistry = new FinalizationRegistry((actorHandle: MachineDevtoolsActor) => {
+        try {
+            actorHandle.stop();
+        } catch (error) {
+            reportInspectorFailure(error);
         }
     });
 

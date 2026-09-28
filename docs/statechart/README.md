@@ -526,7 +526,7 @@ MachineSignal.state(definition, options?): MachineStateSignal<TContext, TEvent, 
 
 | Опция | По умолчанию | Описание |
 |---|---|---|
-| `key` | `"Statechart/<machine id>"` | ключ в Redux DevTools; семантика как у `SignalOptions.key` с `base: "Statechart"` (`{base}` → `Statechart`). Без ключа первый живой инстанс описания получает `Statechart/<machine id>`, одновременно живущие с ним инстансы того же описания — `Statechart/<machine id>#2`, `#3`, … (наименьший свободный номер; освобождается в `dispose()`). Для стабильного осмысленного имени задавайте ключ |
+| `key` | `"Statechart/<machine id>"` | ключ в Redux DevTools; семантика как у `SignalOptions.key` с `base: "Statechart"` (`{base}` → `Statechart`). Без ключа — `Statechart/<machine id>`; одновременно живущие инстансы того же описания делят эту запись, как сигналы без ключа: её держит последний созданный. Чтобы различать инстансы, задавайте ключ |
 | `isDisabled` | `undefined` | отключить Redux DevTools для инстанса |
 | `inspector` | `SharedOptions.MACHINE_DEVTOOLS` | внешний инспектор машины; `null` отключает (см. [совместимость][xstate]) |
 | `autoStart` | `true` | вызвать `start()` в конструкторе. При `false` начальный снапшот всё равно вычисляется, но его эффекты и очередь событий ждут первого `start()` |
@@ -704,7 +704,7 @@ updater, вызовет его и сохранит возвращённый сн
 
 ## Devtools
 
-Снапшот живёт в `State` с `base: "Statechart"`: без ключа запись называется `Statechart/<machine id>` (одновременно живущие инстансы того же описания — `Statechart/<machine id>#2`, `#3`, …), с ключом — как вы указали. Каждый макрошаг публикуется с именем действия, равным типу события (`TIMER`, `xstate.init`, `xstate.after.3000.trafficLight.green`, `xstate.stop`). `dispose()` убирает запись. Подробности — в [документации по devtools][devtools].
+Снапшот живёт в `State` с `base: "Statechart"`: без ключа запись называется `Statechart/<machine id>` (одновременно живущие инстансы того же описания делят её), с ключом — как вы указали. Каждый макрошаг публикуется с именем действия, равным типу события (`TIMER`, `xstate.init`, `xstate.after.3000.trafficLight.green`, `xstate.stop`). `dispose()` убирает запись. Подробности — в [документации по devtools][devtools].
 
 Живую диаграмму с подсветкой активных состояний даёт [`StatechartViz`](#viz). Опция `inspector` подключает внешний инспектор — см. [совместимость][xstate].
 

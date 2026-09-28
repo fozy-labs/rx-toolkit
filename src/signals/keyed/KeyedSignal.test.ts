@@ -126,7 +126,9 @@ describe("unstable_KeyedSignal", () => {
         it("observing an absent key then adding/removing it wakes the observer", () => {
             const k = unstable_KeyedSignal.state<number>();
             const seen: (number | undefined)[] = [];
-            const eff = Signal.effect(() => seen.push(k.get$("x")));
+            const eff = Signal.effect(() => {
+                seen.push(k.get$("x"));
+            });
             expect(seen).toEqual([undefined]);
 
             k.set("x", 5);
@@ -184,7 +186,9 @@ describe("unstable_KeyedSignal", () => {
         it("reaps a node once its key is gone and its last observer leaves", async () => {
             const core = new KeyedStore<number>();
             core.set("a", 1);
-            const eff = Signal.effect(() => core.get$("a"));
+            const eff = Signal.effect(() => {
+                core.get$("a");
+            });
 
             core.delete("a"); // key gone, but still observed → node retained
             expect(hasNode(core, "a")).toBe(true);
@@ -199,7 +203,9 @@ describe("unstable_KeyedSignal", () => {
         it("deleting an unobserved key drops its node immediately", () => {
             const core = new KeyedStore<number>();
             core.set("a", 1);
-            const eff = Signal.effect(() => core.get$("a")); // materialize node
+            const eff = Signal.effect(() => {
+                core.get$("a");
+            }); // materialize node
             eff.unsubscribe(); // reap is deferred and the key is present → node retained
             expect(hasNode(core, "a")).toBe(true);
 
@@ -222,7 +228,9 @@ describe("unstable_KeyedSignal", () => {
         it("does not reap a node whose key is still present", async () => {
             const core = new KeyedStore<number>();
             core.set("a", 1);
-            const eff = Signal.effect(() => core.get$("a"));
+            const eff = Signal.effect(() => {
+                core.get$("a");
+            });
             eff.unsubscribe();
             await flushMicrotasks();
             expect(hasNode(core, "a")).toBe(true);
@@ -266,7 +274,9 @@ describe("unstable_KeyedSignal", () => {
 
         it("creation-time reap keeps an absent-key node subscribed in the same tick", async () => {
             const core = new KeyedStore<number>();
-            const eff = Signal.effect(() => core.get$("ghost"));
+            const eff = Signal.effect(() => {
+                core.get$("ghost");
+            });
 
             await flushMicrotasks();
             expect(hasNode(core, "ghost")).toBe(true); // observed → kept despite absent key
@@ -280,8 +290,12 @@ describe("unstable_KeyedSignal", () => {
         it("a re-subscribe within the same tick cancels the reap", async () => {
             const core = new KeyedStore<number>();
             const c = Signal.compute(() => core.get$("x"));
-            const e1 = Signal.effect(() => c());
-            const e2 = Signal.effect(() => c());
+            const e1 = Signal.effect(() => {
+                c();
+            });
+            const e2 = Signal.effect(() => {
+                c();
+            });
             e1.unsubscribe();
             await flushMicrotasks();
             expect(hasNode(core, "x")).toBe(true);
@@ -296,7 +310,9 @@ describe("unstable_KeyedSignal", () => {
             const k = unstable_KeyedSignal.state<number>();
             k.set("a", 1);
             const c = Signal.compute(() => k.get$("a"));
-            const eff = Signal.effect(() => c());
+            const eff = Signal.effect(() => {
+                c();
+            });
             expect(c.peek()).toBe(1);
 
             eff.unsubscribe();

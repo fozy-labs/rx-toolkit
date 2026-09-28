@@ -246,8 +246,12 @@ describe("unstable_ProxySignal lifecycle", () => {
             const s$ = ProxySignal.state({ a: { b: 1 } });
             const seen: number[] = [];
             const c = Signal.compute(() => s$.root.a.b());
-            const survivor = Signal.effect(() => seen.push(c())); // stays subscribed
-            const transient = Signal.effect(() => c());
+            const survivor = Signal.effect(() => {
+                seen.push(c());
+            }); // stays subscribed
+            const transient = Signal.effect(() => {
+                c();
+            });
             transient.unsubscribe(); // refcount drops but stays > 0
             await flushMicrotasks();
 
@@ -279,7 +283,9 @@ describe("unstable_ProxySignal lifecycle", () => {
 
             // Re-observe the same path → a fresh, live node is created under `a`.
             const seen: (number | undefined)[] = [];
-            const eff2 = Signal.effect(() => seen.push((s$.root as any).a.b()));
+            const eff2 = Signal.effect(() => {
+                seen.push((s$.root as any).a.b());
+            });
             expect(seen).toEqual([2]);
 
             // The stale reap fires now; it must NOT unlink the freshly created node.
@@ -298,7 +304,9 @@ describe("unstable_ProxySignal lifecycle", () => {
         it("reaping does not disturb a still-observed sibling path", async () => {
             const s$ = ProxySignal.state<Record<string, { v: number }>>({ a: { v: 1 }, b: { v: 2 } });
             const seenA: (number | undefined)[] = [];
-            const effA = Signal.effect(() => seenA.push((s$.root as any).a.v()));
+            const effA = Signal.effect(() => {
+                seenA.push((s$.root as any).a.v());
+            });
 
             const effB = Signal.effect(() => (s$.root as any).b.v());
             effB.unsubscribe(); // b goes cold and is reaped

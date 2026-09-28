@@ -124,6 +124,52 @@ describe("reduxDevtools", () => {
 
             expect(connection.send).toHaveBeenCalledWith({ type: "CREATE" }, { group: { counter: 10 } });
         });
+
+        describe("a key that is both a leaf and a parent", () => {
+            function lastState(connection: ReturnType<typeof createMockExtension>["connection"]) {
+                return connection.send.mock.calls.at(-1)![1];
+            }
+
+            it("keeps the leaf value next to its children, in either creation order", async () => {
+                for (const order of [
+                    ["a/b", "a/b/c"],
+                    ["a/b/c", "a/b"],
+                ]) {
+                    const { extension, connection } = createMockExtension();
+                    const dt = reduxDevtools({ driver: extension, batchStrategy: "sync" });
+                    const values: Record<string, unknown> = { "a/b": { x: 1 }, "a/b/c": 2 };
+                    order.forEach((key) => dt.state(key, values[key]));
+
+                    expect(lastState(connection)).toEqual({ a: { b: { $value: { x: 1 }, c: 2 } } });
+                }
+            });
+
+            it("an update of either one leaves the other intact", () => {
+                const { extension, connection } = createMockExtension();
+                const dt = reduxDevtools({ driver: extension, batchStrategy: "sync" });
+                const leaf = dt.state("a/b", 1);
+                const child = dt.state("a/b/c", 2);
+
+                leaf(10);
+                expect(lastState(connection)).toEqual({ a: { b: { $value: 10, c: 2 } } });
+                child(20);
+                expect(lastState(connection)).toEqual({ a: { b: { $value: 10, c: 20 } } });
+            });
+
+            it("clearing the leaf keeps its children, and clearing the children restores the plain leaf", () => {
+                const { extension, connection } = createMockExtension();
+                const dt = reduxDevtools({ driver: extension, batchStrategy: "sync" });
+                const leaf = dt.state("a/b", 1);
+                const child = dt.state("a/b/c", 2);
+
+                child("$COMPLETED" as any);
+                expect(lastState(connection)).toEqual({ a: { b: 1 } });
+
+                dt.state("a/b/c", 3);
+                leaf("$COMPLETED" as any);
+                expect(lastState(connection)).toEqual({ a: { b: { c: 3 } } });
+            });
+        });
     });
 
     describe("key ownership (instances)", () => {

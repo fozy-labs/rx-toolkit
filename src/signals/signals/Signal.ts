@@ -16,7 +16,12 @@ export class Signal {
         return Computed.create(computeFn, options);
     }
 
-    static effect(effectFn: () => void) {
+    /**
+     * Runs `effectFn` now and again whenever a signal it read changes. A
+     * function it returns is the teardown: called before the next run and on
+     * `unsubscribe()`.
+     */
+    static effect(effectFn: () => void | (() => void)) {
         return Effect.create(effectFn);
     }
 

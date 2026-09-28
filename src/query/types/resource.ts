@@ -221,6 +221,17 @@ export interface TClutchSwitchOptions {
     markPending?: boolean;
 }
 
+/** Options of {@link IResourceClutch.whenSettled}. */
+export interface TClutchWhenSettledOptions {
+    /**
+     * Wait until no query is in flight (`!isPending`) instead of until there
+     * is something to render: data on screen — previous, placeholder or the
+     * entry's own during an invalidation — does not end the wait. `idle` is
+     * done at once. Default `false`.
+     */
+    waitForDone?: boolean;
+}
+
 export interface IResourceClutch<TArgs, TData, TError = unknown> {
     state$: ReadonlySignal<TResourceClutchState<TArgs, TData, TError>>;
     start(): void;
@@ -254,10 +265,11 @@ export interface IResourceClutch<TArgs, TData, TError = unknown> {
     /**
      * Promise resolving once the clutch has something to render: any data
      * became available (`hasData` — fresh, previous or placeholder) or the
-     * query failed with nothing to show (`status === "error"`). Never rejects.
-     * Used by the Suspense hook to wake React after a suspended render.
+     * query failed with nothing to show (`status === "error"`). With
+     * `waitForDone` — once no query is in flight. Never rejects. Used by the
+     * Suspense hook to wake React after a suspended render.
      */
-    whenSettled(): Promise<void>;
+    whenSettled(options?: TClutchWhenSettledOptions): Promise<void>;
     get args(): TArgs | null;
 }
 

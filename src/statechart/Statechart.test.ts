@@ -1132,32 +1132,17 @@ describe("Statechart Redux DevTools", () => {
         withBase.dispose();
     });
 
-    it("gives concurrent keyless instances of one machine id distinct default keys and reuses freed slots", () => {
+    it("gives concurrent keyless instances of one machine id the same key, like keyless signals", () => {
         const devtools = createFakeDevtools();
         const definition = createMachine({ id: "keyed", initial: "a", states: { a: {} } });
         const other = createMachine({ id: "other", initial: "a", states: { a: {} } });
         const first = new Statechart(definition);
         const second = new Statechart(definition);
-        const third = new Statechart(definition);
         const unrelated = new Statechart(other);
-        expect(devtools.keys).toEqual([
-            "Statechart/keyed",
-            "Statechart/keyed#2",
-            "Statechart/keyed#3",
-            "Statechart/other",
-        ]);
-
-        second.dispose();
-        const fourth = new Statechart(definition); // the lowest free slot
-        expect(devtools.keys.at(-1)).toBe("Statechart/keyed#2");
-
+        expect(devtools.keys).toEqual(["Statechart/keyed", "Statechart/keyed", "Statechart/other"]);
         first.dispose();
-        third.dispose();
-        fourth.dispose();
+        second.dispose();
         unrelated.dispose();
-        const again = new Statechart(definition); // everything released: the bare name again
-        expect(devtools.keys.at(-1)).toBe("Statechart/keyed");
-        again.dispose();
     });
 
     it("re-mount pattern: dispose then re-create yields the same default key (no #2)", () => {
@@ -1168,24 +1153,6 @@ describe("Statechart Redux DevTools", () => {
         const remounted = new Statechart(definition);
         expect(devtools.keys).toEqual(["Statechart/remount", "Statechart/remount"]);
         remounted.dispose();
-    });
-
-    it("releases the default key slot when the constructor throws", () => {
-        const devtools = createFakeDevtools();
-        const definition = createMachine({
-            id: "failing",
-            initial: "a",
-            states: {
-                a: {
-                    entry: assign(() => {
-                        throw new Error("x");
-                    }),
-                },
-            },
-        });
-        expect(() => new Statechart(definition)).toThrow("x");
-        expect(() => new Statechart(definition)).toThrow("x");
-        expect(devtools.keys).toEqual(["Statechart/failing", "Statechart/failing"]);
     });
 
     it("isDisabled turns Redux DevTools off for the instance", () => {

@@ -955,6 +955,57 @@ describe("ResourceClutch.whenSettled", () => {
         await flushMicrotasks();
         expect(settled).toBe(false);
     });
+
+    describe("{ waitForDone: true }", () => {
+        function track(promise: Promise<void>): () => boolean {
+            let settled = false;
+            void promise.then(() => {
+                settled = true;
+            });
+            return () => settled;
+        }
+
+        it.each([
+            [3, ALWAYS_PLACEHOLDER],
+            [4, NO_PLACEHOLDER],
+            [6, NO_PLACEHOLDER],
+        ] as const)("waits for the query on row %i, where there is data to show", async (row, placeholder) => {
+            const t = harness({ placeholder });
+            await driveTo(t, row);
+
+            const settled = track(t.clutch.whenSettled({ waitForDone: true }));
+            await flushMicrotasks();
+            expect(settled()).toBe(false);
+
+            await t.ok("A2");
+            await flushMicrotasks();
+            expect(settled()).toBe(true);
+        });
+
+        it("resolves at once on idle — no args or after SKIP (row 1)", async () => {
+            const t = harness();
+            await expect(t.clutch.whenSettled({ waitForDone: true })).resolves.toBeUndefined();
+
+            await driveTo(t, 5);
+            t.clutch.switch(SKIP);
+            await expect(t.clutch.whenSettled({ waitForDone: true })).resolves.toBeUndefined();
+        });
+
+        it("resolves on an error (row 8)", async () => {
+            const t = harness();
+            await driveTo(t, 8);
+            await expect(t.clutch.whenSettled({ waitForDone: true })).resolves.toBeUndefined();
+        });
+
+        it("caches its promise apart from the Suspense one", async () => {
+            const t = harness();
+            await driveTo(t, 4);
+
+            const done = t.clutch.whenSettled({ waitForDone: true });
+            expect(t.clutch.whenSettled({ waitForDone: true })).toBe(done);
+            expect(t.clutch.whenSettled()).not.toBe(done);
+        });
+    });
 });
 
 // ==================== start / switch / SKIP ====================
@@ -1252,19 +1303,103 @@ describe("ResourceClutch — stale re-trigger on rapid args change (microtask)",
         const clutch = resource.createClutch();
         clutch.switch(1);
         clutch.start();
-        expect(clutch.state$.peek().status).toBe("success");
-
-        resource.getEntry(1)!.complete();
-        await flushMicrotasks();
+        const state = observe(clutch);
+        expect(state().status).toBe("success");
 
         const createSpy = vi.spyOn(resource, "getEntry");
-        expect(clutch.state$.peek().status).toBe("pending");
+        resource.getEntry(1)!.complete();
+        expect(state().status).toBe("pending");
         await flushMicrotasks();
 
         const recreated = createSpy.mock.calls.some(
             ([keyed, doInitiate]) => doInitiate === true && (keyed as { value: number }).value === 1,
         );
         expect(recreated).toBe(true);
+    });
+});
+
+// ==================== Entry creation only while observed ====================
+//
+// A started clutch whose entry is missing re-creates it in a microtask. Nobody
+// holds an entry created for a clutch that is not observed, and an entry that
+// was never held never expires — so the clutch creates it only while its
+// state$ has subscribers.
+
+describe("ResourceClutch — creates entries only while observed", () => {
+    function expiringResource() {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = new Resource<number, string>({
+            retentionTime: 10,
+            serializeArgs: stableStringify as (args: number) => string,
+            queryFn,
+        });
+        return { resource, queryFn };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("an unsubscribe before the microtask creates no entry", async () => {
+        const { resource, queryFn } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        clutch.start();
+        const eff = Signal.effect(() => {
+            clutch.state$();
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        resource.reset();
+        eff.unsubscribe();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(resource.getEntry(1)).toBeNull();
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("a cold read of an expired entry creates no entry", async () => {
+        const { resource, queryFn } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        clutch.start();
+        const eff = Signal.effect(() => {
+            clutch.state$();
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        eff.unsubscribe();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(resource.getEntry(1)).toBeNull();
+
+        expect(clutch.state$.peek().status).toBe("pending");
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(resource.getEntry(1)).toBeNull();
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("a subscription after a cold read creates the entry and holds it", async () => {
+        const { resource, queryFn } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.switch(1);
+        clutch.start();
+        expect(resource.getEntry(1)).not.toBeNull();
+        resource.reset();
+        clutch.state$.peek();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resource.getEntry(1)).toBeNull();
+
+        const state = observe(clutch);
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(state().status).toBe("success");
+        expect(resource.getEntry(1)!.isMelting).toBe(false);
     });
 });
 

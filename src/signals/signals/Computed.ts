@@ -2,7 +2,7 @@ import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs"
 
 import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
 
-import { ComputeCache, DependencyRecord, DependencyTracker } from "../base";
+import { ComputeCache, DependencyRecord, DependencyTracker, SignalCycleError } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 import { Effect } from "./Effect";
@@ -19,12 +19,15 @@ export class Computed<T> {
     // Стабильный record на инстанс (см. State): переиспользуется на каждом get()
     // вместо аллокации нового объекта с замыканиями.
     private readonly _depRecord: DependencyRecord;
+    private readonly _label: string;
+    private _isComputing = false;
 
     constructor(
         private _computeFn: () => T,
         options?: SignalOptionsOrKey<T>,
     ) {
         const opts = normalizeSignalOptions(options);
+        this._label = opts.key ?? "<anonymous>";
         const stateOptions: SignalOptionsOrKey<symbol | T> = {
             key: opts.key,
             base: opts.base ?? Computed.name,
@@ -73,6 +76,10 @@ export class Computed<T> {
     }
 
     get() {
+        // Before track(): tracking a computed that is still being computed
+        // would subscribe to a half-built node.
+        this._assertNotComputing();
+
         if (DependencyTracker.isTracking) {
             DependencyTracker.track(this._depRecord);
         }
@@ -81,11 +88,13 @@ export class Computed<T> {
     }
 
     peek() {
+        this._assertNotComputing();
+
         const v = this._state$.peek();
 
         if (v === Computed._EMPTY) {
             // Используем кеш для вычисления без создания подписки
-            return this._computeCache.getOrCompute(this._computeFn);
+            return this._computeCache.getOrCompute(this._compute);
         }
 
         return v as T;
@@ -96,12 +105,12 @@ export class Computed<T> {
 
         this._effect = new Effect(() => {
             if (initialValue === Computed._EMPTY) {
-                initialValue = this._computeFn();
+                initialValue = this._compute();
                 this._state$.set(initialValue);
                 return;
             }
 
-            this._state$.set(this._computeFn());
+            this._state$.set(this._compute());
         });
 
         this._computeCache.clear();
@@ -111,6 +120,30 @@ export class Computed<T> {
         }
 
         return initialValue as T;
+    }
+
+    // Every run of computeFn goes through here, subscribed or not, so a read of
+    // this computed from inside its own computeFn — directly or through other
+    // computeds — is caught on every path instead of overflowing the stack.
+    private readonly _compute = (): T => {
+        this._isComputing = true;
+        Computed._computing.push(this);
+        try {
+            return this._computeFn();
+        } finally {
+            Computed._computing.pop();
+            this._isComputing = false;
+        }
+    };
+
+    private _assertNotComputing() {
+        if (!this._isComputing) return;
+
+        const stack = Computed._computing;
+        const chain = stack.slice(stack.indexOf(this)).map((computed) => computed._label);
+        chain.push(this._label);
+
+        throw new SignalCycleError(chain);
     }
 
     private _stop() {
@@ -135,6 +168,9 @@ export class Computed<T> {
     // === static ===
 
     private static _EMPTY = Symbol("empty");
+
+    /** Computeds whose computeFn is running right now, outermost first. */
+    private static _computing: Computed<unknown>[] = [];
 
     static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): DisposableSignal<T> {
         const lc = new Computed(computeFn, options);

@@ -2321,7 +2321,9 @@ describe("Command clutch integration", () => {
         const clutch = command.createClutch();
 
         const statuses: string[] = [];
-        const eff = Signal.effect(() => statuses.push(clutch.state$().status));
+        const eff = Signal.effect(() => {
+            statuses.push(clutch.state$().status);
+        });
 
         clutch.trigger("a");
         await flushMicrotasks();
@@ -2342,7 +2344,9 @@ describe("Command clutch integration", () => {
         });
         const clutch = command.createClutch();
 
-        const eff = Signal.effect(() => clutch.state$());
+        const eff = Signal.effect(() => {
+            clutch.state$();
+        });
 
         // The envelope promise never rejects — no catch needed for a failing trigger.
         await clutch.trigger("a");

@@ -72,6 +72,15 @@ describe("Signal (facade)", () => {
             expect(fn).toHaveBeenCalledTimes(1);
             eff.unsubscribe();
         });
+
+        it("accepts an effectFn returning a teardown and calls it on unsubscribe", () => {
+            expectTypeOf(Signal.effect).parameter(0).returns.toEqualTypeOf<void | (() => void)>();
+
+            const teardown = vi.fn();
+            const eff = Signal.effect(() => teardown);
+            eff.unsubscribe();
+            expect(teardown).toHaveBeenCalledOnce();
+        });
     });
 
     describe("integration: state → compute → effect", () => {

@@ -1,4 +1,7 @@
 import { SharedOptions } from "@/common/options/SharedOptions";
+import type { DisposableSignal } from "@/signals/types";
+
+import { SignalCycleError } from "../base";
 
 import { Computed } from "./Computed";
 import { Signal } from "./Signal";
@@ -252,6 +255,86 @@ describe("Computed", () => {
             const sub = c.obs.subscribe((v: number | symbol) => values.push(v));
             expect(values).toEqual([42]);
             sub.unsubscribe();
+        });
+    });
+
+    describe("cycles", () => {
+        function createCycle() {
+            const a: DisposableSignal<number> = Computed.create(() => b() + 1, "A");
+            const b: DisposableSignal<number> = Computed.create(() => a() + 1, "B");
+            return { a, b };
+        }
+
+        it("peek() throws SignalCycleError synchronously", () => {
+            const { a } = createCycle();
+
+            expect(() => a.peek()).toThrow(SignalCycleError);
+            expect(() => a.peek()).toThrow("A → B → A");
+        });
+
+        it("repeated peek() after the error throws again instead of hanging", () => {
+            const { a, b } = createCycle();
+
+            for (let i = 0; i < 3; i++) {
+                expect(() => a.peek()).toThrow(SignalCycleError);
+                expect(() => b.peek()).toThrow(SignalCycleError);
+            }
+        });
+
+        it("indirect cycle reports the whole chain", () => {
+            const a: DisposableSignal<number> = Computed.create(() => b() + 1, "A");
+            const b: DisposableSignal<number> = Computed.create(() => c() + 1, "B");
+            const c: DisposableSignal<number> = Computed.create(() => a() + 1, "C");
+
+            expect(() => a.peek()).toThrow("A → B → C → A");
+            expect(() => c.peek()).toThrow("C → A → B → C");
+        });
+
+        it("anonymous computeds are named in the chain", () => {
+            const a: DisposableSignal<number> = Computed.create(() => a() + 1);
+
+            expect(() => a.peek()).toThrow("<anonymous> → <anonymous>");
+        });
+
+        it("a read inside an effect throws synchronously, with no unhandled error", () => {
+            const { a } = createCycle();
+
+            expect(() =>
+                Signal.effect(() => {
+                    a();
+                }),
+            ).toThrow(SignalCycleError);
+        });
+
+        it("an obs subscriber gets the error synchronously", () => {
+            const { a } = createCycle();
+            const onError = vi.fn();
+
+            a.obs.subscribe({ error: onError });
+
+            expect(onError).toHaveBeenCalledOnce();
+            expect(onError.mock.calls[0][0]).toBeInstanceOf(SignalCycleError);
+        });
+
+        it("a cycle that appears later is reported, and the graph recovers once it is gone", () => {
+            const isCyclic = Signal.state(false);
+            const a: DisposableSignal<number> = Computed.create(() => (isCyclic() ? b() : 0) + 1, "A");
+            const b: DisposableSignal<number> = Computed.create(() => a() + 1, "B");
+
+            expect(b.peek()).toBe(2);
+            isCyclic.set(true);
+            expect(() => b.peek()).toThrow(SignalCycleError);
+            isCyclic.set(false);
+            expect(b.peek()).toBe(2);
+        });
+
+        it("an unrelated read of the same computed after the error works", () => {
+            const source = Signal.state(1);
+            const a = Computed.create(() => source() * 2, "A");
+            const bad: DisposableSignal<number> = Computed.create(() => a() + bad(), "Bad");
+
+            expect(() => bad.peek()).toThrow("Bad → Bad");
+            expect(a.peek()).toBe(2);
         });
     });
 });
