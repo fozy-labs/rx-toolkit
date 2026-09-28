@@ -5,7 +5,7 @@
 
 [Гайд по миграции с 0.12.x](./migrations/0.13.0.md)
 
-Breaking-релиз модуля Query: словарь (Agent → Clutch, `refresh` → `invalidate`, `pack` → `bind`), форма реактивного состояния (матрица `status` × `dataSource`) и плоское состояние записи кэша вместо публичной машины. Переименования живут алиасами до 0.14.0, форма состояния меняется без них.
+Breaking-релиз модуля Query: словарь (Agent → Clutch, `refresh` → `invalidate`, `pack` → `bind`), форма реактивного состояния (матрица `status` × `dataSource`) и плоское состояние записи кэша вместо публичной машины. Переименования прикрыты `@deprecated`-алиасами, форма состояния меняется без них.
 
 ### Added
 - **`retentionTime` функцией** — опции `createResource`, `createCommand`, `unstable_createProjectionResource` и уровня API (`resourceRetentionTime`, `commandRetentionTime`) принимают `(args, state) => number | false`, а не только число или `false`. Функцию вызывает переход `active → retention` — синхронно внутри отпускания последнего удержания (при создании записи — нет); результат действует на один цикл удержания: новое удержание отменяет таймер, а следующая потеря удержаний вызывает функцию заново, с актуальным `state`. `state` — состояние записи без варианта `idle`: `TResourceEntryState` у ресурса, новый публичный `TCommandEntryState` (состояние сцепления команды без `retry()`) у команды. Опция ресурса или команды заменяет опцию API целиком — как и со статическим значением. Статическое значение работает как прежде. См. [docs/query/concepts/cache](./query/concepts/cache.md#время-удержания-записи).
@@ -50,7 +50,7 @@ Breaking-релиз модуля Query: словарь (Agent → Clutch, `refre
 - Внутренние переименования без публичного эффекта: `Snapshoter` → `Snapshotter` (папка `core/snapshoter/` → `core/snapshotter/`), хелпер состояния записи `hasData()` → `isDataState()`, ошибки ядра `MachineStateError` / `MachineTransitionError` → `QueryEntryStateError` / `QueryEntryTransitionError` (наружу не экспортировались).
 
 ### Deprecated
-Всё ниже продолжает работать один релиз и удаляется в 0.14.0; полная таблица замен — в [гайде по миграции](./migrations/0.13.0.md#deprecated-удаляется-в-0140):
+Полная таблица замен — в [гайде по миграции](./migrations/0.13.0.md#deprecated):
 - методы: `createAgent()`, `refresh()` (на ресурсе, записи, сцеплении, его состоянии и `useInfiniteResource`), `clutch.set()`, `pack()`, `clutch.setKey()`;
 - типы: `IResourceAgent`, `ICommandAgent`, `TPackedResource`, `TPackedCommand`, `TPacked`, `TAgentStatus` (набор значений сузился до четырёх), `Args`, `ArgsOrVoid`, `ArgsOrVoidOrSkip`, `Keyed`, `PluginHKT`, `ReactHooksPluginHKT`, `CombinePlugin*Augments`;
 - типы состояния записи кэша: `TMachineState` → `TQueryEntryState`, `TMachineStatus` → `TQueryEntryStatus`, `TPendingState` / `TSuccessState` / `TErrorState` / `TInvalidatingState` / `TInvalidateErrorState` → `TQueryEntry{Pending,Success,Error,Invalidating,InvalidateError}State`;
