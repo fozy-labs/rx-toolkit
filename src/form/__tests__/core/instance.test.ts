@@ -200,6 +200,8 @@ describe("devtools", () => {
                 "pair/context$",
                 "pair/meta$",
                 "pair/server$",
+                "pair/submit$",
+                "pair/submitIssues$",
                 "pair/a/input$",
                 "pair/a/meta$",
                 "pair/a/server$",

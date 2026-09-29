@@ -6,6 +6,7 @@ import type { Issue, IssuePath, ItemRef, ListState, Parsed, ShowErrors } from ".
 import type { DefinitionRecord, ListRecord } from "../definition/records";
 import { action } from "../runtime/action";
 import { ABSENT, composedParsedEquals, DEFAULTS, isProvided, NOT_PARSED } from "../runtime/values";
+import { commitSnapshot, type ListSnapshot } from "../submit/snapshot";
 import { collectRuleIssues, isShown, withSeverity } from "../validation/issues";
 import { createRule, type RuleSignal } from "../validation/rules";
 
@@ -318,6 +319,41 @@ export class ListCore implements ParentCore {
     clearServerIssues(): void {
         this._server$.set(NO_ISSUES);
         for (const core of this._registry.values()) core.clearServerIssues();
+    }
+
+    snapshot(): ListSnapshot {
+        const keys = this._keys();
+        return {
+            kind: "list",
+            core: this,
+            keys,
+            items: new Map(keys.map((itemKey) => [itemKey, this._registry.get(itemKey)!.snapshot()])),
+        };
+    }
+
+    /**
+     * `_commit()`: the sent key order becomes the structure base, and each sent row takes its base
+     * by key. A structural draft stays only if it differs from what was sent, so rows added
+     * during the flight stay a draft; rows removed during it are in the base again, detached.
+     */
+    commit(snapshot: ListSnapshot): void {
+        for (const [itemKey, item] of snapshot.items) {
+            if (!this._registry.has(itemKey)) this._registry.set(itemKey, item.core);
+        }
+        const structure = this._structure$.peek();
+        const baseKeys = snapshot.keys;
+        const keys =
+            structure.keys !== undefined && !shallowEqual(structure.keys, baseKeys) ? structure.keys : undefined;
+        if (!shallowEqual(structure.baseKeys, baseKeys) || structure.keys !== keys) {
+            this._structure$.set(keys === undefined ? { baseKeys } : { baseKeys, keys });
+        }
+        this._keepOnly(keys === undefined ? baseKeys : [...baseKeys, ...keys]);
+        for (const item of snapshot.items.values()) commitSnapshot(item);
+    }
+
+    /** Whether the row `key` is attached now. */
+    hasItem(itemKey: string): boolean {
+        return this._keys().includes(itemKey);
     }
 
     // ==================== Structure ====================

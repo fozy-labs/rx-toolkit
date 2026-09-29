@@ -6,6 +6,7 @@ import type { FieldState, Issue, IssuePath, Parsed, ShowErrors } from "../../typ
 import type { FieldRecord } from "../definition/records";
 import { action } from "../runtime/action";
 import { ABSENT, DEFAULTS, parsedEquals, safeEquals } from "../runtime/values";
+import type { FieldSnapshot } from "../submit/snapshot";
 import { collectRuleIssues, isShown, schemaIssue, withSeverity } from "../validation/issues";
 import { parseValue, type ParseResult } from "../validation/parse";
 import { createRule, type RuleSignal } from "../validation/rules";
@@ -255,6 +256,28 @@ export class FieldCore implements NodeCore {
 
     clearServerIssues(): void {
         this._server$.set(NO_ISSUES);
+    }
+
+    snapshot(): FieldSnapshot {
+        return { kind: "field", core: this, value: this.value$.peek() };
+    }
+
+    /**
+     * `_commit()`: what was sent becomes the base. The draft is dropped only if it `equals` what
+     * was sent, so an edit made during the submit stays; meta is not touched.
+     */
+    commit({ value }: FieldSnapshot): void {
+        const input = this._input$.peek();
+        const next: FieldInput =
+            "value" in input && !this._equals(input.value, value)
+                ? { default: value, value: input.value }
+                : { default: value };
+        if (!shallowEqual(input, next)) this._input$.set(next);
+    }
+
+    /** Whether the value still `equals` `value`. */
+    hasValue(value: unknown): boolean {
+        return this._equals(this.value$.peek(), value);
     }
 
     private _set(value: unknown): void {

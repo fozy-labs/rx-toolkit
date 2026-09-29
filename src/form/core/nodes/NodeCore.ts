@@ -2,6 +2,7 @@ import { Signal } from "@/signals/signals/Signal";
 import type { DisposableSignal, ReadonlySignal, SignalComputeOptions } from "@/signals/types";
 
 import type { Issue, IssuePath, Parsed, ShowErrors } from "../../types";
+import type { AttemptSnapshot } from "../submit/snapshot";
 import type { RuleSignal } from "../validation/rules";
 
 // The runtime side of a node. A core owns the signals and the internal actions; its public
@@ -15,6 +16,11 @@ export interface InstanceScope {
     /** The root `name`: the source name of root short-form rules. */
     readonly rootName: string;
     readonly context$: ReadonlySignal<unknown>;
+    /**
+     * Counts the `initialize()` calls that wrote bases. A submit captures it when the command
+     * starts and skips its `_commit()` if it changed: the new base wins over what was sent.
+     */
+    readonly bases: { generation: number };
 }
 
 export interface ReinitOptions {
@@ -55,14 +61,16 @@ export interface NodeCore {
     // Internal actions: called inside a public action, so already untracked and batched.
     reset(): void;
     markTouched(touched: boolean): void;
-    /** Sets the `submitted` flag on the node and its subtree (submit, Stage 5). */
+    /** Sets the `submitted` flag on the node and its subtree, as a submit does. */
     markSubmitted(): void;
     /** Applies reinit data: the node's value in `initialize({ state })`, `ABSENT` or `DEFAULTS`. */
     reinit(data: unknown, options: ReinitOptions): void;
-    /** Adds server issues to the node's own ones (the submit lays them out, Stage 5). */
+    /** Adds server issues to the node's own ones, as the submit lays them out. */
     addServerIssues(issues: readonly Issue[]): void;
     /** Removes the server issues of the node and its subtree. */
     clearServerIssues(): void;
+    /** What a submit sends from this node: its values and list key orders, without disabled children. */
+    snapshot(): AttemptSnapshot;
 }
 
 /** A node with children: a group, or a list for its items. */

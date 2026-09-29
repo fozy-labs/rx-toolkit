@@ -7,6 +7,8 @@ import type { GroupRecord } from "../definition/records";
 import { action } from "../runtime/action";
 import { guard, outcomeEquals, type Outcome } from "../runtime/guard";
 import { ABSENT, childData, composedParsedEquals, DEFAULTS, isProvided, NOT_PARSED } from "../runtime/values";
+import { commitSnapshot, type AttemptSnapshot, type GroupSnapshot } from "../submit/snapshot";
+import { SubmitController } from "../submit/SubmitController";
 import { callbackIssue, collectRuleIssues, isShown, withSeverity } from "../validation/issues";
 import { createRule, type RuleSignal } from "../validation/rules";
 
@@ -24,7 +26,6 @@ import {
     type ReinitOptions,
 } from "./NodeCore";
 import { createQueries } from "./queries";
-import { createSubmitState, type SubmitState } from "./submitState";
 
 interface GroupMeta {
     readonly isTouched: boolean;
@@ -73,7 +74,7 @@ export class GroupCore implements ParentCore {
     private readonly _meta$: StateSignal<GroupMeta>;
     private readonly _server$: StateSignal<Issue[]>;
     private readonly _excluded: Readonly<Record<string, ReadonlySignal<Outcome<boolean>>>>;
-    private readonly _submit: SubmitState | null;
+    private readonly _submit: SubmitController | null;
     private readonly _context$: StateSignal<unknown> | null;
 
     constructor(
@@ -96,6 +97,7 @@ export class GroupCore implements ParentCore {
                 key,
                 rootName: record.name ?? "root",
                 context$: derived(`${key}/context$`, () => context$()),
+                bases: { generation: 0 },
             };
         }
         const key = nodeKey(scope, segments);
@@ -112,7 +114,6 @@ export class GroupCore implements ParentCore {
                 : signal("path$", () => ROOT_PATH);
         this._meta$ = writable(`${key}/meta$`, PRISTINE);
         this._server$ = writable(`${key}/server$`, NO_ISSUES);
-        this._submit = parent ? null : createSubmitState(key);
 
         // ==================== Children ====================
 
@@ -200,6 +201,14 @@ export class GroupCore implements ParentCore {
         this.rules = record.rules.map((rule) =>
             createRule(this, rule, { fields, value$, parsed$, computed, queries: queries.views, context$ }),
         );
+        const submit = parent
+            ? null
+            : new SubmitController(
+                  this,
+                  record,
+                  Object.freeze({ fields, value$, parsed$, computed, queries: queries.views, context$ }),
+              );
+        this._submit = submit;
         const disabledRuns = Object.entries(excluded).map(([childName, run$]) => ({
             name: `disabled.${childName}`,
             run$,
@@ -223,6 +232,7 @@ export class GroupCore implements ParentCore {
                 queries.collectIssues(path, out);
                 collectCallbacks(disabledRuns, path, out);
                 out.push(...this._server$());
+                if (submit) out.push(...submit.issues$());
                 return out;
             },
             deepEqual,
@@ -326,7 +336,6 @@ export class GroupCore implements ParentCore {
             ...(parent?.kind === "list" ? { key: name } : null),
         };
 
-        const submit = this._submit;
         if (!submit) {
             this.node = Object.freeze({ ...members, state$: signal("state$", groupState, shallowEqual) });
         } else {
@@ -396,6 +405,19 @@ export class GroupCore implements ParentCore {
         }
     }
 
+    snapshot(): GroupSnapshot {
+        const children = new Map<string, AttemptSnapshot>();
+        for (const [childName, child] of Object.entries(this.children)) {
+            if (!this.isExcluded(childName)) children.set(childName, child.snapshot());
+        }
+        return { kind: "group", core: this, children };
+    }
+
+    /** `_commit()` of the sent children. */
+    commit(snapshot: GroupSnapshot): void {
+        for (const child of snapshot.children.values()) commitSnapshot(child);
+    }
+
     addServerIssues(issues: readonly Issue[]): void {
         if (issues.length) this._server$.set([...this._server$.peek(), ...issues]);
     }
@@ -418,6 +440,7 @@ export class GroupCore implements ParentCore {
         const hasContext = this._context$ !== null && isProvided(data, "context");
         if (hasContext) this._context$!.set((data as { context: unknown }).context);
         if (!hasState && hasContext) return;
+        this.scope.bases.generation++;
         this.reinit(hasState ? (data as { state: unknown }).state : DEFAULTS, { keepDirtyValues, keepDirtyLists });
         if (!keepDirtyValues) this._submit?.reset();
     }

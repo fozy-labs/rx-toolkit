@@ -284,7 +284,7 @@ describe("root node", () => {
         expect("set" in form.context$).toBe(false);
     });
 
-    it("submit members before Stage 5: the idle state; submit() and entryKey are not implemented", () => {
+    it("submit members of a fresh instance: the idle state", () => {
         const form = registration();
         expect(form.submission$()).toBeNull();
         expect(form.isSubmitting$()).toBe(false);
@@ -292,8 +292,7 @@ describe("root node", () => {
         expect(form.submitAttempts$()).toBe(0);
         expect(form.submitCount$()).toBe(0);
         expect(form.canSubmit$()).toBe(true);
-        expect(() => form.submit()).toThrow("not implemented");
-        expect(() => form.entryKey).toThrow("not implemented");
+        expect(typeof form.entryKey).toBe("string");
     });
 
     it("clearIssues(): removes every server issue in the tree", () => {

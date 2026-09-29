@@ -1,3 +1,5 @@
+import type { IApi } from "@/query/types";
+
 import type { PendingQueries } from "../../types";
 import { FormConfigError } from "../FormConfigError";
 
@@ -51,7 +53,15 @@ export function assertChild(child: unknown, path: string): DefinitionRecord {
     return child;
 }
 
-export function createGroupDef(input: unknown): GroupRecord {
+/** What `api.defineForm` adds to a definition: the api, the plugin defaults and its members. */
+export interface FormExtras {
+    readonly api: IApi;
+    readonly mapSubmitError: ((error: unknown) => unknown) | undefined;
+    /** Members added to the definition object before it is frozen. */
+    readonly members?: (definition: GroupRecord) => Readonly<Record<string, unknown>>;
+}
+
+export function createGroupDef(input: unknown, extras?: FormExtras): GroupRecord {
     const options = assertOptions(input, GROUP_OPTIONS, "group");
 
     const fields: Record<string, DefinitionRecord> = {};
@@ -78,7 +88,7 @@ export function createGroupDef(input: unknown): GroupRecord {
         );
     }
 
-    return registerDefinition<GroupRecord>({
+    const record: GroupRecord = {
         kind: "group",
         fields: Object.freeze(fields),
         showErrors: checkShowErrors(options.showErrors, "showErrors"),
@@ -91,7 +101,12 @@ export function createGroupDef(input: unknown): GroupRecord {
         name: options.name,
         submit: options.submit === undefined ? undefined : assertFunction(options.submit, "submit"),
         mapSubmitError:
-            options.mapSubmitError === undefined ? undefined : assertFunction(options.mapSubmitError, "mapSubmitError"),
+            options.mapSubmitError === undefined
+                ? extras?.mapSubmitError
+                : assertFunction(options.mapSubmitError, "mapSubmitError"),
         pendingQueries: options.pendingQueries as PendingQueries | undefined,
-    });
+        api: extras?.api,
+    };
+    if (extras?.members) Object.assign(record, extras.members(record));
+    return registerDefinition(record);
 }

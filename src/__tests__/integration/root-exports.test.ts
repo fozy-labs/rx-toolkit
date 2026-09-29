@@ -173,4 +173,27 @@ describe("Root module exports (@/index)", () => {
             expect(mod.statelyInspector).toBeDefined();
         });
     });
+
+    describe("form re-exports", () => {
+        it("exports unstable_FormSignal with its builders", async () => {
+            const mod = await import("@/index");
+            expect(mod.unstable_FormSignal).toBeDefined();
+            expect(typeof mod.unstable_FormSignal.field).toBe("function");
+            expect(typeof mod.unstable_FormSignal.group).toBe("function");
+            expect(typeof mod.unstable_FormSignal.list).toBe("function");
+            expect(typeof mod.unstable_FormSignal.context).toBe("function");
+            expect(typeof mod.unstable_FormSignal.state).toBe("function");
+        });
+
+        it("exports unstable_formsPlugin and unstable_FormsPlugin", async () => {
+            const mod = await import("@/index");
+            expect(mod.unstable_formsPlugin().name).toBe("FormsPlugin");
+            expect(mod.unstable_formsPlugin()).toBeInstanceOf(mod.unstable_FormsPlugin);
+        });
+
+        it("exports FormConfigError", async () => {
+            const mod = await import("@/index");
+            expect(mod.FormConfigError).toBeDefined();
+        });
+    });
 });

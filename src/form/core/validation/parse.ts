@@ -44,7 +44,7 @@ function failure(message: string): ParseResult {
 }
 
 /** Path segments `{ key }` become plain keys; `code` is taken as is when a vendor adds one. */
-function normalizeIssue(issue: StandardSchemaV1Issue): SchemaIssue {
+export function normalizeIssue(issue: StandardSchemaV1Issue): SchemaIssue {
     const path = (issue.path ?? []).map((segment) => {
         const key = typeof segment === "object" && segment !== null ? segment.key : segment;
         return typeof key === "number" ? key : String(key);

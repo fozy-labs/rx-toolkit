@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@/common/standard-schema";
+import type { IApi } from "@/query/types";
 
 import type { AnyDef, FormContextToken, PendingQueries, ShowErrors } from "../../types";
 
@@ -45,8 +46,11 @@ export interface GroupRecord extends RecordBase {
     readonly rootOnly: boolean;
     readonly name: string | undefined;
     readonly submit: Callback | undefined;
+    /** The own `mapSubmitError`, else the default of the plugin that defined the form. */
     readonly mapSubmitError: ((error: unknown) => unknown) | undefined;
     readonly pendingQueries: PendingQueries | undefined;
+    /** The api of `api.defineForm`: the command of a promise `submit` is created on it. */
+    readonly api: IApi | undefined;
 }
 
 export interface ListRecord extends RecordBase {

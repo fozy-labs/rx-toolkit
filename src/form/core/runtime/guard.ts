@@ -46,8 +46,3 @@ export function errorMessage(error: unknown): string {
     if (error instanceof Error) return error.message || error.name;
     return String(error);
 }
-
-/** The error of a feature whose runtime lands in a later stage of the form. */
-export function notImplemented(feature: string): Error {
-    return new Error(`unstable_FormSignal: ${feature} is not implemented yet`);
-}
