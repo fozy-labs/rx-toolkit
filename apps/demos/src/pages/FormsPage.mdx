@@ -1,0 +1,34 @@
+import { Tab } from "@heroui/react";
+import { LiveExample, QueryTabs } from "../components";
+import { Forms } from "../examples";
+
+# Формы
+
+API форм нестабилен и экспортируется с префиксом `unstable_`; в примерах импорт алиасится
+(`import { unstable_FormSignal as FormSignal }`). Определение — дерево `FormSignal.field` / `group` / `list`
+со схемой Standard Schema у поля (здесь zod), инстанс — дерево узлов с `$`-сигналами, которые читаются
+через `useSignal`. `api.defineForm` и `Definition.useForm` добавляет плагин `unstable_formsReactPlugin()`.
+Документация — `docs/form/` в репозитории.
+
+## Примеры
+
+<QueryTabs>
+    <Tab key="registration" title="Регистрация (проверка email)">
+        <LiveExample
+            title="Запрос с debounce, правило по его свежим данным, серверная ошибка поля"
+            initialCode={Forms.examples.registration}
+        />
+    </Tab>
+    <Tab key="conditionalFields" title="Условные поля (disabled)">
+        <LiveExample
+            title="Отключённая группа выпадает из значения и валидности"
+            initialCode={Forms.examples.conditionalFields}
+        />
+    </Tab>
+    <Tab key="editProfile" title="Редактирование (ресурс → state)">
+        <LiveExample
+            title="Данные ресурса в форме: синхронизация state и keepDirtyValues"
+            initialCode={Forms.examples.editProfile}
+        />
+    </Tab>
+</QueryTabs>

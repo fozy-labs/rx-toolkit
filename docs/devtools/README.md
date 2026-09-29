@@ -6,6 +6,7 @@ RxToolkit предоставляет интеграцию с популярны�
 - Сигналов (Signal / Computed)
 - Ресурсов и команд (Resource / Command)
 - Стейт-машин (Statechart) — в Redux DevTools и во внешнем [инспекторе](#инспектор-стейт-машин)
+- Форм (Form) — ключи записей описаны в [Devtools формы](../form/instance.md#devtools)
 
 ---
 

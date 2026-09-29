@@ -7,6 +7,7 @@ settings:
 overrides:
   motion-dom: 12.23.23
   motion-utils: 12.23.6
+  '@fozy-labs/rx-toolkit': link:../..
 
 importers:
 
@@ -17,10 +18,10 @@ importers:
         version: 5.3.0
       '@fozy-labs/rx-toolkit':
         specifier: link:../..
-        version: 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+        version: 0.12.3(react@19.2.0)(rxjs@7.8.2)(zod@4.1.11)
       '@fozy-labs/statechart-viz':
         specifier: 0.4.0
-        version: 0.4.0(@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+        version: 0.4.0(@fozy-labs/rx-toolkit@0.12.3(react@19.2.0)(rxjs@7.8.2)(zod@4.1.11))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)
       '@heroui/react':
         specifier: 2.8.5
         version: 2.8.5(@react-spectrum/provider@3.11.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@types/react@19.2.4)(framer-motion@12.23.24(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(tailwindcss@4.1.17)
@@ -57,6 +58,9 @@ importers:
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
+      zod:
+        specifier: 4.1.11
+        version: 4.1.11
     devDependencies:
       '@eslint/js':
         specifier: ^9.20.0
@@ -411,8 +415,8 @@ packages:
   '@formatjs/intl-localematcher@0.6.2':
     resolution: {integrity: sha512-XOMO2Hupl0wdd172Y06h6kLpBz6Dv+J4okPLl4LPtzbr8f66WbIoy4ev98EBuZ6ZK4h5ydTN6XneT4QVpD7cdA==}
 
-  '@fozy-labs/rx-toolkit@0.12.0':
-    resolution: {integrity: sha512-Wt+VdZXMf5M2/ttq2JVpHVJJEUsYBDt01fmIW7A/lgB4XnHxuKo/AZACL/MwkIE8SUDau9oMqmW3m6pF7fMFOw==}
+  '@fozy-labs/rx-toolkit@0.12.3':
+    resolution: {integrity: sha512-TG6/lVreS8l3OWyXs9KLKeNkEbQZY5wXmeEDUGI2oeP5iIq42ldTs/MuDiYhwfAX+oz549LHtK5vX/Fvz6os3g==}
     peerDependencies:
       react: ^19.0.0
       rxjs: ^7.0.0
@@ -3756,8 +3760,8 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+  zod@4.1.11:
+    resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -4057,33 +4061,27 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/rx-toolkit@0.12.3(react@19.2.0)(rxjs@7.8.2)(zod@4.1.11)':
     dependencies:
       immer: 10.2.0
       react: 19.2.0
       rxjs: 7.8.2
-      zod: 4.5.4
+      zod: 4.1.11
 
-  '@fozy-labs/statechart-converter@0.4.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/statechart-converter@0.4.0':
     dependencies:
-      '@fozy-labs/rx-toolkit': 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+      '@fozy-labs/rx-toolkit': link:../..
       typescript: 5.9.3
-    transitivePeerDependencies:
-      - react
-      - rxjs
-      - zod
 
-  '@fozy-labs/statechart-viz@0.4.0(@fozy-labs/rx-toolkit@0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)':
+  '@fozy-labs/statechart-viz@0.4.0(@fozy-labs/rx-toolkit@0.12.3(react@19.2.0)(rxjs@7.8.2)(zod@4.1.11))(mermaid@11.17.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rxjs@7.8.2)':
     dependencies:
-      '@fozy-labs/rx-toolkit': 0.12.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
-      '@fozy-labs/statechart-converter': 0.4.0(react@19.2.0)(rxjs@7.8.2)(zod@4.5.4)
+      '@fozy-labs/rx-toolkit': 0.12.3(react@19.2.0)(rxjs@7.8.2)(zod@4.1.11)
+      '@fozy-labs/statechart-converter': 0.4.0
       mermaid: 11.17.2
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
       rxjs: 7.8.2
       svg-pan-zoom: 3.6.2
-    transitivePeerDependencies:
-      - zod
 
   '@heroui/accordion@2.2.24(@heroui/system@2.4.23(@heroui/theme@2.4.23(tailwindcss@4.1.17))(@react-spectrum/provider@3.11.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(framer-motion@12.23.24(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@heroui/theme@2.4.23(tailwindcss@4.1.17))(@react-spectrum/provider@3.11.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(framer-motion@12.23.24(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
@@ -8621,6 +8619,6 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod@4.5.4: {}
+  zod@4.1.11: {}
 
   zwitch@2.0.4: {}

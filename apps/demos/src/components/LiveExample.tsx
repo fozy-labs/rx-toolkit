@@ -23,6 +23,8 @@ import {
     stateIn,
     statelyInspector,
     unstable_createMachine as createMachine,
+    unstable_FormSignal as FormSignal,
+    unstable_formsReactPlugin,
     unstable_KeyedSignal,
     unstable_MachineSignal as MachineSignal,
     unstable_ProxySignal as ProxySignal,
@@ -50,6 +52,7 @@ import {
     Tabs,
 } from '@heroui/react';
 import { debounceTime, map, scan, startWith, Subject, take, timer } from 'rxjs';
+import { z } from 'zod';
 import { fetches } from '../utils/fetches';
 
 function processExample(code: string): string {
@@ -103,6 +106,7 @@ export function LiveExample({
         Divider,
         Effect,
         fetches,
+        FormSignal,
         Input,
         LocalSignal,
         LocalState,
@@ -131,11 +135,13 @@ export function LiveExample({
         Tabs,
         take,
         timer,
+        unstable_formsReactPlugin,
         unstable_KeyedSignal,
         ProxySignal,
         useCommand,
         useResource,
         useSignal,
+        z,
         ...scope
     };
 

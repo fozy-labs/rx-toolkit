@@ -227,6 +227,12 @@ function EditUserForm({ user }: { user: User }) {
 
 ---
 
+## Формы
+
+`unstable_formsReactPlugin()` добавляет определениям форм `useForm` и `useFormContext`, а инстансам — `<form.Provide>`; узлы формы читаются через `useSignal`. См. [Формы в React](../../form/react.md).
+
+---
+
 ## Паттерны использования
 
 ### Store класс

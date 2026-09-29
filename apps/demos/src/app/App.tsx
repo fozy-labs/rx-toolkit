@@ -14,6 +14,7 @@ import SignalsPage from '../pages/SignalsPage.mdx';
 import QueriesPage from '../pages/QueriesPage.mdx';
 import PokemonPage from '../pages/PokemonPage.mdx';
 import StatechartPage from '../pages/StatechartPage.mdx';
+import FormsPage from '../pages/FormsPage.mdx';
 
 export default function App() {
     const location = useLocation();
@@ -53,6 +54,11 @@ export default function App() {
                             Statechart
                         </Link>
                     </NavbarItem>
+                    <NavbarItem isActive={location.pathname === '/forms'}>
+                        <Link to="/forms" className={location.pathname === '/forms' ? 'text-primary' : 'text-foreground'}>
+                            Forms
+                        </Link>
+                    </NavbarItem>
                 </NavbarContent>
             </Navbar>
 
@@ -63,6 +69,7 @@ export default function App() {
                     <Route path="/queries" element={<QueriesPage />}/>
                     <Route path="/pokemon" element={<PokemonPage />}/>
                     <Route path="/statechart" element={<StatechartPage />}/>
+                    <Route path="/forms" element={<FormsPage />}/>
                 </Routes>
             </main>
         </div>

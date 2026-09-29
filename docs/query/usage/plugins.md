@@ -30,6 +30,11 @@ const { data, isPending } = usersResource.useResource({ page: 1 });
 Подробнее о поведении хука — см. раздел «React: useResource» в документации [ресурса][resource].
 
 
+## Плагины форм
+
+`unstable_formsPlugin()` добавляет самому `api` метод `defineForm`, `unstable_formsReactPlugin()` — его же и React-хуки форм. См. [Плагины и api.defineForm](../../form/README.md#плагины-и-apidefineform).
+
+
 ## Написание собственного плагина
 
 Плагин реализует интерфейс `IPlugin`:
