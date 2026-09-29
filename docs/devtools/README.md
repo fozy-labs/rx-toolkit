@@ -27,6 +27,8 @@ DefaultOptions.update({
 });
 ```
 
+Без расширения `reduxDevtools()` пишет ошибку в `console.error` и возвращает адаптер, который ничего не делает.
+
 ### Опции reduxDevtools
 
 ```typescript

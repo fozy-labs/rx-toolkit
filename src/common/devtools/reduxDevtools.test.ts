@@ -17,9 +17,15 @@ describe("reduxDevtools", () => {
     });
 
     describe("initialization", () => {
-        it("throws when extension is missing", () => {
+        it("logs an error and returns a no-op adapter when extension is missing", () => {
             vi.stubGlobal("window", {});
-            expect(() => reduxDevtools()).toThrow("Redux Devtools extension is not installed");
+            const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+            const devtools = reduxDevtools();
+
+            expect(error).toHaveBeenCalledWith("Redux Devtools extension is not installed");
+            expect(() => devtools.state("counter", 0)(1)).not.toThrow();
+            error.mockRestore();
         });
 
         it('connects with default name "RxToolkit"', () => {
@@ -50,11 +56,14 @@ describe("reduxDevtools", () => {
             expect(connection.init).toHaveBeenCalledWith({});
         });
 
-        it("throws the friendly 'not installed' error (not a window ReferenceError) in SSR without window", () => {
+        it("logs the 'not installed' error (not a window ReferenceError) in SSR without window", () => {
             vi.stubGlobal("window", undefined);
+            const error = vi.spyOn(console, "error").mockImplementation(() => {});
             // Bare `window` access would blow up with a low-level TypeError/
             // ReferenceError; the guard must funnel this into the clean error.
-            expect(() => reduxDevtools()).toThrow("Redux Devtools extension is not installed");
+            expect(() => reduxDevtools()).not.toThrow();
+            expect(error).toHaveBeenCalledWith("Redux Devtools extension is not installed");
+            error.mockRestore();
         });
     });
 

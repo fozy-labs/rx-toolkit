@@ -59,6 +59,7 @@ Breaking-релиз модуля Query: словарь (Agent → Clutch, `refre
 - **Statechart без `key` пишет в Redux DevTools под `Statechart/<id машины>`, как сигналы без ключа.** Одновременно живущие инстансы одного описания делят эту запись: её держит последний созданный, записи остальных отбрасываются с предупреждением о коллизии. Раньше они получали суффиксы `#2`, `#3`, … — отдельный от остальной библиотеки механизм. Чтобы различать инстансы, передавайте `key`. См. [docs/devtools](./devtools/README.md#именование-для-devtools).
 - Модуль называется **Query** (не «RxQuery») — в `README.md` и документации.
 - Внутренние переименования без публичного эффекта: `Snapshoter` → `Snapshotter` (папка `core/snapshoter/` → `core/snapshotter/`), хелпер состояния записи `hasData()` → `isDataState()`, ошибки ядра `MachineStateError` / `MachineTransitionError` → `QueryEntryStateError` / `QueryEntryTransitionError` (наружу не экспортировались).
+- **`reduxDevtools()` без расширения не бросает.** Раньше при отсутствии Redux DevTools он бросал `Error("Redux Devtools extension is not installed")`, теперь пишет это сообщение в `console.error` и возвращает адаптер, который ничего не делает, — приложение без расширения продолжает работать. См. [docs/devtools](./devtools/README.md#установка).
 
 ### Deprecated
 Полная таблица замен — в [гайде по миграции](./migrations/0.13.0.md#deprecated):
