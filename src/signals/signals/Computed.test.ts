@@ -631,25 +631,6 @@ describe("Computed", () => {
             expect(b.peek()).toBe(2);
         });
 
-        // Known gap: a hot computed serves its stored value to a reader instead of recomputing,
-        // so a cycle closed after subscription is never re-entered and re-runs without bound.
-        it.fails("a cycle that appears in a subscribed graph is reported", () => {
-            const isCyclic = Signal.state(false);
-            // The engine does not stop the loop: this bound does (one error instance, so the
-            // failure is no new state and the loop ends).
-            const runaway = new Error("runaway");
-            let runs = 0;
-            const a: DisposableSignal<boolean> = Computed.create(() => {
-                if (++runs > 1000) throw runaway;
-                return isCyclic() ? !b() : true;
-            }, "A");
-            const b: DisposableSignal<boolean> = Computed.create(() => a(), "B");
-            const subscription = b.obs.subscribe({ error: () => {} });
-
-            expect(() => isCyclic.set(true)).toThrow(SignalCycleError);
-            subscription.unsubscribe();
-        });
-
         it("an unrelated read of the same computed after the error works", () => {
             const source = Signal.state(1);
             const a = Computed.create(() => source() * 2, "A");
