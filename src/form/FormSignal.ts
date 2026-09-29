@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@/common/standard-schema";
 
+import { createInstance } from "./core/createInstance";
 import { createFieldDef } from "./core/definition/createFieldDef";
 import { createGroupDef } from "./core/definition/createGroupDef";
 import { createListDef } from "./core/definition/createListDef";
@@ -79,9 +80,6 @@ export class unstable_FormSignal {
 
     /** Creates an instance from a root definition. */
     static state<D extends AnyGroupDef>(definition: D, ...init: FormInitArgs<D>): FormInstance<D> {
-        void definition;
-        void init;
-        // The instance runtime lands in the next stages of the form.
-        throw new Error("unstable_FormSignal.state() is not implemented yet");
+        return createInstance(definition, init[0]) as FormInstance<D>;
     }
 }

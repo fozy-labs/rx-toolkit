@@ -241,7 +241,7 @@ describe("context() and state()", () => {
         expect(FormSignal.context()).not.toBe(first);
     });
 
-    it("has no instance runtime yet", () => {
-        expect(() => FormSignal.state(g({ fields: { a } }))).toThrow("not implemented");
+    it("creates an instance of a root group", () => {
+        expect(FormSignal.state(g({ fields: { a } })).value$()).toEqual({ a: "" });
     });
 });

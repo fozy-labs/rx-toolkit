@@ -1,7 +1,8 @@
 /**
  * Every example of the design type-checks as intended. `api.defineForm` arrives with the plugin;
  * until then the root definition is built with `FormSignal.group`, which takes the same options.
- * Instance reads live in functions that are never called: `FormSignal.state()` has no runtime yet.
+ * Instance reads live in functions that are never called: the examples use queries and submit, whose
+ * runtime lands in later stages.
  */
 import { expectTypeOf } from "vitest";
 import { z } from "zod";

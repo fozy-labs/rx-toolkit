@@ -6,6 +6,9 @@
  * declarations in a copy of `src/form` under `.tmp/form-type-budget/`, and its cost is the
  * difference against the full fixture. Time is printed for reference only, never compared.
  *
+ * The fixture compiles against the declarations emitted for the copy of `src/form`, as a
+ * consumer of the package does: the form's runtime code is not type-checked in its program.
+ *
  * Skipped by default (it runs `tsc` eight times). Run it with:
  *
  *     FORM_TYPE_BUDGET=1 pnpm vitest run src/form/__tests__/budget --reporter=verbose
@@ -13,7 +16,7 @@
  * The numbers depend on the pinned TypeScript version; re-measure after an upgrade.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +29,8 @@ const TSC = join(ROOT, "node_modules/typescript/bin/tsc");
 
 // Budget approved by the owner: the delta measured on this fixture with TS 5.9.2
 // (Types 5284, Instantiations 21432) plus 25%.
+// That measurement also type-checked the builders' runtime code; against the declarations the
+// same fixture costs less, and the limits stay as approved.
 const MAX_TYPES_DELTA = 6600;
 const MAX_INSTANTIATIONS_DELTA = 27000;
 
@@ -111,16 +116,56 @@ function stub(text: string, file: string, { name, body }: Stub): string {
     return text.slice(0, declaration.getStart(source)) + replacement + text.slice(declaration.getEnd());
 }
 
-/** A copy of `src/form` with the stubs applied; `@/*` keeps resolving to the real `src`. */
+/**
+ * A copy of `src/form` with the stubs applied, reduced to its emitted declarations plus the
+ * fixture and its api; `@/*` keeps resolving to the real `src`, as it does for the twin.
+ */
 function prepare(variant: string, stubs: Stub[]): string {
     const dir = join(WORK, variant);
+    const form = join(dir, "src/form");
+    const budget = join(form, "__tests__/budget");
     rmSync(dir, { recursive: true, force: true });
-    cpSync(FORM, join(dir, "src/form"), { recursive: true });
+    cpSync(FORM, form, { recursive: true });
     for (const entry of stubs) {
-        const path = join(dir, "src/form", entry.file);
+        const path = join(form, entry.file);
         writeFileSync(path, stub(readFileSync(path, "utf8"), entry.file, entry));
     }
-    return join(dir, "src/form/__tests__/budget");
+    emitDeclarations(join(form, "index.ts"), form);
+    const keep = new Set([join(budget, "fixture.ts"), join(budget, "api.ts")]);
+    for (const file of readdirSync(form, { recursive: true, encoding: "utf8" })) {
+        const path = join(form, file);
+        if (/\.tsx?$/.test(file) && !file.endsWith(".d.ts") && !keep.has(path)) rmSync(path);
+    }
+    return budget;
+}
+
+/** Emits the declarations of the form files `entry` reaches, next to their sources. */
+function emitDeclarations(entry: string, form: string): void {
+    const config = ts.getParsedCommandLineOfConfigFile(
+        join(ROOT, "tsconfig.json"),
+        {},
+        {
+            ...ts.sys,
+            onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+                throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+            },
+        },
+    );
+    if (!config) throw new Error("tsconfig.json cannot be read");
+    const { outDir: _outDir, ...options } = config.options;
+    const program = ts.createProgram([entry], {
+        ...options,
+        noEmit: false,
+        declaration: true,
+        emitDeclarationOnly: true,
+        declarationMap: false,
+    });
+    const inForm = (file: string) => !relative(form, file).startsWith("..") && !file.includes("__tests__");
+    for (const source of program.getSourceFiles()) {
+        if (source.isDeclarationFile || !inForm(source.fileName)) continue;
+        const result = program.emit(source, (file, text) => writeFileSync(file, text), undefined, true);
+        if (result.emitSkipped) throw new Error(`no declarations for ${source.fileName}`);
+    }
 }
 
 /**
