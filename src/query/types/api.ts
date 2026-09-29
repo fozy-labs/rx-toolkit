@@ -69,6 +69,14 @@ export interface IPlugin {
         resource: IResource<TArgs, TItem[], TError>,
         options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): Record<string, unknown>;
+    /**
+     * Members added to the api itself (typed by the `apiType` HKT slot).
+     * Called once in `createApi()`, after every plugin's `install`, in plugin
+     * order; `api` already carries the members of earlier plugins. A name the
+     * api already has — its own member or one an earlier plugin added —
+     * throws: plugins never replace api members.
+     */
+    augmentApi?<TError = unknown>(api: IApi<readonly IPlugin[], TError>): Record<string, unknown>;
 
     /**
      * Phantom type member. Plugins that provide typed augmentations should

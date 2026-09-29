@@ -432,6 +432,59 @@ describe("createApi — plugin system", () => {
     });
 });
 
+describe("createApi — plugins adding api members", () => {
+    it("adds the members augmentApi returns, calling it once with the api after every install", () => {
+        const order: string[] = [];
+        const augmentApi = vi.fn(() => {
+            order.push("augmentApi");
+            return { defineThing: (name: string) => `thing:${name}` };
+        });
+        const first = createMockPlugin("first", { augmentApi });
+        const second = createMockPlugin("second", { install: vi.fn(() => order.push("install second")) });
+
+        const api = createApi({ plugins: [first, second] });
+
+        expect(augmentApi).toHaveBeenCalledTimes(1);
+        expect(augmentApi).toHaveBeenCalledWith(api);
+        expect(order).toEqual(["install second", "augmentApi"]);
+        expect((api as any).defineThing("a")).toBe("thing:a");
+    });
+
+    it("a later plugin sees the members of an earlier one", () => {
+        const first = createMockPlugin("first", { augmentApi: () => ({ one: 1 }) });
+        let seen: unknown;
+        const second = createMockPlugin("second", {
+            augmentApi: (api) => {
+                seen = (api as any).one;
+                return { two: 2 };
+            },
+        });
+
+        const api = createApi({ plugins: [first, second] });
+
+        expect(seen).toBe(1);
+        expect({ one: (api as any).one, two: (api as any).two }).toEqual({ one: 1, two: 2 });
+    });
+
+    it("a name the api already has throws, naming the plugin and the member", () => {
+        for (const name of ["createResource", "resetAll", "plugins"]) {
+            const plugin = createMockPlugin("clash", { augmentApi: () => ({ [name]: () => {} }) });
+            expect(() => createApi({ plugins: [plugin] })).toThrow(
+                `Plugin "clash" cannot add "${name}" to the api: the api already has it`,
+            );
+        }
+    });
+
+    it("a name an earlier plugin added throws, naming both plugins", () => {
+        const first = createMockPlugin("first", { augmentApi: () => ({ defineThing: () => 1 }) });
+        const second = createMockPlugin("second", { augmentApi: () => ({ other: 0, defineThing: () => 2 }) });
+
+        expect(() => createApi({ plugins: [first, second] })).toThrow(
+            'Plugin "second" cannot add "defineThing" to the api: plugin "first" already added it',
+        );
+    });
+});
+
 // ==================== createResource Factory ====================
 
 describe("createApi.createResource", () => {

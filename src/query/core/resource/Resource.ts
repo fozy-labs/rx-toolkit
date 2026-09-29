@@ -22,6 +22,7 @@ import type {
     TResourcePrefetchOptions,
 } from "@/query/types";
 import { Signal, unstable_KeyedSignal, type ReadonlySignal } from "@/signals";
+import { untracked } from "@/signals/base/untracked";
 
 import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
@@ -633,7 +634,10 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         };
 
         try {
-            const result = this._onCacheEntryAdded(keyed.value, ctx);
+            // Untracked, like the queryFn (see QueryCacheEntry._runQuery): the
+            // hook runs inside whatever created the entry.
+            const onCacheEntryAdded = this._onCacheEntryAdded;
+            const result = untracked(() => onCacheEntryAdded(keyed.value, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {
@@ -655,7 +659,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         };
 
         try {
-            const result = this._onQueryStarted(args, ctx);
+            const onQueryStarted = this._onQueryStarted;
+            const result = untracked(() => onQueryStarted(args, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {

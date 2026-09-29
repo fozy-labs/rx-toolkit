@@ -1,6 +1,6 @@
 import type { Observable } from "rxjs";
 
-import type { DisposableSignal, SignalOptionsOrKey, StateSignal } from "@/signals/types";
+import type { DisposableSignal, SignalComputeOptions, SignalOptionsOrKey, StateSignal } from "@/signals/types";
 
 import { Computed } from "./Computed";
 import { Effect } from "./Effect";
@@ -12,7 +12,12 @@ export class Signal {
         return State.create(initialValue, options);
     }
 
-    static compute<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): DisposableSignal<T> {
+    /**
+     * A lazy value derived from the signals `computeFn` reads. `options.equals`
+     * decides when a recomputed value counts as unchanged; the previous
+     * reference is then kept.
+     */
+    static compute<T>(computeFn: () => T, options?: SignalComputeOptions<T> | string): DisposableSignal<T> {
         return Computed.create(computeFn, options);
     }
 

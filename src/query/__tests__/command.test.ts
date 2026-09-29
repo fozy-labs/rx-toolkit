@@ -2361,3 +2361,83 @@ describe("Command clutch integration", () => {
         eff.unsubscribe();
     });
 });
+
+// ==================== Tracking isolation ====================
+
+describe("Command — running it from an effect does not track reads of user code", () => {
+    type TSite = "queryFn" | "link forwardArgs" | "link optimisticUpdate" | "onCacheEntryAdded" | "onQueryStarted";
+    type TAction = "execute()" | "retry() of a failed entry";
+
+    const SITES: TSite[] = [
+        "queryFn",
+        "link forwardArgs",
+        "link optimisticUpdate",
+        "onCacheEntryAdded",
+        "onQueryStarted",
+    ];
+    // A retry re-runs only the queryFn and onQueryStarted: optimistic patches
+    // apply once per execute, and onCacheEntryAdded fires once per entry.
+    const RETRY_SITES: TSite[] = ["queryFn", "onQueryStarted"];
+    const CASES = [
+        ...SITES.map((site) => [site, "execute()"] as const),
+        ...RETRY_SITES.map((site) => [site, "retry() of a failed entry"] as const),
+    ] satisfies ReadonlyArray<readonly [TSite, TAction]>;
+
+    /**
+     * A command whose `site` reads `probe$` synchronously. The first run fails
+     * when `failFirst` is set, so a retry has something to re-run.
+     */
+    async function probedCommand(site: TSite, failFirst: boolean) {
+        const probe$ = Signal.state(0);
+        const read = (at: TSite) => {
+            if (at === site) probe$();
+        };
+        const linked = createLinkedResource<number, string>({ queryFn: async (n) => `r-${n}` });
+        linked.getEntry(1, true);
+        await flushMicrotasks();
+
+        let runs = 0;
+        const command = createCommand<number, string>({
+            queryFn: (n) => {
+                read("queryFn");
+                runs += 1;
+                return failFirst && runs === 1 ? Promise.reject(new Error("first")) : Promise.resolve(`c-${n}`);
+            },
+            links: [
+                {
+                    resource: linked,
+                    forwardArgs: (n: number) => {
+                        read("link forwardArgs");
+                        return n;
+                    },
+                    optimisticUpdate: () => {
+                        read("link optimisticUpdate");
+                    },
+                },
+            ],
+            onCacheEntryAdded: () => read("onCacheEntryAdded"),
+            onQueryStarted: () => read("onQueryStarted"),
+        });
+        return { probe$, command };
+    }
+
+    it.each(CASES)("reads of the %s — %s", async (site, action) => {
+        const { probe$, command } = await probedCommand(site, action === "retry() of a failed entry");
+        let run = (): void => void command.execute(1, "k").catch(() => {});
+        if (action === "retry() of a failed entry") {
+            run();
+            await flushMicrotasks();
+            run = () => command.getEntry("k")!.retry();
+        }
+
+        let runs = 0;
+        const eff = Signal.effect(() => {
+            runs += 1;
+            run();
+        });
+        probe$.set(1);
+
+        expect(runs).toBe(1);
+        eff.unsubscribe();
+    });
+});

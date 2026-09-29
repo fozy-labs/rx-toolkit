@@ -37,6 +37,13 @@ export interface IPluginHKT {
      */
     // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
     readonly projectionResourceType: {};
+    /**
+     * Override in subinterfaces to declare members added to the `api` itself
+     * (the result of `augmentApi`). Only `_TError` is substituted here — the
+     * api's error type; `_TArgs` / `_TData` stay `unknown`.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional: {} ensures union-to-intersection collapses cleanly (see design doc)
+    readonly apiType: {};
 }
 
 // ==================== HKT Application ====================
@@ -66,6 +73,10 @@ type ApplyPluginProjectionResourceHKT<F extends IPluginHKT, TArgs, TData, TError
     readonly _TError: TError;
 })["projectionResourceType"];
 
+type ApplyPluginApiHKT<F extends IPluginHKT, TError> = (F & {
+    readonly _TError: TError;
+})["apiType"];
+
 // ==================== Plugin Augment Extraction ====================
 
 /**
@@ -86,6 +97,11 @@ type ExtractCommandAugment<P, TArgs, TData, TError> = P extends { readonly _hkt:
 
 type ExtractProjectionResourceAugment<P, TArgs, TData, TError> = P extends { readonly _hkt: infer H extends IPluginHKT }
     ? ApplyPluginProjectionResourceHKT<H, TArgs, TData, TError>
+    : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+      {};
+
+type ExtractApiAugment<P, TError> = P extends { readonly _hkt: infer H extends IPluginHKT }
+    ? ApplyPluginApiHKT<H, TError>
     : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
       {};
 
@@ -127,15 +143,25 @@ export type TCombinePluginProjectionResourceAugments<
     TError = unknown,
 > = UnionToIntersection<ExtractProjectionResourceAugment<TPlugins[number], TArgs, TData, TError>>;
 
+/**
+ * Combine the members all plugins in the tuple add to the `api` itself
+ * (their `apiType` slots). `{}` when no plugin declares any.
+ */
+export type TCombinePluginApiAugments<TPlugins extends readonly IPlugin[], TError = unknown> = UnionToIntersection<
+    ExtractApiAugment<TPlugins[number], TError>
+>;
+
 // ==================== Exports ====================
 
 export type {
     ApplyPluginResourceHKT,
     ApplyPluginCommandHKT,
     ApplyPluginProjectionResourceHKT,
+    ApplyPluginApiHKT,
     ExtractResourceAugment,
     ExtractCommandAugment,
     ExtractProjectionResourceAugment,
+    ExtractApiAugment,
     UnionToIntersection,
 };
 

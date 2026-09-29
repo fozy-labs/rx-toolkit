@@ -1,6 +1,6 @@
 # Плагины
 
-Плагины расширяют возможности API, добавляя методы к [ресурсам][resource] и [командам][command]. Например, встроенный плагин `reactHooksPlugin()` добавляет React-хуки прямо на экземпляры ресурсов.
+Плагины расширяют возможности API, добавляя методы к [ресурсам][resource], [командам][command] и к самому `api`. Например, встроенный плагин `reactHooksPlugin()` добавляет React-хуки прямо на экземпляры ресурсов.
 
 Плагины передаются при создании API через опцию `plugins`:
 
@@ -50,6 +50,7 @@ interface IPlugin {
     resource: IResource<TArgs, TItem[]>,
     options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
   ): Record<string, unknown>;
+  augmentApi?(api: IApi): Record<string, unknown>;
 }
 ```
 
@@ -58,6 +59,7 @@ interface IPlugin {
 - `augmentResource(resource, options)` — вызывается при каждом `createResource()`. Возвращает объект с методами, которые будут добавлены к ресурсу.
 - `augmentCommand(command, options)` — аналогично, вызывается при каждом `createCommand()`. Возвращает объект с методами для команды.
 - `augmentProjectionResource(resource, options)` — **дополнительная** аугментация только для [проекционных ресурсов](./projection-resource.md), поверх обычного прохода `augmentResource` (проекционный ресурс проходит и его). Так `reactHooksPlugin()` добавляет `useInfiniteResource` только проекциям.
+- `augmentApi(api)` — вызывается один раз при `createApi()`, после `install` всех плагинов, в порядке `plugins`. Возвращает члены, которые добавляются к самому `api`; `api` уже содержит члены предыдущих плагинов. Плагин не перезаписывает члены `api`: имя, которое у `api` уже есть — собственное (`createResource`, `resetAll` и т. д.) или добавленное предыдущим плагином, — бросает ошибку в `createApi()` с именами плагина и члена.
 
 ```typescript
 const loggingPlugin: IPlugin = {
@@ -82,11 +84,15 @@ const loggingPlugin: IPlugin = {
 ```typescript
 import type { IPlugin, IPluginHKT } from '@fozy-labs/rx-toolkit';
 
+// `this` доступен только прямо в члене интерфейса, не во вложенном литерале
+// типа, поэтому форма вклада — отдельный generic-тип.
+type LoggingResourceShape<TArgs> = { logState: (args: TArgs) => void };
+
 interface LoggingPluginHKT extends IPluginHKT {
   // this['_TArgs'] / this['_TData'] / this['_TError'] подставляются
   // конкретными типами в точке применения (createResource и т.д.)
-  readonly resourceType: { logState: (args: this['_TArgs']) => void };
-  // опциональные слоты: commandType, projectionResourceType
+  readonly resourceType: LoggingResourceShape<this['_TArgs']>;
+  // опциональные слоты: commandType, projectionResourceType, apiType
 }
 
 class LoggingPlugin implements IPlugin {
@@ -98,6 +104,28 @@ class LoggingPlugin implements IPlugin {
 ```
 
 `createResource()` / `createCommand()` / `unstable_createProjectionResource()` собирают вклады всех плагинов из кортежа `plugins` (типы `TCombinePlugin*Augments`) и пересекают их с базовым типом. Благодаря этому `usersResource.useResource(...)` корректно типизирован, когда в `plugins` передан `reactHooksPlugin()`. Слот `projectionResourceType` описывает вклад `augmentProjectionResource` и применяется только к проекционным ресурсам.
+
+Слот `apiType` описывает вклад `augmentApi`: `createApi()` пересекает базовый тип `api` с `apiType` всех плагинов (тип `TCombinePluginApiAugments`). В нём подставляется только `this['_TError']` — тип ошибки `api` из `mapError`; `_TArgs` и `_TData` остаются `unknown`. Без плагинов со слотом `apiType` тип `api` не меняется.
+
+```typescript
+type TasksApiShape<TError> = { defineTask: (name: string) => { onError: (error: TError) => void } };
+
+interface TasksPluginHKT extends IPluginHKT {
+  readonly apiType: TasksApiShape<this['_TError']>;
+}
+
+class TasksPlugin implements IPlugin {
+  readonly name = 'TasksPlugin';
+  declare readonly _hkt: TasksPluginHKT;
+  install() {}
+  augmentApi() {
+    return { defineTask: (name: string) => ({ onError: (error: unknown) => console.error(name, error) }) };
+  }
+}
+
+const api = createApi({ plugins: [new TasksPlugin()], mapError: (e) => ({ message: String(e) }) });
+api.defineTask('sync'); // onError: (error: { message: string }) => void
+```
 
 
 ## См. также

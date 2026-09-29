@@ -1,9 +1,10 @@
 import { distinctUntilChanged, finalize, map, Observable, ReplaySubject, share } from "rxjs";
 
-import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
+import { DisposableSignal, normalizeSignalOptions, SignalComputeOptions, SignalOptionsOrKey } from "@/signals/types";
 
 import { ComputeCache, DependencyRecord, DependencyTracker, SignalCycleError } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
+import { untracked } from "../base/untracked";
 
 import { Effect } from "./Effect";
 import { State } from "./State";
@@ -15,6 +16,9 @@ import { State } from "./State";
 class ComputedFailure {
     constructor(readonly error: unknown) {}
 }
+
+/** `_last` before the first value (and after `dispose()`). */
+const NO_VALUE = Symbol("no-value");
 
 export class Computed<T> {
     private _state$;
@@ -35,12 +39,20 @@ export class Computed<T> {
     private readonly _depRecord: DependencyRecord;
     private readonly _label: string;
     private _isComputing = false;
+    private readonly _equals: ((previous: T, next: T) => boolean) | undefined;
+    /**
+     * The last value computeFn returned, kept only with `equals`: the one an
+     * equal recompute hands back. Outlives unsubscribe, so the reference stays
+     * stable across hot and cold reads.
+     */
+    private _last: T | typeof NO_VALUE = NO_VALUE;
 
     constructor(
         private _computeFn: () => T,
-        options?: SignalOptionsOrKey<T>,
+        options?: SignalComputeOptions<T> | string,
     ) {
-        const opts = normalizeSignalOptions(options);
+        const opts: SignalComputeOptions<T> = normalizeSignalOptions(options);
+        this._equals = opts.equals;
         this._label = opts.key ?? "<anonymous>";
         type Stored = symbol | T | ComputedFailure;
         const stateOptions: SignalOptionsOrKey<Stored> = {
@@ -158,13 +170,41 @@ export class Computed<T> {
     private readonly _compute = (): T => {
         this._isComputing = true;
         Computed._computing.push(this);
+        let next: T;
         try {
-            return this._computeFn();
+            next = this._computeFn();
         } finally {
             Computed._computing.pop();
             this._isComputing = false;
         }
+        return this._keepEqual(next);
     };
+
+    /**
+     * With `equals`, an equal value is replaced by the previous reference here,
+     * the one point every computation passes. The subscribed state and the
+     * cold cache then dedupe it by identity, as they do any unchanged value.
+     */
+    private _keepEqual(next: T): T {
+        const equals = this._equals;
+        if (!equals) return next;
+
+        const last = this._last;
+        if (last !== NO_VALUE && this._isEqual(equals, last, next)) return last;
+
+        this._last = next;
+        return next;
+    }
+
+    private _isEqual(equals: (previous: T, next: T) => boolean, previous: T, next: T): boolean {
+        try {
+            // Reads inside `equals` are no dependencies of this computed.
+            return untracked(() => equals(previous, next));
+        } catch (error) {
+            console.error(`[rx-toolkit] equals of computed "${this._label}" threw; falling back to Object.is.`, error);
+            return Object.is(previous, next);
+        }
+    }
 
     private _assertNotComputing() {
         if (!this._isComputing) return;
@@ -188,6 +228,7 @@ export class Computed<T> {
     dispose() {
         this._stop();
         this._computeCache.clear();
+        this._last = NO_VALUE;
         this._state$.dispose();
     }
 
@@ -205,9 +246,9 @@ export class Computed<T> {
     }
 
     /** Computeds whose computeFn is running right now, outermost first. */
-    private static _computing: Computed<unknown>[] = [];
+    private static _computing: Computed<any>[] = [];
 
-    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): DisposableSignal<T> {
+    static create<T>(computeFn: () => T, options?: SignalComputeOptions<T> | string): DisposableSignal<T> {
         const lc = new Computed(computeFn, options);
 
         function computedFn() {

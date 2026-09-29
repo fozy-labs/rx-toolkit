@@ -640,4 +640,163 @@ describe("Computed", () => {
             expect(a.peek()).toBe(2);
         });
     });
+
+    describe("equals option", () => {
+        type Parity = { parity: number };
+        const byParity = (a: Parity, b: Parity) => a.parity === b.parity;
+
+        function createParity() {
+            const source = Signal.state(1);
+            const computeFn = vi.fn(() => ({ parity: source() % 2 }));
+            const c = Signal.compute(computeFn, { equals: byParity });
+            return { source, computeFn, c };
+        }
+
+        it("an equal recompute keeps the previous reference for subscribers and peek()", () => {
+            const { source, computeFn, c } = createParity();
+            const values: Parity[] = [];
+            const sub = c.obs.subscribe((v) => values.push(v));
+            const first = c.peek();
+
+            source.set(3);
+
+            expect(computeFn).toHaveBeenCalledTimes(2);
+            expect(values).toEqual([first]);
+            expect(c.peek()).toBe(first);
+
+            source.set(4);
+
+            expect(values).toHaveLength(2);
+            expect(c.peek()).toEqual({ parity: 0 });
+            sub.unsubscribe();
+        });
+
+        it("dependents do not re-run on an equal recompute", () => {
+            const { source, c } = createParity();
+            const effectFn = vi.fn(() => {
+                c();
+            });
+            const eff = Signal.effect(effectFn);
+
+            source.set(3);
+            source.set(5);
+
+            expect(effectFn).toHaveBeenCalledTimes(1);
+            eff.unsubscribe();
+        });
+
+        it("without subscribers, peek() and cold dependents see the previous reference", () => {
+            const { source, c } = createParity();
+            const dependentFn = vi.fn(() => c());
+            const dependent = Signal.compute(dependentFn);
+            const first = dependent.peek();
+
+            source.set(3);
+
+            expect(c.peek()).toBe(first);
+            expect(dependent.peek()).toBe(first);
+            expect(dependentFn).toHaveBeenCalledTimes(1);
+        });
+
+        it("keeps the reference across subscribe and unsubscribe", () => {
+            const { source, c } = createParity();
+            const cold = c.peek();
+
+            const values: Parity[] = [];
+            const sub = c.obs.subscribe((v) => values.push(v));
+            expect(values).toEqual([cold]);
+
+            source.set(3);
+            sub.unsubscribe();
+            expect(c.peek()).toBe(cold);
+
+            source.set(5);
+            const again = c.obs.subscribe((v) => values.push(v));
+            expect(values).toEqual([cold, cold]);
+            again.unsubscribe();
+        });
+
+        it("without equals, every recompute yields its own reference", () => {
+            const source = Signal.state(1);
+            const c = Signal.compute(() => ({ parity: source() % 2 }));
+            const first = c.peek();
+
+            source.set(3);
+
+            expect(c.peek()).not.toBe(first);
+        });
+
+        it("a thrown error stays the state; the recovered value is compared with the last value", () => {
+            const source = Signal.state(1);
+            const error = new Error("negative");
+            const equals = vi.fn(byParity);
+            const c = Signal.compute(
+                () => {
+                    if (source() < 0) throw error;
+                    return { parity: source() % 2 };
+                },
+                { equals },
+            );
+            const reads: Array<Parity | unknown> = [];
+            const eff = Signal.effect(() => {
+                try {
+                    reads.push(c());
+                } catch (caught) {
+                    reads.push(caught);
+                }
+            });
+            const first = reads[0];
+
+            source.set(-1);
+            expect(() => c.peek()).toThrow(error);
+            expect(equals).not.toHaveBeenCalled();
+
+            source.set(3);
+            expect(reads).toEqual([first, error, first]);
+            expect(reads[2]).toBe(first);
+            eff.unsubscribe();
+        });
+
+        it("a throwing equals falls back to Object.is and logs once per throw", () => {
+            const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+            const source = Signal.state(1);
+            const failure = new Error("equals failed");
+            const c = Signal.compute(() => ({ value: source() }), {
+                equals: () => {
+                    throw failure;
+                },
+            });
+            const values: Array<{ value: number }> = [];
+            const sub = c.obs.subscribe((v) => values.push(v));
+
+            source.set(2);
+            source.set(3);
+
+            expect(values.map((v) => v.value)).toEqual([1, 2, 3]);
+            expect(consoleError).toHaveBeenCalledTimes(2);
+            expect(consoleError).toHaveBeenCalledWith(expect.any(String), failure);
+            sub.unsubscribe();
+            consoleError.mockRestore();
+        });
+
+        it("signals read inside equals are not dependencies", () => {
+            const source = Signal.state(1);
+            const unrelated = Signal.state(0);
+            const computeFn = vi.fn(() => ({ parity: source() % 2 }));
+            const c = Signal.compute(computeFn, {
+                equals: (a, b) => {
+                    unrelated();
+                    return byParity(a, b);
+                },
+            });
+            const sub = c.obs.subscribe();
+            source.set(3);
+            computeFn.mockClear();
+
+            unrelated.set(1);
+
+            expect(computeFn).not.toHaveBeenCalled();
+            sub.unsubscribe();
+        });
+    });
 });

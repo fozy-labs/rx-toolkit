@@ -1,3 +1,4 @@
+import { defer, of } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -1579,5 +1580,89 @@ describe("ResourceClutch — nullable TData", () => {
 
         expect(t.placeholder).toHaveBeenCalledTimes(1);
         expect(t.placeholder).toHaveBeenCalledWith(2, { data: null, args: 1 });
+    });
+});
+
+// ==================== Tracking isolation ====================
+
+describe("ResourceClutch — an action called from an effect does not track the query's reads", () => {
+    type TSite = "queryFn" | "stream subscription" | "onCacheEntryAdded" | "onQueryStarted";
+    type TAction = "switch() on a started clutch" | "start() after switch()" | "invalidate() on a held entry";
+
+    const SITES: TSite[] = ["queryFn", "stream subscription", "onCacheEntryAdded", "onQueryStarted"];
+    const ACTIONS: TAction[] = [
+        "switch() on a started clutch",
+        "start() after switch()",
+        "invalidate() on a held entry",
+    ];
+    // onCacheEntryAdded fires only when an entry is created, which invalidate() never does.
+    const CASES = SITES.flatMap((site) =>
+        ACTIONS.filter((action) => !(site === "onCacheEntryAdded" && action === "invalidate() on a held entry")).map(
+            (action) => [site, action] as const,
+        ),
+    );
+
+    /**
+     * A resource whose `site` reads `probe$` synchronously. A change of
+     * `probe$` must not re-run an effect that merely triggered the query.
+     */
+    function probedResource(site: TSite) {
+        const probe$ = Signal.state(0);
+        const read = (at: TSite) => {
+            if (at === site) probe$();
+        };
+        const resource = new Resource<number, string>({
+            retentionTime: false,
+            serializeArgs: stableStringify as (args: number) => string,
+            queryFn: (n) => {
+                read("queryFn");
+                if (site !== "stream subscription") return Promise.resolve(`d-${n}`);
+                return defer(() => {
+                    read("stream subscription");
+                    return of(`d-${n}`);
+                });
+            },
+            onCacheEntryAdded: () => read("onCacheEntryAdded"),
+            onQueryStarted: () => read("onQueryStarted"),
+        });
+        return { probe$, resource, clutch: resource.createClutch() };
+    }
+
+    /** Prepares the clutch and returns the action to run inside the effect. */
+    async function arrange(
+        action: TAction,
+        { resource, clutch }: ReturnType<typeof probedResource>,
+    ): Promise<() => void> {
+        switch (action) {
+            case "switch() on a started clutch":
+                clutch.start();
+                return () => clutch.switch(1);
+            case "start() after switch()":
+                clutch.switch(1);
+                return () => clutch.start();
+            case "invalidate() on a held entry": {
+                clutch.switch(1);
+                clutch.start();
+                _effects.push({ unsubscribe: resource.getEntry(1)!.hold() });
+                await flushMicrotasks();
+                return () => clutch.invalidate();
+            }
+        }
+    }
+
+    it.each(CASES)("reads of the %s — %s", async (site, action) => {
+        const probed = probedResource(site);
+        const run = await arrange(action, probed);
+
+        let runs = 0;
+        _effects.push(
+            Signal.effect(() => {
+                runs += 1;
+                run();
+            }),
+        );
+        probed.probe$.set(1);
+
+        expect(runs).toBe(1);
     });
 });

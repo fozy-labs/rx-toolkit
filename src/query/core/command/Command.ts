@@ -12,6 +12,7 @@ import type {
     TQueryStartedContext,
 } from "@/query/types";
 import { Signal, unstable_KeyedSignal } from "@/signals";
+import { untracked } from "@/signals/base/untracked";
 
 import { KEYED_BRAND } from "../../constants";
 import { isKeyed } from "../../lib/toKeyed";
@@ -400,7 +401,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         };
 
         try {
-            const result = this._onCacheEntryAdded(keyed.value, ctx);
+            // Untracked, like the queryFn (see QueryCacheEntry._runQuery): the
+            // hook runs inside whatever called execute().
+            const onCacheEntryAdded = this._onCacheEntryAdded;
+            const result = untracked(() => onCacheEntryAdded(keyed.value, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {
@@ -427,7 +431,8 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         };
 
         try {
-            const result = this._onQueryStarted(args, ctx);
+            const onQueryStarted = this._onQueryStarted;
+            const result = untracked(() => onQueryStarted(args, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {

@@ -3,6 +3,7 @@ import { Observable, Subject } from "rxjs";
 import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 import type { ICacheEntry, ICacheEntryOptions } from "@/query/types";
 import { DependencyTracker, State, type DependencyRecord, type ReadonlySignal } from "@/signals";
+import { untracked } from "@/signals/base/untracked";
 
 import { Retainer } from "./Retainer";
 
@@ -27,27 +28,6 @@ function normalizeRetentionTime(value: number | false): number | null {
     if (value > MAX_TIMEOUT_DELAY) return null;
     if (value < 0) return 0;
     return value;
-}
-
-// ==================== Tracking isolation ====================
-
-/**
- * Run `fn` outside the calling dependency-tracking scope.
- *
- * The retention hooks fire synchronously inside a consumer's subscribe or
- * teardown — for a `Computed` / `Effect` that is the middle of its run, with
- * the tracker collecting every signal read as that consumer's dependency. An
- * `onActive` that starts a query (a deferred revalidation) would otherwise
- * register whatever the `queryFn` / `onQueryStarted` reads as a dependency of
- * the subscribing consumer. A no-op handler swallows those reads.
- */
-function untracked<T>(fn: () => T): T {
-    const stopTracking = DependencyTracker.start(() => {});
-    try {
-        return fn();
-    } finally {
-        stopTracking();
-    }
 }
 
 // ==================== CacheEntry ====================

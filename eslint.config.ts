@@ -14,9 +14,10 @@ export default [
         },
     },
     {
-        // `xstate` is a devDependency for the differential tests only. Test files
-        // (`*.test.ts`, `__tests__/`) are outside ESLint's scope, so this guards
-        // exactly the shipped code.
+        // Devtime-only packages: `xstate` backs the differential tests, `zod`
+        // the schema tests (shipped code speaks Standard Schema instead). Test
+        // files (`*.test.ts`, `__tests__/`) are outside ESLint's scope, so this
+        // guards exactly the shipped code.
         files: ["src/**/*.ts", "src/**/*.tsx"],
         rules: {
             "no-restricted-imports": [
@@ -26,6 +27,10 @@ export default [
                         {
                             group: ["xstate", "xstate/*"],
                             message: "xstate is a devDependency: import it from test files only.",
+                        },
+                        {
+                            group: ["zod", "zod/*"],
+                            message: "zod is a devDependency: import it from test files only; use Standard Schema.",
                         },
                     ],
                 },

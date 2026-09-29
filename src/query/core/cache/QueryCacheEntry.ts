@@ -11,6 +11,7 @@ import type {
     TMapError,
     TQueryEntryState,
 } from "@/query/types";
+import { untracked } from "@/signals/base/untracked";
 
 import { abortReason } from "../../lib/abortReason";
 import { CacheEntryRemovedError, EmptyStreamError, PreMappedError } from "../errors";
@@ -810,12 +811,19 @@ export class QueryCacheEntry<TArgs, TData>
         );
     }
 
-    /** The query phase of a run: call the queryFn and settle the run from its result. */
+    /**
+     * The query phase of a run: call the queryFn and settle the run from its result.
+     *
+     * The queryFn and a stream's subscription run synchronously inside whatever
+     * started the run — `clutch.switch()` in an effect, `getEntry$(args, true)`
+     * in a computed — so they run untracked: their signal reads belong to no
+     * caller.
+     */
     private _runQuery(controller: AbortController): void {
-        const result = this._queryFn(this.keyedArgs, controller.signal);
+        const result = untracked(() => this._queryFn(this.keyedArgs, controller.signal));
 
         if (isObservable(result)) {
-            this._subscribeStream(result, controller);
+            untracked(() => this._subscribeStream(result, controller));
             return;
         }
 

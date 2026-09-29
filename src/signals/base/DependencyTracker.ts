@@ -34,7 +34,11 @@ export class DependencyTracker {
         this._currentHandler?.(dep);
     }
 
-    static start(handler: (arg: DependencyRecord) => void) {
+    /**
+     * Makes `handler` receive the dependencies read until the returned stop
+     * function runs; `null` suspends tracking for that span.
+     */
+    static start(handler: ((arg: DependencyRecord) => void) | null) {
         const prevHandler = this._currentHandler;
 
         this._currentHandler = handler;

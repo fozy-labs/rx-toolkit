@@ -3,6 +3,7 @@ import { assertType, describe, it } from "vitest";
 import { createApi } from "@/query/api/createApi";
 import { ReactHooksPlugin, reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type {
+    IApi,
     IPlugin,
     TArgsOrVoid,
     TArgsOrVoidOrSkip,
@@ -325,5 +326,70 @@ describe("Plugin HKT type-level tests", () => {
 
         // @ts-expect-error — useResource should not exist with empty plugins
         resource.useResource;
+    });
+});
+
+// ==================== apiType: members on the api itself ====================
+
+describe("Plugin HKT apiType", () => {
+    type ThingDefinition<TError> = { mapError: (error: TError) => string };
+    type ThingsApiShape<TError> = { defineThing: (name: string) => ThingDefinition<TError> };
+
+    interface ThingsPluginHKT extends IPluginHKT {
+        readonly apiType: ThingsApiShape<this["_TError"]>;
+    }
+
+    class ThingsPlugin implements IPlugin {
+        readonly name = "ThingsPlugin";
+        declare readonly _hkt: ThingsPluginHKT;
+        install(): void {
+            // no-op
+        }
+    }
+
+    interface CounterPluginHKT extends IPluginHKT {
+        readonly apiType: { count: () => number };
+    }
+
+    class CounterPlugin implements IPlugin {
+        readonly name = "CounterPlugin";
+        declare readonly _hkt: CounterPluginHKT;
+        install(): void {
+            // no-op
+        }
+    }
+
+    it("adds the declared members, typed with the api's TError", () => {
+        const api = createApi({
+            plugins: [new ThingsPlugin()],
+            mapError: (error) => ({ code: String(error) }),
+        });
+
+        type Defined = ReturnType<typeof api.defineThing>;
+        assertType<IsExact<Defined, ThingDefinition<{ code: string }>>>(true as const);
+    });
+
+    it("TError is unknown without mapError", () => {
+        const api = createApi({ plugins: [new ThingsPlugin()] });
+
+        assertType<IsExact<ReturnType<typeof api.defineThing>, ThingDefinition<unknown>>>(true as const);
+    });
+
+    it("members of several plugins combine, next to resource augmentation", () => {
+        const api = createApi({ plugins: [reactHooksPlugin(), new ThingsPlugin(), new CounterPlugin()] });
+
+        assertType<(name: string) => ThingDefinition<unknown>>(api.defineThing);
+        assertType<() => number>(api.count);
+        assertType<typeof api.createResource>(api.createResource);
+    });
+
+    it("plugins without apiType add nothing: the api is exactly IApi", () => {
+        const withHooks = createApi({ plugins: [reactHooksPlugin()] });
+        const bare = createApi();
+
+        assertType<IsExact<typeof withHooks, IApi<readonly [ReactHooksPlugin], unknown>>>(true as const);
+        assertType<IsExact<typeof bare, IApi<readonly IPlugin[], unknown>>>(true as const);
+        // @ts-expect-error — no plugin declares defineThing
+        withHooks.defineThing;
     });
 });

@@ -92,8 +92,41 @@ export class Api implements IApi {
             plugin.install({ keyPrefix: this.keyPrefix ?? "" });
         }
 
+        this.applyApiAugments();
+
         // Connect sync driver after setup
         this.syncer?.connect();
+    }
+
+    /**
+     * Add the members plugins contribute to the api itself, in plugin order.
+     * A plugin never replaces a member: a name the api already has — its own
+     * (methods and internal fields alike) or one an earlier plugin added —
+     * throws, since a silent override would break every caller of the other.
+     */
+    private applyApiAugments(): void {
+        const addedBy = new Map<string, string>();
+
+        for (const plugin of this.plugins) {
+            if (!plugin.augmentApi) continue;
+
+            const additions = plugin.augmentApi(this);
+            const names = Object.keys(additions);
+
+            for (const name of names) {
+                if (!(name in this)) continue;
+                const owner = addedBy.get(name);
+                throw new Error(
+                    `[rx-toolkit] Plugin "${plugin.name}" cannot add "${name}" to the api: ` +
+                        (owner ? `plugin "${owner}" already added it.` : "the api already has it."),
+                );
+            }
+
+            for (const name of names) {
+                (this as Record<string, unknown>)[name] = additions[name];
+                addedBy.set(name, plugin.name);
+            }
+        }
     }
 
     createResource = <TArgs = void, TData = unknown>(opts: TResourceOptions<TArgs, TData>): IResource<TArgs, TData> =>
