@@ -1,7 +1,13 @@
 // A consumer of the package: every export is left to inference, so its declaration names the
 // form's types. `declarations.test.ts` compiles it against the built package, with `@/index`
 // replaced by the package name.
-import { createApi, unstable_FormSignal as FormSignal, unstable_formsPlugin, type StandardSchemaV1 } from "@/index";
+import {
+    createApi,
+    unstable_FormSignal as FormSignal,
+    unstable_formsPlugin,
+    unstable_formsReactPlugin,
+    type StandardSchemaV1,
+} from "@/index";
 
 function schema<T>(check: (value: unknown) => value is T): StandardSchemaV1<T, T> {
     return {
@@ -69,4 +75,19 @@ export const title = form.computed.title$;
 
 export function createDraft() {
     return FormSignal.state(Draft);
+}
+
+export const reactApi = createApi({ plugins: [unstable_formsReactPlugin()] });
+
+export const Note = reactApi.defineForm({
+    fields: { note: FormSignal.field({ schema: text, defaultValue: "" }) },
+    context: FormSignal.context<{ id: string }>(),
+});
+
+export function useNote() {
+    return Note.useForm({ context: { id: "1" } });
+}
+
+export function useNoteContext() {
+    return Note.useFormContext();
 }

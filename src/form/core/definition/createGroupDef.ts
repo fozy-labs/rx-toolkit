@@ -59,6 +59,8 @@ export interface FormExtras {
     readonly mapSubmitError: ((error: unknown) => unknown) | undefined;
     /** Members added to the definition object before it is frozen. */
     readonly members?: (definition: GroupRecord) => Readonly<Record<string, unknown>>;
+    /** Members added to every root instance of the definition. */
+    readonly instanceMembers?: (definition: GroupRecord, instance: object) => PropertyDescriptorMap;
 }
 
 export function createGroupDef(input: unknown, extras?: FormExtras): GroupRecord {
@@ -88,6 +90,7 @@ export function createGroupDef(input: unknown, extras?: FormExtras): GroupRecord
         );
     }
 
+    const instanceMembers = extras?.instanceMembers;
     const record: GroupRecord = {
         kind: "group",
         fields: Object.freeze(fields),
@@ -106,6 +109,7 @@ export function createGroupDef(input: unknown, extras?: FormExtras): GroupRecord
                 : assertFunction(options.mapSubmitError, "mapSubmitError"),
         pendingQueries: options.pendingQueries as PendingQueries | undefined,
         api: extras?.api,
+        instanceMembers: instanceMembers && ((instance) => instanceMembers(record, instance)),
     };
     if (extras?.members) Object.assign(record, extras.members(record));
     return registerDefinition(record);

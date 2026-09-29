@@ -29,11 +29,20 @@ export class unstable_FormsPlugin<TError = unknown> implements IPlugin {
             api,
             mapSubmitError: this.options.mapSubmitError as ((error: unknown) => unknown) | undefined,
             members: (definition) => this.definitionMembers(definition),
+            instanceMembers: (definition, instance) => this.instanceMembers(definition, instance),
         });
     }
 
     /** Members a subclass adds to every definition it creates, before the definition is frozen. */
     protected definitionMembers(_definition: object): Readonly<Record<string, unknown>> {
+        return {};
+    }
+
+    /**
+     * Members a subclass adds to every instance whose root is a definition it created, as
+     * property descriptors (a getter may create its value lazily), before the instance is frozen.
+     */
+    protected instanceMembers(_definition: object, _instance: object): PropertyDescriptorMap {
         return {};
     }
 }

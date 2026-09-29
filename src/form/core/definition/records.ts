@@ -51,7 +51,12 @@ export interface GroupRecord extends RecordBase {
     readonly pendingQueries: PendingQueries | undefined;
     /** The api of `api.defineForm`: the command of a promise `submit` is created on it. */
     readonly api: IApi | undefined;
+    /** Plugin members of every instance this definition is the root of. */
+    readonly instanceMembers: InstanceMembers | undefined;
 }
+
+/** Property descriptors a plugin adds to a root instance before it is frozen; getters may be lazy. */
+export type InstanceMembers = (instance: object) => PropertyDescriptorMap;
 
 export interface ListRecord extends RecordBase {
     readonly kind: "list";

@@ -350,7 +350,7 @@ export class GroupCore implements ParentCore {
                 }),
                 shallowEqual,
             );
-            this.node = Object.freeze({
+            const node = {
                 ...members,
                 state$,
                 context$,
@@ -365,7 +365,9 @@ export class GroupCore implements ParentCore {
                 },
                 submit: (options?: { force?: boolean }) => submit.submit(options),
                 clearIssues: action(() => this.clearServerIssues()),
-            });
+            };
+            if (record.instanceMembers) Object.defineProperties(node, record.instanceMembers(node));
+            this.node = Object.freeze(node);
         }
         registerNode(this);
     }
