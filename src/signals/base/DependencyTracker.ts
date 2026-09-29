@@ -6,6 +6,12 @@ export type DependencyRecord = {
      * чтобы гарантировать корректный порядок рангов при ленивой инициализации.
      */
     getRang(): number;
+    /**
+     * Change notifications for dependents. A signal's own error state (a
+     * failed computeFn) must arrive as a value, not as an RxJS `error`:
+     * dependents meet it when they read. An RxJS `error` is treated as a
+     * change after which the stream is subscribed afresh.
+     */
     obs: Observable<unknown>;
     peek: () => unknown;
     /**

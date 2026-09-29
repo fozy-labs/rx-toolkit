@@ -86,53 +86,110 @@ describe("Batcher", () => {
             expect(order).toEqual(["after-error-fn", "after-error-scheduled"]);
         });
 
-        it("drops tasks scheduled before fn throws (does not leak into next batch)", () => {
-            const leaked = vi.fn();
+        it("flushes tasks queued before fn throws, then rethrows fn's error", () => {
+            const queued = vi.fn();
             const s = Batcher.scheduler(0);
 
-            // Case A: fn queues a task, then throws before Scheduled.run() flushes.
+            // fn already wrote state and queued its reactions: they must run in
+            // this batch, not be dropped (reactions out of sync) or leak into the next one.
             expect(() =>
                 Batcher.run(() => {
-                    s.schedule(leaked);
+                    s.schedule(queued);
                     throw new Error("boom");
                 }),
             ).toThrow("boom");
+            expect(queued).toHaveBeenCalledOnce();
 
-            // Next unrelated batch must not flush the stale task.
             const nextBatch = vi.fn();
-            const s2 = Batcher.scheduler(0);
-            Batcher.run(() => {
-                s2.schedule(nextBatch);
-            });
-
-            expect(leaked).not.toHaveBeenCalled();
-            expect(nextBatch).toHaveBeenCalledOnce();
-        });
-
-        it("drops higher-rang tasks when a scheduled task throws during flush", () => {
-            const higherRang = vi.fn();
-            const s0 = Batcher.scheduler(0);
-            const s1 = Batcher.scheduler(1);
-
-            // Case B: a rang-0 task throws mid-flush; a rang-1 task is still queued.
-            expect(() =>
-                Batcher.run(() => {
-                    s1.schedule(higherRang);
-                    s0.schedule(() => {
-                        throw new Error("flush-boom");
-                    });
-                }),
-            ).toThrow("flush-boom");
-
-            // The un-run higher-rang task must not leak into the next unrelated batch.
-            const nextBatch = vi.fn();
-            const s = Batcher.scheduler(0);
             Batcher.run(() => {
                 s.schedule(nextBatch);
             });
 
-            expect(higherRang).not.toHaveBeenCalled();
+            expect(queued).toHaveBeenCalledOnce();
             expect(nextBatch).toHaveBeenCalledOnce();
+        });
+
+        it("runs every remaining task when a task throws, then rethrows its error", () => {
+            const order: string[] = [];
+            const s0 = Batcher.scheduler(0);
+            const s1 = Batcher.scheduler(1);
+            const sInf = Batcher.scheduler(Infinity);
+
+            expect(() =>
+                Batcher.run(() => {
+                    sInf.schedule(() => order.push("inf"));
+                    s1.schedule(() => order.push("1"));
+                    s0.schedule(() => {
+                        order.push("0-throws");
+                        throw new Error("flush-boom");
+                    });
+                    s0.schedule(() => order.push("0"));
+                }),
+            ).toThrow("flush-boom");
+
+            expect(order).toEqual(["0-throws", "0", "1", "inf"]);
+
+            // The queue is fully reset: nothing runs twice in the next batch.
+            const nextBatch = vi.fn();
+            Batcher.run(() => {
+                s0.schedule(nextBatch);
+            });
+            expect(order).toEqual(["0-throws", "0", "1", "inf"]);
+            expect(nextBatch).toHaveBeenCalledOnce();
+        });
+
+        it("rethrows the first error when several tasks throw", () => {
+            const s0 = Batcher.scheduler(0);
+            const s1 = Batcher.scheduler(1);
+            const first = new Error("first");
+
+            let caught: unknown;
+            try {
+                Batcher.run(() => {
+                    s1.schedule(() => {
+                        throw new Error("second");
+                    });
+                    s0.schedule(() => {
+                        throw first;
+                    });
+                });
+            } catch (error) {
+                caught = error;
+            }
+
+            expect(caught).toBe(first);
+        });
+
+        it("rethrows fn's error even when a task throws too", () => {
+            const s0 = Batcher.scheduler(0);
+            const task = vi.fn(() => {
+                throw new Error("task-error");
+            });
+
+            expect(() =>
+                Batcher.run(() => {
+                    s0.schedule(task);
+                    throw new Error("fn-error");
+                }),
+            ).toThrow("fn-error");
+            expect(task).toHaveBeenCalledOnce();
+        });
+
+        it("keeps a task error for the outermost run: a nested run does not flush", () => {
+            const s0 = Batcher.scheduler(0);
+            const after = vi.fn();
+
+            expect(() =>
+                Batcher.run(() => {
+                    Batcher.run(() => {
+                        s0.schedule(() => {
+                            throw new Error("task-error");
+                        });
+                    });
+                    after();
+                }),
+            ).toThrow("task-error");
+            expect(after).toHaveBeenCalledOnce();
         });
 
         it("runs finite-rang tasks scheduled by an Infinity task mid-flush", () => {

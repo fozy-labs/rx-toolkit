@@ -19,7 +19,10 @@ export class Signal {
     /**
      * Runs `effectFn` now and again whenever a signal it read changes. A
      * function it returns is the teardown: called before the next run and on
-     * `unsubscribe()`.
+     * `unsubscribe()`. If the first run throws, the effect is disposed and the
+     * error rethrown; a later run that throws keeps the effect subscribed to
+     * what it read before the throw, and the error surfaces from the write
+     * that triggered it.
      */
     static effect(effectFn: () => void | (() => void)) {
         return Effect.create(effectFn);

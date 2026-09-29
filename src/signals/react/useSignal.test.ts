@@ -1,6 +1,7 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import React from "react";
 import { flushSync } from "react-dom";
+import { config, Observable, Subject } from "rxjs";
 
 import { Signal } from "@/signals/signals/Signal";
 import type { StateSignal } from "@/signals/types";
@@ -364,6 +365,188 @@ describe("useSignal", () => {
             } finally {
                 consoleErrorSpy.mockRestore();
             }
+        });
+    });
+
+    describe("error state", () => {
+        type BoundaryState = { error: unknown };
+
+        class Boundary extends React.Component<{ children?: React.ReactNode }, BoundaryState> {
+            state: BoundaryState = { error: null };
+
+            static getDerivedStateFromError(error: unknown): BoundaryState {
+                return { error };
+            }
+
+            reset() {
+                this.setState({ error: null });
+            }
+
+            render() {
+                if (this.state.error) {
+                    return React.createElement("div", { "data-testid": "error" }, (this.state.error as Error).message);
+                }
+                return this.props.children;
+            }
+        }
+
+        function setup(strict = false) {
+            const source = Signal.state(1);
+            const c = Signal.compute(() => {
+                if (source() < 0) throw new Error("negative");
+                return source() * 10;
+            });
+
+            function Display() {
+                const v = useSignal(c);
+                return React.createElement("div", { "data-testid": "value" }, String(v));
+            }
+
+            const boundary = React.createRef<Boundary>();
+            const tree = React.createElement(Boundary, { ref: boundary }, React.createElement(Display, null));
+            render(strict ? React.createElement(React.StrictMode, null, tree) : tree);
+
+            return { source, boundary };
+        }
+
+        let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(() => {
+            // React reports errors caught by a boundary through console.error
+            consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        });
+
+        afterEach(() => {
+            consoleErrorSpy.mockRestore();
+        });
+
+        it("throws into the nearest ErrorBoundary and works again after the boundary resets", async () => {
+            const { source, boundary } = setup();
+            expect(screen.getByTestId("value").textContent).toBe("10");
+
+            await act(async () => {
+                source.set(-1);
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("error").textContent).toBe("negative");
+
+            await act(async () => {
+                source.set(2);
+                boundary.current!.reset();
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("20");
+
+            await act(async () => {
+                source.set(3);
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("30");
+        });
+
+        it.each([false, true])(
+            "keeps updating when the signal recovers after the deferred update, before React renders (StrictMode: %s)",
+            async (strict) => {
+                const { source } = setup(strict);
+
+                await act(async () => {
+                    source.set(-1);
+                    // Runs after the hook's deferred update, before React renders
+                    queueMicrotask(() => source.set(2));
+                    await flushMicrotasks();
+                });
+                expect(screen.getByTestId("value").textContent).toBe("20");
+
+                await act(async () => {
+                    source.set(3);
+                    await flushMicrotasks();
+                });
+                expect(screen.getByTestId("value").textContent).toBe("30");
+            },
+        );
+
+        it("keeps updating when the signal fails and recovers to the same value before React renders", async () => {
+            const { source } = setup();
+
+            await act(async () => {
+                source.set(-1);
+                queueMicrotask(() => source.set(1));
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("10");
+
+            await act(async () => {
+                source.set(3);
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("30");
+        });
+
+        it("does not loop for a signal whose stream errors while peek() still returns a value", async () => {
+            const onUnhandledError = vi.fn();
+            const previous = config.onUnhandledError;
+            config.onUnhandledError = onUnhandledError;
+
+            try {
+                const error = new Error("stream-error");
+                let isBroken = false;
+                const errors$ = new Subject<void>();
+                let subscribes = 0;
+                const signal = {
+                    obs: new Observable<number>((subscriber) => {
+                        subscribes++;
+                        if (isBroken) {
+                            subscriber.error(error);
+                            return;
+                        }
+                        subscriber.next(1);
+                        return errors$.subscribe(() => subscriber.error(error));
+                    }),
+                    peek: () => 1,
+                };
+                let renders = 0;
+
+                function Display() {
+                    renders++;
+                    return React.createElement("div", { "data-testid": "value" }, String(useSignal(signal)));
+                }
+
+                render(React.createElement(Display, null));
+                const subscribesBefore = subscribes;
+                const rendersBefore = renders;
+
+                await act(async () => {
+                    isBroken = true;
+                    errors$.next();
+                    for (let i = 0; i < 10; i++) await flushMicrotasks();
+                });
+
+                // One resubscribe attempt for the one real notification, one extra render
+                expect(subscribes - subscribesBefore).toBe(1);
+                expect(renders - rendersBefore).toBeLessThanOrEqual(2);
+                expect(screen.getByTestId("value").textContent).toBe("1");
+                // Not swallowed: surfaced once, as an unhandled RxJS error
+                expect(onUnhandledError).toHaveBeenCalledExactlyOnceWith(error);
+            } finally {
+                config.onUnhandledError = previous;
+            }
+        });
+
+        it("keeps updating when the signal recovers before the component re-renders", async () => {
+            const { source } = setup();
+
+            await act(async () => {
+                source.set(-1);
+                source.set(2);
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("20");
+
+            await act(async () => {
+                source.set(3);
+                await flushMicrotasks();
+            });
+            expect(screen.getByTestId("value").textContent).toBe("30");
         });
     });
 });

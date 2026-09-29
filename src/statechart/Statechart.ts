@@ -386,23 +386,36 @@ export class unstable_Statechart<
      * (a macrostep plus every re-entrant send), `processing` set so that
      * nested `send()` / `stop()` / `dispose()` / `start()` calls are queued or
      * deferred, deferred teardown / restart in the tail, and the failure (if
-     * any) reported only after the batch has flushed — throwing out of
-     * `Batcher.run` would drop the scheduled derived updates.
+     * any) reported only after the batch has flushed and the deferred work
+     * above has run.
      *
      * `Batcher.run` flushes the scheduled Computed/Effect work after the body
      * returned; an effect reacting to the new snapshot may itself `send()`
      * (queued, because the guard is still set). Those events are drained in
      * further rounds — each one a `Batcher.run` of its own, so its effects are
      * flushed too — until nothing new arrives.
+     *
+     * An error thrown out of `Batcher.run` (a throwing effect; the batch still
+     * ran every other reaction) does not stop the drain: events those
+     * reactions sent are processed, and the first such error is rethrown at
+     * the very end.
      */
     private _runGuarded(body: () => void): void {
         this._processing = true;
         let failure: { error: unknown } | null = null;
+        let reactionError: { error: unknown } | null = null;
         let restart = false;
+        const flush = (fn: () => void) => {
+            try {
+                Batcher.run(fn);
+            } catch (error) {
+                reactionError ??= { error };
+            }
+        };
         try {
-            Batcher.run(body);
+            flush(body);
             while (this._queue.length > 0 && this._status === "running") {
-                Batcher.run(() => this._drain());
+                flush(() => this._drain());
             }
         } finally {
             failure = this._failure;
@@ -420,6 +433,7 @@ export class unstable_Statechart<
         // the engine stays in its error state, consistent with the exception.
         if (failure) this._report(failure.error);
         if (restart && this._status === "stopped") this.start();
+        if (reactionError) throw (reactionError as { error: unknown }).error;
     }
 
     /** Entry point of every event while running: direct processing or FIFO when re-entrant. */

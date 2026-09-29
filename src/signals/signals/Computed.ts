@@ -1,4 +1,4 @@
-import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
+import { distinctUntilChanged, finalize, map, Observable, ReplaySubject, share } from "rxjs";
 
 import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
 
@@ -8,9 +8,23 @@ import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 import { Effect } from "./Effect";
 import { State } from "./State";
 
+/**
+ * An error thrown by computeFn, kept as the state of a subscribed computed:
+ * reads rethrow it until a dependency changes. Allocated only on failure.
+ */
+class ComputedFailure {
+    constructor(readonly error: unknown) {}
+}
+
 export class Computed<T> {
     private _state$;
-    readonly obs;
+    /**
+     * Engine channel for dependents (Effect / other computeds): a failure
+     * travels as a value, so it never ends their subscriptions.
+     */
+    private readonly _node$: Observable<T | ComputedFailure>;
+    /** Public stream: a failure is delivered as an RxJS `error`. */
+    readonly obs: Observable<T>;
     private _effect: Effect | null = null;
     /**
      * Кеш для хранения вычисленного значения (без подписки) и его зависимостей
@@ -28,26 +42,27 @@ export class Computed<T> {
     ) {
         const opts = normalizeSignalOptions(options);
         this._label = opts.key ?? "<anonymous>";
-        const stateOptions: SignalOptionsOrKey<symbol | T> = {
+        type Stored = symbol | T | ComputedFailure;
+        const stateOptions: SignalOptionsOrKey<Stored> = {
             key: opts.key,
             base: opts.base ?? Computed.name,
             isDisabled: opts.isDisabled,
-            beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {
-                if (value !== Computed._EMPTY) {
+            beforeDevtoolsPush: (value: Stored, push: (v: Stored) => void) => {
+                if (value !== Computed._EMPTY && !(value instanceof ComputedFailure)) {
                     push(value);
                 }
             },
         };
 
-        this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
+        this._state$ = State.create<Stored>(Computed._EMPTY, stateOptions);
 
-        this.obs = this._state$.obs.pipe(
+        this._node$ = this._state$.obs.pipe(
             map((value) => {
                 if (value === Computed._EMPTY) {
                     return this._start();
                 }
 
-                return value as T;
+                return value as T | ComputedFailure;
             }),
             // Object.is (not the default ===): collapses the structural duplicate
             // initial emit for NaN, and lets a real +0 -> -0 change through —
@@ -63,6 +78,8 @@ export class Computed<T> {
             }),
         );
 
+        this.obs = this._node$.pipe(map(Computed._unwrap));
+
         this._depRecord = {
             getRang: () => {
                 if (!this._effect) {
@@ -70,7 +87,7 @@ export class Computed<T> {
                 }
                 return this._effect!._getRang();
             },
-            obs: this.obs,
+            obs: this._node$,
             peek: () => this.peek(),
         };
     }
@@ -97,20 +114,22 @@ export class Computed<T> {
             return this._computeCache.getOrCompute(this._compute);
         }
 
+        if (v instanceof ComputedFailure) throw v.error;
+
         return v as T;
     }
 
-    private _start(): T {
-        let initialValue: T | symbol = Computed._EMPTY;
+    private _start(): T | ComputedFailure {
+        let initialValue: T | ComputedFailure | symbol = Computed._EMPTY;
 
+        // Never throws: a failing computeFn becomes the state, so the effect
+        // keeps the dependencies read before the throw and recomputes on them.
         this._effect = new Effect(() => {
-            if (initialValue === Computed._EMPTY) {
-                initialValue = this._compute();
-                this._state$.set(initialValue);
-                return;
-            }
+            const next = this._computeOrFail();
 
-            this._state$.set(this._compute());
+            if (initialValue === Computed._EMPTY) initialValue = next;
+
+            this._state$.set(next);
         });
 
         this._computeCache.clear();
@@ -119,7 +138,18 @@ export class Computed<T> {
             throw new Error("Computed value is not initialized");
         }
 
-        return initialValue as T;
+        return initialValue as T | ComputedFailure;
+    }
+
+    private _computeOrFail(): T | ComputedFailure {
+        try {
+            return this._compute();
+        } catch (error) {
+            // The same error again is no new state: dependents are not woken.
+            const current = this._state$.peek();
+            if (current instanceof ComputedFailure && Object.is(current.error, error)) return current;
+            return new ComputedFailure(error);
+        }
     }
 
     // Every run of computeFn goes through here, subscribed or not, so a read of
@@ -168,6 +198,11 @@ export class Computed<T> {
     // === static ===
 
     private static _EMPTY = Symbol("empty");
+
+    private static _unwrap<T>(value: T | ComputedFailure): T {
+        if (value instanceof ComputedFailure) throw value.error;
+        return value;
+    }
 
     /** Computeds whose computeFn is running right now, outermost first. */
     private static _computing: Computed<unknown>[] = [];

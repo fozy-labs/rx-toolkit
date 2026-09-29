@@ -2,13 +2,19 @@ import { DependencyTracker } from "./DependencyTracker";
 import { SignalCycleError } from "./SignalCycleError";
 
 /**
+ * A dependency as last seen by the computation: its value, or the error its
+ * read threw (a failing dependency the computeFn caught).
+ */
+type CachedDependency = { peek: () => unknown; lastValue: unknown; failed: boolean };
+
+/**
  * Кеш для хранения вычисленного значения и его зависимостей
  */
 export class ComputeCache<T> {
     private static _NO_VALUE = Symbol("no-value");
 
     private _cachedValue: T | symbol = ComputeCache._NO_VALUE;
-    private _dependencies: Array<{ peek: () => unknown; lastValue: unknown }> = [];
+    private _dependencies: CachedDependency[] = [];
 
     /**
      * Проверяет, изменились ли зависимости с момента последнего вычисления
@@ -20,15 +26,17 @@ export class ComputeCache<T> {
 
         // Проверяем, что все зависимости имеют те же значения
         return this._dependencies.every((dep) => {
+            let currentValue: unknown;
             try {
-                const currentValue = dep.peek();
-                return Object.is(currentValue, dep.lastValue);
+                currentValue = dep.peek();
             } catch (error) {
+                // Still failing with the same error: the computation already saw it.
+                if (dep.failed) return Object.is(error, dep.lastValue);
                 // A cycle is not a stale cache: a recompute would only hit it again.
                 if (error instanceof SignalCycleError) throw error;
-                // Если не удалось получить значение, считаем кеш невалидным
                 return false;
             }
+            return !dep.failed && Object.is(currentValue, dep.lastValue);
         });
     }
 
@@ -41,7 +49,7 @@ export class ComputeCache<T> {
         }
 
         // Собираем зависимости во время вычисления
-        const dependencies: Array<{ peek: () => unknown; lastValue: unknown }> = [];
+        const dependencies: CachedDependency[] = [];
 
         const stopTracking = DependencyTracker.start((dep) => {
             // Создаем peek-функцию для этой зависимости
@@ -49,6 +57,7 @@ export class ComputeCache<T> {
             dependencies.push({
                 peek: dep.peek,
                 lastValue: undefined, // Будет установлено после первого peek
+                failed: false,
             });
         });
 
@@ -57,9 +66,16 @@ export class ComputeCache<T> {
             const result = computeFn();
 
             // Получаем текущие значения зависимостей
-            dependencies.forEach((dep) => {
-                dep.lastValue = dep.peek();
-            });
+            // A dependency that throws here failed inside computeFn, which
+            // caught it (it returned): the error is recorded, not rethrown.
+            for (const dep of dependencies) {
+                try {
+                    dep.lastValue = dep.peek();
+                } catch (error) {
+                    dep.lastValue = error;
+                    dep.failed = true;
+                }
+            }
 
             // Сохраняем результат и зависимости
             this._cachedValue = result;

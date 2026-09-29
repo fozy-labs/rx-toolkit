@@ -1,3 +1,5 @@
+import { Subject } from "rxjs";
+
 import { Batcher, SourceSignal } from "../base";
 
 import { Effect } from "./Effect";
@@ -291,12 +293,14 @@ describe("Effect", () => {
             expect(fn).toHaveBeenCalledTimes(1);
         });
 
-        it("disposes the effect when effectFn throws during re-run", () => {
+        it("stays alive when effectFn throws during re-run and re-runs on the next change", () => {
             let shouldThrow = false;
             const count = Signal.state(0);
+            const seen: number[] = [];
             const fn = vi.fn(() => {
-                count();
+                const value = count();
                 if (shouldThrow) throw new Error("re-run-error");
+                seen.push(value);
             });
 
             const eff = Signal.effect(fn);
@@ -304,35 +308,125 @@ describe("Effect", () => {
 
             shouldThrow = true;
             expect(() => count.set(1)).toThrow("re-run-error");
-            expect(eff.closed).toBe(true);
+            expect(eff.closed).toBe(false);
 
-            // Dead effect never re-runs again
             shouldThrow = false;
-            fn.mockClear();
             expect(() => count.set(2)).not.toThrow();
-            expect(fn).not.toHaveBeenCalled();
+            expect(seen).toEqual([0, 2]);
 
-            expect(() => eff.unsubscribe()).not.toThrow();
+            eff.unsubscribe();
+            fn.mockClear();
+            count.set(3);
+            expect(fn).not.toHaveBeenCalled();
         });
 
-        it("unsubscribes stale subscriptions of the previous run on re-run error", () => {
+        it("keeps the dependencies read before the throw and releases the ones not read again", () => {
             const { src, counter } = createCountingSource();
             const trigger = Signal.state(0);
+            const other = Signal.state(0);
             let shouldThrow = false;
-
-            Signal.effect(() => {
+            const fn = vi.fn(() => {
                 trigger();
                 if (shouldThrow) throw new Error("re-run-error");
                 src();
+                other();
             });
 
+            const eff = Signal.effect(fn);
             expect(counter.active).toBe(1);
 
             shouldThrow = true;
             expect(() => trigger.set(1)).toThrow("re-run-error");
 
-            // Both the re-tracked and the not-yet-re-tracked subscriptions are released
+            // src and other were not read in the failing run: released
             expect(counter.active).toBe(0);
+            fn.mockClear();
+            other.set(1);
+            expect(fn).not.toHaveBeenCalled();
+
+            // trigger was read before the throw: still tracked
+            shouldThrow = false;
+            trigger.set(2);
+            expect(fn).toHaveBeenCalledTimes(1);
+            expect(counter.active).toBe(1);
+
+            eff.unsubscribe();
+            expect(counter.active).toBe(0);
+        });
+
+        it("a re-run error does not stop the other effects of the batch; the write rethrows it", () => {
+            const count = Signal.state(0);
+            const before: number[] = [];
+            const after: number[] = [];
+            const doubled = Signal.compute(() => count() * 2);
+
+            const effBefore = Signal.effect(() => {
+                before.push(count());
+            });
+            const failing = Signal.effect(() => {
+                if (count() === 1) throw new Error("re-run-error");
+            });
+            // Higher rang: runs after the failing effect in the flush
+            const effAfter = Signal.effect(() => {
+                after.push(doubled());
+            });
+
+            expect(() => count.set(1)).toThrow("re-run-error");
+            expect(before).toEqual([0, 1]);
+            expect(after).toEqual([0, 2]);
+
+            effBefore.unsubscribe();
+            failing.unsubscribe();
+            effAfter.unsubscribe();
+        });
+
+        it("handles a failing computed with try/catch and sees its recovery", () => {
+            const source = Signal.state(1);
+            const c = Signal.compute(() => {
+                if (source() < 0) throw new Error("negative");
+                return source();
+            });
+            const log: string[] = [];
+
+            const eff = Signal.effect(() => {
+                try {
+                    log.push(`value:${c()}`);
+                } catch (error) {
+                    log.push(`error:${(error as Error).message}`);
+                }
+            });
+
+            expect(() => source.set(-1)).not.toThrow();
+            source.set(2);
+
+            expect(log).toEqual(["value:1", "error:negative", "value:2"]);
+
+            eff.unsubscribe();
+        });
+
+        it("re-runs when a dependency stream errors instead of reporting it as unhandled", () => {
+            const errors$ = new Subject<unknown>();
+            const src = SourceSignal.create<number>((subscriber) => {
+                subscriber.next(1);
+                const sub = errors$.subscribe((error) => subscriber.error(error));
+                return () => sub.unsubscribe();
+            });
+            const fn = vi.fn(() => {
+                src();
+            });
+
+            const eff = Signal.effect(fn);
+            expect(fn).toHaveBeenCalledTimes(1);
+
+            errors$.next(new Error("stream-error"));
+            expect(fn).toHaveBeenCalledTimes(2);
+
+            // The dead subscription was dropped; the re-run tracked the signal afresh
+            errors$.next(new Error("stream-error"));
+            expect(fn).toHaveBeenCalledTimes(3);
+
+            eff.unsubscribe();
+            expect(errors$.observed).toBe(false);
         });
 
         it("previous teardown is not called twice after re-run error", () => {
@@ -352,6 +446,97 @@ describe("Effect", () => {
 
             eff.unsubscribe();
             expect(teardown).toHaveBeenCalledTimes(1);
+        });
+
+        it("a throwing teardown is called once; the effect keeps running and the write rethrows", () => {
+            const count = Signal.state(0);
+            const seen: number[] = [];
+            const teardown = vi.fn(() => {
+                throw new Error("teardown-error");
+            });
+
+            const eff = Signal.effect(() => {
+                seen.push(count());
+                return teardown;
+            });
+
+            expect(() => count.set(1)).toThrow("teardown-error");
+            expect(teardown).toHaveBeenCalledTimes(1);
+            expect(seen).toEqual([0, 1]);
+            expect(eff.closed).toBe(false);
+
+            expect(() => count.set(2)).toThrow("teardown-error");
+            // One call per registered teardown: run 0's and run 1's
+            expect(teardown).toHaveBeenCalledTimes(2);
+            expect(seen).toEqual([0, 1, 2]);
+
+            expect(() => eff.unsubscribe()).toThrow("teardown-error");
+            expect(teardown).toHaveBeenCalledTimes(3);
+        });
+
+        it("unsubscribe() with a throwing teardown releases the dependencies, then rethrows", () => {
+            const { src, counter } = createCountingSource();
+            const teardown = vi.fn(() => {
+                throw new Error("teardown-error");
+            });
+
+            const eff = Signal.effect(() => {
+                src();
+                return teardown;
+            });
+            expect(counter.active).toBe(1);
+
+            expect(() => eff.unsubscribe()).toThrow("teardown-error");
+            expect(eff.closed).toBe(true);
+            expect(counter.active).toBe(0);
+
+            expect(() => eff.unsubscribe()).not.toThrow();
+            expect(teardown).toHaveBeenCalledTimes(1);
+        });
+
+        it("a teardown that unsubscribes its own effect stops the run and leaves no subscriptions", () => {
+            const { src, counter } = createCountingSource();
+            const trigger = Signal.state(1);
+            const c = Signal.compute(() => src() * 2);
+            const body = vi.fn();
+
+            const eff: Effect = Signal.effect(() => {
+                body();
+                trigger();
+                c();
+                return () => {
+                    if (trigger.peek() === 2) eff.unsubscribe();
+                };
+            });
+            expect(counter.active).toBe(1);
+
+            trigger.set(2);
+
+            expect(eff.closed).toBe(true);
+            expect(body).toHaveBeenCalledTimes(1);
+            expect(counter.active).toBe(0);
+        });
+
+        it("a body that unsubscribes its own effect and then reads a signal leaves no subscriptions", () => {
+            const { src, counter } = createCountingSource();
+            const trigger = Signal.state(0);
+            const teardown = vi.fn();
+
+            const eff: Effect = Signal.effect(() => {
+                if (trigger() === 1) {
+                    eff.unsubscribe();
+                    src();
+                }
+                return teardown;
+            });
+
+            trigger.set(1);
+
+            expect(eff.closed).toBe(true);
+            expect(counter.active).toBe(0);
+            // The teardown of run 0 ran before run 1; the one run 1 returned
+            // after closing is called at the end of that run, not lost
+            expect(teardown).toHaveBeenCalledTimes(2);
         });
 
         it("outer effect keeps tracking after a nested effect throws on construction", () => {

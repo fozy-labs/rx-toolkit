@@ -128,6 +128,62 @@ describe("Signals Integration", () => {
         });
     });
 
+    describe("Error isolation in a graph", () => {
+        it("a failing node does not stall the rest of the graph, and everything recovers", () => {
+            const price = Signal.state(10);
+            const quantity = Signal.state(2);
+            const unitPrice = Signal.compute(() => {
+                if (price() < 0) throw new Error("negative price");
+                return price();
+            });
+            const total = Signal.compute(() => unitPrice() * quantity());
+            const label = Signal.compute(() => `x${quantity()}`);
+
+            const totals: Array<number | string> = [];
+            const labels: string[] = [];
+            const reported: number[] = [];
+
+            const view = Signal.effect(() => {
+                try {
+                    totals.push(total());
+                } catch (error) {
+                    totals.push((error as Error).message);
+                }
+            });
+            // No try/catch: its error surfaces from the write that triggered it
+            const reporter = Signal.effect(() => {
+                reported.push(total());
+            });
+            const labelView = Signal.effect(() => {
+                labels.push(label());
+            });
+
+            expect(() =>
+                Batcher.run(() => {
+                    price.set(-1);
+                    quantity.set(3);
+                }),
+            ).toThrow("negative price");
+
+            expect(totals).toEqual([20, "negative price"]);
+            expect(labels).toEqual(["x2", "x3"]);
+            expect(reported).toEqual([20]);
+
+            price.set(5);
+            expect(totals).toEqual([20, "negative price", 15]);
+            expect(reported).toEqual([20, 15]);
+
+            quantity.set(4);
+            expect(totals).toEqual([20, "negative price", 15, 20]);
+            expect(labels).toEqual(["x2", "x3", "x4"]);
+            expect(reported).toEqual([20, 15, 20]);
+
+            view.unsubscribe();
+            reporter.unsubscribe();
+            labelView.unsubscribe();
+        });
+    });
+
     describe("Computed peek → subscribe → peek transition", () => {
         it("peek returns correct values while subscribed and after state changes", () => {
             const state = Signal.state(5);

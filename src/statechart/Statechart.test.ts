@@ -1330,6 +1330,38 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         engine.dispose();
     });
 
+    it("a throwing effect does not strand the events other effects sent in the same flush", () => {
+        const definition = createMachine({
+            id: "m",
+            initial: "a",
+            states: {
+                a: { on: { GO: "b" } },
+                b: { on: { NEXT: "c", OTHER: "x" } },
+                c: { on: { OTHER: "y" } },
+                x: {},
+                y: {},
+            },
+        });
+        const engine = new Statechart(definition);
+        const failing = Signal.effect(() => {
+            if (engine.state().value === "b") throw new Error("effect-error");
+        });
+        const sending = Signal.effect(() => {
+            if (engine.state().value === "b") engine.send({ type: "NEXT" });
+        });
+
+        // The effect's error surfaces from send(), after the queued NEXT was processed
+        expect(() => engine.send({ type: "GO" })).toThrow("effect-error");
+        expect(engine.state().value).toBe("c");
+
+        engine.send({ type: "OTHER" });
+        expect(engine.state().value).toBe("y");
+
+        failing.unsubscribe();
+        sending.unsubscribe();
+        engine.dispose();
+    });
+
     it("effects reacting to snapshots produced by start() (initial actions sending events) get their events processed too", () => {
         const definition = createMachine(
             {

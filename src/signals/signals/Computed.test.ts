@@ -1,3 +1,5 @@
+import { retry, take } from "rxjs";
+
 import { SharedOptions } from "@/common/options/SharedOptions";
 import type { DisposableSignal } from "@/signals/types";
 
@@ -255,6 +257,307 @@ describe("Computed", () => {
             const sub = c.obs.subscribe((v: number | symbol) => values.push(v));
             expect(values).toEqual([42]);
             sub.unsubscribe();
+        });
+
+        it("an obs subscriber that errors on start leaves nothing subscribed", () => {
+            const source = Signal.state(1);
+            const computeFn = vi.fn(() => {
+                source();
+                throw new Error("fail");
+            });
+            const c = Computed.create(computeFn);
+
+            c.obs.subscribe({ error: () => {} });
+            computeFn.mockClear();
+
+            source.set(2);
+            expect(computeFn).not.toHaveBeenCalled();
+        });
+
+        it("a subscriber that leaves on the first value leaves nothing subscribed", () => {
+            const source = Signal.state(1);
+            const computeFn = vi.fn(() => source() * 2);
+            const c = Computed.create(computeFn);
+
+            c.obs.pipe(take(1)).subscribe();
+            computeFn.mockClear();
+
+            source.set(2);
+            expect(computeFn).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("error state while subscribed", () => {
+        function createFailing() {
+            const source = Signal.state(1);
+            const error = new Error("negative");
+            const computeFn = vi.fn(() => {
+                if (source() < 0) throw error;
+                return source() * 10;
+            });
+            const c = Computed.create(computeFn);
+            return { source, error, computeFn, c };
+        }
+
+        it("keeps the error and rethrows it on every read without recomputing", () => {
+            const { source, error, computeFn, c } = createFailing();
+            const eff = Signal.effect(() => {
+                try {
+                    c();
+                } catch {
+                    // handled
+                }
+            });
+
+            source.set(-1);
+            computeFn.mockClear();
+
+            for (let i = 0; i < 3; i++) {
+                expect(() => c.peek()).toThrow(error);
+                expect(() => c()).toThrow(error);
+                expect(() => c.get()).toThrow(error);
+            }
+            expect(computeFn).not.toHaveBeenCalled();
+
+            eff.unsubscribe();
+        });
+
+        it("recomputes and recovers when a dependency read before the throw changes", () => {
+            const gate = Signal.state(true);
+            const after = Signal.state(5);
+            const computeFn = vi.fn(() => {
+                if (gate()) throw new Error("gated");
+                return after();
+            });
+            const c = Computed.create(computeFn);
+            const values: number[] = [];
+            const errors: unknown[] = [];
+
+            const eff = Signal.effect(() => {
+                try {
+                    values.push(c());
+                } catch (error) {
+                    errors.push(error);
+                }
+            });
+            expect(errors).toHaveLength(1);
+
+            gate.set(false);
+            expect(values).toEqual([5]);
+            expect(c.peek()).toBe(5);
+
+            after.set(6);
+            expect(values).toEqual([5, 6]);
+
+            eff.unsubscribe();
+        });
+
+        it("notifies dependent effects on entering and leaving the error state", () => {
+            const { source, c } = createFailing();
+            const log: string[] = [];
+
+            const eff = Signal.effect(() => {
+                try {
+                    log.push(`value:${c()}`);
+                } catch (error) {
+                    log.push(`error:${(error as Error).message}`);
+                }
+            });
+
+            source.set(-1);
+            source.set(-2);
+            source.set(3);
+
+            // The same error thrown again is no new state: no extra run for -2
+            expect(log).toEqual(["value:10", "error:negative", "value:30"]);
+
+            eff.unsubscribe();
+        });
+
+        it("propagates the error through a dependent computed and recovers", () => {
+            const { source, error, c } = createFailing();
+            const plusOne = Computed.create(() => c() + 1);
+            const log: unknown[] = [];
+
+            const eff = Signal.effect(() => {
+                try {
+                    log.push(plusOne());
+                } catch (e) {
+                    log.push(e);
+                }
+            });
+
+            source.set(-1);
+            expect(() => plusOne.peek()).toThrow(error);
+            source.set(2);
+
+            expect(log).toEqual([11, error, 21]);
+
+            eff.unsubscribe();
+        });
+
+        it("obs errors on entering the error state; a resubscription yields the current state", () => {
+            const { source, error, c } = createFailing();
+            // Keeps the computed subscribed independently of the obs subscribers
+            const eff = Signal.effect(() => {
+                try {
+                    c();
+                } catch {
+                    // handled
+                }
+            });
+
+            const values: number[] = [];
+            const onError = vi.fn();
+            c.obs.subscribe({ next: (v) => values.push(v), error: onError });
+
+            source.set(-1);
+            expect(values).toEqual([10]);
+            expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+
+            const again = vi.fn();
+            c.obs.subscribe({ error: again });
+            expect(again).toHaveBeenCalledExactlyOnceWith(error);
+
+            source.set(4);
+            const recovered: number[] = [];
+            const sub = c.obs.subscribe((v) => recovered.push(v));
+            expect(recovered).toEqual([40]);
+
+            sub.unsubscribe();
+            eff.unsubscribe();
+        });
+
+        it("obs.pipe(retry()) keeps receiving values across a failure", async () => {
+            const { source, c } = createFailing();
+            const eff = Signal.effect(() => {
+                try {
+                    c();
+                } catch {
+                    // handled
+                }
+            });
+
+            const values: number[] = [];
+            const sub = c.obs.pipe(retry({ delay: () => Promise.resolve() })).subscribe((v) => values.push(v));
+
+            source.set(-1);
+            source.set(2);
+            await Promise.resolve();
+
+            expect(values).toEqual([10, 20]);
+
+            sub.unsubscribe();
+            eff.unsubscribe();
+        });
+
+        it("an obs subscriber's error does not stop the computed for its other dependents", () => {
+            const { source, c } = createFailing();
+            const onError = vi.fn();
+            c.obs.subscribe({ error: onError });
+
+            const log: string[] = [];
+            const eff = Signal.effect(() => {
+                try {
+                    log.push(`value:${c()}`);
+                } catch {
+                    log.push("error");
+                }
+            });
+
+            source.set(-1);
+            expect(onError).toHaveBeenCalledOnce();
+            source.set(1);
+            source.set(2);
+
+            expect(log).toEqual(["value:10", "error", "value:10", "value:20"]);
+
+            eff.unsubscribe();
+        });
+
+        it.each([
+            ["subscribed", true],
+            ["unsubscribed", false],
+        ])("an unsubscribed computed can catch a failing %s dependency", (_, keepSubscribed) => {
+            const { source, c } = createFailing();
+            source.set(-1);
+            const keeper = keepSubscribed
+                ? Signal.effect(() => {
+                      try {
+                          c();
+                      } catch {
+                          // handled
+                      }
+                  })
+                : null;
+            const safe = Computed.create(() => {
+                try {
+                    return c();
+                } catch {
+                    return -1;
+                }
+            });
+
+            expect(safe.peek()).toBe(-1);
+            expect(safe.peek()).toBe(-1);
+
+            source.set(2);
+            expect(safe.peek()).toBe(20);
+
+            keeper?.unsubscribe();
+        });
+
+        it("an unsubscribed read of a catching computed is cached while its dependency keeps the same error", () => {
+            const { source, c } = createFailing();
+            source.set(-1);
+            const keeper = Signal.effect(() => {
+                try {
+                    c();
+                } catch {
+                    // handled
+                }
+            });
+            const safeFn = vi.fn(() => {
+                try {
+                    return c();
+                } catch {
+                    return -1;
+                }
+            });
+            const safe = Computed.create(safeFn);
+
+            safe.peek();
+            safe.peek();
+            expect(safeFn).toHaveBeenCalledTimes(1);
+
+            keeper.unsubscribe();
+        });
+
+        it("starts in the error state when the first compute of a subscription throws", () => {
+            const source = Signal.state(-1);
+            const computeFn = vi.fn(() => {
+                if (source() < 0) throw new Error("negative");
+                return source();
+            });
+            const c = Computed.create(computeFn);
+            const log: string[] = [];
+
+            const eff = Signal.effect(() => {
+                try {
+                    log.push(`value:${c()}`);
+                } catch {
+                    log.push("error");
+                }
+            });
+
+            expect(computeFn).toHaveBeenCalledOnce();
+            expect(() => c.peek()).toThrow("negative");
+            expect(computeFn).toHaveBeenCalledOnce();
+
+            source.set(1);
+            expect(log).toEqual(["error", "value:1"]);
+
+            eff.unsubscribe();
         });
     });
 
