@@ -81,7 +81,7 @@ export class FieldCore implements NodeCore {
         this.segments = segments;
         this._label = segments.join(".");
         this.showErrors = _record.showErrors ?? parent.showErrors;
-        this.path$ = signal("path$", () => [...parent.path$(), name], shallowEqual);
+        this.path$ = signal("path$", () => [...parent.path$(), parent.pathSegment(name)], shallowEqual);
 
         // Init: the starting state becomes the base, with no draft.
         this._input$ = writable<FieldInput>(`${key}/input$`, {
@@ -207,6 +207,8 @@ export class FieldCore implements NodeCore {
             blur: action(() => this._patchMeta({ isFocused: false, isTouched: true })),
             markTouched: action((touched?: boolean) => this.markTouched(touched === undefined ? true : !!touched)),
             reset: action(() => this.reset()),
+            // A list item is named by its key.
+            ...(parent.kind === "list" ? { key: name } : null),
         });
         registerNode(this);
     }

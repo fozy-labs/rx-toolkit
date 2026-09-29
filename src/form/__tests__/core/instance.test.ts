@@ -33,11 +33,6 @@ describe("FormSignal.state()", () => {
         expect(() => state({})).toThrow("expects a group definition");
     });
 
-    it("lists are Stage 3", () => {
-        const def = g({ fields: { items: FormSignal.list({ item: text() }) } });
-        expect(() => FormSignal.state(def)).toThrow("not implemented");
-    });
-
     it("nodes are frozen and their actions are stable references", () => {
         const form = twoFields();
         expect(Object.isFrozen(form)).toBe(true);

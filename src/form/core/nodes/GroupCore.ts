@@ -108,7 +108,7 @@ export class GroupCore implements ParentCore {
         this.showErrors = record.showErrors ?? parent?.showErrors ?? "touched";
         this.path$ =
             parent && name !== null
-                ? signal("path$", () => [...parent.path$(), name], shallowEqual)
+                ? signal("path$", () => [...parent.path$(), parent.pathSegment(name)], shallowEqual)
                 : signal("path$", () => ROOT_PATH);
         this._meta$ = writable(`${key}/meta$`, PRISTINE);
         this._server$ = writable(`${key}/server$`, NO_ISSUES);
@@ -317,6 +317,8 @@ export class GroupCore implements ParentCore {
             markTouched: action((touched?: boolean) => this.markTouched(touched === undefined ? true : !!touched)),
             reset: action(() => this.reset()),
             initialize: action((data?: unknown, options?: InitializeOptions) => this._initialize(data, options)),
+            // A list item is named by its key.
+            ...(parent?.kind === "list" ? { key: name } : null),
         };
 
         const submit = this._submit;
@@ -360,6 +362,10 @@ export class GroupCore implements ParentCore {
         return outcome.ok && outcome.value;
     }
 
+    pathSegment(name: string): string {
+        return name;
+    }
+
     reset(): void {
         this._clearOwn();
         for (const child of Object.values(this.children)) child.reset();
@@ -401,11 +407,13 @@ export class GroupCore implements ParentCore {
      */
     private _initialize(data: unknown, options: InitializeOptions | undefined): void {
         const keepDirtyValues = options?.keepDirtyValues === true;
+        const keepDirtyLists =
+            options?.keepDirtyLists === undefined ? keepDirtyValues : options.keepDirtyLists === true;
         const hasState = isProvided(data, "state");
         const hasContext = this._context$ !== null && isProvided(data, "context");
         if (hasContext) this._context$!.set((data as { context: unknown }).context);
         if (!hasState && hasContext) return;
-        this.reinit(hasState ? (data as { state: unknown }).state : DEFAULTS, { keepDirtyValues });
+        this.reinit(hasState ? (data as { state: unknown }).state : DEFAULTS, { keepDirtyValues, keepDirtyLists });
         if (!keepDirtyValues) this._submit?.reset();
     }
 

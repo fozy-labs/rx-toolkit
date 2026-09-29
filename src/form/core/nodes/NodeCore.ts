@@ -6,7 +6,7 @@ import type { RuleSignal } from "../validation/rules";
 
 // The runtime side of a node. A core owns the signals and the internal actions; its public
 // node (`core.node`) is the frozen object the user sees. Parents read their children through
-// this interface only, so a list core (Stage 3) plugs into group aggregation by implementing it.
+// this interface only, so a list plugs into group aggregation by implementing it.
 
 /** What every node of one instance shares. */
 export interface InstanceScope {
@@ -19,6 +19,8 @@ export interface InstanceScope {
 
 export interface ReinitOptions {
     readonly keepDirtyValues: boolean;
+    /** A list with a dirty structure keeps it and defers the reinit data to its `reset()`. */
+    readonly keepDirtyLists: boolean;
 }
 
 export interface NodeCore {
@@ -70,6 +72,11 @@ export interface ParentCore extends NodeCore {
      * node's value and aggregates. The inherited flag does not count here, see `isDisabled$`.
      */
     isExcluded(name: string): boolean;
+    /**
+     * The issue path segment of the child `name`, read reactively: a group gives the name, a list
+     * the item's current index.
+     */
+    pathSegment(name: string): string | number;
 }
 
 // ==================== Public node → core ====================

@@ -1,5 +1,5 @@
 // Reset and initialization: the rows of the table, the bullets and the Field model (the List
-// structure is Stage 3).
+// structure is in ../lists/structure.test.ts).
 import { z } from "zod";
 
 import { unstable_FormSignal as FormSignal } from "../../index";
