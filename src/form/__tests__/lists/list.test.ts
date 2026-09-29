@@ -1,7 +1,6 @@
 // The List definition and the List node table of the design, one test per row.
 import { z } from "zod";
 
-import { createApi } from "@/query";
 import { Signal } from "@/signals";
 
 import { unstable_FormSignal as FormSignal, type ItemNode } from "../../index";
@@ -371,17 +370,5 @@ describe("list node", () => {
         expect(rule).not.toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);
         vi.useRealTimers();
-    });
-
-    it("queries on items are Stage 4", () => {
-        const api = createApi();
-        const info = api.createResource<string, number>({ queryFn: async () => 1 });
-        const def = g({
-            fields: {
-                rows: l({ item: f({ schema: z.string(), defaultValue: "", queries: { info: () => info.bind("x") } }) }),
-            },
-        });
-        const form = FormSignal.state(def);
-        expect(() => form.fields.rows.push()).toThrow("not implemented");
     });
 });

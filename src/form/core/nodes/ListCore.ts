@@ -179,7 +179,12 @@ export class ListCore implements ParentCore {
             () => structure$().keys !== undefined || anyItem((c) => c.isModified$()),
         );
         this.isDirty$ = signal("isDirty$", () => isStructureDirty(structure$()) || anyItem((c) => c.isDirty$()));
-        this.isPending$ = signal("isPending$", () => anyItem((c) => c.isPending$()));
+        // No short circuit: one read activates the queries of every item at once.
+        this.isPending$ = signal("isPending$", () => {
+            let isPending = false;
+            for (const core of cores$()) isPending = core.isPending$() || isPending;
+            return isPending;
+        });
         this.isValid$ = signal("isValid$", () => ownErrors$().length === 0 && cores$().every((c) => c.isValid$()));
         this.isDisabled$ = signal("isDisabled$", () => parent.isDisabled$() || parent.isExcluded(name));
 

@@ -2,7 +2,6 @@
 import { z } from "zod";
 
 import { deepEqual } from "@/common/utils/deepEqual";
-import { createApi } from "@/query";
 
 import { unstable_FormSignal as FormSignal } from "../../index";
 
@@ -146,15 +145,9 @@ describe("field node", () => {
         expect(email.isPending$()).toBe(false);
     });
 
-    it("queries: empty without queries; declaring queries is Stage 4", () => {
+    it("queries: empty without queries", () => {
         const { email } = emailForm();
         expect(email.queries).toEqual({});
-        const api = createApi();
-        const info = api.createResource<string, number>({ queryFn: async () => 1 });
-        const def = g({
-            fields: { e: f({ schema: z.string(), defaultValue: "", queries: { info: () => info.bind("x") } }) },
-        });
-        expect(() => FormSignal.state(def)).toThrow("not implemented");
     });
 
     it("isFocused$: between focus() and blur()", () => {

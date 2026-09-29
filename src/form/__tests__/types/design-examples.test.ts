@@ -55,8 +55,9 @@ const email = f({
     },
     validate: ({ queries, error, warn }) => {
         const info = queries.emailInfo$();
-        if (queries.emailInfo.isDebouncing$() || info.dataSource !== "current") return;
+        if (queries.emailInfo.isDebouncing$()) return;
         if (info.status === "error") return warn("Could not check the email");
+        if (info.dataSource !== "current") return;
         if (!info.data.isValid) error("Email is taken");
         if (info.data.isCorporate) warn("Corporate address");
     },

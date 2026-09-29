@@ -251,7 +251,12 @@ export class GroupCore implements ParentCore {
         );
         this.isModified$ = signal("isModified$", () => anyEnabled((c) => c.isModified$()));
         this.isDirty$ = signal("isDirty$", () => anyEnabled((c) => c.isDirty$()));
-        this.isPending$ = signal("isPending$", () => queries.isPending() || anyEnabled((c) => c.isPending$()));
+        // No short circuit: one read activates the queries of every enabled descendant at once.
+        this.isPending$ = signal("isPending$", () => {
+            let isPending = queries.isPending();
+            for (const child of enabled()) isPending = child.isPending$() || isPending;
+            return isPending;
+        });
         this.isValid$ = signal(
             "isValid$",
             () => ownErrors$().length === 0 && enabled().every((child) => child.isValid$()),
