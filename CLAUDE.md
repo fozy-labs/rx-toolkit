@@ -2,7 +2,7 @@
 
 ## Project
 
-`@fozy-labs/rx-toolkit` — a framework-agnostic reactive state-management library built on RxJS (peer deps: `rxjs`, `react`, `zod`; runtime dep: `immer`). ESM-only, TypeScript-first. Published to npm from `dist/`.
+`@fozy-labs/rx-toolkit` — a framework-agnostic reactive state-management library built on RxJS (peer deps: `rxjs`, `react`; runtime dep: `immer`; schemas via Standard Schema, `zod` is a devDependency only). ESM-only, TypeScript-first. Published to npm from `dist/`.
 
 ## Commands
 
@@ -25,7 +25,7 @@ The demo app is separate (own deps and ESLint config): `pnpm run demos` from the
 - `src/index.ts` is the single public API entry.
 - Each module has its own `index.ts` barrel.
 
-Four modules:
+Five modules:
 
 - **`src/signals/`** — reactive primitives. 
   - `base/` holds the engine: `SourceSignal`, `DependencyTracker` (auto-tracking for computeds/effects), `Batcher` (update batching), `ComputeCache`, `SyncObservable` (sync bridge to RxJS).
@@ -49,11 +49,14 @@ Four modules:
   - Two layers: `createMachine()` → `MachineDefinition` (stateless config + implementations table) and `MachineSignal.state(definition)` (instance as a callable signal snapshot).
   - `core/` is the interpreter; `export/` — `toMermaid()` / `toXStateSource()`.
   - `__tests__/differential/` runs differential tests against `xstate` (devDependency only, not shipped).
+- **`src/form/`** — forms on top of signals and query (field schemas are any sync Standard Schema).
+  - `unstable_FormSignal` (`field` / `group` / `list` definitions, `state()` creates an instance), `unstable_formsPlugin` / `unstable_formsReactPlugin` (`api.defineForm`, `useForm`).
+  - `core/` holds `definition/` (builders), `nodes/` (field/group/list runtime, query nodes), `runtime/`, `validation/`, `submit/`.
 - **`src/common/`** — shared utils, Redux DevTools integration, global default options, shared React helpers.
 - `.tmp` - temporary files (gitignore)
 - `benchmarks/` — comparative signals benchmarks vs alien-signals/preact/reatom (gitignored workspace, runs against built `dist`)
 
-Docs for query concepts (`docs/query/concepts/`: machine → cache → agent) are the best deep-dive into `src/query/core/`; `docs/statechart/README.md` — into `src/statechart/`.
+Docs for query concepts (`docs/query/concepts/`: machine → cache → agent) are the best deep-dive into `src/query/core/`; `docs/statechart/README.md` — into `src/statechart/`; `docs/form/README.md` — into `src/form/`.
 
 ## Conventions
 
