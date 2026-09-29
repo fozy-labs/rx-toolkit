@@ -65,6 +65,9 @@ importers:
       '@eslint/js':
         specifier: ^9.20.0
         version: 9.39.5
+      '@fozy-labs/statechart-converter':
+        specifier: 0.4.0
+        version: 0.4.0
       '@tailwindcss/vite':
         specifier: 4.1.17
         version: 4.1.17(vite@5.4.21(lightningcss@1.30.2))

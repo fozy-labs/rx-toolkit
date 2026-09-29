@@ -8,7 +8,7 @@
     "build": "vite build",
     "ts-check": "tsc --noEmit",
     "lint": "eslint src/",
-    "statechart:generate": "pnpm --dir ../converter --silent run build && node ../converter/dist/cli.js src/examples/statechart/square.mmd"
+    "statechart:generate": "statechart-convert src/examples/statechart/square.mmd"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@fozy-labs/statechart-converter": "0.4.0",
     "@tailwindcss/vite": "4.1.17",
     "@types/react": "19.2.4",
     "@types/react-dom": "19.2.3",

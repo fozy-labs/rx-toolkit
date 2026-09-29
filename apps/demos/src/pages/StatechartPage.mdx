@@ -12,8 +12,8 @@ XState v5 через `createMachine(config, implementations)` и исполня�
 (`value`, `context`, `status`, `tags`) с методами `send`, `matches`, `can`, `start`, `stop`, `dispose`.
 Зависимости от `xstate` нет, при этом описание совместимо с инструментами Stately
 (Inspector, Studio). Машину можно описать и одним `.mmd`-файлом — mermaid `stateDiagram-v2` с
-директивами `%% @…`: конвертер `apps/converter` генерирует из него типизированный код, а `StatechartViz`
-из `apps/viz` показывает живую диаграмму (вкладка `square.mmd`).
+директивами `%% @…`: конвертер `@fozy-labs/statechart-converter` генерирует из него типизированный код, а `StatechartViz`
+из `@fozy-labs/statechart-viz` показывает живую диаграмму (вкладка `square.mmd`).
 
 ## Примеры
 

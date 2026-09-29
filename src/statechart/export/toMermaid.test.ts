@@ -1,8 +1,9 @@
 /**
- * `toMermaid` renders the converter's dialect (`apps/converter`). Every
- * expected text here was also fed to mermaid 11.17.2 (`getDiagramFromText`
- * with jsdom, the harness of `.tmp/mermaid-validate`) to check that it
- * parses and that every state lands in the right block.
+ * `toMermaid` renders the converter's dialect
+ * (`@fozy-labs/statechart-converter`). Every expected text here was also fed
+ * to mermaid 11.17.2 (`getDiagramFromText` with jsdom, the harness of
+ * `.tmp/mermaid-validate`) to check that it parses and that every state lands
+ * in the right block.
  */
 import { assign, cancel, log, mutate, raise } from "../actions";
 import { unstable_createMachine as createMachine } from "../createMachine";

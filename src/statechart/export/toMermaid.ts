@@ -1,8 +1,9 @@
 /**
  * Mermaid `stateDiagram-v2` rendering of the normalized model, in the
- * dialect of the statechart converter (`apps/converter`): the text is meant
- * to be parsed back (`parse(definition.toMermaid())` matches the config for
- * machines within the mermaid subset) and rendered as is by the viz.
+ * dialect of the statechart converter (`@fozy-labs/statechart-converter`):
+ * the text is meant to be parsed back (`parse(definition.toMermaid())`
+ * matches the config for machines within the mermaid subset) and rendered as
+ * is by the viz.
  *
  * Layout (deterministic, config order everywhere):
  *
