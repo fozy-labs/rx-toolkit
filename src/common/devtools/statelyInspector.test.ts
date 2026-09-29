@@ -1,5 +1,4 @@
 import {
-    createSessionId,
     serializeInspectionEvent,
     STATELY_CONNECTED_MESSAGE_TYPE,
     STATELY_DISCONNECTED_MESSAGE_TYPE,
@@ -694,29 +693,6 @@ describe("statelyInspector", () => {
             handle.event({ type: "E" });
             handle.snapshot(poisonedSnapshot, { type: "E" });
             handle.stop();
-        });
-    });
-
-    describe("createSessionId", () => {
-        it("uses crypto.randomUUID when available", () => {
-            vi.stubGlobal("crypto", { randomUUID: () => "fixed-uuid" });
-            expect(createSessionId()).toBe("fixed-uuid");
-        });
-
-        it("falls back to getRandomValues", () => {
-            vi.stubGlobal("crypto", {
-                getRandomValues: (bytes: Uint8Array) => {
-                    bytes.fill(0xab);
-                    return bytes;
-                },
-            });
-            expect(createSessionId()).toBe("abababab-abab-4bab-abab-abababababab");
-        });
-
-        it("falls back to Math.random without crypto and still produces a v4-shaped id", () => {
-            vi.stubGlobal("crypto", undefined);
-            expect(createSessionId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-            expect(createSessionId()).not.toBe(createSessionId());
         });
     });
 });

@@ -145,6 +145,7 @@ function observe<TArgs, TData>(clutch: ICommandClutch<TArgs, TData>) {
 afterEach(() => {
     while (_effects.length) _effects.pop()!.unsubscribe();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 // ==================== 1. State matrix rows K1–K5 ====================
@@ -531,6 +532,16 @@ describe("CommandClutch entry key switching", () => {
         entryA.setEntryState(errorState("a", new Error("gone")));
         clutch.setEntryKey("kA");
         expect(s.get().status).toBe("error");
+    });
+
+    it("trigger without an entry key mints one without crypto.randomUUID (insecure context)", () => {
+        vi.stubGlobal("crypto", { getRandomValues: (bytes: Uint8Array) => bytes.fill(0xab) });
+        const mock = createMockCommand<string, string>();
+        const clutch = new CommandClutch(mock.command);
+
+        clutch.trigger("hello");
+
+        expect(mock.command.execute).toHaveBeenCalledWith("hello", "abababab-abab-4bab-abab-abababababab");
     });
 
     it("constructor entryKey parameter sets initial observed entry", () => {

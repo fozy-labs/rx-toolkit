@@ -1,6 +1,7 @@
 import { first, firstValueFrom, type Unsubscribable } from "rxjs";
 
 import { deepEqual } from "@/common/utils/deepEqual";
+import { randomUUID } from "@/common/utils/randomUUID";
 import { shallowEqual } from "@/common/utils/shallowEqual";
 import { isKeyed } from "@/query/lib/toKeyed";
 import type {
@@ -372,7 +373,7 @@ export class SubmitController {
     // ==================== Helpers ====================
 
     private _mintedKey(): string {
-        return (this._defaultKey ??= crypto.randomUUID());
+        return (this._defaultKey ??= randomUUID());
     }
 
     private _clutchOf(command: AnyCommand): AnyClutch {

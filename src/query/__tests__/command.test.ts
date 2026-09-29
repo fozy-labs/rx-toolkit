@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
@@ -1681,6 +1681,20 @@ describe("Command — execute with pre-TKeyed args", () => {
 // ==================== Request id ====================
 
 describe("Command request id", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("generates a request id without crypto.randomUUID (insecure context)", async () => {
+        vi.stubGlobal("crypto", { getRandomValues: (bytes: Uint8Array) => bytes.fill(0xab) });
+        const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
+        const command = createCommand<string, string>({ queryFn });
+
+        await command.execute("a", "k1");
+
+        expect(queryFn).toHaveBeenCalledWith("a", "abababab-abab-4bab-abab-abababababab");
+    });
+
     it("passes an auto-generated string request id as the second arg to queryFn", async () => {
         const queryFn = vi.fn(async (_args: string, _requestId: string) => "ok");
         const command = createCommand<string, string>({ queryFn });

@@ -1,3 +1,4 @@
+import { randomUUID } from "@/common/utils/randomUUID";
 import type {
     ICommandClutch,
     IQueryCacheEntry,
@@ -68,7 +69,7 @@ export class CommandClutch<TArgs, TData, TError = unknown> implements ICommandCl
      * throwing promise.
      */
     trigger(args: TArgsOrKeyed<TArgs>, entryKey?: string): TTriggerPromise<TData, TError> {
-        const resolvedEntryKey = isKeyed(args) ? args.key : (entryKey ?? this._boundEntryKey ?? crypto.randomUUID());
+        const resolvedEntryKey = isKeyed(args) ? args.key : (entryKey ?? this._boundEntryKey ?? randomUUID());
 
         // Command.execute never throws synchronously and normalizes every
         // rejection to TError itself. This guard only covers foreign

@@ -203,7 +203,7 @@ export interface TCommandOptions<TArgs, TData> {
     retentionTime?: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /**
      * Derives the request id passed to {@link queryFn}. Called once per cache
-     * entry (its result is reused across retries). Defaults to `crypto.randomUUID()`.
+     * entry (its result is reused across retries). Defaults to a random UUID.
      */
     generateRequestId?: (args: TArgs) => string | Promise<string>;
     /** See {@link TLifecycleHookOption} for the array form. */
@@ -225,7 +225,7 @@ export interface TCommandOptions<TArgs, TData> {
 export interface ICommandConfig<TArgs, TData> {
     /** Function that executes the mutation. Receives the per-entry request id as the second argument. */
     queryFn: (args: TArgs, requestId: string) => Promise<TData>;
-    /** Derives the request id; called once per cache entry. Defaults to `crypto.randomUUID()`. */
+    /** Derives the request id; called once per cache entry. Defaults to a random UUID. */
     generateRequestId?: (args: TArgs) => string | Promise<string>;
     /** Optional prefix for cache keys and devtools display. */
     key?: string;

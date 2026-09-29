@@ -1,3 +1,4 @@
+import { randomUUID } from "@/common/utils/randomUUID";
 import type {
     ICommand,
     ICommandClutch,
@@ -54,7 +55,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         this._key = config.key;
         this._linkManager = new LinkManager(config.links);
         this._retentionTime = config.retentionTime;
-        this._generateRequestId = config.generateRequestId ?? (() => crypto.randomUUID());
+        this._generateRequestId = config.generateRequestId ?? randomUUID;
         this._mapError = config.mapError ?? ((error) => error);
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;

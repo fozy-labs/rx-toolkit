@@ -1,3 +1,4 @@
+import { randomUUID } from "@/common/utils/randomUUID";
 import type { ISyncDriver, ISyncMessage, TResourceOptions } from "@/query/types";
 
 import type { Resource } from "../resource/Resource";
@@ -101,7 +102,7 @@ export class Syncer {
     };
 
     private requestDataFromOtherTabs(resourceKey: string, entryKey: string): Promise<{ data: unknown } | null> {
-        const reqId = crypto.randomUUID();
+        const reqId = randomUUID();
         const keys: [string, string, string] = [this.keyPrefix ?? "", resourceKey, entryKey];
 
         return new Promise((resolve) => {
