@@ -8,8 +8,7 @@ import { z } from "zod";
 import type { TResourceClutchState } from "@/query";
 import type { ReadonlySignal } from "@/signals";
 
-import { unstable_FormSignal as FormSignal, type FormInstance, type Parsed } from "../../index";
-import type { ParsedOk } from "../../types/common";
+import { unstable_FormSignal as FormSignal, type FormInstance, type Parsed, type ParsedOk } from "../../index";
 
 import { getCities, getEmailInfo, getTariffs, type NetError } from "./fixtures";
 

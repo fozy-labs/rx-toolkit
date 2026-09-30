@@ -1,9 +1,6 @@
 import type React from "react";
 
-import type { IPluginHKT } from "@/query/types";
-
-import type { AnyGroupDef, FormContext, FormInit, InitializeOptions } from "../types";
-import type { FormsApiOf } from "../types/plugin";
+import type { AnyGroupDef, FormContext, FormInit, FormsPluginHKT, InitializeOptions } from "../types";
 
 /** Options of `useForm`. */
 export interface UseFormOptions {
@@ -12,7 +9,7 @@ export interface UseFormOptions {
 }
 
 /** The parameters of `useForm`: `init` is optional unless the definition requires a context. */
-export type UseFormArgs<D> = D extends AnyGroupDef
+type UseFormArgs<D> = D extends AnyGroupDef
     ? unknown extends FormContext<D>
         ? [init?: FormInit<D>, options?: UseFormOptions]
         : [init: FormInit<D>, options?: UseFormOptions]
@@ -45,6 +42,4 @@ export interface FormReactMembers {
 }
 
 /** The plugin HKT: `defineForm` as in `unstable_formsPlugin()`, with the React members. */
-export interface FormsReactPluginHKT<TPluginError = unknown> extends IPluginHKT {
-    readonly apiType: FormsApiOf<this["_TError"], TPluginError, FormReactMembers>;
-}
+export type FormsReactPluginHKT<TPluginError = unknown> = FormsPluginHKT<TPluginError, FormReactMembers>;

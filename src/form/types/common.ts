@@ -30,28 +30,3 @@ export type Parsed<Output> = { isParsed: true; value: Output } | { isParsed: fal
 
 /** {@link Parsed} narrowed to the parsed case, as `SubmitCtx.parsed$` returns it. */
 export type ParsedOk<Output> = { isParsed: true; value: Output };
-
-// ==================== Names ====================
-
-/**
- * Names of children, rules, `computed` and `queries` that break the source string and devtools
- * paths: a trailing `$` (reserved for the instance aliases), a `.` or a `/`.
- */
-export type InvalidName = `${string}$` | `${string}.${string}` | `${string}/${string}`;
-
-/** Type-level error shown on a member with an {@link InvalidName}. */
-export type InvalidNameError = "Error: a form name must not end with `$` or contain `.` or `/`";
-
-// ==================== Helpers ====================
-
-/** The values a query key returns to stay idle, besides `SKIP`. */
-export type Falsy = false | 0 | 0n | "" | null | undefined;
-
-/**
- * Blocks inference through `T` (native `NoInfer` needs TS 5.4; the consumer minimum is 4.7).
- * Used by the definition checks, so they read the inferred types without taking part in inference.
- */
-export type NoInference<T> = [T][T extends any ? 0 : never];
-
-/** Collapses an intersection of object types into one object type. */
-export type Simplify<T> = { [K in keyof T]: T[K] } & {};

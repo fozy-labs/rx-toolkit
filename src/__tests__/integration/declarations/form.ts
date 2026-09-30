@@ -6,6 +6,8 @@ import {
     unstable_FormSignal as FormSignal,
     unstable_formsPlugin,
     unstable_formsReactPlugin,
+    type AnyGroupDef,
+    type FormInitArgs,
     type StandardSchemaV1,
 } from "@/index";
 
@@ -100,3 +102,32 @@ export function useNoteContext() {
 
 export const useNoteForm = Note.useForm;
 export const defineReactForm = reactApi.defineForm;
+
+// Generic wrappers: their declarations name the form's types over their own type parameters,
+// which TypeScript cannot resolve away.
+export function textField<S extends StandardSchemaV1<string, string>>(fieldSchema: S) {
+    return FormSignal.field({ schema: fieldSchema, defaultValue: "" });
+}
+
+export function createFormsApi<E extends { message: string }>(map: (error: unknown) => E) {
+    return createApi({
+        plugins: [unstable_formsPlugin({ mapSubmitError: (error: E) => [{ message: error.message }] })],
+        mapError: map,
+    });
+}
+
+export function createReactFormsApi<E extends { message: string }>(map: (error: unknown) => E) {
+    return createApi({
+        plugins: [unstable_formsReactPlugin({ mapSubmitError: (error: E) => [{ message: error.message }] })],
+        mapError: map,
+    });
+}
+
+export function textList<S extends StandardSchemaV1<string, string>>(itemSchema: S) {
+    return FormSignal.list({ item: textField(itemSchema) });
+}
+
+export function watch<D extends AnyGroupDef>(definition: D, ...init: FormInitArgs<D>) {
+    const instance = FormSignal.state(definition, ...init);
+    return { state: instance.state$(), submission: instance.submission$(), fields: instance.fields };
+}

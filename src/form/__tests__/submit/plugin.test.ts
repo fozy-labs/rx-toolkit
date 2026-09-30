@@ -10,7 +10,6 @@ import {
     unstable_formsPlugin,
     type IssueInput,
 } from "../../index";
-import type { FormsPluginErrorMismatch } from "../../types/plugin";
 
 import { flush } from "./helpers";
 
@@ -184,7 +183,9 @@ describe("types", () => {
             ],
             mapError: toApiError,
         });
-        expectTypeOf(mismatched.defineForm).toEqualTypeOf<FormsPluginErrorMismatch>();
+        expectTypeOf(
+            mismatched.defineForm,
+        ).toEqualTypeOf<"Error: the mapSubmitError of unstable_formsPlugin() does not accept the error type of the api">();
         const wide = createApi({
             plugins: [unstable_formsPlugin({ mapSubmitError: (error: unknown) => [{ message: String(error) }] })],
             mapError: toApiError,

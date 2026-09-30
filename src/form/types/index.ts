@@ -1,54 +1,18 @@
 /**
- * Public type surface of the forms module (re-exported from the package root): the vocabulary a
- * user writes, and every type a consumer's declaration may have to name. Type-level machinery
- * (`Simplify`, `NoInference`, the checks and the error strings they show) stays module-internal,
- * as in the statechart module.
+ * Public type surface of the forms module, re-exported from the package root: the vocabulary a
+ * user writes and every type a consumer's declaration may have to name.
  *
- * A type left out of this list must never surface in a consumer's declaration: TypeScript names
- * an exported type by its file path, which the package does not export (TS2742). A helper used
- * in one file is therefore declared without `export`, so a declaration inlines it; one that
- * crosses files and surfaces (`ContextRequirement` in `defineForm`) is listed here.
+ * A type file exports exactly what the package publishes. A consumer's declaration names an
+ * exported type by the module that exports it, and the package exports only its root, so an
+ * exported type the root leaves out cannot be named (TS2742). Type-level machinery (inference
+ * helpers, checks and the error strings they show) is therefore module-local in the file that
+ * uses it, where a consumer's declaration inlines it. `declarations.test.ts` checks both rules.
  */
-export type { InitializeOptions, Parsed, PendingQueries, ShowErrors, SubmitStatus } from "./common";
+export * from "./common";
 export * from "./context";
-export type {
-    AnyDef,
-    AnyFieldDef,
-    AnyGroupDef,
-    AnyItemDef,
-    AnyListDef,
-    Children,
-    ContextRequirement,
-    Definition,
-    FieldDef,
-    FieldOptions,
-    FormContextToken,
-    GroupDef,
-    GroupOptions,
-    IsRootOnly,
-    ListDef,
-    ListOptions,
-    MappedIssues,
-    SubmitResult,
-} from "./definition";
+export * from "./definition";
 export * from "./infer";
 export * from "./issue";
-export type {
-    AnyNode,
-    ComputedSignals,
-    FieldNode,
-    FieldState,
-    FormRootNode,
-    FormState,
-    GroupNode,
-    GroupNodeBase,
-    GroupState,
-    ItemNode,
-    ItemRef,
-    ListNode,
-    ListState,
-    NodeBase,
-    SubmissionState,
-} from "./node";
-export type { FormsApi, FormsPluginHKT, FormsPluginOptions } from "./plugin";
-export type { QueryNode, QueryNodes, QueryState, QueryView } from "./query";
+export * from "./node";
+export * from "./plugin";
+export * from "./query";

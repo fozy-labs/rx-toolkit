@@ -90,7 +90,7 @@ export interface FieldNode<Input, Output = unknown, Q = unknown> extends NodeBas
 type NodeFields<N extends NodeRecord> = N & { readonly [K in keyof N as `${K & string}$`]: N[K]["state$"] };
 
 /** Children of a group node: names to nodes. */
-export type NodeRecord = Record<string, AnyNode>;
+type NodeRecord = Record<string, AnyNode>;
 
 /** `computed` of a node: `<k>$` signals, `undefined` until the first successful run. */
 export type ComputedSignals<C> = {

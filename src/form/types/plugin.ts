@@ -43,18 +43,19 @@ export interface FormsApi<TError, Members = unknown> {
         Members;
 }
 
-export type FormsPluginErrorMismatch =
+type FormsPluginErrorMismatch =
     "Error: the mapSubmitError of unstable_formsPlugin() does not accept the error type of the api";
 
 /**
- * The plugin HKT: the api gets `defineForm` typed by its error type. A plugin `mapSubmitError`
- * that does not accept that type leaves `defineForm` uncallable, with the reason as its type.
+ * The plugin HKT: the api gets `defineForm` typed by its error type, and its definitions get
+ * `Members`. A plugin `mapSubmitError` that does not accept that type leaves `defineForm`
+ * uncallable, with the reason as its type.
  */
-export interface FormsPluginHKT<TPluginError = unknown> extends IPluginHKT {
-    readonly apiType: FormsApiOf<this["_TError"], TPluginError>;
+export interface FormsPluginHKT<TPluginError = unknown, Members = unknown> extends IPluginHKT {
+    readonly apiType: FormsApiOf<this["_TError"], TPluginError, Members>;
 }
 
 /** `FormsApi`, or an uncallable `defineForm` when the plugin's error type does not accept the api's. */
-export type FormsApiOf<TError, TPluginError, Members = unknown> = [TError] extends [TPluginError]
+type FormsApiOf<TError, TPluginError, Members = unknown> = [TError] extends [TPluginError]
     ? FormsApi<TError, Members>
     : { readonly defineForm: FormsPluginErrorMismatch };

@@ -18,7 +18,10 @@ const PUBLIC_TYPES = [
     // common
     "InitializeOptions",
     "Parsed",
+    "ParsedOk",
     "PendingQueries",
+    "SchemaInput",
+    "SchemaOutput",
     "ShowErrors",
     "SubmitStatus",
     // context
@@ -98,6 +101,7 @@ const PUBLIC_TYPES = [
     "QueryNodes",
     "QueryState",
     "QueryView",
+    "QueryViews",
     // react
     "FormReactInstanceMembers",
     "FormReactMembers",

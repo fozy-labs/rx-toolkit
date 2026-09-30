@@ -1,16 +1,8 @@
 import type { StandardSchemaV1 } from "@/common/standard-schema";
-import type { TBoundCommand } from "@/query/types";
+import type { SKIP } from "@/query/constants";
+import type { TBoundCommand, TBoundResource } from "@/query/types";
 
-import type {
-    InvalidName,
-    InvalidNameError,
-    NoInference,
-    PendingQueries,
-    SchemaInput,
-    SchemaOutput,
-    ShowErrors,
-    Simplify,
-} from "./common";
+import type { PendingQueries, SchemaInput, SchemaOutput, ShowErrors } from "./common";
 import type {
     FieldQueryCtx,
     FieldValidateCtx,
@@ -26,11 +18,33 @@ import type {
 } from "./context";
 import type { IssueInput } from "./issue";
 import type { FieldNode, FormRootNode, GroupNode, ListNode, SubmissionState } from "./node";
-import type { QueryEntry } from "./query";
 
 // A definition carries the types of its instance as phantom members (`__node`, `__view`, ...):
 // they exist only in the types, never at runtime. `g()` / `l()` compose them from the children
 // once per call, so no type is recomputed on every access.
+//
+// Only the types `types/index.ts` publishes are exported: the helpers and checks here are
+// module-local, so a consumer's declaration inlines them.
+
+// ==================== Helpers ====================
+
+/**
+ * Blocks inference through `T` (native `NoInfer` needs TS 5.4; the consumer minimum is 4.7).
+ * Used by the definition checks, so they read the inferred types without taking part in inference.
+ */
+type NoInference<T> = [T][T extends any ? 0 : never];
+
+/** Collapses an intersection of object types into one object type. */
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+/**
+ * Names of children, rules, `computed` and `queries` that break the source string and devtools
+ * paths: a trailing `$` (reserved for the instance aliases), a `.` or a `/`.
+ */
+type InvalidName = `${string}$` | `${string}.${string}` | `${string}/${string}`;
+
+/** Type-level error shown on a member with an {@link InvalidName}. */
+type InvalidNameError = "Error: a form name must not end with `$` or contain `.` or `/`";
 
 // ==================== Context requirement ====================
 
@@ -131,7 +145,6 @@ export type AnyItemDef = AnyFieldDef | AnyGroupDef;
 /** The children of a group: names to definitions. */
 export type Children = Record<string, AnyDef>;
 
-// Module-local, so a consumer's declaration inlines them (see `types/index.ts`).
 type NodesOf<F extends Children> = { [K in keyof F]: F[K]["__node"] };
 type ViewsOf<F extends Children> = { [K in keyof F]: F[K]["__view"] };
 type GroupInitial<F extends Children> = { [K in keyof F]?: F[K]["__initial"] };
@@ -147,7 +160,7 @@ type GroupOutput<F extends Children, DK extends PropertyKey> = WithOptionalKeys<
 type DefSlot<D, K extends keyof AnyDef> = D extends AnyDef ? D[K] : never;
 
 /** Makes the `K` keys of `T` optional; `T` itself when `K` is `never`. */
-export type WithOptionalKeys<T, K extends PropertyKey> = [K] extends [never]
+type WithOptionalKeys<T, K extends PropertyKey> = [K] extends [never]
     ? T
     : Simplify<
           { [P in keyof T as P extends K ? never : P]: T[P] } & { [P in keyof T as P extends K ? P : never]?: T[P] }
@@ -157,7 +170,7 @@ export type WithOptionalKeys<T, K extends PropertyKey> = [K] extends [never]
 export type ContextRequirement<Own, F> = unknown extends Own ? ChildrenContext<F> : Own;
 
 /** The intersection of the children's context requirements; `unknown` when none has one. */
-export type ChildrenContext<F> = {
+type ChildrenContext<F> = {
     [K in keyof F]: (context: DefSlot<F[K], "__context">) => void;
 }[keyof F] extends (context: infer C) => void
     ? C
@@ -165,27 +178,72 @@ export type ChildrenContext<F> = {
 
 // ==================== Checks ====================
 
-export type RootOnlyChildError =
+type RootOnlyChildError =
     "Error: a nested group must not have root-only options (name, submit, mapSubmitError, pendingQueries)";
 
-export type ContextMismatchError = "Error: the declared context does not satisfy the children's context requirements";
+type ContextMismatchError = "Error: the declared context does not satisfy the children's context requirements";
 
 /** Per-child checks of `fields`: names and root-only options. */
-export type FieldsCheck<F> = {
+type FieldsCheck<F> = {
     [
         K in keyof F as K extends InvalidName ? K : F[K] extends { readonly __rootOnly: true } ? K : never
     ]: K extends InvalidName ? InvalidNameError : RootOnlyChildError;
 };
 
 /** A declared context must satisfy every child's requirement. */
-export type ContextCheck<Own, Required> = [Own] extends [Required]
+type ContextCheck<Own, Required> = [Own] extends [Required]
     ? unknown
     : { readonly [K in ContextMismatchError]: Required };
+
+// ==================== Queries ====================
+
+/** Any bound resource: what a query key returns to run a query. */
+type AnyBoundResource = TBoundResource<any, any, any>;
+
+/** The values a query key returns to stay idle, besides `SKIP`. */
+type Falsy = false | 0 | 0n | "" | null | undefined;
+
+/** A query key: the bound resource to observe, or a falsy value / `SKIP` to stay idle. */
+type QueryKeyFn<TCtx, TBound> = (ctx: TCtx) => (TBound & QueryKeyCheck<TBound>) | Falsy | typeof SKIP;
+
+/** A `queries` entry: a key, or a key whose args changes are debounced by `debounce` ms. */
+type QueryOption<TCtx, TBound> =
+    | QueryKeyFn<TCtx, TBound>
+    | {
+          bind: (ctx: TCtx) => (Homomorphic<TBound> & QueryKeyCheck<TBound>) | Falsy | typeof SKIP;
+          debounce: number;
+      };
+
+// Every function has a `bind` property, so inference from a key function also reaches the
+// `bind` of the object form. Inferring through a homomorphic mapped type there gives those
+// candidates a lower priority, and none at all from a function, so the key's own result wins.
+type Homomorphic<T> = { [K in keyof T]: T[K] };
+
+/** The declared entry of the `queries` record under `K`: the name check, then the option. */
+type QueryEntry<K, TCtx, TBound> = K extends InvalidName ? InvalidNameError : QueryOption<TCtx, TBound>;
+
+type QueryKeyResultError = "Error: a query key must return `resource.bind(args)`, a falsy value or SKIP";
+
+type QueryResourceError = "Error: a query key must bind one resource on every run";
+
+/**
+ * Checks of the inferred key result: a bound resource, one resource per key. Its branches do
+ * not mention `TBound`, so it takes no part in inference: the result is inferred, then checked.
+ */
+type QueryKeyCheck<TBound> = [TBound] extends [AnyBoundResource]
+    ? IsUnion<TBound> extends true
+        ? { readonly [K in QueryResourceError]: never }
+        : unknown
+    : { readonly [K in QueryKeyResultError]: never };
+
+type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+
+type IsUnion<T> = [T] extends [UnionToIntersection<T>] ? false : true;
 
 // ==================== Options ====================
 
 /** A rule: the short form (named after the node), or a record of named rules. */
-export type RuleOption<V extends string, Ctx> =
+type RuleOption<V extends string, Ctx> =
     ((ctx: Ctx) => void) | { [K in V]: K extends InvalidName ? InvalidNameError : (ctx: Ctx) => void };
 
 export interface FieldOptions<S extends StandardSchemaV1, Q, V extends string, Context> {
@@ -206,11 +264,8 @@ export interface FieldOptions<S extends StandardSchemaV1, Q, V extends string, C
 /** What `submit` returns: a bound command, or a promise wrapped into an internal command. */
 export type SubmitResult = TBoundCommand<any, any, any> | PromiseLike<unknown>;
 
-/** The error `mapSubmitError` receives for a `submit` result. */
-export type SubmitErrorOf<Submit> = Submit extends TBoundCommand<any, any, infer E> ? E : unknown;
-
 /** `submission$` of the root (without `null`) for a `submit` result; `never` without `submit`. */
-export type SubmissionOf<Submit> =
+type SubmissionOf<Submit> =
     Submit extends TBoundCommand<infer A, infer D, infer E>
         ? SubmissionState<A, D, E>
         : Submit extends PromiseLike<infer D>
@@ -271,7 +326,7 @@ export type IsRootOnly<Name, Submit, Pending, Mapped> = [Name | Submit | Pending
     ? false
     : true;
 
-export type ItemError = "Error: a list item must be a field or a group without root-only options";
+type ItemError = "Error: a list item must be a field or a group without root-only options";
 
 export interface ListOptions<Item extends AnyItemDef, V extends string, Context> {
     item: Item & (Item["__rootOnly"] extends true ? ItemError : unknown);

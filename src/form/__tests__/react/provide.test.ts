@@ -17,7 +17,6 @@ import {
     type FormInstance,
     type FormReactInstanceMembers,
 } from "../../index";
-import type { FormsPluginErrorMismatch } from "../../types/plugin";
 
 const h = React.createElement;
 const f = FormSignal.field;
@@ -185,6 +184,8 @@ describe("unstable_formsReactPlugin", () => {
             ],
             mapError: (error) => String(error),
         });
-        expectTypeOf(narrow.defineForm).toEqualTypeOf<FormsPluginErrorMismatch>();
+        expectTypeOf(
+            narrow.defineForm,
+        ).toEqualTypeOf<"Error: the mapSubmitError of unstable_formsPlugin() does not accept the error type of the api">();
     });
 });
