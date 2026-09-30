@@ -1,10 +1,11 @@
 // @vitest-environment node
 /// <reference types="node" />
 /**
- * Declaration emit of a consumer (F61): `consumer.ts` compiles with `declaration: true` against
- * the package as it is published — the declarations of `src` built by `tsc` and `tsc-alias`
- * into a `node_modules/@fozy-labs/rx-toolkit` — with no TS2742, and its declaration refers to
- * no module but `@fozy-labs/rx-toolkit`.
+ * Declaration emit of consumers: every consumer module next to this file compiles with
+ * `declaration: true` against the package as it is published — the declarations of `src` built
+ * by `tsc` and `tsc-alias` into a `node_modules/@fozy-labs/rx-toolkit` — with no error (TS2742,
+ * TS4023, TS4058: a type the declaration cannot name), and its declaration refers to no module
+ * but `@fozy-labs/rx-toolkit`.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,9 +14,10 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../../../..");
-const WORK = join(ROOT, ".tmp/form-declarations");
+const WORK = join(ROOT, ".tmp/declarations");
 const PACKAGE = join(WORK, "node_modules/@fozy-labs/rx-toolkit");
 const CONSUMER = join(WORK, "consumer");
+const CONSUMERS = ["form", "query"];
 const TSC = join(ROOT, "node_modules/typescript/bin/tsc");
 const TSC_ALIAS = join(ROOT, "node_modules/tsc-alias/dist/bin/index.js");
 
@@ -70,16 +72,18 @@ function specifiers(declaration: string): string[] {
 }
 
 describe("declaration emit of a consumer", () => {
-    it("compiles against the built package without TS2742 and refers only to the package", { timeout: 120_000 }, () => {
+    beforeAll(() => {
         rmSync(WORK, { recursive: true, force: true });
         buildPackage();
 
-        const source = readFileSync(join(HERE, "consumer.ts"), "utf8").replace(
-            /from "@\/index"/g,
-            'from "@fozy-labs/rx-toolkit"',
-        );
         mkdirSync(CONSUMER, { recursive: true });
-        writeFileSync(join(CONSUMER, "consumer.ts"), source);
+        for (const name of CONSUMERS) {
+            const source = readFileSync(join(HERE, `${name}.ts`), "utf8").replace(
+                /from "@\/index"/g,
+                'from "@fozy-labs/rx-toolkit"',
+            );
+            writeFileSync(join(CONSUMER, `${name}.ts`), source);
+        }
         // Its own package scope: inside the repository the package name would resolve to the repository itself.
         writeJson(join(CONSUMER, "package.json"), { name: "consumer", type: "module", private: true });
         writeJson(join(CONSUMER, "tsconfig.json"), {
@@ -94,12 +98,14 @@ describe("declaration emit of a consumer", () => {
                 outDir: "out",
                 types: [],
             },
-            files: ["consumer.ts"],
+            files: CONSUMERS.map((name) => `${name}.ts`),
         });
         run(TSC, ["-p", join(CONSUMER, "tsconfig.json")]);
+    }, 120_000);
 
-        const declaration = readFileSync(join(CONSUMER, "out/consumer.d.ts"), "utf8");
-        expect(declaration).toContain("export declare const form");
+    it.each(CONSUMERS)("%s: refers only to the package", (name) => {
+        const declaration = readFileSync(join(CONSUMER, `out/${name}.d.ts`), "utf8");
+        expect(declaration).toContain("export declare const");
         expect(specifiers(declaration)).toEqual(["@fozy-labs/rx-toolkit"]);
     });
 });

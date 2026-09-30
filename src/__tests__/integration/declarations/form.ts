@@ -1,5 +1,5 @@
-// A consumer of the package: every export is left to inference, so its declaration names the
-// form's types. `declarations.test.ts` compiles it against the built package, with `@/index`
+// A consumer of the forms module: every export is left to inference, so its declaration names
+// the form's types. `declarations.test.ts` compiles it against the built package, with `@/index`
 // replaced by the package name.
 import {
     createApi,

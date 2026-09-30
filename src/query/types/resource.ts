@@ -185,7 +185,8 @@ export interface TResourceEntrySuccessState<TArgs, TData> extends TDataSlotCurre
     isInvalidating: false;
 }
 
-interface TEntryErrorBase<TArgs, TError> {
+/** Fields shared by both error entry variants; exported so consumer declarations can name them. */
+export interface TResourceEntryErrorBase<TArgs, TError> {
     status: "error";
     args: TArgs;
     hasError: true;
@@ -200,7 +201,7 @@ interface TEntryErrorBase<TArgs, TError> {
  * Rows 7 / 9 — the query failed. A failed invalidation keeps the entry's data
  * (`dataSource: "current"`); a failed first load has none.
  */
-export type TResourceEntryErrorState<TArgs, TData, TError = unknown> = TEntryErrorBase<TArgs, TError> &
+export type TResourceEntryErrorState<TArgs, TData, TError = unknown> = TResourceEntryErrorBase<TArgs, TError> &
     (TDataSlotNone | TDataSlotCurrent<TArgs, TData>);
 
 export type TResourceEntryState<TArgs, TData, TError = unknown> =

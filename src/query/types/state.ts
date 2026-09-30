@@ -81,8 +81,11 @@ export type TErrorSlot<TError> = { hasError: true; error: TError } | { hasError:
 
 // ==================== Resource Clutch State ====================
 
+// The bases the variants are built from are exported too: a consumer's
+// declaration names them once a state is narrowed or a union is distributed.
+
 /** Methods present on every resource clutch state variant. */
-interface TResourceClutchStateMethods {
+export interface TResourceClutchStateMethods {
     /**
      * Re-run the failed query keeping the failure on screen: rows 7 → 10,
      * 8 → 11, 9 → 12, 13 → 14. A `console.warn` and no-op elsewhere.
@@ -100,7 +103,7 @@ interface TResourceClutchStateMethods {
 }
 
 /** Loading flags shared by every settled (non-pending) variant. */
-interface TSettledFlags {
+export interface TSettledFlags {
     isPending: false;
     isInitialLoading: false;
     isSwitching: false;
@@ -115,18 +118,19 @@ export interface TResourceClutchIdleState extends TResourceClutchStateMethods, T
     error: null;
 }
 
-interface TClutchPendingBase<TArgs> extends TResourceClutchStateMethods {
+/** Fields shared by every pending resource clutch variant. */
+export interface TResourceClutchPendingBase<TArgs> extends TResourceClutchStateMethods {
     status: "pending";
     args: TArgs;
     isPending: true;
 }
 
 /** Rows 2 / 10 — initial load with nothing to show. */
-export type TResourceClutchPendingNoneState<TArgs, TError = unknown> = TClutchPendingBase<TArgs> &
+export type TResourceClutchPendingNoneState<TArgs, TError = unknown> = TResourceClutchPendingBase<TArgs> &
     TDataSlotNone & { isInitialLoading: true; isSwitching: false; isInvalidating: false } & TErrorSlot<TError>;
 
 /** Rows 3 / 14 — initial load behind placeholder data. */
-export type TResourceClutchPendingPlaceholderState<TArgs, TData, TError = unknown> = TClutchPendingBase<TArgs> &
+export type TResourceClutchPendingPlaceholderState<TArgs, TData, TError = unknown> = TResourceClutchPendingBase<TArgs> &
     TDataSlotPlaceholder<TData> & {
         isInitialLoading: true;
         isSwitching: false;
@@ -134,7 +138,7 @@ export type TResourceClutchPendingPlaceholderState<TArgs, TData, TError = unknow
     } & TErrorSlot<TError>;
 
 /** Rows 4 / 11 — the args changed; the previous entry's data stays on screen. */
-export type TResourceClutchPendingPreviousState<TArgs, TData, TError = unknown> = TClutchPendingBase<TArgs> &
+export type TResourceClutchPendingPreviousState<TArgs, TData, TError = unknown> = TResourceClutchPendingBase<TArgs> &
     TDataSlotPrevious<TArgs, TData> & {
         isInitialLoading: false;
         isSwitching: true;
@@ -142,7 +146,7 @@ export type TResourceClutchPendingPreviousState<TArgs, TData, TError = unknown> 
     } & TErrorSlot<TError>;
 
 /** Rows 6 / 12 — the current args are being re-queried behind their own data. */
-export type TResourceClutchPendingCurrentState<TArgs, TData, TError = unknown> = TClutchPendingBase<TArgs> &
+export type TResourceClutchPendingCurrentState<TArgs, TData, TError = unknown> = TResourceClutchPendingBase<TArgs> &
     TDataSlotCurrent<TArgs, TData> & {
         isInitialLoading: false;
         isSwitching: false;
@@ -169,7 +173,8 @@ export interface TResourceClutchSuccessState<TArgs, TData>
     error: null;
 }
 
-interface TClutchErrorBase<TArgs, TError> extends TResourceClutchStateMethods, TSettledFlags {
+/** Fields shared by every error resource clutch variant. */
+export interface TResourceClutchErrorBase<TArgs, TError> extends TResourceClutchStateMethods, TSettledFlags {
     status: "error";
     args: TArgs;
     hasError: true;
@@ -181,7 +186,7 @@ interface TClutchErrorBase<TArgs, TError> extends TResourceClutchStateMethods, T
  * `dataSource` tells whether that is the current entry's data (a failed
  * invalidation), the previous args' data, a placeholder, or nothing.
  */
-export type TResourceClutchErrorState<TArgs, TData, TError = unknown> = TClutchErrorBase<TArgs, TError> &
+export type TResourceClutchErrorState<TArgs, TData, TError = unknown> = TResourceClutchErrorBase<TArgs, TError> &
     TDataSlot<TArgs, TData>;
 
 export type TResourceClutchState<TArgs, TData, TError = unknown> =
@@ -276,7 +281,7 @@ export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
 //  K5  retry of K4                         pending  ✗        ✓
 
 /** Methods present on every command clutch state variant. */
-interface TCommandClutchStateMethods {
+export interface TCommandClutchStateMethods {
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry: () => void;
 }
