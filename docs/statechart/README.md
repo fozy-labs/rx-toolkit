@@ -762,7 +762,7 @@ stateDiagram-v2
 | Конфиг | Диаграмма |
 |---|---|
 | history-нода | `state "H" as X` / `state "H*" as X` и стрелка `X --> target: default` |
-| переходы, `entry` / `exit` на корне, корень `parallel` | корень оборачивается в блок `state <machineId> { … }` |
+| переходы, `entry` / `exit` на корне, переход в корень, корень `parallel` | корень оборачивается в блок `state <machineId> { … }` |
 | targetless-переход | петля `A --> A: EVENT / a` |
 | несколько целей (регионы `parallel`) | по строке на цель |
 | инлайн-функции, ссылки `{ type }` | имя функции (`anonymous` у безымянных) / `type` |

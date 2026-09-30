@@ -349,6 +349,26 @@ describe("toMermaid", () => {
             );
         });
 
+        it("wraps the root in a block when a transition targets it", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "a",
+                states: { a: { on: { RESET: { target: "#m", reenter: true }, GO: "b" } }, b: {} },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    state m {",
+                    "        [*] --> a",
+                    "        a --> b: GO",
+                    "    }",
+                    "    a --> m: RESET",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("renders history states as H / H* with their default transition (documented degradation)", () => {
             const definition = createMachine({
                 id: "m",

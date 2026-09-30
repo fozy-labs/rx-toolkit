@@ -29,8 +29,8 @@
  * and nothing at all for `always`. Config-only features degrade in a
  * documented way: history nodes are `H` / `H*` states with a `default`
  * transition, builtin guards and inline functions render as names, a root
- * with transitions of its own is wrapped in a block, a region with
- * behaviour of its own keeps a named block.
+ * with transitions of its own or targeted by one is wrapped in a block, a
+ * region with behaviour of its own keeps a named block.
  */
 import { isBuiltin } from "../core/createBuiltin";
 import type { MachineModel, ModelAction, ModelGuard, StateNode, Transition } from "../core/model";
@@ -318,9 +318,11 @@ class MermaidRenderer {
         );
     }
 
+    /** The root needs an id — hence a block — when it is parallel, owns transitions or actions, or is a target. */
     private needsRootBlock(root: AnyStateNode): boolean {
         return (
             root.type === "parallel" ||
+            this.incoming.has(root) ||
             root.transitions.size > 0 ||
             root.always.length > 0 ||
             (this.includeActions && this.configuredActions(root) !== null)
