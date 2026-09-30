@@ -133,6 +133,25 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         let entry!: QueryCacheEntry<TArgs, TData>;
         let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
 
+        // A mutation in flight keeps its entry: every run — the first one and
+        // each retry() — holds it until the entry records the run's outcome.
+        // Nobody may be subscribed (with the default retentionTime: 0 a fresh
+        // entry, or one whose last subscriber left mid-retry, would be collected
+        // out from under the mutation), so only an explicit removal —
+        // re-execute, reset() / resetAll() — drops a mutation in flight. It also
+        // means every `active → retention` transition happens on a settled
+        // entry: a `retentionTime` policy sees `success` or `error`, never
+        // `pending`. Returns the run's result (see `currentResult`).
+        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
+        // re-rejects with the run's error and nobody consumes it, so every
+        // failed run would surface a global unhandled rejection.
+        const holdUntilSettled = (): Promise<TData> => {
+            const release = entry.hold();
+            const result = entry.currentResult();
+            void result.then(release, release);
+            return result;
+        };
+
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
         // backend. A fresh `execute` creates a new entry and therefore a new id.
@@ -214,8 +233,12 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // A retry that succeeds applies update patches and invalidation only;
             // one that fails has nothing to settle.
             //
+            // A retry holds the entry like the first run does (see holdUntilSettled);
+            // the first run is held once the entry exists.
+            if (entry) void holdUntilSettled();
+
             // The entry aborts the run only when it is removed — a re-execute with
-            // the same key, reset() / resetAll(), retention. The mutation is then
+            // the same key, reset() / resetAll(). The mutation is then
             // dropped like a failed one: its optimistic patches roll back at once,
             // and a result that still arrives applies no link — the cache it would
             // write into may already belong to someone else (a reset on logout).
@@ -259,22 +282,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
         // Mutation result = the entry's first run. Captured now (before any retry
         // replaces the current execution) so it reflects only the first attempt.
-        const firstResult = entry.currentResult();
-
-        // A freshly created entry has no subscribers, so with the default
-        // retentionTime: 0 it would be collected out from under the mutation.
-        // Hold it until the first run settles: the GC timer cannot fire and
-        // complete() the entry mid-flight, and — since this is the only
-        // keepalive a command entry ever gets — the first `active → retention`
-        // transition is guaranteed to happen on a settled entry. That is what
-        // lets a `retentionTime` policy assume `success` or `error` on its
-        // first evaluation (a later run started by retry() has no such
-        // guarantee and can be observed as `pending`).
-        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
-        // re-rejects with firstResult's error and nobody consumes it, so every
-        // failed execute would surface a global unhandled rejection.
-        const release = entry.hold();
-        void firstResult.then(release, release);
+        const firstResult = holdUntilSettled();
 
         // Register in cache
         this._cache.set(resolvedEntryKey, entry);
