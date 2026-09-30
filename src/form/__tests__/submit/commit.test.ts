@@ -264,6 +264,36 @@ describe("a root reset / initialize while the attempt waits for queries", () => 
             expect(await next).toBe(true);
         },
     );
+
+    it.each([
+        ["reset()", (form: ReturnType<typeof checked>["form"]) => form.reset()],
+        ["initialize({ state })", (form: ReturnType<typeof checked>["form"]) => form.initialize({ state: {} })],
+    ])(
+        "%s ends the attempt synchronously; a submit() in the same tick is a new attempt the old one does not touch",
+        async (_, supersede) => {
+            const { form, handler, runs } = checked();
+            const first = form.submit();
+            await flush();
+
+            supersede(form);
+            expect(form.isSubmitting$()).toBe(false);
+            expect(form.canSubmit$()).toBe(true);
+            const next = form.submit();
+            expect(form.submitAttempts$()).toBe(2);
+            expect(form.isSubmitting$()).toBe(true);
+
+            expect(await first).toBe(false);
+            await flush();
+            // The old attempt's end leaves the new one in its phase.
+            expect(form.isSubmitting$()).toBe(true);
+            await advance(LATENCY);
+            expect(handler).toHaveBeenCalledTimes(1);
+            expect(runs).toHaveLength(1);
+            runs[0].resolve({ id: "1" });
+            expect(await next).toBe(true);
+            expect(form.status$()).toBe("success");
+        },
+    );
 });
 
 describe("the command entry removed mid-flight (F66)", () => {
