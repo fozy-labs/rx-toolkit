@@ -58,6 +58,32 @@ describe("stableStringify", () => {
         expect(stableStringify(value)).toBe(JSON.stringify(sorted));
     });
 
+    it("orders integer keys first, ascending, as the previous JSON.stringify-based keys did", () => {
+        // Snapshots persisted by earlier versions carry these keys; hydration compares them verbatim.
+        expect(stableStringify({ ids: { "10": 1, "9": 2, b: 3, "01": 4, a: 5 }, page: 1 })).toBe(
+            '{"ids":{"9":2,"10":1,"01":4,"a":5,"b":3},"page":1}',
+        );
+        expect(stableStringify(new Uint8Array(11))).toBe(
+            JSON.stringify(Object.fromEntries(Array.from({ length: 11 }, (_, i) => [String(i), 0]))),
+        );
+    });
+
+    it("calls toJSON once per value, with its key, as JSON.stringify does", () => {
+        const self = {
+            a: 1,
+            toJSON(): unknown {
+                return this;
+            },
+        };
+        expect(stableStringify(self)).toBe('{"a":1}');
+        expect(stableStringify({ toJSON: () => ({ x: 1, toJSON: () => "inner" }) })).toBe('{"x":1}');
+        const keys: unknown[] = [];
+        const probe = { toJSON: (key: unknown) => (keys.push(key), 1) };
+        expect(stableStringify({ p: probe, l: [probe] })).toBe('{"l":[1],"p":1}');
+        expect(stableStringify(probe)).toBe("1");
+        expect(keys).toEqual(["0", "p", ""]);
+    });
+
     it("keeps NaN, Infinity and -Infinity apart from null and from each other", () => {
         const keys = [null, NaN, Infinity, -Infinity].map((page) => stableStringify({ page }));
         expect(new Set(keys).size).toBe(4);
