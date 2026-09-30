@@ -63,9 +63,9 @@ const UNSEEN_FAILURE = 1 << 13;
 
 /** No error. */
 const ERR_NONE = 0;
-/** An upstream error outside any delivery: the next read reconnects. */
+/** An upstream error that came through no bridge delivery: the next read reconnects. */
 const ERR_TRANSIENT = 1;
-/** An error that arrived through a delivery (a bridge): kept until the source changes. */
+/** An error that arrived through a bridge delivery: kept until the source changes. */
 const ERR_STICKY = 2;
 
 const KIND_VALUE = 0;
@@ -340,8 +340,8 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         if ((this._flags & DISPOSED) !== 0) return;
         this._endLive();
         const rec = hintWrite(this);
-        if (rec !== null) {
-            // Through a delivery: the error is the state until the delivering node changes.
+        if (rec !== null && rec.bridge) {
+            // Through a bridge: the error is the state until the delivering node changes.
             this._errorState = ERR_STICKY;
             this._clearRecovery();
             const node = rec.node as WatchableNode;

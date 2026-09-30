@@ -384,6 +384,69 @@ describe("Signal.from", () => {
             });
         });
 
+        describe("an error raised from an .obs callback that is no bridge of the signal is a source error", () => {
+            function fresh() {
+                const subjects: Subject<number>[] = [];
+                const source = defer(() => {
+                    const subject = new Subject<number>();
+                    subjects.push(subject);
+                    return subject;
+                });
+                return { subjects, signal: Signal.from(source, { default: 0, keepAlive: "forever" }) };
+            }
+
+            it("from a State.obs subscriber of an unrelated state: the next read retries", () => {
+                const { subjects, signal } = fresh();
+                signal();
+                subjects[0].next(5);
+                const logout = Signal.state(false);
+                const sub = logout.obs.subscribe((v) => {
+                    if (v) subjects[0].error(new Error("x"));
+                });
+
+                logout.set(true);
+
+                expect(signal()).toBe(0);
+                expect(subjects).toHaveLength(2);
+                sub.unsubscribe();
+            });
+
+            it("from a Computed.obs subscriber of an unrelated computed: the next read retries", () => {
+                const { subjects, signal } = fresh();
+                signal();
+                subjects[0].next(5);
+                const s = Signal.state(0);
+                const sub = Signal.compute(() => s() > 0).obs.subscribe((v) => {
+                    if (v) subjects[0].error(new Error("x"));
+                });
+
+                s.set(1);
+
+                expect(signal()).toBe(0);
+                expect(subjects).toHaveLength(2);
+                sub.unsubscribe();
+            });
+
+            it("from its own .obs subscriber: the subscriber gets the error, the next read retries", () => {
+                const { subjects, signal } = fresh();
+                const got: unknown[] = [];
+                signal.obs.subscribe({
+                    next: (v) => {
+                        got.push(v);
+                        if (v === 3) subjects[0].error(new Error("stop"));
+                    },
+                    error: (e) => got.push(`E:${(e as Error).message}`),
+                });
+
+                subjects[0].next(3);
+
+                expect(got).toEqual([3, "E:stop"]);
+                expect(subjects).toHaveLength(1);
+                expect(signal()).toBe(0);
+                expect(subjects).toHaveLength(2);
+            });
+        });
+
         it("delivers an asynchronous error to .obs subscribers, then resets to cold", () => {
             let attempt$ = new Subject<number>();
             let attempts = 0;
