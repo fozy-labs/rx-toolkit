@@ -338,15 +338,15 @@ export class unstable_Statechart<
      * finishes after the current macrostep.
      */
     dispose(): void {
-        if (this._status === "disposed") return;
-        if (this._processing) {
-            if (!this._disposeRequested) {
-                this._disposeRequested = true;
-                this.stop();
-            }
+        if (this._status === "disposed" || this._disposeRequested) return;
+        if (this._processing || this._status === "running") {
+            // The dispose finishes in the tail of the burst — the current one,
+            // or the one `stop()` runs — so that nothing the burst triggers
+            // (an effect restarting the engine on `stopped`) can restart it.
+            this._disposeRequested = true;
+            this.stop();
             return;
         }
-        if (this._status === "running") this.stop();
         this._finishDispose();
     }
 

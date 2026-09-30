@@ -1534,6 +1534,44 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         handled.dispose();
     });
 
+    it("dispose() is not undone by an effect that restarts the engine on the stopped snapshot", () => {
+        const entries: string[] = [];
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { entry: "enterA", after: { 1000: "b" } }, b: {} } },
+            {
+                actions: {
+                    enterA: () => {
+                        entries.push("enterA");
+                    },
+                },
+            },
+        );
+        const pending = new Set<number>();
+        let timerId = 0;
+        const clock: MachineClock = {
+            setTimeout: () => {
+                pending.add(++timerId);
+                return timerId;
+            },
+            clearTimeout: (handle) => {
+                pending.delete(handle as number);
+            },
+        };
+        const { inspector, calls } = createFakeInspector();
+        const engine = new Statechart(definition, { clock, inspector });
+        const effect = Signal.effect(() => {
+            if (engine.state().status === "stopped") engine.start();
+        });
+        calls.length = 0;
+
+        engine.dispose();
+        expect(engine.status).toBe("disposed");
+        expect(entries).toEqual(["enterA"]);
+        expect(pending.size).toBe(0);
+        expect(calls).toEqual(['snapshot:xstate.stop:stopped:"a"', "stop"]);
+        effect.unsubscribe();
+    });
+
     it("an effect that sends an event on every snapshot throws SignalCycleError instead of looping forever", () => {
         const definition = createMachine({
             id: "m",
