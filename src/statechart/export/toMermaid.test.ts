@@ -581,6 +581,48 @@ describe("toMermaid", () => {
             );
         });
 
+        it("hoists every candidate of a trigger when one of them crosses scopes, keeping the candidate order", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        initial: "a",
+                        states: {
+                            a: {
+                                on: { E: [{ target: "#m.out", guard: "g" }, { target: "b" }], F: "b" },
+                                after: { 100: [{ target: "#m.out", guard: "g" }, { target: "b" }] },
+                                always: [{ target: "#m.out", guard: "g" }, { target: "$final" }],
+                            },
+                            b: {},
+                            $final: { type: "final" },
+                        },
+                    },
+                    out: {},
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        [*] --> a",
+                    "        a --> b: F",
+                    "        _final --> [*]",
+                    "    }",
+                    "    out",
+                    "    a --> out: E [g]",
+                    "    a --> b: E",
+                    "    a --> out: after 100 [g]",
+                    "    a --> b: after 100",
+                    "    a --> out: [g]",
+                    "    a --> _final",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it('declares described states with `state "…" as id` (quotes and line breaks normalized)', () => {
             const definition = createMachine({
                 id: "m",

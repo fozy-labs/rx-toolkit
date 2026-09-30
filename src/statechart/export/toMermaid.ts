@@ -20,7 +20,8 @@
  * 3. transitions that cross scopes or join regions, at the top level:
  *    mermaid moves a state into the last block (or `--` section) that
  *    mentions it, while top-level mentions are neutral, so a state must
- *    never be mentioned inside a foreign one;
+ *    never be mentioned inside a foreign one; the other candidates of the
+ *    same trigger follow, so that the candidate order survives;
  * 4. `note right of <id>` ... `end note` blocks listing `entry / ...` and
  *    `exit / ...` actions (mermaid cuts a single-line note at `;` and `:`).
  *
@@ -89,6 +90,8 @@ interface Edge {
     readonly source: AnyStateNode;
     readonly target: AnyStateNode | null;
     readonly label: string;
+    /** The edges of every candidate of the same trigger of `source` (this one included), in config order. */
+    readonly group: readonly Edge[];
 }
 
 /** What a scope emits for its children: the in-scope edges per child and the children some line already names. */
@@ -212,8 +215,8 @@ class MermaidRenderer {
     private readonly lines: string[] = [];
     /** Transitions crossing scopes, rendered at the top level after the tree. */
     private readonly hoisted: string[] = [];
-    /** Sources of the transitions (history defaults included) targeting a node. */
-    private readonly incoming = new Map<AnyStateNode, AnyStateNode[]>();
+    /** Edges (history defaults included) targeting a node. */
+    private readonly incoming = new Map<AnyStateNode, Edge[]>();
     /** Regions rendered as anonymous `--` sections (no id, no lines of their own). */
     private readonly inlineRegions = new Set<AnyStateNode>();
     /** `$final` nodes rendered only as the `[*]` their siblings point to. */
@@ -265,20 +268,13 @@ class MermaidRenderer {
 
     private collectIncoming(): void {
         for (const node of this.model.nodes) {
-            for (const target of this.targetsOf(node)) {
-                const sources = this.incoming.get(target);
-                if (sources === undefined) this.incoming.set(target, [node]);
-                else sources.push(node);
+            for (const edge of this.edgesOf(node)) {
+                const target = edge.target!;
+                const edges = this.incoming.get(target);
+                if (edges === undefined) this.incoming.set(target, [edge]);
+                else edges.push(edge);
             }
         }
-    }
-
-    /** Every node `node` points to: transition targets (the node itself when targetless) and the history default. */
-    private targetsOf(node: AnyStateNode): AnyStateNode[] {
-        const targets: AnyStateNode[] = [];
-        for (const transition of this.transitionsOf(node)) targets.push(...(transition.target ?? [node]));
-        if (node.historyTarget !== null) targets.push(...node.historyTarget);
-        return targets;
     }
 
     /**
@@ -327,17 +323,17 @@ class MermaidRenderer {
      */
     private isImplicitFinal(node: AnyStateNode): boolean {
         const parent = node.parent;
-        const sources = this.incoming.get(node) ?? [];
+        const incoming = this.incoming.get(node) ?? [];
         return (
             node.type === "final" &&
             node.key === FINAL_KEY &&
             parent !== null &&
             node.description === undefined &&
-            this.targetsOf(node).length === 0 &&
+            this.edgesOf(node).length === 0 &&
             parent.initial?.target[0] !== node &&
             !(this.includeActions && this.configuredActions(node) !== null) &&
-            sources.length > 0 &&
-            sources.every((source) => this.isLocal(source, node))
+            incoming.length > 0 &&
+            incoming.every((edge) => this.staysInScope(edge))
         );
     }
 
@@ -348,6 +344,15 @@ class MermaidRenderer {
      */
     private isLocal(source: AnyStateNode, target: AnyStateNode): boolean {
         return target.parent === source.parent && source.parent?.type === "compound";
+    }
+
+    /**
+     * Whether an edge is written inside its scope: every candidate of its
+     * trigger is local. One crossing candidate hoists them all, so that the
+     * candidates keep their order for the converter.
+     */
+    private staysInScope(edge: Edge): boolean {
+        return edge.group.every((candidate) => this.isLocal(candidate.source, candidate.target!));
     }
 
     /** The root needs an id — hence a block — when it is parallel, owns transitions or actions, or is a target. */
@@ -421,7 +426,7 @@ class MermaidRenderer {
 
     /**
      * Splits the transitions of the scope's children into in-scope edges
-     * (see `isLocal`; the scope's implicit `$final` becomes `[*]`) and
+     * (see `staysInScope`; the scope's implicit `$final` becomes `[*]`) and
      * crossing ones, which are hoisted.
      */
     private planScope(scope: AnyStateNode): ScopePlan {
@@ -432,11 +437,11 @@ class MermaidRenderer {
             if (this.implicitFinals.has(child)) continue;
             const own: Edge[] = [];
             for (const edge of this.edgesOf(child)) {
-                const target = edge.target!;
-                if (!this.isLocal(child, target)) {
+                if (!this.staysInScope(edge)) {
                     this.hoist(edge);
                     continue;
                 }
+                const target = edge.target!;
                 mentioned.add(child);
                 if (this.implicitFinals.has(target)) {
                     own.push({ ...edge, target: null });
@@ -472,15 +477,29 @@ class MermaidRenderer {
 
     // --- transitions -------------------------------------------------------
 
-    /** The arrows leaving `node`: one per target (the node itself when targetless), plus the history default. */
+    /**
+     * The arrows leaving `node`: one per target (the node itself when
+     * targetless), plus the history default; grouped by trigger — the event
+     * type, which also tells `after` delays, `always` and `onDone` apart.
+     */
     private edgesOf(node: AnyStateNode): Edge[] {
         const edges: Edge[] = [];
+        const groups = new Map<string, Edge[]>();
+        const add = (target: AnyStateNode, label: string, group: Edge[]): void => {
+            const edge = { source: node, target, label, group };
+            group.push(edge);
+            edges.push(edge);
+        };
         for (const transition of this.transitionsOf(node)) {
             const label = this.transitionLabel(transition);
-            for (const target of transition.target ?? [node]) edges.push({ source: node, target, label });
+            const key = transition.eventType ?? "";
+            let group = groups.get(key);
+            if (group === undefined) groups.set(key, (group = []));
+            for (const target of transition.target ?? [node]) add(target, label, group);
         }
         if (node.historyTarget !== null) {
-            for (const target of node.historyTarget) edges.push({ source: node, target, label: "default" });
+            const group: Edge[] = [];
+            for (const target of node.historyTarget) add(target, "default", group);
         }
         return edges;
     }
