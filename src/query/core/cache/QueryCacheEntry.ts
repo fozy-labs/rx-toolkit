@@ -1,5 +1,6 @@
 import { isObservable, type Observable, type Subscription } from "rxjs";
 
+import { SharedOptions } from "@/common/options/SharedOptions";
 import type {
     IPatchHandle,
     IQueryCacheEntry,
@@ -704,10 +705,15 @@ export class QueryCacheEntry<TArgs, TData>
      * `mapError` at an upstream entry's boundary (a projection run re-surfacing its
      * wrapped resource's rejection) — it is unwrapped instead of being mapped
      * a second time.
+     *
+     * A failure is reported to the global `onQueryError` here too, once, as it
+     * enters the state — the pre-mapped one was reported at the entry it came from.
      */
     private _normalizeError(error: unknown): unknown {
         if (error instanceof PreMappedError) return error.error;
-        return this._mapError(error, this._errorContext());
+        const mapped = this._mapError(error, this._errorContext());
+        reportQueryError(mapped);
+        return mapped;
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
@@ -1038,6 +1044,21 @@ export class QueryCacheEntry<TArgs, TData>
 }
 
 // ==================== Helpers ====================
+
+/**
+ * Hand a failure to the global `onQueryError` handler. A throwing handler is a
+ * bug in the consumer's reporting code: it is logged, never allowed to break
+ * the entry's transition.
+ */
+function reportQueryError(error: unknown): void {
+    const onQueryError = SharedOptions.onQueryError;
+    if (!onQueryError) return;
+    try {
+        untracked(() => onQueryError(error));
+    } catch (handlerError) {
+        console.error("[rx-toolkit] onQueryError threw while reporting a query error.", handlerError);
+    }
+}
 
 /** How far each policy goes in distrusting a run in flight. */
 const POLICY_STRENGTH: Record<TInFlightPolicy, number> = { join: 0, trail: 1, cancel: 2 };
