@@ -11,11 +11,12 @@ export const XSTATE_STOP = "xstate.stop";
 export const DEFAULT_MACHINE_ID = "(machine)";
 export const DEFAULT_MAX_MICROSTEPS = 10_000;
 /**
- * Rounds of reactions one burst may drain (each round: the events that
- * effects and subscribers sent while reacting to the previous one) before it
- * is reported as a `SignalCycleError`. Matches the signal core's cycle limit.
+ * Causal depth one burst may reach before it is reported as a
+ * `SignalCycleError`: an event sent by an action, a subscriber or an effect
+ * reacting to the previous one, or a restart they request, is one level
+ * deeper. Matches the signal core's cycle limit.
  */
-export const MAX_REACTION_ROUNDS = 1000;
+export const MAX_REACTION_DEPTH = 1000;
 
 /**
  * Port of XState `createInitEvent(input)`: the `input` key is always present

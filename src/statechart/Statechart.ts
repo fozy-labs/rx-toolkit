@@ -11,7 +11,7 @@ import {
     createInitEvent,
     createStopEvent,
     DEFAULT_MAX_MICROSTEPS,
-    MAX_REACTION_ROUNDS,
+    MAX_REACTION_DEPTH,
     XSTATE_STOP,
 } from "./core/constants";
 import {
@@ -51,6 +51,16 @@ let sessionCounter = 0;
  */
 interface TimerEntry {
     handle: unknown;
+}
+
+/**
+ * A queued event and its causal depth within the burst: 0 for an event sent
+ * from outside, one more than the deepest event processed so far for an
+ * event sent by an action, a subscriber or an effect reacting to it.
+ */
+interface QueuedEvent<TEvent extends EventObject> {
+    readonly event: MachineEvent<TEvent>;
+    readonly depth: number;
 }
 
 const DEFAULT_CLOCK: MachineClock = {
@@ -136,7 +146,11 @@ export class unstable_Statechart<
     /** Error raised inside the guarded section, reported once the batch has finished. */
     private _failure: { error: unknown } | null = null;
     /** Events sent before `start()` and re-entrant sends (FIFO). */
-    private readonly _queue: MachineEvent<TEvent>[] = [];
+    private readonly _queue: QueuedEvent<TEvent>[] = [];
+    /** Deepest causal depth the current burst has reached (see `_runBurst`). */
+    private _depth = 0;
+    /** Set once the current burst went past `MAX_REACTION_DEPTH`: nothing more is drained or restarted. */
+    private _cycleDetected = false;
     /** Executor calls captured while not running (initial actions), flushed by `start()`. */
     private readonly _deferred: (() => void)[] = [];
     private readonly _timers = new Map<string, TimerEntry>();
@@ -216,16 +230,22 @@ export class unstable_Statechart<
             // it (a `stop()` queued earlier in the burst); `_runGuarded`
             // performs it after the batch (and after the error report, if the
             // burst failed).
-            if (this._status !== "running" || this._queue.some((event) => event.type === XSTATE_STOP)) {
+            if (this._status !== "running" || this._queue.some(({ event }) => event.type === XSTATE_STOP)) {
                 this._restartRequested = true;
             }
             return;
         }
         if (this._status === "running") return;
+        this._runGuarded(this._prepareStart());
+    }
 
+    /**
+     * Re-initializes a stopped engine (fresh context, fresh initial
+     * macrostep, effects deferred) and returns the burst body that starts it.
+     */
+    private _prepareStart(): () => void {
         let initError: { error: unknown } | null = null;
         if (this._status === "stopped") {
-            // Restart from scratch: fresh context, fresh initial macrostep (effects deferred).
             this._deferred.length = 0;
             this._queue.length = 0;
             const initialization = this._computeInitialState();
@@ -233,7 +253,7 @@ export class unstable_Statechart<
             initError = initialization.error;
         }
 
-        this._runGuarded(() => {
+        return () => {
             this._status = "running";
             const initEvent = createInitEvent();
             this._notifyInspector((handle) => handle.event(initEvent));
@@ -268,7 +288,7 @@ export class unstable_Statechart<
                 return;
             }
             this._drain();
-        });
+        };
     }
 
     /**
@@ -286,7 +306,7 @@ export class unstable_Statechart<
         if (this._processing) {
             // Never step inside a running step: the outer `process()` would
             // overwrite the state. The drain loop picks the stop event up.
-            this._queue.push(stopEvent);
+            this._queue.push({ event: stopEvent, depth: this._depth + 1 });
             return;
         }
         this._runGuarded(() => {
@@ -306,7 +326,7 @@ export class unstable_Statechart<
         }
         switch (this._status) {
             case "idle":
-                this._queue.push(event);
+                this._queue.push({ event, depth: 0 });
                 return;
             case "running":
                 this._receive(event);
@@ -409,10 +429,16 @@ export class unstable_Statechart<
      * returned; an effect reacting to the new snapshot may itself `send()`
      * (queued, because the guard is still set). Those events are drained in
      * further rounds — each one a `Batcher.run` of its own, so its effects are
-     * flushed too — until nothing new arrives. Reactions that never stop
-     * sending are a loop the signal core cannot see across rounds: after
-     * `MAX_REACTION_ROUNDS` the queue is dropped and a `SignalCycleError` is
-     * thrown like a reaction error; the machine itself keeps running.
+     * flushed too — until nothing new arrives. A restart requested in the
+     * burst runs in the same loop, as one more segment after the tail.
+     *
+     * Reactions that never settle (an action, a subscriber or an effect that
+     * sends or restarts on every snapshot) are a loop the signal core cannot
+     * see across rounds and segments. Every queued event carries its causal
+     * depth, and a restart counts as one more level; past
+     * `MAX_REACTION_DEPTH` the queue and a pending restart are dropped and a
+     * `SignalCycleError` is thrown like a reaction error. The machine stays
+     * in the state the loop left it in.
      *
      * An error thrown out of `Batcher.run` (a throwing effect; the batch still
      * ran every other reaction) does not stop the drain: events those
@@ -428,10 +454,7 @@ export class unstable_Statechart<
     }
 
     private _runBurst(body: () => void): void {
-        this._processing = true;
-        let failure: { error: unknown } | null = null;
         let reactionError: { error: unknown } | null = null;
-        let restart = false;
         const flush = (fn: () => void) => {
             try {
                 Batcher.run(fn);
@@ -439,46 +462,60 @@ export class unstable_Statechart<
                 reactionError ??= { error };
             }
         };
-        try {
-            flush(body);
-            let rounds = 0;
-            while (this._queue.length > 0 && this._status === "running") {
-                if (++rounds > MAX_REACTION_ROUNDS) {
-                    this._queue.length = 0;
-                    reactionError ??= {
-                        error: new SignalCycleError(
-                            [],
-                            `Cycle detected: reactions to machine "${this.definition.id}" kept sending events ` +
-                                `after ${MAX_REACTION_ROUNDS} rounds (a loop through effects and send())`,
-                        ),
-                    };
-                    break;
+        this._depth = 0;
+        this._cycleDetected = false;
+        let segment: (() => void) | null = body;
+        while (segment) {
+            let failure: { error: unknown } | null = null;
+            let restart = false;
+            this._processing = true;
+            try {
+                flush(segment);
+                while (this._queue.length > 0 && this._status === "running" && !this._cycleDetected) {
+                    flush(() => this._drain());
                 }
-                flush(() => this._drain());
+            } finally {
+                if (this._cycleDetected) {
+                    this._queue.length = 0;
+                    this._restartRequested = false;
+                }
+                failure = this._failure;
+                this._failure = null;
+                restart = this._restartRequested;
+                this._restartRequested = false;
+                this._processing = false;
+                if (this._disposeRequested) {
+                    this._disposeRequested = false;
+                    restart = false;
+                    this.dispose();
+                }
             }
-        } finally {
-            failure = this._failure;
-            this._failure = null;
-            restart = this._restartRequested;
-            this._restartRequested = false;
-            this._processing = false;
-            if (this._disposeRequested) {
-                this._disposeRequested = false;
-                restart = false;
-                this.dispose();
+            // An unhandled failure is rethrown here and drops a pending restart:
+            // the engine stays in its error state, consistent with the exception.
+            if (failure) this._report(failure.error);
+            segment = null;
+            if (restart && this._status === "stopped") {
+                if (++this._depth > MAX_REACTION_DEPTH) reactionError ??= { error: this._detectCycle() };
+                else segment = this._prepareStart();
             }
         }
-        // An unhandled failure is rethrown here and drops a pending restart:
-        // the engine stays in its error state, consistent with the exception.
-        if (failure) this._report(failure.error);
-        if (restart && this._status === "stopped") this.start();
         if (reactionError) throw (reactionError as { error: unknown }).error;
+    }
+
+    /** Marks the burst as a reaction loop and returns the error that reports it. */
+    private _detectCycle(): SignalCycleError {
+        this._cycleDetected = true;
+        return new SignalCycleError(
+            [],
+            `Cycle detected: reactions to machine "${this.definition.id}" kept sending events or restarting it ` +
+                `past a depth of ${MAX_REACTION_DEPTH}`,
+        );
     }
 
     /** Entry point of every event while running: direct processing or FIFO when re-entrant. */
     private _receive(event: MachineEvent<TEvent>): void {
         if (this._processing) {
-            this._queue.push(event);
+            this._queue.push({ event, depth: this._depth + 1 });
             return;
         }
         this._runGuarded(() => {
@@ -487,9 +524,13 @@ export class unstable_Statechart<
         });
     }
 
+    /** Processes queued events; past `MAX_REACTION_DEPTH` throws `SignalCycleError` (the burst drops the queue). */
     private _drain(): void {
-        while (this._queue.length > 0 && this._status === "running") {
-            this._process(this._queue.shift()!);
+        while (this._queue.length > 0 && this._status === "running" && !this._cycleDetected) {
+            const { event, depth } = this._queue.shift()!;
+            if (depth > MAX_REACTION_DEPTH) throw this._detectCycle();
+            if (depth > this._depth) this._depth = depth;
+            this._process(event);
         }
     }
 
