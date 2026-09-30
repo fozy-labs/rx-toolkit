@@ -628,6 +628,25 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it("a value set after the storage was cleared mid-session survives the next load", () => {
+            const map = new Map<string, string>();
+            const makeSession = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            const s = LocalSignal.state({ key: "theme", defaultValue: "light", driver: makeSession() });
+            map.clear(); // e.g. localStorage.clear() on logout
+            s.set("dark");
+
+            expect(JSON.parse(map.get(KEY_PREFIX)!).v).toBe(1);
+            expect(LocalSignal.state({ key: "theme", defaultValue: "light", driver: makeSession() }).peek()).toBe(
+                "dark",
+            );
+        });
+
         it("valid current meta → data survives init", () => {
             const driver = createMarkedDriver({ [storageKey("kept")]: envelope(42) });
 

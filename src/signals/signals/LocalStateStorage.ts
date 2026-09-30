@@ -235,6 +235,11 @@ export class LocalStateStorage {
     }
 
     writeSlot(storageKey: string, data: unknown, ttl: SlotTtl) {
+        // A slot outlives the next init only under a valid meta — without one
+        // the namespace reads as an unknown format and is wiped. The meta can
+        // vanish mid-session (localStorage.clear() on logout): re-mark first.
+        if (this._ownsFormat && this._readMeta() === null) this._mark();
+
         const envelope: Envelope = { at: Date.now(), data };
 
         // `undefined` means "default policy" and is omitted, so changing the
@@ -286,13 +291,18 @@ export class LocalStateStorage {
 
         try {
             this._wipe();
-            this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
-            this._scheduleGc();
+            this._mark();
         } catch {
             // Storage rejects writes (quota / private mode): construction must
             // not throw — keep serving reads and defaults without GC this
             // session; the wipe/meta write retries on a later session.
         }
+    }
+
+    /** Marks the namespace as this format and resumes GC scheduling. */
+    private _mark() {
+        this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+        this._scheduleGc();
     }
 
     private _readMeta() {
@@ -342,7 +352,7 @@ export class LocalStateStorage {
 
         const meta = this._readMeta();
 
-        // Meta gone/broken (cleared externally) — GC pauses until next session re-inits.
+        // Meta gone/broken (cleared externally) — GC pauses until a slot write re-marks it.
         if (!meta) return;
 
         let dueIn = Math.max(0, meta.nextGcAt - Date.now());
