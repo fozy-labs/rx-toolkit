@@ -732,10 +732,15 @@ export class SourceNode<T> extends Producer {
         this._value = value;
         this._version++;
         globalVersion++;
-        for (let link = this._targets; link !== undefined; link = link._nextTarget) {
-            link._target._notify();
+        try {
+            for (let link = this._targets; link !== undefined; link = link._nextTarget) {
+                link._target._notify();
+            }
+            if (this._recs !== null) this._deliverRecs(value);
+        } catch (error) {
+            // An exception no reaction owns (a stack exhausted by a deep graph): the batch still ends.
+            failBatch(error);
         }
-        if (this._recs !== null) this._deliverRecs(value);
         endBatch();
     }
 
@@ -750,7 +755,13 @@ export class SourceNode<T> extends Producer {
                 // A newer write inside a subscriber already delivered a newer value.
                 if (this._version !== version) break;
                 const rec = recs[i];
-                if (!rec.closed) deliverTo(rec, value, NONE);
+                if (rec.closed) continue;
+                try {
+                    deliverTo(rec, value, NONE);
+                } catch (error) {
+                    // A subscriber RxJS does not guard (a raw `Subscriber`) threw: a failed reaction.
+                    failBatch(error);
+                }
             }
         } finally {
             if (--this._delivering === 0) compactRecs(this);

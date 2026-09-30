@@ -1,8 +1,62 @@
-import { config, map, Observable, Subject } from "rxjs";
+import { config, map, Observable, Subject, Subscriber } from "rxjs";
 
 import { Batcher, Signal, SignalCycleError, SourceSignal, unstable_KeyedSignal } from "@/index";
 
+/** A raw subscriber: unlike `subscribe(fn)`, RxJS does not catch what its `next` throws. */
+class ThrowingSubscriber extends Subscriber<number> {
+    constructor(private readonly _when: number) {
+        super();
+    }
+
+    protected override _next(value: number): void {
+        if (value === this._when) throw new Error(`next ${value}`);
+    }
+}
+
 describe("engine robustness", () => {
+    it("a State.obs subscriber that throws out of the engine fails the write, and later writes still flush", () => {
+        const s = Signal.state(0);
+        const after: number[] = [];
+        s.obs.subscribe(new ThrowingSubscriber(1));
+        const sub = s.obs.subscribe((v) => after.push(v));
+
+        expect(() => s.set(1)).toThrow("next 1");
+        expect(after).toEqual([0, 1]);
+
+        const t = Signal.state(0);
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            seen.push(t());
+        });
+        t.set(1);
+
+        expect(seen).toEqual([0, 1]);
+        effect.unsubscribe();
+        sub.unsubscribe();
+    });
+
+    it("the same inside Batcher.run: the batch rethrows the error after its reactions", () => {
+        const s = Signal.state(0);
+        const t = Signal.state(0);
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            seen.push(t());
+        });
+        s.obs.subscribe(new ThrowingSubscriber(1));
+
+        expect(() =>
+            Batcher.run(() => {
+                s.set(1);
+                t.set(1);
+            }),
+        ).toThrow("next 1");
+        expect(seen).toEqual([0, 1]);
+
+        t.set(2);
+        expect(seen).toEqual([0, 1, 2]);
+        effect.unsubscribe();
+    });
+
     it("many .obs watchers in one flush are no cycle, and all keep receiving", () => {
         const s = Signal.state(0);
         let got = 0;
