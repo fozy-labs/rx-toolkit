@@ -2455,3 +2455,148 @@ describe("Command — running it from an effect does not track reads of user cod
         eff.unsubscribe();
     });
 });
+
+describe("Command — a mutation whose entry is removed mid-flight", () => {
+    type TNote = { note: string };
+
+    function defer<T>() {
+        let resolve!: (value: T) => void;
+        const promise = new Promise<T>((res) => {
+            resolve = res;
+        });
+        return { promise, resolve };
+    }
+
+    async function setup(
+        queryFn: ICommandConfig<string, string>["queryFn"],
+        options: Partial<Pick<ICommandConfig<string, string>, "generateRequestId" | "retentionTime">> = {},
+    ) {
+        const resource = createLinkedResource<number, TNote>({ queryFn: async () => ({ note: "server" }) });
+        const resourceQueryFn = vi.spyOn(resource as unknown as { _queryFn: () => unknown }, "_queryFn");
+        await resource.fetch(1);
+        resourceQueryFn.mockClear();
+
+        const command = createCommand<string, string>({
+            queryFn,
+            ...options,
+            links: [
+                {
+                    resource,
+                    forwardArgs: () => 1,
+                    optimisticUpdate: (draft, args) => {
+                        draft.note = `optimistic ${args}`;
+                    },
+                    update: (draft, _args, result) => {
+                        draft.note = result;
+                    },
+                    invalidate: true,
+                },
+            ],
+        });
+        const note = () => resource.getEntry(1)!.peek().data!.note;
+        const patchState = () => {
+            const state = resource.getEntry(1)!.peek();
+            if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
+            return state.patchState;
+        };
+        return { resourceQueryFn, command, note, patchState };
+    }
+
+    it("reset(): the optimistic patch is rolled back at once, and the late result applies no link", async () => {
+        const response = defer<string>();
+        const { resourceQueryFn, command, note, patchState } = await setup(() => response.promise);
+
+        const executed = command.execute("a", "k");
+        expect(note()).toBe("optimistic a");
+
+        command.reset();
+        await expect(executed).rejects.toBeInstanceOf(CacheEntryRemovedError);
+        expect(note()).toBe("server");
+        expect(patchState()).toBeNull();
+
+        response.resolve("from the dropped mutation");
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(note()).toBe("server");
+        expect(resourceQueryFn).not.toHaveBeenCalled();
+    });
+
+    it("re-execute with the same key: the superseded run's patch never leaks, even if its request never settles", async () => {
+        const { command, note, patchState } = await setup((args) =>
+            args === "first" ? new Promise<string>(() => {}) : Promise.resolve(`saved ${args}`),
+        );
+
+        const first = command.execute("first", "k");
+        await command.execute("second", "k");
+        await expect(first).rejects.toBeInstanceOf(CacheEntryRemovedError);
+
+        expect(note()).toBe("saved second");
+        expect(patchState()).toBeNull();
+    });
+
+    it("re-execute with the same key: the superseded run's late result applies no link", async () => {
+        const responses: Array<ReturnType<typeof defer<string>>> = [];
+        const { command, note } = await setup(() => {
+            const response = defer<string>();
+            responses.push(response);
+            return response.promise;
+        });
+
+        const first = command.execute("first", "k").catch(() => {});
+        const second = command.execute("second", "k");
+        responses[1]!.resolve("saved second");
+        await second;
+        responses[0]!.resolve("saved first");
+        await first;
+        await flushMicrotasks();
+
+        expect(note()).toBe("saved second");
+    });
+
+    it("a retry whose entry expires mid-flight: the late result applies no link", async () => {
+        const responses: Array<ReturnType<typeof defer<string>>> = [];
+        const { command, note } = await setup(
+            (args) => {
+                if (responses.length === 0) {
+                    responses.push(defer<string>());
+                    return Promise.reject(new Error(`boom ${args}`));
+                }
+                const response = defer<string>();
+                responses.push(response);
+                return response.promise;
+            },
+            { retentionTime: 0 },
+        );
+
+        await command.execute("a", "k").catch(() => {});
+        const entry = command.getEntry("k")!;
+        const subscription = entry.obs.subscribe();
+        entry.retry();
+        subscription.unsubscribe();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(command.getEntry("k")).toBeNull();
+
+        responses[1]!.resolve("from the expired retry");
+        await flushMicrotasks();
+
+        expect(note()).toBe("server");
+    });
+
+    it("an async request id still being minted when the entry is removed: the mutation is never sent", async () => {
+        const requestId = defer<string>();
+        const queryFn = vi.fn(async () => "ok");
+        const { command, note } = await setup(queryFn, { generateRequestId: () => requestId.promise });
+
+        const executed = command.execute("a", "k");
+        command.reset();
+        await expect(executed).rejects.toBeInstanceOf(CacheEntryRemovedError);
+
+        requestId.resolve("id-1");
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(note()).toBe("server");
+    });
+});

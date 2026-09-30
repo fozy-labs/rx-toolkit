@@ -42,7 +42,7 @@ const addTodoCommand = api.createCommand({
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
+| `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`); такая мутация [связи не применяет][links-timing]. |
 | `createClutch` | `entryKey?: string` | `ICommandClutch<TArgs, TData, TError>` | Создаёт реактивное [сцепление][clutch] — наблюдатель за командой. Необязательный ключ записи привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
@@ -101,6 +101,7 @@ function run(bound: TBound<unknown, unknown>) {
 [usage]: ../usage/command.md
 [query-fn]: ../usage/query-fn.md
 [usage-links]: ../usage/links.md
+[links-timing]: ../usage/links.md#тайминг-выполнения
 [usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md
 [entry-state]: ../concepts/query-entry-state.md

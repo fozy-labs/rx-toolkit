@@ -16,6 +16,7 @@ import { Signal, unstable_KeyedSignal } from "@/signals";
 import { untracked } from "@/signals/base/untracked";
 
 import { KEYED_BRAND } from "../../constants";
+import { abortReason } from "../../lib/abortReason";
 import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
 
@@ -110,9 +111,16 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // so a throwing optimisticUpdate enters the entry's state like any other
         // mutation failure — the entry exists and settles in `error`, state
         // observers (clutch / useCommand) see it, and mapError normalizes it at
-        // the single fail() boundary.
+        // the single fail() boundary. The handles belong to the first run: the
+        // run that settles first takes them, any later one settles none.
         let patchHandles: IPatchHandle[] = [];
         let optimisticApplied = false;
+
+        const settleLinks = (outcome: PromiseSettledResult<TData>): void => {
+            const handles = patchHandles;
+            patchHandles = [];
+            linkManager.settle(args, handles, outcome);
+        };
 
         // Clean up existing entry for the same entry key, if any
         const existing = this._cache.get(resolvedEntryKey);
@@ -123,7 +131,6 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
         let entry!: QueryCacheEntry<TArgs, TData>;
         let initialQueryPromise: Promise<TData> | null = null;
-        let firstAttemptSettled = false;
 
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
@@ -131,7 +138,14 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         let requestId: string | undefined;
         let requestIdPromise: Promise<string> | undefined;
 
-        const runQueryFn = (): Promise<TData> => {
+        // A run whose entry was removed while its id was being minted is
+        // dropped before it is sent (see the abort handling in wrappedQueryFn).
+        const sendOnceMinted = (id: string, signal: AbortSignal): Promise<TData> => {
+            if (signal.aborted) return Promise.reject(abortReason(signal));
+            return this._queryFn(args, id);
+        };
+
+        const runQueryFn = (signal: AbortSignal): Promise<TData> => {
             // Reuse an already-minted id across retries (same idempotency token).
             if (requestId !== undefined) {
                 return this._queryFn(args, requestId);
@@ -139,7 +153,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
             // An async mint is already in flight: chain onto it rather than re-minting.
             if (requestIdPromise) {
-                return requestIdPromise.then((id) => this._queryFn(args, id));
+                return requestIdPromise.then((id) => sendOnceMinted(id, signal));
             }
 
             const minted = this._generateRequestId(args);
@@ -162,10 +176,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             });
             requestIdPromise = pending;
 
-            return pending.then((id) => this._queryFn(args, id));
+            return pending.then((id) => sendOnceMinted(id, signal));
         };
 
-        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
+        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, signal: AbortSignal): Promise<TData> => {
             // A throwing optimisticUpdate, a non-async queryFn, or a sync
             // generateRequestId can all throw *before* a promise exists. Convert
             // that synchronous throw into a rejected promise here — this is the
@@ -187,7 +201,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
                     patchHandles = linkManager.applyOptimisticPatches(args);
                 }
 
-                promise = runQueryFn();
+                promise = runQueryFn(signal);
             } catch (error) {
                 promise = Promise.reject(error);
             }
@@ -196,25 +210,23 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // the entry's native promise (`entry.currentResult()`), settled where the
             // entry transitions. This `.then` is registered before the one in
             // `_execute`, so `settle` runs before `execute()`'s promise resolves.
+            // A retry that succeeds applies update patches and invalidation only;
+            // one that fails has nothing to settle.
+            //
+            // The entry aborts the run only when it is removed — a re-execute with
+            // the same key, reset() / resetAll(), retention. The mutation is then
+            // dropped like a failed one: its optimistic patches roll back at once,
+            // and a result that still arrives applies no link — the cache it would
+            // write into may already belong to someone else (a reset on logout).
+            signal.addEventListener("abort", () => settleLinks({ status: "rejected", reason: abortReason(signal) }), {
+                once: true,
+            });
             promise.then(
-                (result) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "fulfilled", value: result });
-                    } else {
-                        // Retry succeeded: optimistic patches were already rolled back on
-                        // the first failure, so only apply update patches + invalidation.
-                        linkManager.settle(args, [], { status: "fulfilled", value: result });
-                    }
+                (value) => {
+                    if (!signal.aborted) settleLinks({ status: "fulfilled", value });
                 },
-                (error) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
-                    }
-                    // Retry failed: nothing to settle — optimistic handles were already
-                    // aborted and the original execute promise already rejected. The
-                    // entry stays in `error`, ready for another retry.
+                (reason: unknown) => {
+                    if (!signal.aborted) settleLinks({ status: "rejected", reason });
                 },
             );
 
