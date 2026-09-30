@@ -110,27 +110,30 @@ const userResource = api.createResource({
 При необходимости (например, для предотвращения утечек памяти) оборачивайте `$queryFulfilled` и  `$cacheDataLoaded` в `try/catch`:
 
 ```typescript
-onCacheEntryAdded: async (id, { $cacheDataLoaded, entry }) => {
-    try {
+const userResource = api.createResource({
+    queryFn: (id: number): Promise<User> => fetch(`/api/users/${id}`).then(r => r.json()),
+    onCacheEntryAdded: async (id, { entry, $cacheDataLoaded, $cacheEntryRemoved }) => {
         const connection = createUserConnection(id);
-        const { data } = await $cacheDataLoaded;
-    } catch {
-        connection.close('unused');
-        return;
-    }
 
-    connection.onUserUpdated((partialUser) => {
-        const patch = entry.patch((draft) => {
-            Object.assign(draft, partialUser);
+        try {
+            await $cacheDataLoaded;
+        } catch {
+            // Запись удалена раньше, чем пришли данные
+            connection.close('unused');
+            return;
+        }
+
+        connection.onUserUpdated((partialUser) => {
+            entry.createPatch((draft) => {
+                Object.assign(draft, partialUser);
+            })?.commit();
         });
 
-        path.commit();
-    });
+        await $cacheEntryRemoved;
 
-    await $cacheEntryRemoved;
-
-    connection.close('disposed');
-},
+        connection.close('disposed');
+    },
+});
 ```
 
 
