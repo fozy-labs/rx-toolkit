@@ -34,6 +34,7 @@ Breaking-релиз: новый словарь и форма состояния 
 - **Breaking:** `Signal.effect` требует от `effectFn` вернуть teardown или ничего — стрелка-выражение со значением стала ошибкой типов. См. [гайд](./migrations/0.13.0.md#signaleffect-teardown-или-ничего).
 - **Breaking:** ошибка в сигнале больше не выключает часть графа — упавший computed восстанавливается, эффект переживает ошибку, батч выполняет все реакции, `useSignal` бросает в Error Boundary. См. [гайд](./migrations/0.13.0.md#ошибки-в-сигналах).
 - **Breaking:** ядро сигналов переписано — `.obs` у `Signal.from` отдаёт одно значение за батч, эффекты идут в порядке постановки в очередь. См. [гайд](./migrations/0.13.0.md#ядро-сигналов).
+- **Breaking:** `forwardArgs` в связи команды возвращает `TResArgs` без `| undefined`: `undefined` никогда не значил «все записи» и адресовал одну запись. Для ресурса без аргументов `() => undefined` по-прежнему подходит. См. [docs/query/usage/links](./query/usage/links.md#параметры-конфигурации).
 - **Сигналы быстрее**: на сценариях kairo из js-reactivity-benchmark — 0,8–1,3 времени `@preact/signals-core` вместо 3,4–24 (Node 24).
 - Кросс-табовая синхронизация не отдаёт другой вкладке помеченные для перезапроса данные как свежие. См. [docs/query/usage/broadcast](./query/usage/broadcast.md#что-синхронизируется).
 - Statechart без `key` пишет в Redux DevTools под `Statechart/<id машины>` без суффиксов `#2`, `#3`; чтобы различать инстансы, передавайте `key`. См. [docs/devtools](./devtools/README.md#именование-для-devtools).

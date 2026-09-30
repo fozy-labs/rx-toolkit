@@ -10,7 +10,7 @@ import type { TCommandClutchState, TErrorSlot } from "./state";
 
 export interface TLinkConfig<TArgs, TData, TResArgs, TResData> {
     resource: IResource<TResArgs, TResData>;
-    forwardArgs: (commandArgs: TArgs) => TResArgs | undefined;
+    forwardArgs: (commandArgs: TArgs) => TResArgs;
     /**
      * Re-query the linked entry once the mutation succeeds. The object form
      * also says what to do with a run in flight on that entry

@@ -10,7 +10,7 @@
 | Параметр | Тип | Обязательный | Описание |
 |----------|-----|-------------|----------|
 | `resource` | `IResource<TResArgs, TResData>` | да | Целевой [ресурс][resource] |
-| `forwardArgs` | `(commandArgs: TArgs) => TResArgs \| undefined` | да | Маппинг аргументов команды в ключ кэша ресурса. `undefined` — все записи |
+| `forwardArgs` | `(commandArgs: TArgs) => TResArgs` |\| undefined` | да | Маппинг аргументов команды в аргументы ресурса — ключ одной записи кэша. Для ресурса без аргументов — `() => undefined` |
 | `invalidate` | `boolean \| { inFlight?: 'cancel' \| 'trail' \| 'join' }` | нет | Инвалидировать запись после успеха команды. `true` ≡ `{}`. `inFlight` — что делать с запросом ресурса в полёте; без него — опция ресурса [`invalidateInFlight`][api-res-options] |
 | `optimisticUpdate` | `(draft: TResData, commandArgs: TArgs) => void` | нет | Immer-рецепт, применяется немедленно |
 | `update` | `(draft: TResData, commandArgs: TArgs, result: TData) => void` | нет | Immer-рецепт, применяется после успеха |
@@ -19,7 +19,7 @@
 ## forwardArgs — адресация записей кэша
 
 `forwardArgs` — единственное обязательное поле. 
-Оно преобразует аргументы команды в ключ кэш-записи ресурса, определяя, **какие именно записи** затронет связь.
+Оно преобразует аргументы команды в ключ кэш-записи ресурса, определяя, **какую именно запись** затронет связь.
 
 Адресация конкретной записи:
 
