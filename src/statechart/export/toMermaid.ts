@@ -17,9 +17,10 @@
  *    scope's own `$final`), its `state <id> { ... }` block (parallel nodes:
  *    regions as `--` sections without an id of their own), `<id> --> [*]`
  *    for any other final state;
- * 3. transitions that cross scopes, at the top level: mermaid moves a state
- *    into the last block that mentions it, while top-level mentions are
- *    neutral, so a state must never be mentioned inside a foreign block;
+ * 3. transitions that cross scopes or join regions, at the top level:
+ *    mermaid moves a state into the last block (or `--` section) that
+ *    mentions it, while top-level mentions are neutral, so a state must
+ *    never be mentioned inside a foreign one;
  * 4. `note right of <id>` ... `end note` blocks listing `entry / ...` and
  *    `exit / ...` actions (mermaid cuts a single-line note at `;` and `:`).
  *
@@ -336,8 +337,17 @@ class MermaidRenderer {
             parent.initial?.target[0] !== node &&
             !(this.includeActions && this.configuredActions(node) !== null) &&
             sources.length > 0 &&
-            sources.every((source) => source.parent === parent)
+            sources.every((source) => this.isLocal(source, node))
         );
+    }
+
+    /**
+     * Whether `source --> target` can be written inside the source's scope:
+     * both are children of one compound state. Regions of a parallel state
+     * are not: a `--` section that mentions another region pulls it in.
+     */
+    private isLocal(source: AnyStateNode, target: AnyStateNode): boolean {
+        return target.parent === source.parent && source.parent?.type === "compound";
     }
 
     /** The root needs an id — hence a block — when it is parallel, owns transitions or actions, or is a target. */
@@ -411,8 +421,8 @@ class MermaidRenderer {
 
     /**
      * Splits the transitions of the scope's children into in-scope edges
-     * (source and target are both children of `scope`, or the target is the
-     * scope's implicit `$final`) and crossing ones, which are hoisted.
+     * (see `isLocal`; the scope's implicit `$final` becomes `[*]`) and
+     * crossing ones, which are hoisted.
      */
     private planScope(scope: AnyStateNode): ScopePlan {
         const edges = new Map<AnyStateNode, Edge[]>();
@@ -423,7 +433,7 @@ class MermaidRenderer {
             const own: Edge[] = [];
             for (const edge of this.edgesOf(child)) {
                 const target = edge.target!;
-                if (target.parent !== scope) {
+                if (!this.isLocal(child, target)) {
                     this.hoist(edge);
                     continue;
                 }

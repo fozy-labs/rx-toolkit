@@ -359,6 +359,45 @@ describe("toMermaid", () => {
             );
         });
 
+        it("hoists transitions between regions: a section never mentions another region", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        type: "parallel",
+                        states: {
+                            r1: { initial: "a", states: { a: {} }, on: { TO2: "r2" } },
+                            r2: { initial: "b", states: { b: {} }, on: { TO1: "r1" } },
+                            flag: { on: { POKE: "r1" } },
+                        },
+                    },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        state r1 {",
+                    "            [*] --> a",
+                    "        }",
+                    "        --",
+                    "        state r2 {",
+                    "            [*] --> b",
+                    "        }",
+                    "        --",
+                    "        flag",
+                    "    }",
+                    "    r1 --> r2: TO2",
+                    "    r2 --> r1: TO1",
+                    "    flag --> r1: POKE",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("wraps the root in a block when it owns transitions or entry/exit actions", () => {
             const definition = createMachine({
                 id: "m",
