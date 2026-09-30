@@ -690,6 +690,67 @@ describe("engine robustness", () => {
             return { flag, c, effect, live: () => live };
         }
 
+        it("computes each observed computed once per state of the batch, however often a diamond reads it", () => {
+            const a = Signal.state(0);
+            let runs = 0;
+            let top = Signal.compute(() => {
+                runs++;
+                return a() + 1;
+            });
+            for (let i = 0; i < 16; i++) {
+                const below = top;
+                top = Signal.compute(() => {
+                    runs++;
+                    return below() + below();
+                });
+            }
+            const sub = top.obs.subscribe();
+            let read = 0;
+            let readRuns = 0;
+
+            Batcher.run(() => {
+                a.set(1);
+                runs = 0;
+                read = top.peek();
+                top.peek();
+                readRuns = runs;
+            });
+
+            expect(read).toBe(2 ** 17);
+            expect(readRuns).toBe(17);
+            sub.unsubscribe();
+        });
+
+        it("an observed computed recovering from an error to an equal value keeps the previous reference", () => {
+            const fail = Signal.state(false);
+            const c = Signal.compute(
+                () => {
+                    if (fail()) throw new Error("fail");
+                    return { id: 1 };
+                },
+                { equals: (x, y) => x.id === y.id },
+            );
+            const effect = Signal.effect(() => {
+                try {
+                    c();
+                } catch {
+                    // observed through the error
+                }
+            });
+            const before = c.peek();
+            fail.set(true);
+            let read: unknown;
+
+            Batcher.run(() => {
+                fail.set(false);
+                read = c.peek();
+            });
+
+            expect(read).toBe(before);
+            expect(c.peek()).toBe(before);
+            effect.unsubscribe();
+        });
+
         it("a peek of an observed computed", () => {
             const { flag, c, effect, live } = arrange();
             let read = -1;

@@ -880,6 +880,10 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
     /** Gate cache: receivers this node depends on, valid for `_rEpoch`. */
     _rEpoch = -1;
     _receivers: readonly ReceiverLike[] = EMPTY_RECEIVERS;
+    /** `_readInBatch`: the outcome computed for the global version `_batchStamp`. */
+    private _batchStamp = -1;
+    private _batchValue: T | undefined = undefined;
+    private _batchError: unknown = NONE;
 
     constructor(fn: () => T, equals: ((previous: T, next: T) => boolean) | undefined, key: string) {
         super();
@@ -948,7 +952,17 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
             return this._value as T;
         }
         // Later writes of the batch must reach the targets it gains meanwhile.
-        this._flags = (this._flags & ~NOTIFIED) | RUNNING;
+        this._flags &= ~NOTIFIED;
+        // Nothing changed since the last such read: its outcome stands, or a
+        // diamond of observed computeds would compute each node once per path.
+        if (this._batchStamp !== globalVersion) this._computeInBatch();
+        if (this._batchError !== NONE) throw this._batchError;
+        return this._batchValue as T;
+    }
+
+    private _computeInBatch(): void {
+        const stamp = globalVersion;
+        this._flags |= RUNNING;
         runningDepth++;
         const hits = cycleHits;
         let value = undefined as T;
@@ -961,16 +975,19 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
             runningDepth--;
             this._flags &= ~RUNNING;
         }
+        // An outcome that followed from an unfinished computation (a cycle) is not kept.
+        this._batchStamp = cycleHits === hits ? stamp : -1;
         if (cycleHits !== hits) this._afterCycle(false);
-        if (settlePending && runningDepth === 0) afterRead();
-        if (error !== NONE) throw error;
-        if ((this._flags & (HAS_VALUE | HAS_ERROR)) === HAS_VALUE) {
+        if (error === NONE && (this._flags & HAS_VALUE) !== 0) {
+            // As in _recompute: an equal value keeps the previous reference, also after an error.
             const previous = this._value as T;
             if (Object.is(previous, value) || (this._equals !== undefined && this._isEqual(previous, value))) {
-                return previous;
+                value = previous;
             }
         }
-        return value;
+        this._batchValue = value;
+        this._batchError = error;
+        if (settlePending && runningDepth === 0) afterRead();
     }
 
     override _refresh(): boolean {
