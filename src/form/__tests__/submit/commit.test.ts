@@ -3,8 +3,9 @@
 import { z } from "zod";
 
 import { unstable_FormSignal as FormSignal } from "../../index";
+import { emailResource, LATENCY } from "../queries/helpers";
 
-import { flush, manualCommand } from "./helpers";
+import { advance, flush, manualCommand } from "./helpers";
 
 const f = FormSignal.field;
 const g = FormSignal.group;
@@ -196,6 +197,58 @@ describe("a root reset / initialize during the flight", () => {
         expect(form.fields.title.isDirty$()).toBe(false);
         expect(form.status$()).toBe("success");
     });
+});
+
+describe("a root reset / initialize while the attempt waits for queries", () => {
+    /** A form whose `email` query keeps the attempt in the preparing phase for `LATENCY` ms. */
+    function checked() {
+        const { resource } = emailResource();
+        const save = manualCommand<unknown>();
+        const handler = vi.fn(({ parsed$ }: { parsed$: () => { value: unknown } }) =>
+            save.command.bind(parsed$().value),
+        );
+        const def = g({
+            fields: {
+                email: f({
+                    schema: z.string(),
+                    defaultValue: "",
+                    queries: { info: ({ value$ }) => resource.bind(value$()) },
+                }),
+            },
+            submit: handler as never,
+        });
+        const form = FormSignal.state(def, { state: { email: "ann@x.com" } });
+        form.fields.email.set("bob@x.com");
+        return { ...save, handler, form };
+    }
+
+    it.each(["reset", "initialize"] as const)(
+        "%s(): the attempt stops at once — no handler, no command, false; a new submit() goes through",
+        async (method) => {
+            const { form, handler, queryFn, runs } = checked();
+            const settled = vi.fn();
+            void form.submit().then(settled);
+            await flush();
+            expect(form.isSubmitting$()).toBe(true);
+
+            form[method]();
+            await flush();
+            // Not held until the queries settle.
+            expect(settled).toHaveBeenCalledWith(false);
+            expect(form.isSubmitting$()).toBe(false);
+            expect(form.status$()).toBe("idle");
+            await advance(LATENCY * 2);
+            expect(handler).not.toHaveBeenCalled();
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(form.submitCount$()).toBe(0);
+
+            const next = form.submit();
+            await advance(LATENCY);
+            expect(runs).toHaveLength(1);
+            runs[0].resolve({ id: "1" });
+            expect(await next).toBe(true);
+        },
+    );
 });
 
 describe("the command entry removed mid-flight (F66)", () => {

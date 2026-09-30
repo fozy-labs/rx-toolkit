@@ -1,4 +1,4 @@
-import { first, firstValueFrom, type Unsubscribable } from "rxjs";
+import { first, firstValueFrom, Subject, takeUntil, type Unsubscribable } from "rxjs";
 
 import { deepEqual } from "@/common/utils/deepEqual";
 import { randomUUID } from "@/common/utils/randomUUID";
@@ -112,6 +112,8 @@ export class SubmitController {
     private _failed: Request | null = null;
     /** A root reset / initialize came while an attempt ran: its result is not applied. */
     private _superseded = false;
+    /** Emits when an attempt gets superseded: ends its wait for the queries. */
+    private readonly _supersede$ = new Subject<void>();
 
     constructor(
         private readonly _root: GroupCore,
@@ -163,12 +165,14 @@ export class SubmitController {
 
     /**
      * Resets the submit state: `status$ → idle`, a new `entryKey`, `submission$ → null`. While an
-     * attempt runs, it is superseded instead and the reset waits for the phase to become idle.
+     * attempt runs, it is superseded instead and the reset waits for the phase to become idle; an
+     * attempt still waiting for the queries stops there.
      */
     reset(): void {
         this._failed = null;
-        if (this._meta$.peek().phase === "idle") this._resetNow();
-        else this._superseded = true;
+        if (this._meta$.peek().phase === "idle") return this._resetNow();
+        this._superseded = true;
+        this._supersede$.next();
     }
 
     // ==================== Attempt ====================
@@ -189,8 +193,9 @@ export class SubmitController {
         let flight: Flight;
         let snapshot: GroupSnapshot;
         try {
-            if (hold) await whenNotPending(root.isPending$);
-            else if (policy === "reject" && untracked(() => root.isPending$.peek())) return false;
+            if (hold) {
+                if (!(await this._whenNotPending())) return false;
+            } else if (policy === "reject" && untracked(() => root.isPending$.peek())) return false;
 
             if (!untracked(() => root.isValid$.peek())) return act(() => this._finish("invalid", false));
             const handler = this._record.submit;
@@ -214,6 +219,25 @@ export class SubmitController {
 
         const settled = await flight.settled;
         return act(() => this._settle(settled, flight, snapshot));
+    }
+
+    /**
+     * Waits for `isPending$` to be false, re-checking after each settle: a settle can start more
+     * work (a debounce, a dependent key), which the next round waits for. `false` if the attempt
+     * got superseded first.
+     */
+    private async _whenNotPending(): Promise<boolean> {
+        const isPending$ = this._root.isPending$;
+        const settled$ = isPending$.obs.pipe(
+            first((isPending) => !isPending),
+            takeUntil(this._supersede$),
+        );
+        for (;;) {
+            if (this._superseded) return false;
+            await firstValueFrom(settled$, { defaultValue: undefined });
+            await Promise.resolve();
+            if (!this._superseded && !untracked(() => isPending$.peek())) return true;
+        }
     }
 
     /** Classifies the handler result and starts the command: a retry of the failed request, or a trigger. */
@@ -393,18 +417,6 @@ export class SubmitController {
 }
 
 // ==================== Functions ====================
-
-/**
- * Waits for `isPending$` to be false, re-checking after each settle: a settle can start more work
- * (a debounce, a dependent key), which the next round waits for.
- */
-async function whenNotPending(isPending$: ReadonlySignal<boolean>): Promise<void> {
-    for (;;) {
-        await firstValueFrom(isPending$.obs.pipe(first((isPending) => !isPending)));
-        await Promise.resolve();
-        if (!untracked(() => isPending$.peek())) return;
-    }
-}
 
 /** Watches an entry's lifecycle: `removed` once it completes. */
 function watchRemoval(entry: IQueryCacheEntry<unknown, unknown> | null) {
