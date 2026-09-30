@@ -526,6 +526,19 @@ describe("LocalState", () => {
 
             expect("ttl" in JSON.parse(driver.getItem(storageKey("g5"))!)).toBe(false);
         });
+
+        it.each([0, -1, NaN, -Infinity])(
+            "an invalid maxUnreadTime (%s) warns and falls back to the default policy",
+            (ttl) => {
+                const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+                const driver = createMarkedDriver();
+                const s = LocalSignal.state({ key: "g6", defaultValue: 0, driver, gc: { maxUnreadTime: ttl } });
+                s.set(1);
+
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("maxUnreadTime"));
+                expect("ttl" in JSON.parse(driver.getItem(storageKey("g6"))!)).toBe(false);
+            },
+        );
     });
 
     describe("static facade delegation", () => {
@@ -1185,6 +1198,31 @@ describe("LocalState", () => {
 
             expect(writes("inf")).toBe(writes("off"));
             expect(JSON.parse(driver.getItem(storageKey("inf"))!).ttl).toBeNull();
+        });
+
+        it("a slot with a NaN maxUnreadTime does not stop the re-touch of other live slots", () => {
+            vi.spyOn(console, "warn").mockImplementation(() => {});
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + DAY)],
+                [storageKey("live"), envelope(1, BASE - HOUR)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            // Tab B does not hold the slot and fires its GC timers first.
+            LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+
+            const tabA = makeTab();
+            LocalSignal.state({ key: "live", defaultValue: 0, driver: tabA });
+            LocalSignal.state({ key: "nan", defaultValue: 0, driver: tabA, gc: { maxUnreadTime: NaN } });
+
+            vi.advanceTimersByTime(200 * DAY);
+
+            expect(map.has(storageKey("live"))).toBe(true);
         });
 
         it("another tab does not sweep a slot loaded with gc: false over an older 1-day ttl", () => {

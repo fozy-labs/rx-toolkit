@@ -18,7 +18,9 @@ export type LocalStateGcOptions = {
     enabled?: boolean;
     /**
      * Milliseconds a slot may stay unread/unwritten before the GC sweep
-     * removes it. @default LOCAL_STATE_GC_DEFAULTS.maxUnreadTime (60 days)
+     * removes it; must be positive (`Infinity` = exempt), anything else is
+     * reported and the default applies.
+     * @default LOCAL_STATE_GC_DEFAULTS.maxUnreadTime (60 days)
      */
     maxUnreadTime?: number;
 };
@@ -69,15 +71,29 @@ function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
  * policy (not persisted, so default changes reach already stored slots).
  * `maxUnreadTime: Infinity` never expires, so it is exempt: JSON stores
  * `Infinity` as `null` anyway, and the policy must equal its stored form.
+ * Anything but a positive number (0, negative, NaN) is not a lifetime: it
+ * would drive a zero re-touch cadence, so it is reported and the default
+ * policy applies.
  */
-function resolveSlotTtl(gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
+function resolveSlotTtl(key: string, gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
     if (gc === false) return null;
     if (gc === true || gc === undefined) return undefined;
     if (gc.enabled === false) return null;
-    if (gc.maxUnreadTime === undefined) return undefined;
-    if (gc.maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
-    if (gc.maxUnreadTime === Infinity) return null;
-    return gc.maxUnreadTime;
+
+    const { maxUnreadTime } = gc;
+
+    if (maxUnreadTime === undefined) return undefined;
+
+    if (!(maxUnreadTime > 0)) {
+        console.warn(
+            `[LocalSignal]: gc.maxUnreadTime of "${key}" must be a positive number of ms, got ${maxUnreadTime}; the default policy applies`,
+        );
+        return undefined;
+    }
+
+    if (maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
+    if (maxUnreadTime === Infinity) return null;
+    return maxUnreadTime;
 }
 
 export class LocalState<T = string | null | number | undefined> {
@@ -103,7 +119,7 @@ export class LocalState<T = string | null | number | undefined> {
         this._options = options;
         this._storage = LocalStateStorage.forDriver(this._driver);
         this._storageKey = slotStorageKey(options.key, options.userId);
-        this._slotTtl = resolveSlotTtl(options.gc);
+        this._slotTtl = resolveSlotTtl(options.key, options.gc);
 
         // Live registration: this slot is re-touched periodically instead of
         // expiring, so a value held by a running app never hits its maxUnreadTime.
