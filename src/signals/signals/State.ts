@@ -11,13 +11,6 @@ import { Devtools } from "../base";
 import { bumpVersion, NodeObservable, SourceNode, type ObsSource } from "../base/core";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
-/** Hooks of a state collected by GC before `dispose()`: their `onDispose` runs then. */
-const finalizationRegistry = new FinalizationRegistry((hooks: SignalLifecycleHook<any>[]) => {
-    for (const hook of hooks) {
-        hook.onDispose?.();
-    }
-});
-
 /**
  * The engine node behind a {@link State}. Internal code that needs the
  * engine's hooks (a cache entry's hold) extends it; the rest uses `State`.
@@ -44,7 +37,7 @@ export class StateNode<T> extends SourceNode<T> implements ObsSource<T> {
         this._hooks = hooks.length > 0 ? hooks : null;
 
         if (this._hooks) {
-            finalizationRegistry.register(this, this._hooks, this);
+            StateNode._finalizationRegistry.register(this, this._hooks, this);
         }
     }
 
@@ -88,7 +81,7 @@ export class StateNode<T> extends SourceNode<T> implements ObsSource<T> {
         this._completeRecs();
 
         if (this._hooks) {
-            finalizationRegistry.unregister(this);
+            StateNode._finalizationRegistry.unregister(this);
 
             for (const hook of this._hooks) {
                 hook.onDispose?.();
@@ -97,6 +90,15 @@ export class StateNode<T> extends SourceNode<T> implements ObsSource<T> {
             this._hooks = null;
         }
     }
+
+    // === static ===
+
+    /** Hooks of a state collected by GC before `dispose()`: their `onDispose` runs then. */
+    private static _finalizationRegistry = new FinalizationRegistry((hooks: SignalLifecycleHook[]) => {
+        for (const hook of hooks) {
+            hook.onDispose?.();
+        }
+    });
 }
 
 /** A writable signal; `Signal.state` is its functional form. */
@@ -138,8 +140,6 @@ export class State<T> {
     }
 
     // === static ===
-
-    private static _finalizationRegistry = finalizationRegistry;
 
     static create<T>(initialValue: T, options?: SignalOptionsOrKey<T>): StateSignal<T> {
         const ls = new StateNode(initialValue, options);

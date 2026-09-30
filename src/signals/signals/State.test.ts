@@ -1,5 +1,5 @@
 import { Signal } from "./Signal";
-import { State } from "./State";
+import { State, StateNode } from "./State";
 
 describe("State", () => {
     describe("creation", () => {
@@ -182,7 +182,7 @@ describe("State", () => {
         });
 
         it("registers with an unregister token and unregisters on dispose (prevents GC re-firing onDispose)", () => {
-            const registry = (State as unknown as { _finalizationRegistry: FinalizationRegistry<unknown> })
+            const registry = (StateNode as unknown as { _finalizationRegistry: FinalizationRegistry<unknown> })
                 ._finalizationRegistry;
             const registerSpy = vi.spyOn(registry, "register");
             const unregisterSpy = vi.spyOn(registry, "unregister");
