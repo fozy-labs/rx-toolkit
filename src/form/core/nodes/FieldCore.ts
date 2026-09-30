@@ -231,23 +231,26 @@ export class FieldCore implements NodeCore {
     /**
      * Reinit: a provided value becomes the base and the draft is dropped. With `keepDirtyValues`
      * a draft stays if it is dirty against the old base and differs from the new one; meta and
-     * server issues follow the value, so they stay only with a kept draft.
+     * server issues follow the value: they stay with a kept draft and with a base that `equals`
+     * the old one, and go when a draft is dropped or the base changes.
      */
     reinit(data: unknown, { keepDirtyValues }: ReinitOptions): void {
         if (data === ABSENT) return;
         const base = data === DEFAULTS ? this._record.defaultValue : data;
         const input = this._input$.peek();
+        const hasDraft = "value" in input;
         if (
             keepDirtyValues &&
-            "value" in input &&
+            hasDraft &&
             !this._equals(input.value, input.default) &&
             !this._equals(input.value, base)
         ) {
             this._input$.set({ default: base, value: input.value });
             return;
         }
-        if ("value" in input || !Object.is(input.default, base)) this._input$.set({ default: base });
-        this._clearMeta();
+        const isReplaced = hasDraft || !this._equals(input.default, base);
+        if (hasDraft || !Object.is(input.default, base)) this._input$.set({ default: base });
+        if (!keepDirtyValues || isReplaced) this._clearMeta();
     }
 
     addServerIssues(issues: readonly Issue[]): void {
