@@ -1,7 +1,6 @@
 import type { IResource, TArgsOrVoid, TSuspenseResourceState } from "@/query/types";
-import { useSignal } from "@/signals/react";
 
-import { useResourceClutch } from "./useResourceClutch";
+import { useResourceClutch, useResourceClutchState } from "./useResourceClutch";
 
 /**
  * Suspense-enabled variant of `useResource`.
@@ -35,7 +34,7 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
 ): TSuspenseResourceState<TArgs, TData, TError> {
     const clutch = useResourceClutch(resource, args);
 
-    const state = useSignal(clutch.state$);
+    const state = useResourceClutchState(clutch);
 
     // 1. Something to show → render it, whatever the query is doing.
     if (state.hasData) {

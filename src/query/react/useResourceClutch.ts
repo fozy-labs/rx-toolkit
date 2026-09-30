@@ -1,9 +1,11 @@
 import React from "react";
 
 import { useIsomorphicLayoutEffect } from "@/common/react";
-import type { IResource, IResourceClutch, TArgsOrKeyed, TArgsOrVoidOrSkip } from "@/query/types";
+import type { IResource, IResourceClutch, TArgsOrKeyed, TArgsOrVoidOrSkip, TResourceClutchState } from "@/query/types";
+import { useSignalWithServerSnapshot } from "@/signals/react/useSignalWithServerSnapshot";
 
 import { SKIP } from "../constants";
+import { ResourceClutch } from "../core/resource";
 
 interface Committed<TArgs, TData, TError> {
     resource: IResource<TArgs, TData, TError>;
@@ -65,4 +67,18 @@ export function useResourceClutch<TArgs, TData, TError>(
     }, [resource, clutch]);
 
     return clutch;
+}
+
+/**
+ * The live state of a clutch from {@link useResourceClutch}. A hook's render
+ * reads the clutch before its subscription holds the entry, and sees the
+ * revalidation that hold owes; the server never holds, so it renders the entry
+ * as it is, and so does the hydration render (`_serverState$`) to match it.
+ */
+export function useResourceClutchState<TArgs, TData, TError>(
+    clutch: IResourceClutch<TArgs, TData, TError>,
+): TResourceClutchState<TArgs, TData, TError> {
+    const serverState$ = clutch instanceof ResourceClutch ? clutch._serverState$ : clutch.state$;
+
+    return useSignalWithServerSnapshot(clutch.state$, serverState$);
 }

@@ -102,9 +102,19 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     private readonly _tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
 
-    readonly state$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(() => this._deriveState(), {
+    readonly state$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(() => this._deriveState(true), {
         isDisabled: true,
     });
+
+    /**
+     * @internal {@link state$} without the revalidation a hold starts: the
+     * entry as it is. The server renders this — nothing there ever holds —
+     * so a hydration render must render it too, or it would not match.
+     */
+    readonly _serverState$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(
+        () => this._deriveState(false),
+        { isDisabled: true },
+    );
 
     /**
      * Subscribers of {@link state$}. Counted through a source the derivation
@@ -333,7 +343,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     // ==================== Private ====================
 
-    private _deriveState(): TResourceClutchState<TArgs, TData, TError> {
+    /** @param onHold - Show what the entry shows once held (see {@link state$}). */
+    private _deriveState(onHold: boolean): TResourceClutchState<TArgs, TData, TError> {
         const tracking = this._tracking$();
         if (!tracking) return this._idleState;
 
@@ -377,7 +388,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
         // What the entry shows once held: a read ahead of the subscription (a
         // render) already sees the revalidation that subscription starts.
-        return this._deriveNotIdleState(tracking.keyed, entry._stateOnHold(entry.state$()));
+        const entryState = entry.state$();
+        return this._deriveNotIdleState(tracking.keyed, onHold ? entry._stateOnHold(entryState) : entryState);
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {

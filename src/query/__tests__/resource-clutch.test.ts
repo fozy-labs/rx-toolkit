@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockIn
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { SKIP } from "@/query/constants";
 import { Resource } from "@/query/core/resource/Resource";
+import { ResourceClutch } from "@/query/core/resource/ResourceClutch";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { IResourceClutch, IResourceConfig, TResourceClutchState } from "@/query/types";
 import { Batcher } from "@/signals/base/Batcher";
@@ -1489,6 +1490,25 @@ describe("ResourceClutch — a read before the subscription, on an entry marked 
         const state = observe(clutch);
         expect(t.runs()).toBe(2);
         expectRow(state(), 2, { args: 5 });
+    });
+
+    // The server never holds, so it renders the entry as it is; a hydration
+    // render reads this view to match it.
+    it("_serverState$ shows the entry as it is: row 5 / row 7, and starts nothing", async () => {
+        const t = harness();
+        await settledEntry(t, "ok");
+        t.resource.invalidate(5);
+        const ok = coldClutch(t) as ResourceClutch<number, string>;
+        expectRow(ok._serverState$.peek(), 5, { args: 5, data: "E5", dataArgs: 5 });
+
+        const t2 = harness();
+        await settledEntry(t2, "fail");
+        t2.resource.invalidate(5);
+        const failed = coldClutch(t2) as ResourceClutch<number, string>;
+        expectRow(failed._serverState$.peek(), 7, { args: 5, error: FAIL_1 });
+
+        expect(t.runs()).toBe(1);
+        expect(t2.runs()).toBe(1);
     });
 });
 
