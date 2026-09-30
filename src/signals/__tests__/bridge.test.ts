@@ -960,6 +960,71 @@ describe("bridge: errors", () => {
     });
 });
 
+describe("an .obs subscriber writing the upstream of the signal it observes: a new write, not a cycle", () => {
+    it("a Signal.from(Subject) subscriber pushes into the Subject until 3", () => {
+        const subject = new Subject<number>();
+        const f = Signal.from(subject, { default: -1 });
+        const got: number[] = [];
+        const sub = f.obs.subscribe((v) => {
+            got.push(v);
+            if (v < 3) subject.next(v + 1);
+        });
+
+        subject.next(0);
+
+        expect(f()).toBe(3);
+        expect(got).toEqual([0, 1, 2, 3]);
+        sub.unsubscribe();
+    });
+
+    it("later subscribers get only the value the write left, not the one it replaced", () => {
+        const subject = new Subject<number>();
+        const f = Signal.from(subject);
+        const first: number[] = [];
+        const second: number[] = [];
+        const subs = [
+            f.obs.subscribe((v) => {
+                first.push(v);
+                if (v > 10) subject.next(10);
+            }),
+            f.obs.subscribe((v) => second.push(v)),
+        ];
+
+        subject.next(11);
+
+        expect(first).toEqual([11, 10]);
+        expect(second).toEqual([10]);
+        subs.forEach((sub) => sub.unsubscribe());
+    });
+
+    it("a subscriber of a bridge writes the State the bridge maps", () => {
+        const s = Signal.state(0);
+        const b = Signal.from(s.obs.pipe(map((x) => x * 10)));
+        const got: number[] = [];
+        const sub = b.obs.subscribe((v) => {
+            got.push(v);
+            if (v < 30) s.set(s.peek() + 1);
+        });
+
+        expect(s.peek()).toBe(3);
+        expect(b()).toBe(30);
+        expect(got.at(-1)).toBe(30);
+        sub.unsubscribe();
+    });
+
+    it("a Computed.obs subscriber writes the Subject of a Signal.from the computed reads", () => {
+        const subject = new Subject<number>();
+        const f = Signal.from(subject, { default: 0 });
+        const c = Signal.compute(() => f() * 2);
+        const sub = c.obs.subscribe((v) => {
+            if (v < 6) subject.next(v / 2 + 1);
+        });
+
+        expect(c()).toBe(6);
+        sub.unsubscribe();
+    });
+});
+
 describe("bridge: cycles", () => {
     it("a hot cycle through a bridge throws SignalCycleError from the write that closes it", () => {
         const flag = Signal.state(false);

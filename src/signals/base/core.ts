@@ -1558,6 +1558,9 @@ export class Watcher implements Consumer {
     _dead = false;
     readonly _recs = new RecList();
     private _delivering = false;
+    /** The subscription being delivered to. */
+    private _current: ObsRec | null = null;
+    /** The node changed during the delivery: the rest of it is stale, a new one follows. */
     private _requeue = false;
     /** The node completed: the subscribers complete after the next delivery. */
     private _completing = false;
@@ -1572,10 +1575,12 @@ export class Watcher implements Consumer {
 
     _notify(): void {
         if (this._delivering) {
-            // Our own delivery wrote a receiver our node depends on: a synchronous bridge cycle.
             this._requeue = true;
+            // A bridge fed by our own delivery wrote a receiver our node depends
+            // on: a synchronous cycle. A write of user code (a subscriber
+            // pushing into a Subject) is a new write, delivered next.
             // eslint-disable-next-line @typescript-eslint/no-this-alias -- reported to the write that closed the cycle
-            cycleWatcher = this;
+            if (this._current?.bridge) cycleWatcher = this;
             return;
         }
         if (!this._queued) {
@@ -1610,16 +1615,29 @@ export class Watcher implements Consumer {
         const recs = this._recs;
         recs.delivering++;
         try {
-            deliverList(recs.bridges, value, error);
-            deliverList(recs.others, value, error);
+            if (this._deliverList(recs.bridges, value, error)) this._deliverList(recs.others, value, error);
         } finally {
             this._delivering = false;
+            this._current = null;
             if (recs.endDelivery() === 0) this._unlink();
         }
         if (this._requeue) {
             this._requeue = false;
             if (!this._dead) this._notify();
         }
+    }
+
+    /** Returns false once the node changed during the delivery. */
+    private _deliverList(list: ObsRec[], value: unknown, error: unknown): boolean {
+        const n = list.length;
+        for (let i = 0; i < n; i++) {
+            if (this._requeue) return false;
+            const rec = list[i];
+            if (rec.closed) continue;
+            this._current = rec;
+            deliverTo(rec, value, error);
+        }
+        return !this._requeue;
     }
 
     /**
@@ -1666,14 +1684,6 @@ export class Watcher implements Consumer {
             rec.subscriber.complete();
         }
         this._unlink();
-    }
-}
-
-function deliverList(list: ObsRec[], value: unknown, error: unknown): void {
-    const n = list.length;
-    for (let i = 0; i < n; i++) {
-        const rec = list[i];
-        if (!rec.closed) deliverTo(rec, value, error);
     }
 }
 
