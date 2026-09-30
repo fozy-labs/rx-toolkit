@@ -163,6 +163,20 @@ let gateEpoch = 0;
 /** Receivers with keepAlive "none" read while unobserved: released after the outermost read. */
 const releaseQueue: ReceiverLike[] = [];
 
+/** A State write waiting for its `.obs` subscribers (see `SourceNode._deliverRecs`). */
+interface StateDelivery {
+    node: SourceNode<unknown>;
+    value: unknown;
+    version: number;
+    gen: number;
+}
+/** State writes to deliver, `[stateHead, stateTail)`, in write order. */
+const stateQueue: (StateDelivery | null)[] = [];
+let stateHead = 0;
+let stateTail = 0;
+/** A State delivery runs: the subscribers of a write made meanwhile wait in `stateQueue`. */
+let stateDelivering = false;
+
 let hasBatchError = false;
 let batchError: unknown = undefined;
 /** Generation of the reaction running now; 0 outside reactions (a write that starts a flush). */
@@ -455,6 +469,8 @@ export function endBatch(): void {
     }
     if (effectFirst === undefined && watchHead === watchTail && afterFlushQueue.length === 0) {
         batchDepth--;
+        // State deliveries may have reached the loop limit with nothing to flush.
+        cycleLimitHit = false;
         if (hasBatchError) throwBatchError();
         return;
     }
@@ -743,33 +759,67 @@ export class SourceNode<T> extends Producer {
         endBatch();
     }
 
-    /** Immediate delivery of a write to `.obs` subscribers, bridges first. */
+    /**
+     * Delivers a write to `.obs` subscribers: to bridges at once, then to the
+     * others in write order. A write made while a delivery runs (a subscriber
+     * writing) reaches the others once that subscriber returns, so a loop of
+     * subscribers is a loop of reactions, one generation per write, and not
+     * a recursion that exhausts the stack.
+     */
     private _deliverRecs(value: T): void {
         const recs = this._recs!;
+        if (recs.others.length !== 0) {
+            stateQueue[stateTail++] = {
+                node: this as SourceNode<unknown>,
+                value,
+                version: this._version,
+                gen: generation + 1,
+            };
+        }
+        if (stateDelivering) {
+            if (recs.bridges.length !== 0) this._deliverBridges(recs, value);
+            return;
+        }
+        stateDelivering = true;
+        try {
+            if (recs.bridges.length !== 0) this._deliverBridges(recs, value);
+            drainStateQueue();
+        } finally {
+            stateDelivering = false;
+        }
+    }
+
+    private _deliverBridges(recs: RecList, value: T): void {
+        const list = recs.bridges;
+        const version = this._version;
+        const n = list.length;
         recs.delivering++;
         try {
-            if (this._deliverList(recs.bridges, value)) this._deliverList(recs.others, value);
+            for (let i = 0; i < n; i++) {
+                // A newer write inside the chain already reached the bridges.
+                if (this._version !== version) break;
+                deliverGuarded(list[i], value);
+            }
         } finally {
             recs.endDelivery();
         }
     }
 
-    /** Returns false once a newer write inside a subscriber already delivered a newer value. */
-    private _deliverList(list: ObsRec[], value: T): boolean {
-        const version = this._version;
+    /** Delivers a queued write to the subscribers that were there when it was made. */
+    _deliverQueued(value: unknown, version: number): void {
+        const recs = this._recs;
+        if (recs === null) return;
+        const list = recs.others;
         const n = list.length;
-        for (let i = 0; i < n; i++) {
-            if (this._version !== version) return false;
-            const rec = list[i];
-            if (rec.closed) continue;
-            try {
-                deliverTo(rec, value, NONE);
-            } catch (error) {
-                // A subscriber RxJS does not guard (a raw `Subscriber`) threw: a failed reaction.
-                failBatch(error);
+        recs.delivering++;
+        try {
+            for (let i = 0; i < n; i++) {
+                const rec = list[i];
+                if (rec.since < version) deliverGuarded(rec, value);
             }
+        } finally {
+            recs.endDelivery();
         }
-        return this._version === version;
     }
 
     /** `.obs` subscription: the current value now, then every write. */
@@ -779,6 +829,7 @@ export class SourceNode<T> extends Producer {
             return;
         }
         const rec = new ObsRec(this, subscriber);
+        rec.since = this._version;
         linkRecContext(rec);
         (this._recs ??= new RecList()).add(rec);
         deliverTo(rec, this._value, NONE);
@@ -1289,6 +1340,8 @@ export class EffectNode implements Evaluator {
 export class ObsRec {
     last: unknown = NONE;
     closed = false;
+    /** State `.obs`: the version whose value it got on subscribe; a queued write of it or older is not its. */
+    since = 0;
     /**
      * Part of a receiver's upstream: made while a receiver connects, or inside
      * the delivery of such a subscription (a switchMap inner). Its deliveries
@@ -1357,6 +1410,35 @@ export class RecList {
         this.others.length = 0;
         this._dirty = false;
         return all;
+    }
+}
+
+/** Delivers the State writes waiting in `stateQueue`; writes made meanwhile join it. */
+function drainStateQueue(): void {
+    const writer = generation;
+    try {
+        while (stateHead < stateTail) {
+            const item = stateQueue[stateHead]!;
+            stateQueue[stateHead++] = null;
+            checkGeneration(item.gen);
+            generation = item.gen;
+            item.node._deliverQueued(item.value, item.version);
+        }
+    } finally {
+        // An abandoned flush leaves writes behind: they are dropped with it.
+        for (let i = stateHead; i < stateTail; i++) stateQueue[i] = null;
+        stateHead = stateTail = 0;
+        generation = writer;
+    }
+}
+
+/** A State delivery; a subscriber RxJS does not guard (a raw `Subscriber`) that throws is a failed reaction. */
+function deliverGuarded(rec: ObsRec, value: unknown): void {
+    if (rec.closed) return;
+    try {
+        deliverTo(rec, value, NONE);
+    } catch (error) {
+        failBatch(error);
     }
 }
 

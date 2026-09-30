@@ -1,3 +1,5 @@
+import { SignalCycleError } from "../base/SignalCycleError";
+
 import { Signal } from "./Signal";
 import { State, StateNode } from "./State";
 
@@ -133,6 +135,80 @@ describe("State", () => {
             expect(values).toEqual([0, 1, 2]);
 
             sub.unsubscribe();
+        });
+
+        it("a write from a subscriber reaches the subscribers after it returns, every write in order", () => {
+            const s = Signal.state(0);
+            const log: string[] = [];
+            const subA = s.obs.subscribe((v) => {
+                log.push(`A ${v}`);
+                if (v === 1) s.set(2);
+                log.push(`A after ${v}`);
+            });
+            const subB = s.obs.subscribe((v) => log.push(`B ${v}`));
+            log.length = 0;
+
+            s.set(1);
+
+            expect(log).toEqual(["A 1", "A after 1", "B 1", "A 2", "A after 2", "B 2"]);
+            expect(s.peek()).toBe(2);
+            subA.unsubscribe();
+            subB.unsubscribe();
+        });
+
+        it("a subscriber that joins while a write waits gets the current value, not the waiting one", () => {
+            const s = Signal.state(0);
+            const late: number[] = [];
+            let subLate: { unsubscribe(): void } | undefined;
+            const subA = s.obs.subscribe((v) => {
+                if (v !== 1) return;
+                s.set(2);
+                subLate = s.obs.subscribe((w) => late.push(w));
+            });
+
+            s.set(1);
+
+            expect(late).toEqual([2]);
+            subA.unsubscribe();
+            subLate?.unsubscribe();
+        });
+
+        it("subscribers writing each other's states converge", () => {
+            const a = Signal.state(0);
+            const b = Signal.state(0);
+            const subA = a.obs.subscribe((v) => {
+                if (v < 50) b.set(v + 1);
+            });
+            const subB = b.obs.subscribe((v) => a.set(v + 1));
+
+            a.set(1);
+
+            expect([a.peek(), b.peek()]).toEqual([51, 50]);
+            subA.unsubscribe();
+            subB.unsubscribe();
+        });
+
+        it("subscribers writing each other's states forever throw SignalCycleError from the write; the engine keeps working", () => {
+            const a = Signal.state(0);
+            const b = Signal.state(0);
+            let on = false;
+            const subA = a.obs.subscribe((v) => on && b.set(v + 1));
+            const subB = b.obs.subscribe((v) => on && a.set(v + 1));
+            on = true;
+
+            expect(() => a.set(10)).toThrow(SignalCycleError);
+            on = false;
+            subA.unsubscribe();
+            subB.unsubscribe();
+
+            const t = Signal.state(0);
+            const seen: number[] = [];
+            const effect = Signal.effect(() => {
+                seen.push(t());
+            });
+            t.set(1);
+            expect(seen).toEqual([0, 1]);
+            effect.unsubscribe();
         });
     });
 

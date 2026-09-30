@@ -106,7 +106,9 @@ export class State<T> {
     private readonly _node: StateNode<T>;
     /**
      * The value stream: the current value on subscribe, then every write at
-     * the moment it happens — also inside `Batcher.run`. Completes on `dispose()`.
+     * the moment it happens — also inside `Batcher.run`. A write made inside a
+     * `State.obs` subscriber reaches the subscribers once it returns, every
+     * write in order. Completes on `dispose()`.
      */
     readonly obs: Observable<T>;
 
