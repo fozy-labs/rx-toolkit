@@ -1357,7 +1357,7 @@ describe("onQueryStarted lifecycle", () => {
         });
 
         command.execute("x", "k1");
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(fulfilledData).toEqual({ data: "result" });
     });
@@ -2598,5 +2598,63 @@ describe("Command — a mutation whose entry is removed mid-flight", () => {
 
         expect(queryFn).not.toHaveBeenCalled();
         expect(note()).toBe("server");
+    });
+});
+
+describe("Command — onQueryStarted milestones follow the entry", () => {
+    for (const milestone of ["queryFulfilled", "firstReceived"] as const) {
+        it(`${milestone}: once it rejects, the entry already shows the failure — a hook can retry it`, async () => {
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            let calls = 0;
+            const command = createCommand<string, number>({
+                queryFn: async () => {
+                    if (++calls === 1) throw new Error("boom");
+                    return calls;
+                },
+                onQueryStarted: async (_args, ctx) => {
+                    try {
+                        await (milestone === "queryFulfilled" ? ctx.$queryFulfilled : ctx.$queryStream.firstReceived);
+                    } catch {
+                        ctx.entry.retry();
+                    }
+                },
+            });
+
+            await command.execute("a", "k").catch(() => {});
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(calls).toBe(2);
+            expect(command.getEntry("k")!.peek()).toMatchObject({ status: "success", data: 2 });
+            expect(warn).not.toHaveBeenCalled();
+            warn.mockRestore();
+        });
+    }
+
+    it("a run whose entry is removed mid-flight rejects its milestones with the abort reason", async () => {
+        let resolveResponse!: (value: string) => void;
+        const reasons: unknown[] = [];
+        const command = createCommand<string, string>({
+            queryFn: () => new Promise<string>((resolve) => (resolveResponse = resolve)),
+            onQueryStarted: (_args, ctx) => {
+                for (const milestone of [
+                    ctx.$queryFulfilled,
+                    ctx.$queryStream.firstReceived,
+                    ctx.$queryStream.allReceived,
+                ]) {
+                    milestone.then(
+                        () => reasons.push("fulfilled"),
+                        (reason: unknown) => reasons.push((reason as Error).name),
+                    );
+                }
+            },
+        });
+
+        const executed = command.execute("a", "k").catch(() => {});
+        command.reset();
+        resolveResponse("discarded");
+        await executed;
+        await flushMicrotasks();
+
+        expect(reasons).toEqual(["AbortError", "AbortError", "AbortError"]);
     });
 });

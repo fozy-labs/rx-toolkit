@@ -19,6 +19,7 @@ import { KEYED_BRAND } from "../../constants";
 import { abortReason } from "../../lib/abortReason";
 import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
+import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "../resource/instrumentQueryRun";
 
 import { CommandClutch } from "./CommandClutch";
 import { buildCommandEntryState } from "./entry-state";
@@ -130,7 +131,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
         // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
         let entry!: QueryCacheEntry<TArgs, TData>;
-        let initialQueryPromise: Promise<TData> | null = null;
+        let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
 
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
@@ -231,24 +232,30 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             );
 
             // Lifecycle: onQueryStarted
-            if (entry) {
-                this._fireOnQueryStarted(entry, args, promise);
-            } else {
-                initialQueryPromise = promise;
+            if (this._onQueryStarted) {
+                const { lifecycle } = instrumentQueryRun(promise, signal);
+                if (entry) {
+                    this._fireOnQueryStarted(entry, args, lifecycle);
+                } else {
+                    initialRunLifecycle = lifecycle;
+                }
             }
 
             return promise;
         };
 
         // Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
-        entry = new QueryCacheEntry<TArgs, TData>({
-            queryFn: wrappedQueryFn,
-            retentionTime: this._entryRetentionTime(keyed),
-            keyedArgs: keyed,
-            resourceKey: this._key,
-            mapError: this._mapError,
-            errorSource: "command",
-        });
+        entry = new QueryCacheEntry<TArgs, TData>(
+            {
+                queryFn: wrappedQueryFn,
+                retentionTime: this._entryRetentionTime(keyed),
+                keyedArgs: keyed,
+                resourceKey: this._key,
+                mapError: this._mapError,
+                errorSource: "command",
+            },
+            { onPromiseRunSettled: settleQueryRun },
+        );
 
         // Mutation result = the entry's first run. Captured now (before any retry
         // replaces the current execution) so it reflects only the first attempt.
@@ -284,8 +291,8 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         this._fireOnCacheEntryAdded(entry, keyed);
 
         // Fire onQueryStarted for the initial query (deferred from constructor)
-        if (initialQueryPromise) {
-            this._fireOnQueryStarted(entry, keyed.value, initialQueryPromise);
+        if (initialRunLifecycle) {
+            this._fireOnQueryStarted(entry, keyed.value, initialRunLifecycle);
         }
 
         return firstResult;
@@ -425,22 +432,19 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    private _fireOnQueryStarted(entry: QueryCacheEntry<TArgs, TData>, args: TArgs, queryPromise: Promise<TData>): void {
+    private _fireOnQueryStarted(
+        entry: QueryCacheEntry<TArgs, TData>,
+        args: TArgs,
+        lifecycle: TQueryRunLifecycle<TData>,
+    ): void {
         if (!this._onQueryStarted) return;
 
-        const $queryFulfilled = queryPromise.then((data) => ({ data }));
-        // Derived promise: rejects with the query error even though the base
-        // promise is consumed by _execute. Suppress "nobody awaited" rejections
-        // (the hook may not consume it); awaiting hooks still see the rejection.
-        void $queryFulfilled.catch(() => {});
-
+        // Commands are promise-only: both stream milestones coincide with the
+        // run's outcome (see instrumentQueryRun).
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,
-            $queryFulfilled,
-            // Commands are promise-only: both stream milestones coincide with
-            // the run's outcome. The base promise is safe to hand out — the
-            // entry always attaches a rejection handler to it.
-            $queryStream: { firstReceived: queryPromise, allReceived: queryPromise },
+            $queryFulfilled: lifecycle.$queryFulfilled,
+            $queryStream: lifecycle.$queryStream,
         };
 
         try {

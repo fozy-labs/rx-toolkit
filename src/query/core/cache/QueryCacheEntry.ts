@@ -57,6 +57,15 @@ export interface TQueryCacheEntryInternals<TData = never> {
      * and whatever it falls through to, `join` takes its outcome.
      */
     coldLoad?: () => Promise<{ data: TData } | null>;
+    /**
+     * Told that a promise run has settled into the entry: called right after
+     * the entry recorded the outcome, so whoever it wakes finds the entry
+     * already showing it. `signal` identifies the run (the one its queryFn
+     * received); `outcome` carries the data or the raw failure, before
+     * `mapError`. An aborted run is never reported — its signal already says
+     * how it ended.
+     */
+    onPromiseRunSettled?: (signal: AbortSignal, outcome: PromiseSettledResult<TData>) => void;
 }
 
 /** Outcome of matching an entry state in {@link QueryCacheEntry._awaitState}. */
@@ -99,6 +108,7 @@ export class QueryCacheEntry<TArgs, TData>
     private readonly _onStreamPatch: (() => void) | undefined;
     private readonly _invalidateInFlight: TInFlightPolicy;
     private readonly _revalidateInRun: TRevalidateInRun | undefined;
+    private readonly _onPromiseRunSettled: TQueryCacheEntryInternals<TData>["onPromiseRunSettled"];
 
     /** See {@link TQueryCacheEntryInternals.coldLoad}; consumed by the first run. */
     private _coldLoad: (() => Promise<{ data: TData } | null>) | undefined;
@@ -153,6 +163,7 @@ export class QueryCacheEntry<TArgs, TData>
         this._onStreamPatch = options.onStreamPatch;
         this._invalidateInFlight = options.invalidateInFlight ?? "cancel";
         this._revalidateInRun = internals.revalidateInRun;
+        this._onPromiseRunSettled = internals.onPromiseRunSettled;
 
         // The raw stream replays the current state, so hydrated entries settle
         // immediately. Suppress "nobody awaited" rejections (may never be read).
@@ -853,6 +864,7 @@ export class QueryCacheEntry<TArgs, TData>
                     default:
                         console.warn(`[QueryCacheEntry] received data in unexpected state: ${machine.status}`);
                 }
+                this._onPromiseRunSettled?.(controller.signal, { status: "fulfilled", value: data });
 
                 // Settled with nothing in flight: a mark set while this run was
                 // trailing turns into the re-fetch now (if the entry is held).
@@ -866,6 +878,7 @@ export class QueryCacheEntry<TArgs, TData>
 
                 if (machine.status !== "pending" && machine.status !== "invalidating") {
                     console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
+                    this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
                     this._onRunLeftFlight();
                     return;
                 }
@@ -876,8 +889,8 @@ export class QueryCacheEntry<TArgs, TData>
                 // imperative-fetch rejections, the command result envelope, the
                 // Suspense throw — observes the same mapped instance. Deliberately
                 // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
-                // fed from the raw queryFn promise and see the raw error. Aborted
-                // runs returned above and are never mapped.
+                // told the raw error (see onPromiseRunSettled). Aborted runs
+                // returned above and are never mapped.
                 const mappedError = this._normalizeError(error);
 
                 // Name the failure by the state it lands in: a failed background invalidation
@@ -885,6 +898,7 @@ export class QueryCacheEntry<TArgs, TData>
                 const failedAction = machine.status === "invalidating" ? "invalidate-error" : "error";
 
                 this._setMachine(machine.fail(mappedError), failedAction);
+                this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
                 this._onRunLeftFlight();
             });
     }
