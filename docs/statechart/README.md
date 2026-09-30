@@ -698,7 +698,19 @@ function TrafficLight() {
 
 Отдельного React-хука у модуля нет; `useSignal` достаточно, поскольку `MachineStateSignal` реализует `obs` / `peek`.
 
-Инстанс на время жизни компонента создавайте через ленивый инициализатор `useState(() => MachineSignal.state(...))`.
+Инстанс на время жизни компонента создавайте незапущенным в ленивом инициализаторе `useState` и запускайте в эффекте:
+
+```tsx
+const [light$] = useState(() => MachineSignal.state(trafficLight, { autoStart: false }));
+
+useEffect(() => {
+    light$.start();
+    return () => light$.stop();
+}, [light$]);
+```
+
+Так после размонтирования не остаётся работающей машины и её таймеров, а второй инстанс, который StrictMode создаёт и отбрасывает, так и не запускается. В cleanup — `stop()`, а не `dispose()`: StrictMode повторяет эффект на том же инстансе, а `start()` после `dispose()` бросает.
+
 Callable-сигнал — это функция, поэтому в `useState` / `setState` его нужно передавать **только через thunk**:
 `setMachine$(() => MachineSignal.state(def))`. Прямой вызов `setMachine$(MachineSignal.state(def))` React воспримет как
 updater, вызовет его и сохранит возвращённый снапшот вместо сигнала (симптом — `signal$.peek is not a function` в `useSignal`). Про правила использования сигналов в React — [React интеграция][react].
