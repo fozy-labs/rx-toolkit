@@ -32,7 +32,7 @@ const api = createApi({
 
 | Параметр  | Тип      | По умолчанию                | Описание                                                                       |
 |-----------|----------|-----------------------------|--------------------------------------------------------------------|
-| `channel` | `string` | `"rx-toolkit:{keyPrefix}"` | Имя `BroadcastChannel`. Если не указано, генерируется из `keyPrefix` API. |
+| `channel` | `string` | `"rx-toolkit:{keyPrefix}"` | Имя `BroadcastChannel`. Если не указано, генерируется из `keyPrefix` API; без `keyPrefix` — `"rx-toolkit"`. |
 
 ```typescript
 // Канал по умолчанию — "rx-toolkit:my-api"
@@ -45,6 +45,21 @@ const api = createApi({
 const api = createApi({
   keyPrefix: 'my-api',
   syncDriver: broadcastSyncDriver({ channel: 'shared-state' }),
+});
+```
+
+
+### На сервере (SSR)
+
+`BroadcastChannel` есть и в Node.js (с версии 18): там каналы с одним именем связывают все api в одном процессе, включая `worker_threads`.
+    На SSR-сервере, где api создаётся на каждый запрос ([снимок][snapshot-server]), api одного запроса ответит на REQ другого —
+    и данные одного пользователя попадут в страницу и снимок другого.
+Не передавайте `syncDriver` на сервере:
+
+```typescript
+const api = createApi({
+  keyPrefix: 'my-api',
+  syncDriver: typeof window !== 'undefined' ? broadcastSyncDriver() : undefined,
 });
 ```
 
@@ -112,7 +127,7 @@ const markRead = api.createCommand({
 
 | Метод        | Сигнатура                                       | Описание                                                                |
 |--------------|--------------------------------------------------|-------------------------------------------------------------------------|
-| `connect`    | `(onMessage: (msg: ISyncMessage) => void) => void` | Подключиться к каналу. `onMessage` вызывается при получении внешних сообщений |
+| `connect`    | `(onMessage: (msg: ISyncMessage) => void, context: { keyPrefix: string }) => void` | Подключиться к каналу. `onMessage` вызывается при получении внешних сообщений; `context.keyPrefix` — `keyPrefix` api, `""` если его нет |
 | `disconnect` | `() => void`                                     | Отключиться от канала и освободить ресурсы                              |
 | `send`       | `(message: ISyncMessage) => void`                | Отправить сообщение                |
 
@@ -207,5 +222,6 @@ function TodoApp() {
 [cache-inflight]: ../concepts/cache.md#инвалидация-в-полёте
 [dataflows]: ../concepts/dataflows.md
 [entry-state]: ../concepts/query-entry-state.md
+[snapshot-server]: ./snapshot.md#api-на-сервере
 [patching]: ../concepts/patching.md
 [broadcast-channel]: https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel

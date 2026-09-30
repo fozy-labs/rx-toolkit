@@ -1,6 +1,7 @@
 import type { ISyncDriver, ISyncMessage } from "../types";
 
 export interface BroadcastSyncDriverOptions {
+    /** `BroadcastChannel` name. Defaults to `rx-toolkit:{keyPrefix}`, or `rx-toolkit` for an api without one. */
     channel?: string;
 }
 
@@ -17,11 +18,11 @@ function isValidSyncMessage(msg: unknown): msg is ISyncMessage {
 }
 
 export function broadcastSyncDriver(options?: BroadcastSyncDriverOptions): ISyncDriver {
-    const channelName = options?.channel ?? "rx-toolkit";
     let bc: BroadcastChannel | null = null;
 
     return {
-        connect(onMessage) {
+        connect(onMessage, { keyPrefix }) {
+            const channelName = options?.channel ?? (keyPrefix ? `rx-toolkit:${keyPrefix}` : "rx-toolkit");
             try {
                 bc = new BroadcastChannel(channelName);
                 bc.onmessage = (ev: MessageEvent) => {

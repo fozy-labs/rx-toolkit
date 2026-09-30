@@ -38,7 +38,7 @@ export class Syncer {
 
     /** Connect the sync driver and start listening for messages. */
     connect(): void {
-        this.syncDriver.connect(this.handleIncomingSyncMessage);
+        this.connectDriver();
     }
 
     /** Create a beforeQuery hook for resource config. */
@@ -61,10 +61,14 @@ export class Syncer {
         this.pendingRequests.clear();
 
         this.syncDriver.disconnect();
-        this.syncDriver.connect(this.handleIncomingSyncMessage);
+        this.connectDriver();
     }
 
     // ── Private ──
+
+    private connectDriver(): void {
+        this.syncDriver.connect(this.handleIncomingSyncMessage, { keyPrefix: this.keyPrefix ?? "" });
+    }
 
     private handleIncomingSyncMessage = (msg: ISyncMessage): void => {
         if (msg.type === "REQ") {

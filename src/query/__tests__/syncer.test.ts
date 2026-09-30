@@ -99,6 +99,20 @@ describe("Syncer", () => {
         expect(connectSpy).toHaveBeenCalledOnce();
     });
 
+    it("connect() passes the api keyPrefix to the driver", () => {
+        const { syncer, driver } = createSyncer({ keyPrefix: "my-api" });
+        const connectSpy = vi.spyOn(driver, "connect");
+        syncer.connect();
+        expect(connectSpy).toHaveBeenCalledWith(expect.any(Function), { keyPrefix: "my-api" });
+    });
+
+    it("connect() passes an empty keyPrefix when the api has none", () => {
+        const { syncer, driver } = createSyncer({ keyPrefix: null });
+        const connectSpy = vi.spyOn(driver, "connect");
+        syncer.connect();
+        expect(connectSpy).toHaveBeenCalledWith(expect.any(Function), { keyPrefix: "" });
+    });
+
     // ── isResourceSyncEnabled ──────────────────────────────────────
 
     it("returns explicit sync=true from options", () => {

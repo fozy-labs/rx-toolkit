@@ -66,8 +66,8 @@ describe("broadcastSyncDriver", () => {
         const driverB = broadcastSyncDriver();
 
         const received: ISyncMessage[] = [];
-        driverA.connect((msg) => received.push(msg));
-        driverB.connect(() => {});
+        driverA.connect((msg) => received.push(msg), { keyPrefix: "" });
+        driverB.connect(() => {}, { keyPrefix: "" });
 
         const msg = validMessage();
         driverB.send(msg);
@@ -76,10 +76,25 @@ describe("broadcastSyncDriver", () => {
         expect(received[0]).toEqual(msg);
     });
 
+    it("names the default channel after the api keyPrefix", () => {
+        broadcastSyncDriver().connect(() => {}, { keyPrefix: "my-api" });
+        expect(MockBroadcastChannel.instances[0].name).toBe("rx-toolkit:my-api");
+    });
+
+    it("uses the bare default channel when the api has no keyPrefix", () => {
+        broadcastSyncDriver().connect(() => {}, { keyPrefix: "" });
+        expect(MockBroadcastChannel.instances[0].name).toBe("rx-toolkit");
+    });
+
+    it("an explicit channel overrides the keyPrefix-derived name", () => {
+        broadcastSyncDriver({ channel: "shared-state" }).connect(() => {}, { keyPrefix: "my-api" });
+        expect(MockBroadcastChannel.instances[0].name).toBe("shared-state");
+    });
+
     it("filters out malformed messages", () => {
         const driver = broadcastSyncDriver();
         const received: ISyncMessage[] = [];
-        driver.connect((msg) => received.push(msg));
+        driver.connect((msg) => received.push(msg), { keyPrefix: "" });
 
         const bc = MockBroadcastChannel.instances.find((ch) => ch.onmessage !== null)!;
 
@@ -111,7 +126,7 @@ describe("broadcastSyncDriver", () => {
 
     it("disconnect() is idempotent", () => {
         const driver = broadcastSyncDriver();
-        driver.connect(() => {});
+        driver.connect(() => {}, { keyPrefix: "" });
 
         expect(() => {
             driver.disconnect();
