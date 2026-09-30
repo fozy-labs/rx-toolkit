@@ -129,6 +129,16 @@ function jitter(maxAbs: number) {
     return (Math.random() * 2 - 1) * maxAbs;
 }
 
+/**
+ * The next sweep deadline for the meta. A non-finite result (`Infinity` in
+ * `GC_OPTIONS` to put GC off) would turn into `null` in JSON and void the
+ * meta, making the next init wipe the namespace — so it becomes "never".
+ */
+function nextGcDeadline() {
+    const deadline = Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset);
+    return Number.isFinite(deadline) ? deadline : Number.MAX_SAFE_INTEGER;
+}
+
 /** Keep a Node process (SSR with a custom driver) from being held by GC timers. */
 function unrefSafe(timer: unknown) {
     (timer as { unref?: () => void }).unref?.();
@@ -301,7 +311,7 @@ export class LocalStateStorage {
 
     /** Marks the namespace as this format and resumes GC scheduling. */
     private _mark() {
-        this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+        this._writeMeta(nextGcDeadline());
         this._scheduleGc();
     }
 
@@ -365,7 +375,7 @@ export class LocalStateStorage {
             dueIn = GC_OPTIONS.checkInterval;
 
             try {
-                this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+                this._writeMeta(nextGcDeadline());
             } catch {
                 // Keep the clamped timer; healing retries on the next round.
             }
@@ -411,7 +421,7 @@ export class LocalStateStorage {
         // The claim must land BEFORE the sweep: it is the only cross-tab
         // dedup — sweeping unclaimed would run concurrent duplicate sweeps.
         try {
-            this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+            this._writeMeta(nextGcDeadline());
         } catch {
             this._scheduleGc();
             return;

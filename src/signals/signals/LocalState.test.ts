@@ -1037,6 +1037,33 @@ describe("LocalState", () => {
             }
         });
 
+        it.each([
+            ["checkInterval", { checkInterval: Infinity }],
+            ["randomOffset", { randomOffset: Infinity }],
+        ])("an infinite %s does not make the next load wipe stored values", (_, override) => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+            const map = new Map<string, string>();
+            const makeSession = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            try {
+                LocalSignal.GC_OPTIONS = { ...original, ...override };
+
+                LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).set(5);
+                expect(LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).peek()).toBe(5);
+
+                // A claim under the infinite option must not void the meta either.
+                vi.advanceTimersByTime(30 * DAY);
+                expect(LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).peek()).toBe(5);
+            } finally {
+                LocalSignal.GC_OPTIONS = original;
+            }
+        });
+
         it("touch threshold respects a small per-slot maxUnreadTime", () => {
             const driver = createMarkedDriver(
                 { [storageKey("small")]: envelope(1, BASE - 3 * DAY, 4 * DAY) },
