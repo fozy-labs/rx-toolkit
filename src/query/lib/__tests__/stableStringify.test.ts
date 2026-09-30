@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it } from "vitest";
 
 import { stableStringify } from "../stableStringify";
@@ -84,6 +86,13 @@ describe("stableStringify", () => {
         expect(keys).toEqual(["0", "p", ""]);
     });
 
+    it("calls toJSON on a function too, as JSON.stringify does", () => {
+        const fn = Object.assign(() => 1, { toJSON: () => 5 });
+        expect(stableStringify({ f: fn })).toBe(JSON.stringify({ f: fn }));
+        expect(stableStringify([fn])).toBe("[5]");
+        expect(stableStringify(fn)).toBe("5");
+    });
+
     it("keeps NaN, Infinity and -Infinity apart from null and from each other", () => {
         const keys = [null, NaN, Infinity, -Infinity].map((page) => stableStringify({ page }));
         expect(new Set(keys).size).toBe(4);
@@ -104,6 +113,20 @@ describe("stableStringify", () => {
         expect(stableStringify({ n: Object(1), s: Object("a"), b: Object(true) })).toBe(
             stableStringify({ n: 1, s: "a", b: true }),
         );
+        expect(stableStringify(Object(1n))).toBe(stableStringify(1n));
+    });
+
+    it("tells a boxed primitive by its internal slot, not its prototype or tag", () => {
+        const foreign = runInNewContext("[new Number(1), new String('a'), new Boolean(true), Object(2n)]") as unknown;
+        expect(stableStringify(foreign)).toBe(stableStringify([1, "a", true, 2n]));
+        const impostors = [
+            Object.create(Number.prototype) as object,
+            Object.create(String.prototype) as object,
+            Object.create(Boolean.prototype) as object,
+            Object.create(BigInt.prototype) as object,
+            { [Symbol.toStringTag]: "Number", a: 1 },
+        ];
+        expect(stableStringify(impostors)).toBe(JSON.stringify(impostors));
     });
 
     it("always returns a string: a function or symbol counts as undefined", () => {

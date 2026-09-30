@@ -76,14 +76,40 @@ function serialize(key: string, value: unknown, ancestors: Set<object>): string 
  */
 function toData(key: string, value: unknown): unknown {
     let data = value;
-    if ((typeof data === "object" && data !== null) || typeof data === "bigint") {
+    if ((typeof data === "object" && data !== null) || typeof data === "function" || typeof data === "bigint") {
         const { toJSON } = data as { toJSON?: unknown };
         if (typeof toJSON === "function") data = toJSON.call(data, key);
     }
-    if (data instanceof Number) return Number(data);
-    if (data instanceof String) return String(data);
-    if (data instanceof Boolean || data instanceof BigInt) return data.valueOf();
-    return data;
+    return typeof data === "object" && data !== null ? unbox(data) : data;
+}
+
+/**
+ * A boxed primitive's primitive, `object` itself otherwise. Like JSON, tells a
+ * box by its internal slot: a box from another realm counts, an object that
+ * only inherits from `Number.prototype` or fakes the tag does not.
+ */
+function unbox(object: object): unknown {
+    switch (Object.prototype.toString.call(object)) {
+        case "[object Number]":
+            return hasSlot(Number.prototype.valueOf, object) ? Number(object) : object;
+        case "[object String]":
+            return hasSlot(String.prototype.valueOf, object) ? String(object) : object;
+        case "[object Boolean]":
+            return hasSlot(Boolean.prototype.valueOf, object) ? Boolean.prototype.valueOf.call(object) : object;
+        case "[object BigInt]":
+            return hasSlot(BigInt.prototype.valueOf, object) ? BigInt.prototype.valueOf.call(object) : object;
+    }
+    return object;
+}
+
+/** A primitive's `valueOf` throws on an object without the matching internal slot. */
+function hasSlot(valueOf: (this: never) => unknown, object: object): boolean {
+    try {
+        valueOf.call(object as never);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /** Own enumerable keys: integer keys ascending, then the rest sorted. */
