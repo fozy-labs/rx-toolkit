@@ -259,6 +259,43 @@ describe("toMermaid", () => {
             expect(toMermaid(definition, { includeActions: false })).toContain("        u_b --> [*]: X\n");
         });
 
+        it("keeps an id for a `$final` with transitions of its own, a self-loop included", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        initial: "a",
+                        states: {
+                            a: { on: { FINISH: "$final" } },
+                            $final: { type: "final", on: { REOPEN: "a", OUT: "#m.q" }, after: { 500: "a" } },
+                        },
+                    },
+                    q: { on: { STAY: "$final" } },
+                    $final: { type: "final", on: { AGAIN: "$final" } },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        [*] --> a",
+                    "        a --> _final: FINISH",
+                    "        _final --> a: REOPEN",
+                    "        _final --> a: after 500",
+                    "        _final --> [*]",
+                    "    }",
+                    "    q --> _final_2: STAY",
+                    "    _final_2 --> _final_2: AGAIN",
+                    "    _final_2 --> [*]",
+                    "    _final --> q: OUT",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("keeps an unreachable `$final` visible", () => {
             expect(
                 toMermaid(createMachine({ id: "m", initial: "a", states: { a: {}, $final: { type: "final" } } })),

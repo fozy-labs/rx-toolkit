@@ -319,10 +319,10 @@ class MermaidRenderer {
 
     /**
      * A `$final` state is drawn only as the `[*]` its siblings point to when
-     * that is all there is to it: no description, no entry/exit, not the
-     * initial state, and every transition targeting it (at least one, so
-     * that the state stays visible) comes from a sibling — the converter's
-     * `X --> [*]` reads exactly like that.
+     * that is all there is to it: no description, no entry/exit, no
+     * transitions of its own, not the initial state, and every transition
+     * targeting it (at least one, so that the state stays visible) comes from
+     * a sibling — the converter's `X --> [*]` reads exactly like that.
      */
     private isImplicitFinal(node: AnyStateNode): boolean {
         const parent = node.parent;
@@ -332,6 +332,7 @@ class MermaidRenderer {
             node.key === FINAL_KEY &&
             parent !== null &&
             node.description === undefined &&
+            this.targetsOf(node).length === 0 &&
             parent.initial?.target[0] !== node &&
             !(this.includeActions && this.configuredActions(node) !== null) &&
             sources.length > 0 &&
