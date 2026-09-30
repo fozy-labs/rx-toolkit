@@ -1,18 +1,35 @@
 import type { SignalOptionsOrKey } from "@/signals/types";
 
 import { Batcher } from "../base";
+import { isTracking } from "../base/core";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 import { LiveSourceNode } from "../base/LiveSourceNode";
+import { Computed } from "../signals/Computed";
 import { State } from "../signals/State";
 
 import { isDraftable, produce } from "./produce";
 import type { PathNode, ProxyStateSignal } from "./types";
 
+/** Whether paths go inside `value`: Map/Set are atomic leaves for path traversal. */
+function isPathContainer(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !(value instanceof Map) && !(value instanceof Set);
+}
+
 function stepInto(container: unknown, segment: string): unknown {
-    if (container === null || typeof container !== "object") return undefined;
-    // Map/Set are atomic leaves for path traversal.
-    if (container instanceof Map || container instanceof Set) return undefined;
-    return (container as any)[segment];
+    return isPathContainer(container) ? container[segment] : undefined;
+}
+
+function keysOf(value: unknown): string[] {
+    if (!isPathContainer(value)) return [];
+    return Reflect.ownKeys(value).filter((key): key is string => typeof key === "string");
+}
+
+function sameKeys(a: string[], b: string[]): boolean {
+    return a.length === b.length && a.every((key, i) => key === b[i]);
+}
+
+function readOnly(): never {
+    throw new TypeError("ProxySignal: ps.root is read-only, write through mutate() or set()");
 }
 
 function getAtPath(root: unknown, segments: string[]): unknown {
@@ -50,13 +67,22 @@ interface TrieNode {
     children: Map<string, TrieNode>;
     /** Materialized on first read of this path. */
     state: PathState | null;
+    /** Own keys of the value at this path; materialized on the first tracked `in` / Object.keys. */
+    keys: Computed<string[]> | null;
     /** Cached path proxy for this node. */
     proxy: unknown | null;
 }
 
 class ProxySignalCore<T extends object> {
     private readonly _root: State<T>;
-    private readonly _trie: TrieNode = { segments: [], parent: null, children: new Map(), state: null, proxy: null };
+    private readonly _trie: TrieNode = {
+        segments: [],
+        parent: null,
+        children: new Map(),
+        state: null,
+        keys: null,
+        proxy: null,
+    };
 
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         this._root = new State(initialValue, options);
@@ -111,10 +137,12 @@ class ProxySignalCore<T extends object> {
         if (node.proxy) return node.proxy;
 
         const pathRead = (initialValue?: unknown) => {
-            const value = this._ensureState(this._nodeFor(segments)).get();
+            const value = this._readPath(segments);
             return value === undefined ? initialValue : value;
         };
 
+        // `in`, Object.keys and property descriptors answer for the value at
+        // the path; symbols stay with the function target.
         node.proxy = new Proxy(pathRead, {
             get: (target, prop) => {
                 if (typeof prop === "symbol") return Reflect.get(target, prop);
@@ -123,8 +151,44 @@ class ProxySignalCore<T extends object> {
                 if (prop === "then") return undefined;
                 return this._pathProxy([...segments, prop]);
             },
+            has: (target, prop) => {
+                if (typeof prop === "symbol") return Reflect.has(target, prop);
+                const value = this._readKeys(segments);
+                return isPathContainer(value) && prop in value;
+            },
+            ownKeys: () => keysOf(this._readKeys(segments)),
+            getOwnPropertyDescriptor: (target, prop) => {
+                if (typeof prop === "symbol") return Reflect.getOwnPropertyDescriptor(target, prop);
+                const value = this._readKeys(segments);
+                const desc = isPathContainer(value) ? Reflect.getOwnPropertyDescriptor(value, prop) : undefined;
+                if (desc === undefined) return undefined;
+                const child = this._pathProxy([...segments, prop]);
+                return { value: child, writable: false, enumerable: desc.enumerable, configurable: true };
+            },
+            set: readOnly,
+            deleteProperty: readOnly,
+            defineProperty: readOnly,
+            setPrototypeOf: readOnly,
+            preventExtensions: readOnly,
         });
         return node.proxy;
+    }
+
+    private _readPath(segments: string[]): unknown {
+        return this._ensureState(this._nodeFor(segments)).get();
+    }
+
+    /**
+     * The value at a path, for its keys. A tracked read depends on the key
+     * set only, so a change of a value under an existing key wakes nobody.
+     */
+    private _readKeys(segments: string[]): unknown {
+        if (isTracking()) {
+            const node = this._nodeFor(segments);
+            node.keys ??= new Computed(() => keysOf(this._readPath(segments)), { isDisabled: true, equals: sameKeys });
+            node.keys.get();
+        }
+        return getAtPath(this._root.peek(), segments);
     }
 
     private _nodeFor(segments: string[]): TrieNode {
@@ -137,6 +201,7 @@ class ProxySignalCore<T extends object> {
                     parent: node,
                     children: new Map(),
                     state: null,
+                    keys: null,
                     proxy: null,
                 };
                 node.children.set(segment, child);
@@ -226,6 +291,9 @@ class ProxySignalCore<T extends object> {
     private static _disposeSubtree(node: TrieNode) {
         node.state?.dispose();
         node.state = null;
+        // Not disposed: an unobserved computed may still hold it, and it stays
+        // truthful through the path state it reads.
+        node.keys = null;
         node.proxy = null;
         for (const child of node.children.values()) {
             ProxySignalCore._disposeSubtree(child);

@@ -542,6 +542,74 @@ describe("unstable_ProxySignal", () => {
         });
     });
 
+    describe("key set of a path", () => {
+        it("`in` and Object.keys report the keys of the value at the path", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect("age" in s$.root.user).toBe(true);
+            expect("nick" in s$.root.user).toBe(false);
+            expect(Object.keys(s$.root.user)).toEqual(["name", "age"]);
+            expect(Object.keys(s$.root.items)).toEqual(["0", "1"]);
+            expect(Object.keys(s$.root.maybe.v)).toEqual([]);
+        });
+
+        it("a Map or Set at the path has no keys", () => {
+            const s$ = ProxySignal.state({ m: new Map([["a", 1]]) });
+            expect(Object.keys(s$.root.m)).toEqual([]);
+            expect("a" in s$.root.m).toBe(false);
+        });
+
+        it("wakes `in` and Object.keys readers on a key-set change only", () => {
+            const s$ = ProxySignal.state<{ user: { name: string; nick?: string } }>({ user: { name: "Ann" } });
+            const keys: string[][] = [];
+            const hasNick: boolean[] = [];
+            const effKeys = Signal.effect(() => {
+                keys.push(Object.keys(s$.root.user));
+            });
+            const effHas = Signal.effect(() => {
+                hasNick.push("nick" in s$.root.user);
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            s$.mutate((draft) => {
+                draft.user.nick = "b";
+            });
+            s$.mutate((draft) => {
+                delete draft.user.nick;
+            });
+            expect(keys).toEqual([["name"], ["name", "nick"], ["name"]]);
+            expect(hasNick).toEqual([false, true, false]);
+            effKeys.unsubscribe();
+            effHas.unsubscribe();
+        });
+
+        it("a computed over Object.keys stays truthful while unobserved", () => {
+            const s$ = ProxySignal.state<Record<string, number>>({ a: 1 });
+            const c = Signal.compute(() => Object.keys(s$.root).join());
+            expect(c.peek()).toBe("a");
+            s$.mutate((draft) => {
+                draft.b = 2;
+            });
+            expect(c.peek()).toBe("a,b");
+        });
+    });
+
+    describe("read-only tree", () => {
+        it.each([
+            ["assignment", (node: object) => ((node as Record<string, unknown>).age = 31)],
+            ["delete", (node: object) => delete (node as Record<string, unknown>).age],
+            ["Object.defineProperty", (node: object) => Object.defineProperty(node, "x", { value: 1 })],
+            ["Object.setPrototypeOf", (node: object) => Object.setPrototypeOf(node, null)],
+            ["Object.preventExtensions", (node: object) => Object.preventExtensions(node)],
+            ["Object.freeze", (node: object) => Object.freeze(node)],
+        ])("%s on a path throws and leaves the path readable", (_, operation) => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(() => operation(s$.root.user)).toThrow(TypeError);
+            expect(s$.root.user.name()).toBe("Alice");
+            expect(s$.peek().user).toEqual({ name: "Alice", age: 30 });
+        });
+    });
+
     describe("dispose", () => {
         it("completes the root obs", () => {
             const s$ = ProxySignal.state({ n: 1 });
