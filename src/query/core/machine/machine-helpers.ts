@@ -149,6 +149,12 @@ export function withDataState<TArgs, TData>(
  * Give up on the pending patches: drop them and flag the patch state so the
  * owner re-queries.
  *
+ * The data they produced stays shown, and becomes the base (`originalData`)
+ * until the re-query lands: with an empty stack, `data` must equal the base,
+ * or the next patch settle — a dropped patch's own handle, or a patch made
+ * afterwards — would recompute `data` from the old base and roll back changes
+ * nobody undid.
+ *
  * Everything else is left exactly as it is — including `status` and
  * `updatedAt`. A discarded replay is not a settled run: the entry keeps the
  * status it was in (an interrupted rebase stays `invalidating`) and the
@@ -161,7 +167,7 @@ export function consistencyViolation<TArgs, TData, TState extends TDataState<TAr
     return {
         ...currentState,
         patchState: {
-            originalData: currentState.patchState?.originalData ?? currentState.data,
+            originalData: currentState.data,
             patches: [],
             isConsistencyViolation: true,
         },

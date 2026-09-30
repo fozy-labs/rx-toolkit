@@ -1451,6 +1451,45 @@ describe("QueryCacheEntry — invalidate() with a promise run in flight", () => 
             expect(runs).toHaveLength(3);
             expect(entry.peek().status).toBe("invalidating");
         });
+
+        // The dropped patches' changes stay in `data` until the re-query lands:
+        // they are the base now, and no later patch settle may roll them back.
+
+        it("a dropped patch settling afterwards leaves the data as it is", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            const dropped = entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            })!;
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+
+            dropped.commit();
+
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+        });
+
+        it("a patch made afterwards and aborted rolls back to the data it was made on", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+
+            const next = entry.createPatch((draft) => {
+                draft.items[0]!.n = 100;
+            })!;
+            expect(entry.peek().data).toEqual({ items: [{ n: 100 }] });
+
+            next.abort();
+
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+        });
     });
 
     describe("the call parameter overrides the entry's default", () => {
