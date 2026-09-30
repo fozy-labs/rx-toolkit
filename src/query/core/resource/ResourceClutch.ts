@@ -165,8 +165,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const tracking = this._tracking$.peek();
 
         if (args === SKIP) {
-            if (!tracking) return;
-
+            // With or without tracked args: a clutch that only adopted previous
+            // data (see `adoptPrevious`) drops it all the same.
             this._previous$ = null;
             this._placeholder = null;
             this._tracking$.set(null);

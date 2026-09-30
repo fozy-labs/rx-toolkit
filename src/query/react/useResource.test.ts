@@ -156,6 +156,25 @@ describe("useResource", () => {
         expect(c.state.hasData).toBe(false);
     });
 
+    it("SKIP drops the SWR data: the args after it load with nothing to show", async () => {
+        const { resource } = createSetup();
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+        expect(c.state.status).toBe("success");
+
+        c.rerender(SKIP);
+        expect(c.state.status).toBe("idle");
+
+        // Row 2, as on a single clutch doing switch(1), switch(SKIP), switch(2).
+        c.rerender({ id: 2 });
+        expect(c.state.status).toBe("pending");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.data).toBeNull();
+        expect(c.state.isSwitching).toBe(false);
+        expect(c.state.isInitialLoading).toBe(true);
+    });
+
     it("mounting on an entry marked for revalidation shows its data at once, then isInvalidating, then fresh data", async () => {
         let call = 0;
         const api = createApi({ plugins: [reactHooksPlugin()] });

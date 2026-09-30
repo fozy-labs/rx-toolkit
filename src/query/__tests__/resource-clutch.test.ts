@@ -1074,6 +1074,23 @@ describe("ResourceClutch.switch(SKIP)", () => {
 
         expectRow(t.state(), 2, { args: 2 });
     });
+
+    it("drops adopted previous data on a clutch that tracks no args yet", async () => {
+        const t = harness();
+        await driveTo(t, 5);
+
+        // The React hooks' sequence: a clutch per args adopts from the committed one.
+        const skipped = t.resource.createClutch();
+        skipped.adoptPrevious(t.clutch);
+        skipped.switch(SKIP, { markPending: true });
+
+        const next = t.resource.createClutch();
+        const nextState = observe(next);
+        next.adoptPrevious(skipped);
+        next.switch(2, { markPending: true });
+
+        expectRow(nextState(), 2, { args: 2 });
+    });
 });
 
 describe("ResourceClutch.switch() then start()", () => {
