@@ -1064,6 +1064,26 @@ describe("LocalState", () => {
             }
         });
 
+        it.each([
+            ["before init", true],
+            ["over a pending GC timer", false],
+        ])("checkInterval: Infinity set %s runs no sweep, even one already due in the meta", (_, beforeInit) => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+            const driver = createMarkedDriver({ [storageKey("stale")]: envelope(1, BASE - 61 * DAY) }, BASE + HOUR);
+
+            try {
+                if (beforeInit) LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+                LocalSignal.state({ key: "other", defaultValue: 0, driver });
+                LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+
+                vi.advanceTimersByTime(3 * HOUR);
+
+                expect(driver.getItem(storageKey("stale"))).not.toBeNull();
+            } finally {
+                LocalSignal.GC_OPTIONS = original;
+            }
+        });
+
         it("touch threshold respects a small per-slot maxUnreadTime", () => {
             const driver = createMarkedDriver(
                 { [storageKey("small")]: envelope(1, BASE - 3 * DAY, 4 * DAY) },

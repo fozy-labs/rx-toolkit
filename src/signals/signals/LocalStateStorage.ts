@@ -35,6 +35,9 @@ export const LOCAL_STATE_GC_DEFAULTS = {
  * `LocalState.GC_OPTIONS` / `LocalSignal.GC_OPTIONS` (same object reference).
  * Values are read at scheduling/sweep time — mutations apply from the next
  * scheduled step, they do not rewind an already pending timer.
+ * `checkInterval: Infinity` turns GC off: no sweep runs, not even one whose
+ * deadline is already stored in the meta; a finite value set back resumes
+ * GC from the next session.
  */
 export const GC_OPTIONS: {
     syncLimit: number;
@@ -137,6 +140,11 @@ function jitter(maxAbs: number) {
 function nextGcDeadline() {
     const deadline = Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset);
     return Number.isFinite(deadline) ? deadline : Number.MAX_SAFE_INTEGER;
+}
+
+/** GC runs only on a finite cadence — `checkInterval: Infinity` turns it off. */
+function isGcEnabled() {
+    return Number.isFinite(GC_OPTIONS.checkInterval);
 }
 
 /** Keep a Node process (SSR with a custom driver) from being held by GC timers. */
@@ -358,7 +366,7 @@ export class LocalStateStorage {
      * and sweeps; the rest see the moved deadline and just re-schedule.
      */
     private _scheduleGc() {
-        if (this._gcTimer !== null || !this._canSweep()) return;
+        if (this._gcTimer !== null || !isGcEnabled() || !this._canSweep()) return;
 
         const meta = this._readMeta();
 
@@ -411,6 +419,10 @@ export class LocalStateStorage {
         // may have been raised mid-session, turning slots that used to be
         // covered by the GC cadence into ones that need their own loop.
         this._armLiveTouchTimer(this._minLiveTouchThreshold());
+
+        // GC was turned off while this timer was pending — leave the deadline to
+        // sessions that still run GC and stop here without re-scheduling.
+        if (!isGcEnabled()) return;
 
         // Another tab already claimed and swept (or the timer was clamped) — re-schedule.
         if (Date.now() < meta.nextGcAt) {
