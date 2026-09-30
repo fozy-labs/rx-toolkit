@@ -764,6 +764,23 @@ describe("engine robustness", () => {
             subs.forEach((sub) => sub.unsubscribe());
         });
 
+        it("a State.obs subscriber reads a bridge over a computed of the state", () => {
+            const a = Signal.state(0);
+            const ca = Signal.compute(() => a() + 1);
+            const b = Signal.from(ca.obs.pipe(map((v) => v * 10)));
+            const effect = Signal.effect(() => {
+                b();
+            });
+            const seen: string[] = [];
+            const sub = a.obs.subscribe((v) => seen.push(`${v}:${b()}`));
+
+            a.set(1);
+
+            expect(seen).toEqual(["0:10", "1:20"]);
+            effect.unsubscribe();
+            sub.unsubscribe();
+        });
+
         it("a Computed.obs subscriber reads the bridge", () => {
             const s = Signal.state(1);
             const a = Signal.compute(() => s() + 1);

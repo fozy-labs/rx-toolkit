@@ -693,16 +693,19 @@ function enqueueWatcher(watcher: Watcher): void {
 }
 
 /**
- * A read by user code or an effect body: delivers pending `.obs` values into
- * the RxJS chains first, so a receiver they write is current. Reads inside an
- * evaluation, a delivery or a connect are covered by the outer read.
+ * A read by user code, an effect body or a State.obs subscriber: delivers
+ * pending `.obs` values into the RxJS chains first, so a receiver they write
+ * is current. Reads inside an evaluation, a connect or a watcher delivery are
+ * covered by the outer read or the gate; a read inside a bridge's chain is a
+ * snapshot.
  */
 export function drainForRead(): void {
     if (
         watchHead === watchTail ||
         connectedReceivers === 0 ||
         runningDepth !== 0 ||
-        deliveryDepth !== 0 ||
+        gateDepth !== 0 ||
+        bridgePhase ||
         connectDepth !== 0 ||
         draining
     ) {
@@ -2027,6 +2030,9 @@ function receiversOf(producer: Producer): readonly ReceiverLike[] {
 
 let gateStamp = 0;
 
+/** Gate rounds running: a read inside their deliveries does not drain (the gate orders them). */
+let gateDepth = 0;
+
 /**
  * One round of the delivery gate. A watcher is delivered when no other
  * pending watcher can write a receiver its node depends on without forming a
@@ -2040,6 +2046,15 @@ let gateStamp = 0;
  * of O(k) when no watcher can be proven safe ahead of the others.
  */
 function gateRound(): void {
+    gateDepth++;
+    try {
+        gateRoundInner();
+    } finally {
+        gateDepth--;
+    }
+}
+
+function gateRoundInner(): void {
     gateEpoch++;
     if (connectedReceivers === 0 || watchTail - watchHead === 1) {
         // No bridge can reorder anything: deliver the pending generation in
