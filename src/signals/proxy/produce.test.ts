@@ -1,4 +1,19 @@
+import { types } from "node:util";
+
 import { produce } from "./produce";
+
+function containsProxy(value: unknown, seen = new Set<unknown>()): boolean {
+    if (value === null || typeof value !== "object" || seen.has(value)) return false;
+    if (types.isProxy(value)) return true;
+    seen.add(value);
+    const children =
+        value instanceof Map
+            ? [...value.keys(), ...value.values()]
+            : value instanceof Set
+              ? [...value]
+              : Object.values(value);
+    return children.some((child) => containsProxy(child, seen));
+}
 
 describe("produce", () => {
     describe("objects and arrays", () => {
@@ -97,6 +112,74 @@ describe("produce", () => {
             });
             expect(next).not.toBe(base);
             expect(Object.keys(next)).toEqual(["b", "a"]);
+        });
+    });
+
+    describe("drafts placed into new containers", () => {
+        it("a spread or filtered draft array holds the plain elements", () => {
+            const base = {
+                a: [{ id: 1 }, { id: 2 }],
+                b: [
+                    { id: 1, keep: true },
+                    { id: 2, keep: false },
+                ],
+            };
+            const next = produce(base, (draft) => {
+                draft.a = [...draft.a, { id: 3 }];
+                draft.b = draft.b.filter((item) => item.keep);
+            });
+            expect(containsProxy(next)).toBe(false);
+            expect(next.a[0]).toBe(base.a[0]);
+            expect(next.b).toEqual([base.b[0]]);
+            expect(next.b[0]).toBe(base.b[0]);
+        });
+
+        it("an edited draft in a new object is finalized once and shared", () => {
+            const base: { a: { x: number }; w?: { inner: { x: number } } } = { a: { x: 1 } };
+            const next = produce(base, (draft) => {
+                draft.a.x = 2;
+                draft.w = { inner: draft.a };
+            });
+            expect(containsProxy(next)).toBe(false);
+            expect(next.w!.inner).toBe(next.a);
+            expect(next.a).toEqual({ x: 2 });
+            expect(base.a).toEqual({ x: 1 });
+        });
+
+        it("a Map built from a draft Map holds the plain values", () => {
+            const base = { m: new Map([["a", { x: 1 }]]), copy: new Map<string, { x: number }>() };
+            const next = produce(base, (draft) => {
+                draft.copy = new Map(draft.m);
+            });
+            expect(containsProxy(next)).toBe(false);
+            expect(next.copy.get("a")).toBe(base.m.get("a"));
+        });
+
+        it("a draft added to a Set or used as a Map key is stored as the plain value", () => {
+            const base = {
+                items: [{ id: 1 }],
+                picked: new Set<{ id: number }>(),
+                byItem: new Map<{ id: number }, number>(),
+            };
+            const next = produce(base, (draft) => {
+                draft.picked.add(draft.items[0]);
+                draft.byItem.set(draft.items[0], 1);
+            });
+            expect(containsProxy(next)).toBe(false);
+            expect(next.picked.has(base.items[0])).toBe(true);
+            expect(next.byItem.get(base.items[0])).toBe(1);
+        });
+
+        it("leaves the assigned container itself untouched", () => {
+            const base = { a: { x: 1 }, w: null as null | { inner: { x: number } } };
+            let assigned: { inner: { x: number } } | null = null;
+            const next = produce(base, (draft) => {
+                draft.a.x = 2;
+                assigned = { inner: draft.a };
+                draft.w = assigned;
+            });
+            expect(next.w).not.toBe(assigned);
+            expect(next.w!.inner).toBe(next.a);
         });
     });
 

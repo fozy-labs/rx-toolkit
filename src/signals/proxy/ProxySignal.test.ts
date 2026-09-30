@@ -268,6 +268,25 @@ describe("unstable_ProxySignal", () => {
             expect(seen).toBe("Bob");
         });
 
+        it("a later mutate does not change a snapshot whose array was rebuilt from drafts", () => {
+            const s$ = ProxySignal.state({ items: [{ id: 1, done: false }] });
+            s$.mutate((draft) => {
+                draft.items = [...draft.items];
+            });
+            const snapshot = s$.peek();
+            const seen: (boolean | undefined)[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(s$.root.items[0].done());
+            });
+            s$.mutate((draft) => {
+                draft.items[0].done = true;
+            });
+            expect(snapshot.items[0].done).toBe(false);
+            expect(s$.peek().items[0].done).toBe(true);
+            expect(seen).toEqual([false, true]);
+            eff.unsubscribe();
+        });
+
         it("does not modify the pre-mutate state object", () => {
             const state = makeShape();
             const s$ = ProxySignal.state(state);

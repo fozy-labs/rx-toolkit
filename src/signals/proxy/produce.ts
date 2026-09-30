@@ -5,7 +5,10 @@
  * the base itself (Object.is-equal).
  *
  * Map values are draftable; Set elements and class instances are atomic leaf
- * values — they are replaced wholesale, never drafted.
+ * values — they are replaced wholesale, never drafted. The result holds no
+ * drafts: a draft the recipe put into a new container (a spread, `filter`, an
+ * object literal, a Set, a Map key) is replaced by its result, in a copy of
+ * that container.
  *
  * A draft reads and writes its own copy, never the base, so a frozen base is
  * fine. `Object.defineProperty`, `Object.setPrototypeOf` and
@@ -17,10 +20,12 @@ const DRAFT_STATE = Symbol("rx-toolkit.draft-state");
 
 interface DraftState {
     base: any;
-    /** Shallow copy of base, created on first write to this node. */
+    /**
+     * Shallow copy of base, created on the first write to this node. From then
+     * on it holds the node's child drafts in place of their base values.
+     */
     copy: any | null;
-    modified: boolean;
-    /** Child drafts handed out from this node, keyed by property / map key. */
+    /** Child drafts handed out before the first write, keyed by property / Map key. */
     drafts: Map<unknown, any>;
     draft: any;
 }
@@ -43,8 +48,13 @@ function latest(state: DraftState): any {
     return state.copy ?? state.base;
 }
 
-function isDraft(value: unknown): boolean {
-    return isDraftable(value) && (value as any)[DRAFT_STATE] !== undefined;
+function readAt(container: any, key: unknown): unknown {
+    return container instanceof Map ? container.get(key) : container[key as any];
+}
+
+function writeAt(container: any, key: unknown, value: unknown): void {
+    if (container instanceof Map) container.set(key, value);
+    else container[key as any] = value;
 }
 
 function unsupported(operation: string): never {
@@ -70,12 +80,14 @@ const collectionTraps: ProxyHandler<object> = {
 };
 
 function createDraft(base: any, onWrite: (() => void) | null): DraftState {
-    const state: DraftState = { base, copy: null, modified: false, drafts: new Map(), draft: null };
+    const state: DraftState = { base, copy: null, drafts: new Map(), draft: null };
 
     const touch = () => {
-        if (!state.modified) {
-            state.modified = true;
-            state.copy = shallowCopy(state.base);
+        if (state.copy === null) {
+            const copy = shallowCopy(base);
+            for (const [key, child] of state.drafts) writeAt(copy, key, child);
+            state.drafts.clear();
+            state.copy = copy;
         }
         onWrite?.();
     };
@@ -91,33 +103,21 @@ function createDraft(base: any, onWrite: (() => void) | null): DraftState {
     return state;
 }
 
-/** The value at `key` as the draft sees it: its child draft while that is still attached. */
-function current(state: DraftState, key: unknown, value: unknown): unknown {
-    const child = state.drafts.get(key);
-    return child !== undefined && Object.is(value, child[DRAFT_STATE].base) ? child : value;
+/** The value at `key` as the draft sees it: a child draft handed out for it, or the raw value. */
+function current(state: DraftState, key: unknown): unknown {
+    if (state.copy !== null) return readAt(state.copy, key);
+    return state.drafts.get(key) ?? readAt(state.base, key);
 }
 
-/**
- * Returns the (possibly drafted) child at `key`. `read`/`readBase` abstract
- * over property access vs Map.get.
- */
-function childValue(
-    state: DraftState,
-    touch: () => void,
-    key: unknown,
-    read: (container: any, key: any) => unknown,
-): unknown {
-    const value = read(latest(state), key);
-    const child = current(state, key, value);
-    if (child !== value) return child;
-    // Draft only values still shared with the base; objects assigned during
-    // the recipe are owned by the draft and mutate directly.
-    if (isDraftable(value) && !isDraft(value) && Object.is(value, read(state.base, key))) {
-        const child = createDraft(value, touch).draft;
-        state.drafts.set(key, child);
-        return child;
-    }
-    return value;
+/** Returns the child at `key`, drafting a value still shared with the base. */
+function childValue(state: DraftState, touch: () => void, key: unknown): unknown {
+    const value = current(state, key);
+    // Objects assigned during the recipe are owned by the draft and mutate directly.
+    if (!Object.is(value, readAt(state.base, key)) || !isDraftable(value)) return value;
+    const child = createDraft(value, touch).draft;
+    if (state.copy === null) state.drafts.set(key, child);
+    else writeAt(state.copy, key, child);
+    return child;
 }
 
 function createObjectDraft(state: DraftState, touch: () => void): any {
@@ -127,27 +127,19 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
         get(_target, prop) {
             if (prop === DRAFT_STATE) return state;
             if (typeof prop === "symbol") return Reflect.get(latest(state), prop);
-            return childValue(state, touch, prop, (container, key) => container[key]);
+            return childValue(state, touch, prop);
         },
         set(_target, prop, value) {
-            const source = latest(state);
             // Compared with the child draft, not the raw value: assigning the
             // base value back drops the edits made through the draft.
-            if (Object.is(current(state, prop, source[prop]), value) && prop in source) return true;
+            if (prop in latest(state) && Object.is(current(state, prop), value)) return true;
             touch();
-            state.drafts.delete(prop);
-            if (isDraft(value)) {
-                state.drafts.set(prop, value);
-                state.copy[prop] = (value as any)[DRAFT_STATE].base;
-            } else {
-                state.copy[prop] = value;
-            }
+            state.copy[prop] = value;
             return true;
         },
         deleteProperty(_target, prop) {
             if (!(prop in latest(state))) return true;
             touch();
-            state.drafts.delete(prop);
             delete state.copy[prop];
             return true;
         },
@@ -178,51 +170,40 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
  * Proxy unusable as a receiver, so every method is replaced with a closure.
  */
 function createMapDraft(state: DraftState, touch: () => void): any {
-    const readEntry = (container: Map<unknown, unknown>, key: unknown) => container.get(key);
-
     const methods: Record<string | symbol, unknown> = {
-        get: (key: unknown) => childValue(state, touch, key, readEntry),
+        get: (key: unknown) => childValue(state, touch, key),
         has: (key: unknown) => latest(state).has(key),
         set(key: unknown, value: unknown) {
-            const source: Map<unknown, unknown> = latest(state);
-            if (!(source.has(key) && Object.is(current(state, key, source.get(key)), value))) {
+            if (!(latest(state).has(key) && Object.is(current(state, key), value))) {
                 touch();
-                state.drafts.delete(key);
-                if (isDraft(value)) {
-                    state.drafts.set(key, value);
-                    state.copy.set(key, (value as any)[DRAFT_STATE].base);
-                } else {
-                    state.copy.set(key, value);
-                }
+                state.copy.set(key, value);
             }
             return state.draft;
         },
         delete(key: unknown) {
             if (!latest(state).has(key)) return false;
             touch();
-            state.drafts.delete(key);
             return state.copy.delete(key);
         },
         clear() {
             if (latest(state).size === 0) return;
             touch();
-            state.drafts.clear();
             state.copy.clear();
         },
         keys: () => latest(state).keys(),
         values: function* () {
             for (const key of latest(state).keys()) {
-                yield childValue(state, touch, key, readEntry);
+                yield childValue(state, touch, key);
             }
         },
         entries: function* () {
             for (const key of latest(state).keys()) {
-                yield [key, childValue(state, touch, key, readEntry)];
+                yield [key, childValue(state, touch, key)];
             }
         },
         forEach(callback: (value: unknown, key: unknown, map: unknown) => void, thisArg?: unknown) {
             for (const key of latest(state).keys()) {
-                callback.call(thisArg, childValue(state, touch, key, readEntry), key, state.draft);
+                callback.call(thisArg, childValue(state, touch, key), key, state.draft);
             }
         },
     };
@@ -287,26 +268,68 @@ function createSetDraft(state: DraftState, touch: () => void): any {
     });
 }
 
-function readAt(container: any, key: unknown): unknown {
-    return container instanceof Map ? container.get(key) : container[key as any];
+type Memo = Map<object, unknown>;
+
+/**
+ * The plain value for `value`: a draft resolves to its result, and a container
+ * the recipe built gets its drafts replaced the same way, in a copy. Each draft
+ * resolves once, so a draft placed at two spots gives one shared result.
+ */
+function finalize(value: unknown, memo: Memo): unknown {
+    if (!isDraftable(value)) return value;
+    if (memo.has(value)) return memo.get(value);
+    memo.set(value, value); // cycles are not supported: a back edge stays as is
+    const state: DraftState | undefined = (value as any)[DRAFT_STATE];
+    const result = state === undefined ? finalizeEntries(value, null, false, memo) : finalizeDraft(state, memo);
+    memo.set(value, result);
+    return result;
 }
 
-function finalizeState(state: DraftState): any {
-    let result = state.modified ? state.copy : state.base;
-    for (const [key, childDraft] of state.drafts) {
-        const childState: DraftState = childDraft[DRAFT_STATE];
-        // Skip child drafts detached by a later reassignment or delete.
-        if (!Object.is(readAt(result, key), childState.base)) continue;
-        const finalized = finalizeState(childState);
-        if (Object.is(finalized, readAt(result, key))) continue;
-        if (result === state.base) result = shallowCopy(state.base);
-        if (result instanceof Map) {
-            result.set(key, finalized);
-        } else {
-            result[key as any] = finalized;
+function finalizeDraft(state: DraftState, memo: Memo): unknown {
+    // A write touches every ancestor, so nothing below an untouched node changed.
+    if (state.copy === null) return state.base;
+    const result = finalizeEntries(state.copy, state.base, true, memo);
+    return isShallowEqual(result, state.base) ? state.base : result;
+}
+
+/**
+ * Finalizes the entries of `container`. An entry equal to the one `base` has
+ * at the same key is shared with the base, which holds no drafts, so it is
+ * not walked. `owned`: the container is a draft's copy and changes in place.
+ */
+function finalizeEntries(container: any, base: any, owned: boolean, memo: Memo): any {
+    if (container instanceof Map) {
+        let changed = false;
+        const entries: [unknown, unknown][] = [];
+        for (const [key, value] of container) {
+            const shared = base !== null && base.has(key);
+            const nextKey = shared ? key : finalize(key, memo);
+            const nextValue = shared && Object.is(value, base.get(key)) ? value : finalize(value, memo);
+            changed ||= nextKey !== key || nextValue !== value;
+            entries.push([nextKey, nextValue]);
         }
+        return changed ? new Map(entries) : container;
     }
-    return result !== state.base && isShallowEqual(result, state.base) ? state.base : result;
+    if (container instanceof Set) {
+        let changed = false;
+        const values: unknown[] = [];
+        for (const value of container) {
+            const next = base !== null && base.has(value) ? value : finalize(value, memo);
+            changed ||= next !== value;
+            values.push(next);
+        }
+        return changed ? new Set(values) : container;
+    }
+    let result = container;
+    for (const key of Reflect.ownKeys(container)) {
+        const value = container[key];
+        if (base !== null && Object.is(value, base[key])) continue;
+        const next = finalize(value, memo);
+        if (next === value) continue;
+        if (result === container && !owned) result = shallowCopy(container);
+        result[key] = next;
+    }
+    return result;
 }
 
 /** Same entries in the same order, compared with Object.is. */
@@ -333,5 +356,5 @@ export function produce<T extends object>(base: T, recipe: (draft: T) => void): 
     }
     const state = createDraft(base, null);
     recipe(state.draft as T);
-    return finalizeState(state);
+    return finalize(state.draft, new Map()) as T;
 }
