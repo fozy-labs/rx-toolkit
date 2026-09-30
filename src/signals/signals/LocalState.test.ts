@@ -1099,6 +1099,31 @@ describe("LocalState", () => {
             expect(stored("to-custom")).toEqual({ at: BASE, ttl: 2 * DAY, data: 3 });
         });
 
+        it("maxUnreadTime: Infinity is stored and touched exactly like gc: false", () => {
+            const driver = createMarkedDriver(
+                {
+                    [storageKey("inf")]: envelope(1, BASE - HOUR, null),
+                    [storageKey("off")]: envelope(2, BASE - HOUR, null),
+                },
+                BASE + WEEK,
+            );
+            const setItem = vi.spyOn(driver, "setItem");
+            const writes = (key: string) => setItem.mock.calls.filter(([k]) => k === storageKey(key)).length;
+            const load = () => {
+                LocalSignal.state({ key: "inf", defaultValue: 0, driver, gc: { maxUnreadTime: Infinity } });
+                LocalSignal.state({ key: "off", defaultValue: 0, driver, gc: false });
+            };
+
+            load();
+            expect(writes("inf")).toBe(0);
+
+            vi.advanceTimersByTime(60 * DAY);
+            load();
+
+            expect(writes("inf")).toBe(writes("off"));
+            expect(JSON.parse(driver.getItem(storageKey("inf"))!).ttl).toBeNull();
+        });
+
         it("another tab does not sweep a slot loaded with gc: false over an older 1-day ttl", () => {
             const map = new Map<string, string>([
                 [KEY_PREFIX, meta(1, BASE + 25 * HOUR)],

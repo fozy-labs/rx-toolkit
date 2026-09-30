@@ -67,6 +67,8 @@ function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
  * Collapses the `gc` option into the envelope `ttl` field:
  * `null` = exempt, number = explicit maxUnreadTime, `undefined` = default
  * policy (not persisted, so default changes reach already stored slots).
+ * `maxUnreadTime: Infinity` never expires, so it is exempt: JSON stores
+ * `Infinity` as `null` anyway, and the policy must equal its stored form.
  */
 function resolveSlotTtl(gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
     if (gc === false) return null;
@@ -74,6 +76,7 @@ function resolveSlotTtl(gc: boolean | LocalStateGcOptions | undefined): SlotTtl 
     if (gc.enabled === false) return null;
     if (gc.maxUnreadTime === undefined) return undefined;
     if (gc.maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
+    if (gc.maxUnreadTime === Infinity) return null;
     return gc.maxUnreadTime;
 }
 
