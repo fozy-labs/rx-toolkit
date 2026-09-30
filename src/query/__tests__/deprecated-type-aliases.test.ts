@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { composeHooks } from "@/query";
+import type * as Query from "@/query";
 import type {
     Args,
     ArgsOrVoid,
@@ -30,8 +31,6 @@ import type {
     TCombinePluginProjectionResourceAugments,
     TCombinePluginResourceAugments,
     TErrorState,
-    TInvalidateErrorState,
-    TInvalidatingState,
     TKeyed,
     TMachineState,
     TMachineStatus,
@@ -40,8 +39,6 @@ import type {
     TPackedResource,
     TPendingState,
     TQueryEntryErrorState,
-    TQueryEntryInvalidateErrorState,
-    TQueryEntryInvalidatingState,
     TQueryEntryPendingState,
     TQueryEntryState,
     TQueryEntryStatus,
@@ -79,12 +76,14 @@ describe("deprecated type aliases (removed in 0.14.0)", () => {
         expectTypeOf<TPendingState<number>>().toEqualTypeOf<TQueryEntryPendingState<number>>();
         expectTypeOf<TSuccessState<number, string>>().toEqualTypeOf<TQueryEntrySuccessState<number, string>>();
         expectTypeOf<TErrorState<number>>().toEqualTypeOf<TQueryEntryErrorState<number>>();
-        expectTypeOf<TInvalidatingState<number, string>>().toEqualTypeOf<
-            TQueryEntryInvalidatingState<number, string>
-        >();
-        expectTypeOf<TInvalidateErrorState<number, string>>().toEqualTypeOf<
-            TQueryEntryInvalidateErrorState<number, string>
-        >();
+    });
+
+    it("names no release had get no alias", () => {
+        // Intermediate 0.13.0 names: 0.12 had TRefreshingState / TRefreshErrorState.
+        // @ts-expect-error — never released
+        expectTypeOf<Query.TInvalidatingState<number, string>>().not.toBeNever();
+        // @ts-expect-error — never released
+        expectTypeOf<Query.TInvalidateErrorState<number, string>>().not.toBeNever();
     });
 
     it("clutch interfaces forward from the Agent names", () => {
