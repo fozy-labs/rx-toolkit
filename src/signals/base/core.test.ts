@@ -531,6 +531,28 @@ describe("engine robustness", () => {
         }
     });
 
+    it("a computed observed again while it lets its sources go stays subscribed to all of them", () => {
+        const closed = Signal.state(false);
+        const src = SourceSignal.create<number>((subscriber) => {
+            subscriber.next(1);
+            // an upstream teardown that writes a state
+            return () => closed.set(true);
+        });
+        const other = Signal.state(10);
+        const c = Signal.compute(() => src() + other());
+        const sub = c.obs.subscribe();
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            if (closed()) seen.push(c());
+        });
+
+        sub.unsubscribe();
+        other.set(20);
+
+        expect(seen).toEqual([11, 21]);
+        effect.unsubscribe();
+    });
+
     describe("dispose() completes .obs subscribers after the value they are due", () => {
         const log = (into: unknown[], tag: string) => ({
             next: (v: unknown) => into.push(`${tag}${String(v)}`),

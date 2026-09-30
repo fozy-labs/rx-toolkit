@@ -1109,12 +1109,17 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
         }
     }
 
+    // A source's lifecycle hook runs user code (an upstream subscribe or
+    // teardown) that can flush reactions, and one of them can observe this
+    // node again or let it go: the loop stops once that happened, as the
+    // nested call already did its work for every link.
     override _onObserved(): void {
         // A disposed computed stays cold: its dependents are never woken through it.
         if ((this._flags & DISPOSED) !== 0) return;
         this._flags |= OUTDATED | TRACKING | RETRY;
         for (let link = this._sources; link !== undefined; link = link._nextSource) {
             link._source._subscribe(link);
+            if ((this._flags & TRACKING) === 0) return;
         }
     }
 
@@ -1123,6 +1128,7 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
         this._flags &= ~TRACKING;
         for (let link = this._sources; link !== undefined; link = link._nextSource) {
             link._source._unsubscribe(link);
+            if ((this._flags & TRACKING) !== 0) return;
         }
     }
 
