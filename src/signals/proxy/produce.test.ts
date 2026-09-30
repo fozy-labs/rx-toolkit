@@ -52,6 +52,54 @@ describe("produce", () => {
         });
     });
 
+    describe("assigning the original value back", () => {
+        it("drops the edits made through the child draft", () => {
+            const base = { form: { name: "Ann" }, list: [{ n: 0 }] };
+            const next = produce(base, (draft) => {
+                draft.form.name = "typo";
+                draft.form = base.form;
+                draft.list[0].n = 1;
+                draft.list[0] = base.list[0];
+            });
+            expect(next).toBe(base);
+            expect(base).toEqual({ form: { name: "Ann" }, list: [{ n: 0 }] });
+        });
+
+        it("drops the edits made through a Map value draft", () => {
+            const original = { n: 0 };
+            const base = new Map([["k", original]]);
+            const next = produce(base, (draft) => {
+                draft.get("k")!.n = 1;
+                draft.set("k", original);
+            });
+            expect(next).toBe(base);
+            expect(original.n).toBe(0);
+        });
+
+        it("returns the base when an edit is reverted", () => {
+            const base = { a: 1, m: new Map([["k", 1]]), s: new Set([1]) };
+            const next = produce(base, (draft) => {
+                draft.a = 2;
+                draft.a = 1;
+                draft.m.set("k", 2);
+                draft.m.set("k", 1);
+                draft.s.add(2);
+                draft.s.delete(2);
+            });
+            expect(next).toBe(base);
+        });
+
+        it("keeps a changed key order", () => {
+            const base = { a: 1, b: 2 };
+            const next = produce(base, (draft) => {
+                delete (draft as Partial<typeof base>).a;
+                draft.a = 1;
+            });
+            expect(next).not.toBe(base);
+            expect(Object.keys(next)).toEqual(["b", "a"]);
+        });
+    });
+
     describe("writing undefined", () => {
         it("clears an existing key", () => {
             const base: { a?: number; o?: { x: number } } = { a: 1, o: { x: 1 } };

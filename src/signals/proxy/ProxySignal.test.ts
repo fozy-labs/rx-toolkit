@@ -390,6 +390,26 @@ describe("unstable_ProxySignal", () => {
             sub.unsubscribe();
         });
 
+        it("mutate that edits a subtree and assigns the original back notifies no one", () => {
+            const s$ = ProxySignal.state({ form: { name: "Ann" } });
+            const original = s$.peek().form;
+            const names: string[] = [];
+            const emitted: unknown[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.form.name());
+            });
+            const sub = s$.obs.subscribe((value) => emitted.push(value));
+            s$.mutate((draft) => {
+                draft.form.name = "typo";
+                draft.form = original;
+            });
+            expect(s$.peek().form).toBe(original);
+            expect(names).toEqual(["Ann"]);
+            expect(emitted).toHaveLength(1);
+            sub.unsubscribe();
+            eff.unsubscribe();
+        });
+
         it("path subscriber is notified when its key is deleted (value becomes undefined)", () => {
             const s$ = ProxySignal.state(makeShape());
             const seen: unknown[] = [];

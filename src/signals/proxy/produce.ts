@@ -1,8 +1,8 @@
 /**
  * Minimal copy-on-write draft (immer-like), scoped to plain objects, arrays,
  * Map and Set. The base is never mutated; untouched subtrees keep reference
- * identity, and a recipe that changes nothing returns the base itself
- * (Object.is-equal).
+ * identity, and a recipe that changes nothing — or reverts its edits — returns
+ * the base itself (Object.is-equal).
  *
  * Map values are draftable; Set elements and class instances are atomic leaf
  * values — they are replaced wholesale, never drafted.
@@ -91,6 +91,12 @@ function createDraft(base: any, onWrite: (() => void) | null): DraftState {
     return state;
 }
 
+/** The value at `key` as the draft sees it: its child draft while that is still attached. */
+function current(state: DraftState, key: unknown, value: unknown): unknown {
+    const child = state.drafts.get(key);
+    return child !== undefined && Object.is(value, child[DRAFT_STATE].base) ? child : value;
+}
+
 /**
  * Returns the (possibly drafted) child at `key`. `read`/`readBase` abstract
  * over property access vs Map.get.
@@ -102,10 +108,8 @@ function childValue(
     read: (container: any, key: any) => unknown,
 ): unknown {
     const value = read(latest(state), key);
-    const existing = state.drafts.get(key);
-    if (existing !== undefined && Object.is(value, existing[DRAFT_STATE].base)) {
-        return existing;
-    }
+    const child = current(state, key, value);
+    if (child !== value) return child;
     // Draft only values still shared with the base; objects assigned during
     // the recipe are owned by the draft and mutate directly.
     if (isDraftable(value) && !isDraft(value) && Object.is(value, read(state.base, key))) {
@@ -126,9 +130,10 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
             return childValue(state, touch, prop, (container, key) => container[key]);
         },
         set(_target, prop, value) {
-            if (state.drafts.has(prop) && state.drafts.get(prop) === value) return true;
             const source = latest(state);
-            if (Object.is(source[prop], value) && prop in source) return true;
+            // Compared with the child draft, not the raw value: assigning the
+            // base value back drops the edits made through the draft.
+            if (Object.is(current(state, prop, source[prop]), value) && prop in source) return true;
             touch();
             state.drafts.delete(prop);
             if (isDraft(value)) {
@@ -180,8 +185,7 @@ function createMapDraft(state: DraftState, touch: () => void): any {
         has: (key: unknown) => latest(state).has(key),
         set(key: unknown, value: unknown) {
             const source: Map<unknown, unknown> = latest(state);
-            const isOwnDraft = state.drafts.has(key) && state.drafts.get(key) === value;
-            if (!isOwnDraft && !(source.has(key) && Object.is(source.get(key), value))) {
+            if (!(source.has(key) && Object.is(current(state, key, source.get(key)), value))) {
                 touch();
                 state.drafts.delete(key);
                 if (isDraft(value)) {
@@ -302,7 +306,25 @@ function finalizeState(state: DraftState): any {
             result[key as any] = finalized;
         }
     }
-    return result;
+    return result !== state.base && isShallowEqual(result, state.base) ? state.base : result;
+}
+
+/** Same entries in the same order, compared with Object.is. */
+function isShallowEqual(a: any, b: any): boolean {
+    if (a instanceof Map || a instanceof Set) {
+        if (a.size !== b.size) return false;
+        const other = b.entries();
+        for (const [key, value] of a.entries()) {
+            const [otherKey, otherValue] = other.next().value;
+            if (!Object.is(key, otherKey) || !Object.is(value, otherValue)) return false;
+        }
+        return true;
+    }
+    const keys = Reflect.ownKeys(a);
+    const otherKeys = Reflect.ownKeys(b);
+    return (
+        keys.length === otherKeys.length && keys.every((key, i) => key === otherKeys[i] && Object.is(a[key], b[key]))
+    );
 }
 
 export function produce<T extends object>(base: T, recipe: (draft: T) => void): T {
