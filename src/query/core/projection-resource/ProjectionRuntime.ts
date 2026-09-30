@@ -379,18 +379,22 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         let removal: Subscription | undefined;
 
         const promise: TBatch = (async () => {
+            // A throw of `makeArgs` or the wrapped `serializeArgs` is raw — no
+            // entry mapped it — so it rejects the batch as is, and the outer
+            // entry maps it once, like any of its own failures.
+            const args = this._wrapped.toKeyed(this._makeArgs(ids));
+            // The invalidation makes a run go out now (or, on an entry
+            // nobody holds, on the hold `fetch` takes); `fetch` then
+            // awaits whichever run is in flight.
+            if (isFresh) this._wrapped.invalidate(args, { inFlight: "cancel" });
+            const fetched = this._wrapped.fetch(args, { inFlight: "join" });
+            // The batch is only as alive as the wrapped entry it awaits: a
+            // reset that removes the entry dooms the batch at once, so
+            // loads from then on must request their ids afresh, not join it.
+            removal = this._wrapped.getEntry(args.value as TArgsOrVoid<TResArgs>)?.completed$.subscribe(unlist);
+
             let data: TResData;
             try {
-                const args = this._wrapped.toKeyed(this._makeArgs(ids));
-                // The invalidation makes a run go out now (or, on an entry
-                // nobody holds, on the hold `fetch` takes); `fetch` then
-                // awaits whichever run is in flight.
-                if (isFresh) this._wrapped.invalidate(args, { inFlight: "cancel" });
-                const fetched = this._wrapped.fetch(args, { inFlight: "join" });
-                // The batch is only as alive as the wrapped entry it awaits: a
-                // reset that removes the entry dooms the batch at once, so
-                // loads from then on must request their ids afresh, not join it.
-                removal = this._wrapped.getEntry(args.value as TArgsOrVoid<TResArgs>)?.completed$.subscribe(unlist);
                 data = await fetched;
             } catch (error) {
                 // The wrapped resource rejects with its entry error, which
