@@ -183,6 +183,31 @@ describe("produce", () => {
         });
     });
 
+    describe("inherited members", () => {
+        it("reading `__proto__` of an object draft returns the prototype, not a draft", () => {
+            const base = { a: 1, o: { x: 1 } };
+            const next = produce(base, (draft) => {
+                expect(types.isProxy(Reflect.get(draft, "__proto__"))).toBe(false);
+                void Reflect.get(draft.o, "__proto__");
+                draft.a = 2;
+                draft.o.x = 2;
+            });
+            expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+            expect(Object.getPrototypeOf(next.o)).toBe(Object.prototype);
+            expect(next).toEqual({ a: 2, o: { x: 2 } });
+        });
+
+        it("reading `__proto__` of an array draft keeps the array prototype", () => {
+            const base = { l: [1, 2] };
+            const next = produce(base, (draft) => {
+                void Reflect.get(draft.l, "__proto__");
+                draft.l.push(3);
+            });
+            expect(Object.getPrototypeOf(next.l)).toBe(Array.prototype);
+            expect(next.l).toEqual([1, 2, 3]);
+        });
+    });
+
     describe("writing undefined", () => {
         it("clears an existing key", () => {
             const base: { a?: number; o?: { x: number } } = { a: 1, o: { x: 1 } };

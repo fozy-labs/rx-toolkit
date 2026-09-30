@@ -109,11 +109,18 @@ function current(state: DraftState, key: unknown): unknown {
     return state.drafts.get(key) ?? readAt(state.base, key);
 }
 
+function hasOwnEntry(container: any, key: unknown): boolean {
+    return container instanceof Map ? container.has(key) : Object.prototype.hasOwnProperty.call(container, key as any);
+}
+
 /** Returns the child at `key`, drafting a value still shared with the base. */
 function childValue(state: DraftState, touch: () => void, key: unknown): unknown {
     const value = current(state, key);
-    // Objects assigned during the recipe are owned by the draft and mutate directly.
-    if (!Object.is(value, readAt(state.base, key)) || !isDraftable(value)) return value;
+    // Objects assigned during the recipe are owned by the draft and mutate
+    // directly; an inherited member (`__proto__`) is not an entry of the node.
+    if (!isDraftable(value) || !Object.is(value, readAt(state.base, key)) || !hasOwnEntry(state.base, key)) {
+        return value;
+    }
     const child = createDraft(value, touch).draft;
     if (state.copy === null) state.drafts.set(key, child);
     else writeAt(state.copy, key, child);
