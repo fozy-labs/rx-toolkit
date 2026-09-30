@@ -285,9 +285,10 @@ Consider using a unique path for each state or ensure that states are properly d
 // Keys are split on "/" into a tree. A key may be a leaf and a parent at once
 // ("a/b" next to "a/b/c"), so a node keeps its own value apart from its
 // children: the one never overwrites or deletes the other. The rendered view of
-// such a node puts its own value under OWN_VALUE_KEY next to the children.
+// such a node puts its own value under OWN_VALUE_KEY next to the children:
+// "." as in a path, where "a/b/." is "a/b" itself.
 
-const OWN_VALUE_KEY = "$value";
+const OWN_VALUE_KEY = ".";
 
 interface TreeNode {
     hasValue: boolean;

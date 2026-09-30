@@ -44,8 +44,6 @@ RxToolkit решает эти проблемы, предоставляя сво�
 
 [**CHANGELOG**](./docs/CHANGELOG.md)
 
-[**CONTRIBUTING**](./docs/CONTRIBUTING.md)
-
 ## 🌟 Примеры
 
 ###### Создаем сигнал

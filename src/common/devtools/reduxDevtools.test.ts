@@ -149,7 +149,7 @@ describe("reduxDevtools", () => {
                     const values: Record<string, unknown> = { "a/b": { x: 1 }, "a/b/c": 2 };
                     order.forEach((key) => dt.state(key, values[key]));
 
-                    expect(lastState(connection)).toEqual({ a: { b: { $value: { x: 1 }, c: 2 } } });
+                    expect(lastState(connection)).toEqual({ a: { b: { ".": { x: 1 }, c: 2 } } });
                 }
             });
 
@@ -160,9 +160,9 @@ describe("reduxDevtools", () => {
                 const child = dt.state("a/b/c", 2);
 
                 leaf(10);
-                expect(lastState(connection)).toEqual({ a: { b: { $value: 10, c: 2 } } });
+                expect(lastState(connection)).toEqual({ a: { b: { ".": 10, c: 2 } } });
                 child(20);
-                expect(lastState(connection)).toEqual({ a: { b: { $value: 10, c: 20 } } });
+                expect(lastState(connection)).toEqual({ a: { b: { ".": 10, c: 20 } } });
             });
 
             it("clearing the leaf keeps its children, and clearing the children restores the plain leaf", () => {
