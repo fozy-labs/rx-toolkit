@@ -12,8 +12,11 @@ import {
     throwError,
 } from "rxjs";
 
+import type { DisposableSignal } from "@/signals/types";
+
 import { Batcher } from "../base/Batcher";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
+import { SignalCycleError } from "../base/SignalCycleError";
 
 import { FromSignal } from "./FromSignal";
 import { Signal } from "./Signal";
@@ -119,6 +122,25 @@ describe("Signal.from", () => {
             inner$.next(10);
             expect(signal()).toBe(0);
             expect(counter.subscriptions).toBe(2);
+        });
+
+        it("a read gets a synchronous source error, not the default", () => {
+            const signal = Signal.from(
+                throwError(() => new Error("boom")),
+                { keepAlive: "none", default: 1 },
+            );
+
+            expect(() => signal()).toThrow("boom");
+            expect(() => signal.peek()).toThrow("boom");
+        });
+
+        it("a source that reads the signal while it subscribes throws SignalCycleError to the reader", () => {
+            const signal: DisposableSignal<number> = Signal.from(
+                defer(() => of(signal() + 1)),
+                { keepAlive: "none", default: 0 },
+            );
+
+            expect(() => signal()).toThrow(SignalCycleError);
         });
     });
 

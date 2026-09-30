@@ -81,6 +81,13 @@ describe("SourceSignal", () => {
             expect(runs).toBe(1);
             expect((caught as Error).message).toBe("fail1");
         });
+
+        it("a read without observers gets the error of a producer that fails synchronously, not the default", () => {
+            const signal = SourceSignal.create<number>((subscriber) => subscriber.error(new Error("fail")), 0);
+
+            expect(() => signal()).toThrow("fail");
+            expect(() => signal.peek()).toThrow("fail");
+        });
     });
 
     describe("readonly contract", () => {

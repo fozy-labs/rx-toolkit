@@ -19,6 +19,7 @@ import {
     KIND_RECEIVER,
     leaveConnect,
     NodeObservable,
+    NONE,
     Producer,
     queueRelease,
     receiverCycleError,
@@ -137,16 +138,31 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         const link = addDependency(this);
         this._refresh();
         if (link !== undefined) link._version = this._version;
-        afterRead();
-        return this._readValue();
+        return this._settleRead();
     }
 
     peek(): T {
         if ((this._flags & CONNECTING) !== 0) throw receiverCycleError(this);
         this._drain();
         this._refresh();
+        return this._settleRead();
+    }
+
+    /**
+     * Takes the state this read connected to, then settles the read: with
+     * keepAlive "none" that releases the upstream, which clears an error.
+     */
+    private _settleRead(): T {
+        let value: T | undefined;
+        let error: unknown = NONE;
+        try {
+            value = this._readValue();
+        } catch (caught) {
+            error = caught;
+        }
         afterRead();
-        return this._readValue();
+        if (error !== NONE) throw error;
+        return value as T;
     }
 
     /**
