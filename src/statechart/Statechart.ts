@@ -2,6 +2,7 @@ import type { MachineDevtoolsActor, MachineDevtoolsLike } from "@/common/devtool
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import { untracked } from "@/signals/base/untracked";
 import { State } from "@/signals/signals/State";
 import type { ReadonlySignal } from "@/signals/types";
 
@@ -343,13 +344,15 @@ export class unstable_Statechart<
     // === initialization ===
 
     /**
-     * Runs the initial macrostep with the executor in deferred mode. A throw
-     * (builtin at init) yields an error state built from the pre-initial
-     * state; the caller decides where to report it.
+     * Runs the initial macrostep with the executor in deferred mode, untracked
+     * like a burst (see `_runGuarded`): the `context` factory and initial
+     * builtins may read signals. A throw (builtin at init) yields an error
+     * state built from the pre-initial state; the caller decides where to
+     * report it.
      */
     private _computeInitialState(): { state: MachineState<TContext, TEvent>; error: { error: unknown } | null } {
         try {
-            return { state: initialize(this._model, this._scope).state, error: null };
+            return { state: untracked(() => initialize(this._model, this._scope)).state, error: null };
         } catch (error) {
             this._deferred.length = 0;
             return { state: this._createErrorState(this._createPreInitialState(), error), error: { error } };
@@ -399,8 +402,16 @@ export class unstable_Statechart<
      * ran every other reaction) does not stop the drain: events those
      * reactions sent are processed, and the first such error is rethrown at
      * the very end.
+     *
+     * The burst runs untracked: signals read by guards, actions, `assign` or
+     * `onError` belong to the machine, not to the `Computed` / `Effect` that
+     * happened to call `send()` / `start()` / `stop()`.
      */
     private _runGuarded(body: () => void): void {
+        untracked(() => this._runBurst(body));
+    }
+
+    private _runBurst(body: () => void): void {
         this._processing = true;
         let failure: { error: unknown } | null = null;
         let reactionError: { error: unknown } | null = null;

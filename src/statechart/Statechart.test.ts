@@ -9,7 +9,7 @@ import { assign, cancel, log, raise } from "./actions";
 import { MachineConfigError } from "./core/MachineConfigError";
 import { unstable_createMachine as createMachine } from "./createMachine";
 import { unstable_Statechart as Statechart } from "./Statechart";
-import type { MachineClock, MachineContext, MachineSnapshot } from "./types";
+import type { AnyEventObject, MachineClock, MachineContext, MachineSnapshot } from "./types";
 
 // --- helpers ---------------------------------------------------------------
 
@@ -1504,6 +1504,81 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         expect(engine.status).toBe("disposed");
         restart.unsubscribe();
         dispose.unsubscribe();
+    });
+});
+
+describe("Statechart and dependency tracking", () => {
+    it("signals read by guards, assign and actions during send() do not become dependencies of the calling effect", () => {
+        const allowed = Signal.state(true);
+        const amount = Signal.state(1);
+        const note = Signal.state("");
+        const definition = createMachine(
+            {
+                id: "m",
+                initial: "a",
+                context: { total: 0 },
+                states: {
+                    a: {
+                        on: {
+                            ADD: {
+                                guard: () => allowed(),
+                                actions: [assign({ total: ({ context }) => context.total + amount() }), "record"],
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                actions: {
+                    record: () => {
+                        note();
+                    },
+                },
+            },
+        );
+        const engine = new Statechart(definition);
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            runs++;
+            engine.send({ type: "ADD" });
+        });
+        expect(runs).toBe(1);
+
+        allowed.set(false);
+        amount.set(2);
+        note.set("x");
+        expect(runs).toBe(1);
+        expect(engine.state.peek().context.total).toBe(1);
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    it("signals read by the context factory and initial entry actions do not become dependencies of the creating effect", () => {
+        const seed = Signal.state(0);
+        const other = Signal.state(0);
+        const definition = createMachine(
+            { id: "m", initial: "a", context: () => ({ n: seed() }), states: { a: { entry: "read" } } },
+            {
+                actions: {
+                    read: () => {
+                        other();
+                    },
+                },
+            },
+        );
+        let runs = 0;
+        let engine: Statechart<{ n: number }, AnyEventObject> | undefined;
+        const effect = Signal.effect(() => {
+            runs++;
+            engine?.dispose();
+            engine = new Statechart(definition);
+        });
+        seed.set(1);
+        other.set(1);
+        expect(runs).toBe(1);
+        expect(engine!.state.peek().context.n).toBe(0);
+        effect.unsubscribe();
+        engine!.dispose();
     });
 });
 
