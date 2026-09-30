@@ -837,7 +837,6 @@ export class SourceNode<T> extends Producer {
     }
 
     _removeRec(rec: ObsRec): void {
-        if (rec.closed) return;
         this._recs?.remove(rec);
     }
 
@@ -1359,6 +1358,8 @@ export class EffectNode implements Evaluator {
 export class ObsRec {
     last: unknown = NONE;
     closed = false;
+    /** Unsubscribed: left in its list until the list compacts (see RecList). */
+    removed = false;
     /** State `.obs`: the version whose value it got on subscribe; a queued write of it or older is not its. */
     since = 0;
     /**
@@ -1384,42 +1385,42 @@ export class ObsRec {
  * The `.obs` subscribers of one node, each group in subscription order.
  * Bridges are delivered first: they bring receivers up to date, and a
  * subscriber of the others that reads such a receiver reads it current.
+ * A removed subscriber stays in place, closed, until the removed ones are
+ * half of the lists: removing n subscribers costs O(n), not O(n²).
  */
 export class RecList {
     readonly bridges: ObsRec[] = [];
     readonly others: ObsRec[] = [];
-    /** Deliveries iterating the lists: removals compact after them. */
+    /** Deliveries iterating the lists: they compact after the last one. */
     delivering = 0;
-    private _dirty = false;
-
-    get size(): number {
-        return this.bridges.length + this.others.length;
-    }
+    /** Removed subscribers still in the lists. */
+    private _removed = 0;
 
     add(rec: ObsRec): void {
         (rec.bridge ? this.bridges : this.others).push(rec);
     }
 
-    has(rec: ObsRec): boolean {
-        return (rec.bridge ? this.bridges : this.others).includes(rec);
+    /** Subscribers not removed. */
+    get live(): number {
+        return this.bridges.length + this.others.length - this._removed;
     }
 
-    /** Returns how many subscribers are left, or -1 while a delivery defers the compaction. */
+    /** Returns how many subscribers are left, or -1 while a delivery runs. */
     remove(rec: ObsRec): number {
+        if (rec.removed) return this.delivering === 0 ? this.live : -1;
+        rec.removed = true;
         closeRec(rec);
-        this._dirty = true;
-        return this.delivering === 0 ? this.compact() : -1;
+        this._removed++;
+        if (this.delivering !== 0) return -1;
+        this._compactIfSparse();
+        return this.live;
     }
 
-    /** Ends one delivery; after the last, compacts if a subscriber left meanwhile (see `remove`). */
+    /** Ends one delivery; after the last returns how many subscribers are left, -1 otherwise. */
     endDelivery(): number {
-        return --this.delivering === 0 && this._dirty ? this.compact() : -1;
-    }
-
-    /** Drops closed subscribers; returns how many are left. */
-    compact(): number {
-        this._dirty = false;
-        return compactList(this.bridges) + compactList(this.others);
+        if (--this.delivering !== 0) return -1;
+        this._compactIfSparse();
+        return this.live;
     }
 
     /** Empties the lists; returns their subscribers, bridges first. */
@@ -1427,8 +1428,15 @@ export class RecList {
         const all = this.bridges.concat(this.others);
         this.bridges.length = 0;
         this.others.length = 0;
-        this._dirty = false;
+        this._removed = 0;
         return all;
+    }
+
+    private _compactIfSparse(): void {
+        if (this._removed * 2 <= this.bridges.length + this.others.length) return;
+        compactList(this.bridges);
+        compactList(this.others);
+        this._removed = 0;
     }
 }
 
@@ -1462,11 +1470,10 @@ function deliverGuarded(rec: ObsRec, value: unknown): void {
     }
 }
 
-function compactList(list: ObsRec[]): number {
+function compactList(list: ObsRec[]): void {
     let j = 0;
-    for (let i = 0; i < list.length; i++) if (!list[i].closed) list[j++] = list[i];
+    for (let i = 0; i < list.length; i++) if (!list[i].removed) list[j++] = list[i];
     list.length = j;
-    return j;
 }
 
 function closeRec(rec: ObsRec): void {
@@ -1686,7 +1693,6 @@ export class Watcher implements Consumer {
     }
 
     _remove(rec: ObsRec): void {
-        if (rec.closed && !this._recs.has(rec)) return;
         if (this._recs.remove(rec) === 0) this._unlink();
     }
 
@@ -1729,7 +1735,7 @@ function watchInBatch<T>(node: WatchableNode<T>, subscriber: Subscriber<T>): Tea
     linkRecContext(rec);
     watcher._recs.add(rec);
     const owner = watcher;
-    if (watcher._recs.size === 1) {
+    if (watcher._recs.live === 1) {
         try {
             watcher._link();
         } catch (error) {

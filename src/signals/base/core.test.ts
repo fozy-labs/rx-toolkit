@@ -491,6 +491,46 @@ describe("engine robustness", () => {
         effect.unsubscribe();
     });
 
+    describe.each([
+        ["State", () => Signal.state(0)],
+        ["Computed", () => Signal.compute(() => 0)],
+    ] as const)("%s.obs subscribers", (_, create) => {
+        it("unsubscribe one by one in linear time", () => {
+            const signal = create();
+            const subs = Array.from({ length: 40000 }, () => signal.obs.subscribe(() => {}));
+
+            const start = performance.now();
+            for (const sub of subs) sub.unsubscribe();
+
+            expect(performance.now() - start).toBeLessThan(500);
+        });
+    });
+
+    it("subscribers that stay get every value, whoever leaves and when", () => {
+        for (const kind of ["state", "computed"]) {
+            const s = Signal.state(0);
+            const signal = kind === "state" ? s : Signal.compute(() => s());
+            const got: number[][] = [];
+            const subs = Array.from({ length: 10 }, (_, i) => {
+                got.push([]);
+                return signal.obs.subscribe((v) => {
+                    got[i].push(v);
+                    if (v === 2 && i === 0) for (let j = 1; j < 10; j += 2) subs[j].unsubscribe();
+                });
+            });
+            for (let j = 2; j < 10; j += 4) subs[j].unsubscribe();
+
+            s.set(s.peek() + 1);
+            s.set(s.peek() + 1);
+            s.set(s.peek() + 1);
+
+            const kept = got.filter((_, i) => i % 2 === 0 && i % 4 !== 2).map((values) => values.at(-1));
+            expect(kept).toEqual(Array(kept.length).fill(s.peek()));
+            expect(got[1].at(-1)).toBe(1);
+            subs.forEach((sub) => sub.unsubscribe());
+        }
+    });
+
     describe("dispose() completes .obs subscribers after the value they are due", () => {
         const log = (into: unknown[], tag: string) => ({
             next: (v: unknown) => into.push(`${tag}${String(v)}`),
