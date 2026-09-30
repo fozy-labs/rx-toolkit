@@ -1627,17 +1627,17 @@ export class Watcher implements Consumer {
         }
     }
 
-    /** Returns false once the node changed during the delivery. */
+    /** Returns false once the node changed during the delivery; an error still reaches everyone. */
     private _deliverList(list: ObsRec[], value: unknown, error: unknown): boolean {
         const n = list.length;
         for (let i = 0; i < n; i++) {
-            if (this._requeue) return false;
+            if (this._requeue && error === NONE) return false;
             const rec = list[i];
             if (rec.closed) continue;
             this._current = rec;
             deliverTo(rec, value, error);
         }
-        return !this._requeue;
+        return !this._requeue || error !== NONE;
     }
 
     /**

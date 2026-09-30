@@ -5,6 +5,7 @@ import {
     map,
     Observable,
     of,
+    retry,
     scan,
     startWith,
     Subject,
@@ -466,6 +467,86 @@ describe("Signal.from", () => {
                 expect(subjects).toHaveLength(1);
                 expect(signal()).toBe(0);
                 expect(subjects).toHaveLength(2);
+            });
+        });
+
+        describe("an error of an observed source: the reactions it wakes read it, a later read retries", () => {
+            it("an effect sees the error once and retries on its next run", () => {
+                let subject = new Subject<number>();
+                let subscriptions = 0;
+                const signal = Signal.from(
+                    defer(() => {
+                        subscriptions++;
+                        return subject.pipe(startWith(subscriptions));
+                    }),
+                    { keepAlive: "forever" },
+                );
+                const tick = Signal.state(0);
+                const seen: unknown[] = [];
+                const effect = Signal.effect(() => {
+                    tick();
+                    try {
+                        seen.push(signal());
+                    } catch (error) {
+                        seen.push(`E:${(error as Error).message}`);
+                    }
+                });
+
+                subject.error(new Error("late"));
+                expect(seen).toEqual([1, "E:late"]);
+                expect(subscriptions).toBe(1);
+
+                subject = new Subject<number>();
+                tick.set(1);
+                expect(seen).toEqual([1, "E:late", 2]);
+                effect.unsubscribe();
+            });
+
+            it("a new .obs subscription (retry) subscribes the source again; the other subscribers get the error", () => {
+                let subject = new Subject<number>();
+                let subscriptions = 0;
+                const signal = Signal.from(
+                    defer(() => {
+                        subscriptions++;
+                        return subject;
+                    }),
+                );
+                const retried: unknown[] = [];
+                const plain: unknown[] = [];
+                signal.obs.pipe(retry(1)).subscribe({
+                    next: (v) => retried.push(v),
+                    error: () => retried.push("E"),
+                });
+                signal.obs.subscribe({ next: (v) => plain.push(v), error: () => plain.push("E") });
+                subject.next(1);
+
+                const failed = subject;
+                subject = new Subject<number>();
+                failed.error(new Error("x"));
+                subject.next(2);
+
+                expect(subscriptions).toBe(2);
+                expect(retried).toEqual([1, 2]);
+                expect(plain).toEqual([1, "E"]);
+            });
+
+            it("a source that replays a value, then fails at once, does not loop the effect", () => {
+                const subject = new Subject<number>();
+                const signal = Signal.from(subject.pipe(startWith(0)), { keepAlive: "forever" });
+                let runs = 0;
+                const effect = Signal.effect(() => {
+                    runs++;
+                    try {
+                        signal();
+                    } catch {
+                        // shown as an error state
+                    }
+                });
+
+                subject.error(new Error("down"));
+
+                expect(runs).toBe(2);
+                effect.unsubscribe();
             });
         });
 

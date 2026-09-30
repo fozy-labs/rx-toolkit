@@ -26,6 +26,7 @@ import {
     receiverLive,
     RecoveryWatcher,
     reportUnhandled,
+    scheduleAfterFlush,
     stopWatchingChanges,
     untracked,
     watch,
@@ -61,6 +62,12 @@ const READING = 1 << 12;
  * the read that follows gets that failure instead of retrying at once.
  */
 const UNSEEN_FAILURE = 1 << 13;
+/**
+ * The upstream failed in the current flush: the reactions the failure woke
+ * read it without retrying, or each of their reads would subscribe again and
+ * fail again, for ever. A read after the flush retries.
+ */
+const FRESH_FAILURE = 1 << 14;
 
 /** No error. */
 const ERR_NONE = 0;
@@ -129,6 +136,8 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
             subscriber.complete();
             return;
         }
+        // A new subscription (`retry()` on `.obs`) asks for the source again.
+        this._flags &= ~FRESH_FAILURE;
         return watch(this, subscriber);
     }
 
@@ -188,8 +197,9 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
             this._flags = flags & ~UNSEEN_FAILURE;
             return true;
         }
-        if ((flags & CONNECTED) === 0 || this._errorState === ERR_TRANSIENT) this._connect();
-        else if (this._targets === undefined) this._scheduleRelease();
+        if ((flags & CONNECTED) === 0 || this._errorState === ERR_TRANSIENT) {
+            if ((flags & FRESH_FAILURE) === 0) this._connect();
+        } else if (this._targets === undefined) this._scheduleRelease();
         return true;
     }
 
@@ -250,7 +260,7 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         if ((this._flags & (CONNECTING | DISPOSED)) !== 0) return;
         this._cancelGrace();
         this._clearRecovery();
-        this._flags = (this._flags & ~(COMPLETED | UNSEEN_FAILURE)) | CONNECTING | CONNECTED;
+        this._flags = (this._flags & ~(COMPLETED | UNSEEN_FAILURE | FRESH_FAILURE)) | CONNECTING | CONNECTED;
         this._hasValue = false;
         this._errorState = ERR_NONE;
         this._error = undefined;
@@ -291,7 +301,7 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         this._clearRecovery();
         dropFeeders(this);
         const wasConnected = (this._flags & CONNECTED) !== 0;
-        this._flags &= ~(CONNECTED | COMPLETED | UNSEEN_FAILURE);
+        this._flags &= ~(CONNECTED | COMPLETED | UNSEEN_FAILURE | FRESH_FAILURE);
         // The upstream may emit unseen now: a cold read must check this node again.
         if (wasConnected) stopWatchingChanges();
         if (wasConnected || this._errorState !== ERR_NONE) {
@@ -366,19 +376,28 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
             receiverLive(1);
         } else {
             this._errorState = ERR_TRANSIENT;
-            this._flags &= ~CONNECTED;
+            this._flags = (this._flags & ~CONNECTED) | FRESH_FAILURE;
             if ((this._flags & CONNECTING) !== 0 && this._lastKind === KIND_ERROR) {
                 // A retry that failed again at once: still the same failure for
                 // readers, or every read would wake them to retry again.
                 this._error = error;
                 this._lastPayload = error;
                 this._hasValue = false;
+                this._endFreshFailure();
                 return;
             }
         }
         this._error = error;
         this._hasValue = false;
         this._reconcile();
+        if (this._errorState === ERR_TRANSIENT) this._endFreshFailure();
+    }
+
+    /** After the reactions the failure woke (at once if no batch is open), reads retry again. */
+    private _endFreshFailure(): void {
+        scheduleAfterFlush(() => {
+            this._flags &= ~FRESH_FAILURE;
+        });
     }
 
     private _onComplete(): void {

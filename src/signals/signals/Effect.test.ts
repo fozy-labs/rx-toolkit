@@ -404,26 +404,33 @@ describe("Effect", () => {
             eff.unsubscribe();
         });
 
-        it("re-runs when a dependency stream errors instead of reporting it as unhandled", () => {
+        it("re-runs when a dependency stream errors, reads the error, and resubscribes on its next run", () => {
             const errors$ = new Subject<unknown>();
+            let subscriptions = 0;
             const src = SourceSignal.create<number>((subscriber) => {
+                subscriptions++;
                 subscriber.next(1);
                 const sub = errors$.subscribe((error) => subscriber.error(error));
                 return () => sub.unsubscribe();
             });
-            const fn = vi.fn(() => {
-                src();
+            const tick = Signal.state(0);
+            const seen: unknown[] = [];
+            const eff = Signal.effect(() => {
+                tick();
+                try {
+                    seen.push(src());
+                } catch (error) {
+                    seen.push((error as Error).message);
+                }
             });
 
-            const eff = Signal.effect(fn);
-            expect(fn).toHaveBeenCalledTimes(1);
-
             errors$.next(new Error("stream-error"));
-            expect(fn).toHaveBeenCalledTimes(2);
+            expect(seen).toEqual([1, "stream-error"]);
+            expect(subscriptions).toBe(1);
 
-            // The dead subscription was dropped; the re-run tracked the signal afresh
-            errors$.next(new Error("stream-error"));
-            expect(fn).toHaveBeenCalledTimes(3);
+            tick.set(1);
+            expect(seen).toEqual([1, "stream-error", 1]);
+            expect(subscriptions).toBe(2);
 
             eff.unsubscribe();
             expect(errors$.observed).toBe(false);
