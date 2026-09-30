@@ -24,7 +24,7 @@
  *    `exit / ...` actions (mermaid cuts a single-line note at `;` and `:`).
  *
  * Ids are the state keys — unique per machine in the converter's dialect; a
- * duplicate key falls back to the `_`-joined path. Labels follow the
+ * duplicate key or a keyword falls back to the `_`-joined path. Labels follow the
  * converter's grammar: `EVENT [guard] / a, b`, `after <ms|name>`, `done`,
  * and nothing at all for `always`. Config-only features degrade in a
  * documented way: history nodes are `H` / `H*` states with a `default`
@@ -56,6 +56,27 @@ const ANONYMOUS = "anonymous";
 const FINAL_KEY = "$final";
 /** Mermaid's start / end pseudo-state. */
 const START_END = "[*]";
+/**
+ * Words that cannot be a state id, lowercased: mermaid's lexer takes them as
+ * keywords in any case, the converter reads a line starting with `direction`
+ * as the directive.
+ */
+const RESERVED_IDS: ReadonlySet<string> = new Set([
+    "accdescr",
+    "acctitle",
+    "as",
+    "class",
+    "classdef",
+    "click",
+    "default",
+    "direction",
+    "href",
+    "note",
+    "scale",
+    "state",
+    "statediagram",
+    "style",
+]);
 
 type AnyStateNode = StateNode<MachineContext, EventObject>;
 type AnyTransition = Transition<MachineContext, EventObject>;
@@ -332,20 +353,21 @@ class MermaidRenderer {
     // --- ids ---------------------------------------------------------------
 
     /**
-     * The state key, sanitized; a key already taken falls back to the
-     * sanitized `_`-joined path, then to a numeric suffix. Nodes that never
-     * appear by id (inline regions, implicit finals, the root outside a
-     * root block) reserve nothing.
+     * The state key, sanitized; a key already taken (or reserved, see
+     * `RESERVED_IDS`) falls back to the sanitized `_`-joined path, then to a
+     * numeric suffix. Nodes that never appear by id (inline regions, implicit
+     * finals, the root outside a root block) reserve nothing.
      */
     private assignIds(): void {
         const taken = new Set<string>();
+        const isTaken = (id: string): boolean => taken.has(id) || RESERVED_IDS.has(id.toLowerCase());
         for (const node of this.model.nodes) {
             if (node.parent === null && !this.rootBlock) continue;
             if (this.inlineRegions.has(node) || this.implicitFinals.has(node)) continue;
             const key = sanitizeId(node.key);
             const path = node.parent === null ? key : sanitizeId(node.path.join("_"));
-            let candidate = taken.has(key) ? path : key;
-            for (let suffix = 2; taken.has(candidate); suffix++) candidate = `${path}_${suffix}`;
+            let candidate = isTaken(key) ? path : key;
+            for (let suffix = 2; isTaken(candidate); suffix++) candidate = `${path}_${suffix}`;
             taken.add(candidate);
             this.ids.set(node, candidate);
         }

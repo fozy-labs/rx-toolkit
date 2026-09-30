@@ -441,6 +441,32 @@ describe("toMermaid", () => {
             );
         });
 
+        it("never uses a mermaid or converter keyword as an id (any case): such a key falls back like a taken one", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "note",
+                states: {
+                    note: { on: { GO: "Default" } },
+                    Default: { on: { GO: "direction" } },
+                    direction: { initial: "state", states: { state: { on: { GO: "as" } }, as: {} } },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> note_2",
+                    "    note_2 --> Default_2: GO",
+                    "    Default_2 --> direction_2: GO",
+                    "    state direction_2 {",
+                    "        [*] --> direction_state",
+                    "        direction_state --> direction_as: GO",
+                    "    }",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("hoists transitions that cross scopes to the top level and declares otherwise unmentioned states by id", () => {
             const definition = createMachine({
                 id: "m",
