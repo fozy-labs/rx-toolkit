@@ -1,6 +1,7 @@
 import { map, Subject } from "rxjs";
 
 import { Batcher, SignalCycleError, SourceSignal } from "../base";
+import { untracked } from "../base/untracked";
 
 import { Effect } from "./Effect";
 import { Signal } from "./Signal";
@@ -672,6 +673,21 @@ describe("Effect", () => {
             trigger.set(2);
 
             expect(seen).toEqual([10, 10, 20]);
+            eff.unsubscribe();
+        });
+
+        it("the body's own write made through untracked() (as form actions do) does not re-run it", () => {
+            const s = Signal.state(0);
+            let runs = 0;
+            const eff = Signal.effect(() => {
+                runs++;
+                const v = s();
+                untracked(() => Batcher.run(() => s.set(v + 1)));
+            });
+
+            expect([runs, s.peek()]).toEqual([1, 1]);
+            s.set(10);
+            expect([runs, s.peek()]).toEqual([2, 11]);
             eff.unsubscribe();
         });
 

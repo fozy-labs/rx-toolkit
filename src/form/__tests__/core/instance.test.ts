@@ -128,6 +128,21 @@ describe("actions", () => {
         effect.unsubscribe();
     });
 
+    it("an effect that writes a field it read is not re-run by that write, as with a plain state", () => {
+        const form = FormSignal.state(g({ fields: { name: f({ schema: z.string(), defaultValue: " a " }) } }));
+        const name = form.fields.name;
+        const runs = vi.fn();
+        const effect = Signal.effect(() => {
+            runs();
+            const value = name.value$();
+            if (value !== value.trim()) name.set(value.trim());
+        });
+
+        expect(name.value$.peek()).toBe("a");
+        expect(runs).toHaveBeenCalledOnce();
+        effect.unsubscribe();
+    });
+
     it("are batched: a cascade notifies once", () => {
         const def = g({ fields: { a: text(), b: text(), c: g({ fields: { d: text(), e: text() } }) } });
         const form = FormSignal.state(def);

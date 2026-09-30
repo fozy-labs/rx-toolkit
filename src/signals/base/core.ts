@@ -122,6 +122,12 @@ interface Evaluator extends Consumer {
 
 /** The consumer whose reads are tracked right now. */
 let evalContext: Evaluator | undefined = undefined;
+/**
+ * The effect whose body runs right now, `untracked()` or not: its writes are
+ * its own. Reactions it triggers synchronously (a flush, an `.obs` callback)
+ * run outside it.
+ */
+let runningEffect: EffectNode | undefined = undefined;
 /** Computeds a read found still computing (cycles), innermost last; each leaves when its computation ends. */
 const cycleNodes: Producer[] = [];
 /** Bumped by every read that finds a computed still computing. */
@@ -623,7 +629,9 @@ function releaseMarks(consumer: Consumer): void {
 function flush(): void {
     flushing = true;
     const prevContext = evalContext;
+    const prevEffect = runningEffect;
     evalContext = undefined;
+    runningEffect = undefined;
     try {
         for (;;) {
             if (watchHead !== watchTail) {
@@ -650,6 +658,7 @@ function flush(): void {
         }
     } finally {
         evalContext = prevContext;
+        runningEffect = prevEffect;
         flushing = false;
         deferredFlush = false;
         settlePending = releaseQueue.length !== 0;
@@ -1252,7 +1261,7 @@ export class EffectNode implements Evaluator {
         } else if ((flags & RUNNING) !== 0) {
             // A write of the running body, or of another reaction (an effect of a
             // nested flush, an .obs subscriber, a bridge): sorted out when the run ends.
-            this._flags = flags | NOTIFIED_WHILE_RUNNING | (evalContext === this ? 0 : FOREIGN_WHILE_RUNNING);
+            this._flags = flags | NOTIFIED_WHILE_RUNNING | (runningEffect === this ? 0 : FOREIGN_WHILE_RUNNING);
         }
     }
 
@@ -1293,11 +1302,15 @@ export class EffectNode implements Evaluator {
         this._flags &= ~(NOTIFIED_WHILE_RUNNING | FOREIGN_WHILE_RUNNING);
         let result: void | (() => void) = undefined;
         let bodyError: { error: unknown } | null = null;
+        const prevEffect = runningEffect;
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- the effect whose writes are its own
+        runningEffect = this;
         try {
             result = this._fn();
         } catch (error) {
             bodyError = { error };
         }
+        runningEffect = prevEffect;
         evalContext = prevContext;
         this._flags &= ~RUNNING;
         endTracking(this);
@@ -1556,12 +1569,15 @@ function completeTo(rec: ObsRec): void {
     frameStack[frameDepth++] = rec;
     deliveryDepth++;
     const prevContext = evalContext;
+    const prevEffect = runningEffect;
     evalContext = undefined;
+    runningEffect = undefined;
     try {
         closeRec(rec);
         rec.subscriber.complete();
     } finally {
         evalContext = prevContext;
+        runningEffect = prevEffect;
         frameStack[--frameDepth] = undefined;
         deliveryDepth--;
     }
@@ -1572,7 +1588,9 @@ function deliverTo(rec: ObsRec, value: unknown, error: unknown): void {
     deliveryDepth++;
     // An RxJS callback belongs to no consumer, whoever's write triggered it.
     const prevContext = evalContext;
+    const prevEffect = runningEffect;
     evalContext = undefined;
+    runningEffect = undefined;
     try {
         if (error !== NONE) {
             closeRec(rec);
@@ -1583,6 +1601,7 @@ function deliverTo(rec: ObsRec, value: unknown, error: unknown): void {
         }
     } finally {
         evalContext = prevContext;
+        runningEffect = prevEffect;
         frameStack[--frameDepth] = undefined;
         deliveryDepth--;
     }
@@ -1872,11 +1891,11 @@ export function writeProducer(node: Producer): Watcher | null {
 
 /**
  * Marks the dependents of a written producer. A running effect body that
- * writes a source it read has seen the value it wrote: its link takes the
- * new version instead of a notification.
+ * writes a source it read (also inside `untracked()`) has seen the value it
+ * wrote: its link takes the new version instead of a notification.
  */
 function notifyTargets(node: Producer): void {
-    const own = evalContext instanceof EffectNode ? evalContext : undefined;
+    const own = runningEffect;
     for (let link = node._targets; link !== undefined; link = link._nextTarget) {
         if (link._target === own) link._version = node._version;
         else link._target._notify();
