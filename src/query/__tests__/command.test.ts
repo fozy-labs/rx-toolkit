@@ -1436,6 +1436,89 @@ describe("onQueryStarted lifecycle", () => {
     });
 });
 
+// ==================== Confirmed patch behind a pending one ====================
+
+/**
+ * Two overlapping optimistic adds, the second confirmed first: its patch stays
+ * in the stack behind the first, still pending one. Server data fetched after
+ * the confirmation already contains the change, so the confirmed patch must
+ * not be replayed onto it a second time.
+ */
+describe("Link scenarios — a confirmed patch behind a pending one", () => {
+    function setup(options: { invalidate: boolean }) {
+        let server = ["a"];
+        const todos = createLinkedResource<number, string[]>({ queryFn: async () => [...server] });
+        const pending = new Map<string, (value: string) => void>();
+        const addTodo = createCommand<string, string>({
+            queryFn: (text) => new Promise<string>((resolve) => pending.set(text, resolve)),
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => 1,
+                    optimisticUpdate: (draft: string[], text: string) => {
+                        draft.push(text);
+                    },
+                    invalidate: options.invalidate,
+                },
+            ],
+        });
+        const confirm = (text: string) => {
+            server = [...server, text];
+            pending.get(text)!(text);
+        };
+        return { todos, addTodo, confirm };
+    }
+
+    async function flush(): Promise<void> {
+        for (let i = 0; i < 5; i++) await flushMicrotasks();
+    }
+
+    it("the re-query the confirmation triggers does not duplicate the confirmed item", async () => {
+        const { todos, addTodo, confirm } = setup({ invalidate: true });
+        todos.getEntry(1, true).hold();
+        await flush();
+
+        const first = addTodo.execute("b", "k-b");
+        const second = addTodo.execute("c", "k-c");
+        expect(todos.getEntry(1)!.peek().data).toEqual(["a", "b", "c"]);
+
+        confirm("c");
+        await second;
+        await flush();
+
+        // Server data ["a", "c"] plus the still pending "b" (replayed at the
+        // index it was recorded at).
+        expect(todos.getEntry(1)!.peek().data).toEqual(["a", "b", "c"]);
+
+        confirm("b");
+        await first;
+        await flush();
+        expect(todos.getEntry(1)!.peek()).toMatchObject({ status: "success", data: ["a", "c", "b"], patchState: null });
+    });
+
+    it("an unrelated re-query after the confirmation does not duplicate it either", async () => {
+        const { todos, addTodo, confirm } = setup({ invalidate: false });
+        const entry = todos.getEntry(1, true);
+        entry.hold();
+        await flush();
+
+        const first = addTodo.execute("b", "k-b");
+        const second = addTodo.execute("c", "k-c");
+        confirm("c");
+        await second;
+
+        entry.invalidate();
+        await flush();
+        expect(entry.peek().data).toEqual(["a", "b", "c"]);
+
+        confirm("b");
+        await first;
+        await flush();
+        // Nothing re-queries: "b" is folded in locally, once.
+        expect(entry.peek()).toMatchObject({ status: "success", data: ["a", "b", "c"], patchState: null });
+    });
+});
+
 // ==================== Entry Key Generation ====================
 
 describe("Entry key generation", () => {

@@ -194,10 +194,16 @@ export type TReplayOutcome<TArgs, TData, TStatus extends TDataStatus> =
     | { ok: false; state: TQueryEntryInvalidatingState<TArgs, TData> };
 
 /**
- * Replay the pending patches over `baseData`, landing in `targetStatus` if they
- * apply.
+ * Replay the pending patches over `baseData` — fresh server data — landing in
+ * `targetStatus` if they apply.
  *
- * They may not: a patch can address a path the server data no longer has. The
+ * Only the pending ones: the server is the source of truth, and its data
+ * supersedes every settled patch — a committed one is already in it, an
+ * aborted one never happened. A committed patch still in the stack (behind a
+ * pending one) is dropped here, just as a lone one, folded into the base on
+ * settle, is replaced with it; replaying it would apply the change twice.
+ *
+ * The pending ones may not apply: a patch can address a path the server data no longer has. The
  * server answer is then unusable — it would have to be presented either with
  * patches that do not fit it or without patches the caller believes are
  * applied — so the run is thrown away rather than settled. See
@@ -210,7 +216,10 @@ export function replayPatches<TArgs, TData, TStatus extends TDataStatus>(
     patches: TPatchEntry[],
     updatedAt?: number,
 ): TReplayOutcome<TArgs, TData, TStatus> {
-    const result = replayPatchEntries(baseData, patches);
+    const result = replayPatchEntries(
+        baseData,
+        patches.filter((patch) => patch.status === "pending"),
+    );
 
     if (!result.ok) return { ok: false, state: consistencyViolation(currentState) };
 
