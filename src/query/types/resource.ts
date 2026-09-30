@@ -268,8 +268,8 @@ export interface IResourceClutch<TArgs, TData, TError = unknown> {
      * query failed with nothing to show (`status === "error"`). With
      * `waitForDone` — once no query is in flight. Never rejects. Used by the
      * Suspense hook to wake React after a suspended render. Holds the entry
-     * while waiting, and at the settle hands the hold over to whoever holds
-     * the entry next — the render it wakes, once committed — for 5 s at most.
+     * while waiting; a settle on data then keeps it from eviction for 5 s, so
+     * the render it wakes finds it when it commits and holds.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void>;
     get args(): TArgs | null;

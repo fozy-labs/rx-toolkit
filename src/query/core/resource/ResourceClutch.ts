@@ -69,12 +69,13 @@ function isRenderable(state: TResourceClutchState<unknown, unknown, unknown>): b
 }
 
 /**
- * How long {@link ResourceClutch.whenSettled} keeps holding the entry after the
- * settle when nobody takes the hold over. React commits the render it wakes
- * within a few hundred ms (its fallback throttle is 300 ms); a render it
- * discards never holds, and the entry then melts once this runs out.
+ * How long {@link ResourceClutch.whenSettled} keeps the entry after a settle on
+ * data. React commits the render it wakes within a few hundred ms (its
+ * fallback throttle is 300 ms) and gives no sign of a render it discards, so
+ * this bounds both: the committed render holds the entry well within it, and a
+ * discarded one leaves it to the policy once it runs out.
  */
-const SETTLED_HAND_OVER_MS = 5_000;
+const SETTLED_KEEP_MS = 5_000;
 
 /** The `waitForDone` rule: no query is in flight — `idle`, `success` or `error`. */
 function isDone(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
@@ -296,9 +297,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * and cleared on settle so a later argument change can suspend again. Each
      * mode has its own instance.
      *
-     * The wait holds the entry, and at the settle hands the hold over to
-     * whoever holds the entry next: the render it wakes holds only once
-     * committed, and a short `retentionTime` would evict the entry in between.
+     * The wait holds the entry, and a settle on data keeps it for 5 s more:
+     * the render it wakes holds only once committed, and a short
+     * `retentionTime` would evict the entry in between. A failure with nothing
+     * to show is not kept — the render it wakes throws and never commits.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void> {
         const mode = options?.waitForDone ? "done" : "renderable";
@@ -320,10 +322,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const settle = (): void => {
             this._whenSettled[mode] = null;
         };
-        const handOver = (): void => {
-            this._tracking$.peek()?.current$.peek()?._handOver(SETTLED_HAND_OVER_MS);
+        const keep = (state: TResourceClutchState<unknown, unknown, unknown>): void => {
+            if (state.hasData) this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
         };
-        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(handOver))).then(settle, settle);
+        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(keep))).then(settle, settle);
 
         this._whenSettled[mode] = promise;
         return promise;

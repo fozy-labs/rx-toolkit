@@ -142,11 +142,11 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
     }
 
     /**
-     * @internal Hold the entry for whoever holds it next, for `maxMs` at most
-     * (see `Retainer.handOver`). A no-op on a completed entry.
+     * @internal Do not evict the entry within `ms` from now, whoever holds and
+     * lets go meanwhile (see `Retainer.keepFor`).
      */
-    _handOver(maxMs: number): void {
-        this._retainer.handOver(maxMs);
+    _keepFor(ms: number): void {
+        this._retainer.keepFor(ms);
     }
 
     /** Non-reactive read */

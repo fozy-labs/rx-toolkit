@@ -946,12 +946,12 @@ describe("ResourceClutch.whenSettled", () => {
         await expect(t.clutch.whenSettled()).resolves.toBeUndefined();
     });
 
-    describe("hands its hold over at the settle", () => {
-        function settledOnEvictingResource() {
+    describe("keeps the entry for 5 s after a settle on data", () => {
+        function settledOnEvictingResource(queryFn: (n: number) => Promise<string> = async (n) => `d-${n}`) {
             const resource = new Resource<number, string>({
                 retentionTime: 0,
                 serializeArgs: stableStringify as (args: number) => string,
-                queryFn: async (n) => `d-${n}`,
+                queryFn,
             });
             const clutch = resource.createClutch();
             clutch.switch(1);
@@ -967,29 +967,48 @@ describe("ResourceClutch.whenSettled", () => {
             vi.useRealTimers();
         });
 
-        it("the entry outlives the wait until the next hold, whose release is then the last", async () => {
+        it("without any hold, the entry is evicted 5 s after the settle", async () => {
             const { resource, settled } = settledOnEvictingResource();
             await settled;
-            await vi.advanceTimersByTimeAsync(1000);
 
-            const entry = resource.getEntry(1)!;
-            expect(entry.isMelting).toBe(false);
-
-            entry.hold()();
-            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(4999);
+            expect(resource.getEntry(1)).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(2);
             expect(resource.getEntry(1)).toBeNull();
         });
 
-        it("without a next hold, the entry is let go 5 s after the settle", async () => {
+        it("a hold taken and let go in between does not cut it short", async () => {
             const { resource, settled } = settledOnEvictingResource();
             await settled;
-            const entry = resource.getEntry(1)!;
+            await vi.advanceTimersByTimeAsync(30);
 
-            await vi.advanceTimersByTimeAsync(4999);
-            expect(entry.isMelting).toBe(false);
+            resource.getEntry(1)!.hold()();
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(resource.getEntry(1)).not.toBeNull();
+
+            await vi.advanceTimersByTimeAsync(4000);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("a hold past the 5 s follows the policy from its release", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+
+            const release = resource.getEntry(1)!.hold();
+            await vi.advanceTimersByTimeAsync(6000);
+            expect(resource.getEntry(1)).not.toBeNull();
+
+            release();
             await vi.advanceTimersByTimeAsync(1);
-            expect(entry.isMelting).toBe(true);
-            // A zero delay armed inside a fake timer's callback runs 1 ms later.
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("a failure with nothing to show is not kept: the policy stands", async () => {
+            const { resource, settled } = settledOnEvictingResource(async () => {
+                throw new Error("boom");
+            });
+            await settled;
+
             await vi.advanceTimersByTimeAsync(1);
             expect(resource.getEntry(1)).toBeNull();
         });

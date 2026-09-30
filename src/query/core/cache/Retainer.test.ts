@@ -263,66 +263,57 @@ describe("Retainer", () => {
         expect(opts.onMelting).toHaveBeenCalledTimes(1);
     });
 
-    // ==================== handOver ====================
+    // ==================== keepFor ====================
 
-    it("handOver() holds until the next hold takes over: no melting cycle in between", () => {
+    it("keepFor() puts off an eviction due within it to its end", () => {
         const { retainer, opts } = createRetainer({ retentionTime: () => 0 });
 
-        const waiter = retainer.hold();
-        retainer.handOver(5000);
-        waiter();
-        expect(retainer.isMelting).toBe(false);
-        expect(opts.onMelting).not.toHaveBeenCalled();
-
-        const successor = retainer.hold();
-        expect(opts.onActive).toHaveBeenCalledTimes(1);
-
-        // The successor holds alone now: its release is the last one.
-        successor();
+        retainer.keepFor(100);
+        retainer.hold()();
         expect(retainer.isMelting).toBe(true);
         expect(opts.onMelting).toHaveBeenCalledTimes(1);
-        vi.advanceTimersByTime(0);
+
+        vi.advanceTimersByTime(99);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
         expect(opts.onExpire).toHaveBeenCalledTimes(1);
     });
 
-    it("handOver() without a successor ends after its maximum", () => {
+    it("keepFor() reaches a retention timer already armed", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 10 });
+
+        retainer.hold()();
+        retainer.keepFor(100);
+
+        vi.advanceTimersByTime(99);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("keepFor() does not shorten a longer retention, nor a longer keepFor()", () => {
         const { retainer, opts } = createRetainer({ retentionTime: () => 1000 });
 
-        retainer.handOver(100);
-        expect(retainer.isMelting).toBe(false);
+        retainer.keepFor(500);
+        retainer.keepFor(100);
+        retainer.hold()();
 
-        vi.advanceTimersByTime(99);
-        expect(retainer.isMelting).toBe(false);
+        vi.advanceTimersByTime(999);
+        expect(opts.onExpire).not.toHaveBeenCalled();
         vi.advanceTimersByTime(1);
-        expect(retainer.isMelting).toBe(true);
-        expect(opts.onMelting).toHaveBeenCalledTimes(1);
-
-        vi.advanceTimersByTime(1000);
         expect(opts.onExpire).toHaveBeenCalledTimes(1);
     });
 
-    it("a second handOver() replaces the standing one", () => {
-        const { retainer } = createRetainer();
+    it("keepFor() neither holds nor arms: a never-held entry still never expires", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 0 });
 
-        retainer.handOver(100);
-        vi.advanceTimersByTime(50);
-        retainer.handOver(100);
-
-        vi.advanceTimersByTime(99);
-        expect(retainer.isMelting).toBe(false);
-        vi.advanceTimersByTime(1);
+        retainer.keepFor(100);
         expect(retainer.isMelting).toBe(true);
-    });
-
-    it("dispose() ends a standing handOver() silently", () => {
-        const { retainer, opts } = createRetainer();
-
-        retainer.handOver(100);
-        retainer.dispose();
+        expect(opts.onActive).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
 
         vi.advanceTimersByTime(60_000);
-        expect(opts.onMelting).not.toHaveBeenCalled();
-        expect(vi.getTimerCount()).toBe(0);
+        expect(opts.onExpire).not.toHaveBeenCalled();
     });
 
     // ==================== dispose ====================
