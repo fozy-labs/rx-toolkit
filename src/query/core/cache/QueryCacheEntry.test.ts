@@ -1601,6 +1601,66 @@ describe("QueryCacheEntry — invalidate() with a promise run in flight", () => 
 
             expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
         });
+
+        // Until a server answer lands, the data is not one: the flag stays up
+        // through later patches and settles — which must not re-query again.
+
+        it("keeps the violation flagged through later patches and settles until the re-query lands", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            const dropped = entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            })!;
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+            expect(runs).toHaveLength(3);
+
+            dropped.commit();
+            const next = entry.createPatch((draft) => {
+                draft.items[0]!.n = 100;
+            })!;
+            expect(entry.peek()).toMatchObject({ patchState: { isConsistencyViolation: true } });
+            next.commit();
+
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 100 }] },
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+            expect(runs).toHaveLength(3);
+            expect(runs[2]!.signal.aborted).toBe(false);
+
+            runs[2]!.resolve({ items: [{ n: 5 }] });
+            await flushMicrotasks();
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] }, patchState: null });
+        });
+
+        it("a later settle that cannot replay re-queries again", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+
+            const pushed = entry.createPatch((draft) => {
+                draft.items.push({ n: 2 });
+            })!;
+            entry.createPatch((draft) => {
+                draft.items[1]!.n = 3;
+            });
+            pushed.abort();
+
+            expect(runs).toHaveLength(4);
+            expect(runs[2]!.signal.aborted).toBe(true);
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                patchState: { isConsistencyViolation: true },
+            });
+        });
     });
 
     describe("the call parameter overrides the entry's default", () => {

@@ -1000,10 +1000,13 @@ export class QueryCacheEntry<TArgs, TData>
      * and lands in a clean `success`, and so does the next run's first
      * result. A joined stream that ends without that emission leaves the
      * entry owing the run (see {@link _onRunLeftFlight}).
+     *
+     * Only the transition that hit the violation re-queries: the flag in the
+     * state stays up until a server answer lands, and a later patch or settle
+     * that replays fine must not invalidate the entry again.
      */
     private _rerunOnDiscardedData(machine: MachineBase<TArgs, TData>): void {
-        const state = machine.state;
-        if (state.status !== "invalidating" || !state.patchState?.isConsistencyViolation) return;
+        if (!machine.violated) return;
 
         this.invalidate();
     }

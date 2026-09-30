@@ -14,8 +14,8 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
     readonly status = "invalidating" as const;
     declare readonly state: TQueryEntryInvalidatingState<TArgs, TData>;
 
-    constructor(state: TQueryEntryInvalidatingState<TArgs, TData>) {
-        super(state);
+    constructor(state: TQueryEntryInvalidatingState<TArgs, TData>, violated = false) {
+        super(state, violated);
     }
 
     protected withState(state: TDataState<TArgs, TData>): this {
@@ -23,7 +23,7 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
     }
 
     protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): this {
-        return this.withState(state);
+        return new MachineInvalidating(state, true) as this;
     }
 
     /**

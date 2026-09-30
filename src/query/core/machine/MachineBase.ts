@@ -25,8 +25,18 @@ import { isDataState, processAllPatches, processPatches, replayPatches } from ".
 export class MachineBase<TArgs, TData> {
     readonly state: TQueryEntryState<TArgs, TData>;
 
-    protected constructor(state: TQueryEntryState<TArgs, TData>) {
+    /**
+     * The transition that produced this machine hit a consistency violation
+     * (see `consistencyViolation`): the owner must re-query. Unlike the
+     * `isConsistencyViolation` flag, which stays in the state until a server
+     * answer lands, this marks only the transition itself — a machine
+     * rebuilt from the stored state never carries it.
+     */
+    readonly violated: boolean;
+
+    protected constructor(state: TQueryEntryState<TArgs, TData>, violated = false) {
         this.state = state;
+        this.violated = violated;
     }
 
     // ==================== Transition Methods ====================
@@ -190,9 +200,8 @@ export class MachineBase<TArgs, TData> {
         }
 
         // Replay pending patches on new base
-        return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()).state,
-        );
+        const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
+        return new MachineBase<TArgs, TData>(replayed.state, !replayed.ok);
     }
 
     /** invalidating → success (replays patches on new data) */
@@ -217,9 +226,8 @@ export class MachineBase<TArgs, TData> {
         }
 
         // Replay pending patches on new base
-        return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()).state,
-        );
+        const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
+        return new MachineBase<TArgs, TData>(replayed.state, !replayed.ok);
     }
 
     // ==================== Patch Methods ====================
@@ -249,7 +257,7 @@ export class MachineBase<TArgs, TData> {
         const newPatchState: TPatchState<TData> = {
             originalData,
             patches: [...existingPatches, entry],
-            isConsistencyViolation: false,
+            isConsistencyViolation: this.state.patchState?.isConsistencyViolation ?? false,
         };
 
         const newState = {
@@ -284,7 +292,8 @@ export class MachineBase<TArgs, TData> {
             throw new QueryEntryStateError("finishPatch", "no active patchState");
         }
 
-        return new MachineBase<TArgs, TData>(processPatches(this.state, this.state.patchState));
+        const outcome = processPatches(this.state, this.state.patchState);
+        return new MachineBase<TArgs, TData>(outcome.state, !outcome.ok);
     }
 
     /** Process all settled patches (continues past pending) */
@@ -293,6 +302,7 @@ export class MachineBase<TArgs, TData> {
             throw new QueryEntryStateError("finishAllPatches", "no active patchState");
         }
 
-        return new MachineBase<TArgs, TData>(processAllPatches(this.state, this.state.patchState));
+        const outcome = processAllPatches(this.state, this.state.patchState);
+        return new MachineBase<TArgs, TData>(outcome.state, !outcome.ok);
     }
 }

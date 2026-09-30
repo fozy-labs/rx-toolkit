@@ -9,7 +9,7 @@ import type {
     TQueryEntrySuccessState,
 } from "@/query/types";
 
-import { processAllSettledPatches, processPatchState, replayPatchEntries } from "../patcher";
+import { processAllSettledPatches, processPatchState, replayPatchEntries, type TPatchResult } from "../patcher";
 
 // ==================== Initial states ====================
 
@@ -153,7 +153,9 @@ export function withDataState<TArgs, TData>(
  * until the re-query lands: with an empty stack, `data` must equal the base,
  * or the next patch settle — a dropped patch's own handle, or a patch made
  * afterwards — would recompute `data` from the old base and roll back changes
- * nobody undid.
+ * nobody undid. So `originalData` is no confirmed data any more: the flag
+ * stays raised through later patches and settles until a server answer
+ * lands, and {@link confirmedData} has none to give meanwhile.
  *
  * The status is `invalidating` whatever it was: the data shown is no longer a
  * server answer the entry vouches for — a `success` (a stream emission, a
@@ -229,20 +231,59 @@ export function replayPatches<TArgs, TData, TStatus extends TDataStatus>(
     return { ok: true, state: state as TDataStateOf<TArgs, TData, TStatus> };
 }
 
+/**
+ * Outcome of a patch settle: `ok` keeps the status, otherwise the stack could
+ * not be replayed and the state is a fresh {@link consistencyViolation}.
+ */
+export type TSettleOutcome<TArgs, TData> = TReplayOutcome<TArgs, TData, TDataStatus>;
+
+/**
+ * The state a patch settle leaves. After a consistency violation the data is
+ * no server answer until one lands, so the flag — and with it the patch
+ * state, however empty its stack — outlives every settle: only a server
+ * answer (`replayPatches`) clears it.
+ */
+function settled<TArgs, TData>(
+    currentState: TDataState<TArgs, TData>,
+    result: TPatchResult<TData>,
+): TSettleOutcome<TArgs, TData> {
+    if (!result.ok) return { ok: false, state: consistencyViolation(currentState) };
+
+    const patchState: TPatchState<TData> | null = currentState.patchState?.isConsistencyViolation
+        ? {
+              originalData: result.patchState?.originalData ?? result.data,
+              patches: result.patchState?.patches ?? [],
+              isConsistencyViolation: true,
+          }
+        : result.patchState;
+    return { ok: true, state: withDataState(currentState, result.data, patchState) };
+}
+
 export function processPatches<TArgs, TData>(
     currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
-): TDataState<TArgs, TData> {
-    const result = processPatchState(patchState);
-    if (!result.ok) return consistencyViolation(currentState);
-    return withDataState(currentState, result.data, result.patchState);
+): TSettleOutcome<TArgs, TData> {
+    return settled(currentState, processPatchState(patchState));
 }
 
 export function processAllPatches<TArgs, TData>(
     currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
-): TDataState<TArgs, TData> {
-    const result = processAllSettledPatches(patchState);
-    if (!result.ok) return consistencyViolation(currentState);
-    return withDataState(currentState, result.data, result.patchState);
+): TSettleOutcome<TArgs, TData> {
+    return settled(currentState, processAllSettledPatches(patchState));
+}
+
+/**
+ * The data an entry vouches for: the server's answer with its committed
+ * patches folded in, without the pending ones — what a snapshot persists and
+ * another tab is seeded with. `null` when there is none: no data yet, or a
+ * consistency violation made the data shown something other than a server
+ * answer until the next one lands.
+ */
+export function confirmedData<TArgs, TData>(state: TQueryEntryState<TArgs, TData>): { data: TData } | null {
+    if (!isDataState(state)) return null;
+    const patchState = state.patchState;
+    if (!patchState) return { data: state.data };
+    if (patchState.isConsistencyViolation) return null;
+    return { data: patchState.originalData };
 }

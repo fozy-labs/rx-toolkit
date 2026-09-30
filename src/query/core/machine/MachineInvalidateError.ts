@@ -17,7 +17,7 @@ export class MachineInvalidateError<TArgs, TData> extends MachineWithData<TArgs,
     }
 
     protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): MachineInvalidating<TArgs, TData> {
-        return new MachineInvalidating<TArgs, TData>(state);
+        return new MachineInvalidating<TArgs, TData>(state, true);
     }
 
     /** invalidate-error → invalidating */

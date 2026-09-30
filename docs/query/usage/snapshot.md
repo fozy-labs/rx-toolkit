@@ -20,7 +20,7 @@ const snapshot = api.getSnapshot();
 // → { version, keyPrefix, timestamp, resources: { ... } }
 ```
 
-Поля записи — в [Что сериализуется](#что-сериализуется). Записи в состояниях `pending` и `error` пропускаются, `invalidating` — пока его запрос в полёте. Запись, оставшаяся в `invalidating` без запроса в полёте (её запрос прервал `invalidate()` в режиме `cancel`, пока её никто не удерживал), сериализуется как `success` с `isStale: true`: её данные — последние подтверждённые, а перезапрос ей причитается.
+Поля записи — в [Что сериализуется](#что-сериализуется). Записи в состояниях `pending` и `error` пропускаются, `invalidating` — пока его запрос в полёте. Запись, оставшаяся в `invalidating` без запроса в полёте (её запрос прервал `invalidate()` в режиме `cancel`, пока её никто не удерживал), сериализуется как `success` с `isStale: true`: её данные — последние подтверждённые, а перезапрос ей причитается. Запись после [нарушения консистентности][patching-violation] патчей пропускается до ответа сервера: подтверждённых данных у неё нет.
 
 
 ## initialSnapshot
@@ -93,3 +93,4 @@ const api = createApi({
 [cache-holds]: ../concepts/cache.md#кто-удерживает-запись
 [cache-invalidation]: ../concepts/cache.md#инвалидация-тающей-записи
 [broadcast-server]: ./broadcast.md#на-сервере-ssr
+[patching-violation]: ../concepts/patching.md#нарушение-консистентности

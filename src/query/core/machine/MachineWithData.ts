@@ -3,7 +3,13 @@ import type { IPatchHandle, TPatchEntry, TPatchState, TQueryEntryInvalidatingSta
 import { QueryEntryStateError } from "../errors";
 import { createPatches } from "../patcher";
 
-import { processAllPatches, processPatches, withDataState, type TDataState } from "./machine-helpers";
+import {
+    processAllPatches,
+    processPatches,
+    withDataState,
+    type TDataState,
+    type TSettleOutcome,
+} from "./machine-helpers";
 import { MachineBase } from "./MachineBase";
 import type { MachineInvalidating } from "./MachineInvalidating";
 
@@ -19,8 +25,8 @@ export type TPatchCreateResult<TMachine> = { machine: TMachine; handle: IPatchHa
 export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, TData> {
     declare readonly state: TDataState<TArgs, TData>;
 
-    protected constructor(state: TDataState<TArgs, TData>) {
-        super(state);
+    protected constructor(state: TDataState<TArgs, TData>, violated = false) {
+        super(state, violated);
     }
 
     get data(): TData {
@@ -37,14 +43,17 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
 
     protected abstract withState(state: TDataState<TArgs, TData>): this;
 
-    /** Wrap the `invalidating` state a consistency violation lands in (see `consistencyViolation`). */
+    /**
+     * Wrap the `invalidating` state a consistency violation lands in (see
+     * `consistencyViolation`), marked {@link MachineBase.violated}.
+     */
     protected abstract withViolation(
         state: TQueryEntryInvalidatingState<TArgs, TData>,
     ): this | MachineInvalidating<TArgs, TData>;
 
-    /** Wrap the state a patch settle produced: this status, or `invalidating` after a violation. */
-    private withSettled(state: TDataState<TArgs, TData>): this | MachineInvalidating<TArgs, TData> {
-        return state.status === "invalidating" ? this.withViolation(state) : this.withState(state);
+    /** Wrap the outcome of a patch settle: this status, or a violation. */
+    private withSettled(outcome: TSettleOutcome<TArgs, TData>): this | MachineInvalidating<TArgs, TData> {
+        return outcome.ok ? this.withState(outcome.state) : this.withViolation(outcome.state);
     }
 
     // ==================== Patch Methods ====================
@@ -66,7 +75,8 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
         const newPatchState: TPatchState<TData> = {
             originalData,
             patches: [...existingPatches, entry],
-            isConsistencyViolation: false,
+            // A violation's data stays unconfirmed until a server answer lands.
+            isConsistencyViolation: this.state.patchState?.isConsistencyViolation ?? false,
         };
 
         const newState = withDataState(this.state, nextData as TData, newPatchState);

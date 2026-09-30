@@ -23,7 +23,7 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
     }
 
     protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): MachineInvalidating<TArgs, TData> {
-        return new MachineInvalidating<TArgs, TData>(state);
+        return new MachineInvalidating<TArgs, TData>(state, true);
     }
 
     /**
