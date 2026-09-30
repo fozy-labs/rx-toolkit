@@ -133,6 +133,14 @@ describe("unstable_ProxySignal", () => {
             const s$ = ProxySignal.state(makeShape());
             expect(s$.root.user()).toBe(s$.root.user());
         });
+
+        it("a path node is not a thenable, so awaiting it gives the node", async () => {
+            const s$ = ProxySignal.state(makeShape());
+            const node = s$.root.user;
+            expect((node as unknown as { then?: unknown }).then).toBeUndefined();
+            const timeout = new Promise((resolve) => setTimeout(resolve, 50, "timeout"));
+            await expect(Promise.race([(async () => node)(), timeout])).resolves.toBe(node);
+        });
     });
 
     describe("optional-chaining semantics", () => {

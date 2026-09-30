@@ -118,6 +118,9 @@ class ProxySignalCore<T extends object> {
         node.proxy = new Proxy(pathRead, {
             get: (target, prop) => {
                 if (typeof prop === "symbol") return Reflect.get(target, prop);
+                // Not a path: a node with a callable `then` is a thenable that
+                // never settles, so `await node` would hang.
+                if (prop === "then") return undefined;
                 return this._pathProxy([...segments, prop]);
             },
         });
