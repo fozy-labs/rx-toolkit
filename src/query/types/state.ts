@@ -246,7 +246,9 @@ export interface TInfiniteResourceState<TArgs, TData, TError = unknown> {
      * Append the next page with the given args and start loading it. Passing
      * the args of an already-present page is a no-op (double-click safe),
      * unless that page is in the `error` status — a failed first load or a
-     * failed re-query that kept its data — in which case it is retried.
+     * failed re-query that kept its data — in which case it is retried. A
+     * feed off screen — unmounted, hidden by `<Activity>` or replaced by new
+     * initial args — appends the page but loads it only once it is back.
      */
     fetchNext: (args: TArgsOrKeyed<TArgs>) => void;
     /**
