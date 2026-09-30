@@ -895,7 +895,7 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("slots alive in this session are re-touched by GC instead of expiring", () => {
+        it("slots alive in this session are re-touched instead of expiring", () => {
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(1, BASE + WEEK),
                 [storageKey("live")]: envelope(1, BASE),
@@ -1011,27 +1011,31 @@ describe("LocalState", () => {
             expect(env.at).toBe(BASE + 2 * DAY - MINUTE);
         });
 
-        it("raising checkInterval mid-session arms the live-touch loop at the next GC fire", () => {
+        it("raising checkInterval mid-session keeps a live slot away from other tabs' sweeps", () => {
             const original = { ...LocalSignal.GC_OPTIONS };
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE - 1000)],
+                [storageKey("d"), envelope(1, BASE)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
 
             try {
-                const driver = createMockDriver({
-                    [KEY_PREFIX]: meta(1, BASE - 1000),
-                    [storageKey("d")]: envelope(1, BASE),
-                });
+                // Tab B does not hold the slot and fires its GC timers first.
+                LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+                LocalSignal.state({ key: "d", defaultValue: 0, driver: makeTab(), gc: { maxUnreadTime: 20 * DAY } });
 
-                LocalSignal.state({ key: "d", defaultValue: 0, driver, gc: { maxUnreadTime: 20 * DAY } });
-
-                // With a 40-day GC cadence the weekly rounds no longer protect
-                // a 20-day TTL — the dedicated loop must take over on the next
-                // GC fire (threshold becomes min(40d, 10d) = 10 days).
+                // The live-touch cadence was set up for weekly GC rounds; with
+                // a 40-day cadence the slot's own 20-day TTL must still hold.
                 LocalSignal.GC_OPTIONS = { ...original, checkInterval: 40 * DAY };
 
-                vi.advanceTimersByTime(30 * MINUTE); // due GC fire arms the loop
-                vi.advanceTimersByTime(12 * DAY);
+                vi.advanceTimersByTime(130 * DAY);
 
-                const env = JSON.parse(driver.getItem(storageKey("d"))!);
-                expect(env.at).toBe(BASE + 30 * MINUTE + 10 * DAY);
+                expect(map.has(storageKey("d"))).toBe(true);
             } finally {
                 LocalSignal.GC_OPTIONS = original;
             }
@@ -1083,6 +1087,45 @@ describe("LocalState", () => {
                 LocalSignal.GC_OPTIONS = original;
             }
         });
+
+        it.each([
+            ["before init", true],
+            ["over a pending GC timer", false],
+        ])(
+            "a live slot stays protected from other tabs after checkInterval: Infinity set %s is reverted",
+            (_, beforeInit) => {
+                const original = { ...LocalSignal.GC_OPTIONS };
+                const map = new Map<string, string>([
+                    [KEY_PREFIX, meta(1, BASE + DAY)],
+                    [storageKey("live"), envelope(1, BASE - HOUR)],
+                ]);
+                const makeTab = () => ({
+                    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                    setItem: (k: string, v: string) => void map.set(k, String(v)),
+                    removeItem: (k: string) => void map.delete(k),
+                    keys: () => [...map.keys()],
+                });
+
+                try {
+                    if (beforeInit) LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+                    LocalSignal.state({ key: "live", defaultValue: 0, driver: makeTab() });
+                    LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+
+                    // The pending GC timer (if any) fires while GC is off.
+                    vi.advanceTimersByTime(2 * DAY);
+
+                    // GC back on; tab B does not hold the slot and sweeps weekly.
+                    LocalSignal.GC_OPTIONS = original;
+                    LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+
+                    vi.advanceTimersByTime(200 * DAY);
+
+                    expect(map.has(storageKey("live"))).toBe(true);
+                } finally {
+                    LocalSignal.GC_OPTIONS = original;
+                }
+            },
+        );
 
         it("touch threshold respects a small per-slot maxUnreadTime", () => {
             const driver = createMarkedDriver(

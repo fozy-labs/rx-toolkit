@@ -179,8 +179,9 @@ export class LocalStateStorage {
 
     /**
      * Slots alive in this session (a `LocalState` instance was constructed
-     * for them): the GC re-touches them instead of expiring, so an actively
-     * used value never falls to its `maxUnreadTime` while the app runs.
+     * for them): the live-touch loop re-touches them and this tab's sweep
+     * skips them, so an actively used value never falls to its
+     * `maxUnreadTime` while the app runs.
      */
     private readonly _liveSlots = new Map<string, SlotTtl>();
 
@@ -204,10 +205,8 @@ export class LocalStateStorage {
     registerSlot(storageKey: string, ttl: SlotTtl) {
         this._liveSlots.set(storageKey, ttl);
 
-        // A slot with a TTL tighter than the GC cadence cannot rely on the
-        // ~checkInterval re-touch: another tab (which does not hold it live)
-        // would sweep it between rounds. Re-arm the dedicated loop if this
-        // slot needs a shorter cadence than the currently armed one.
+        // Re-arm the live-touch loop if this slot needs a shorter cadence
+        // than the currently armed one.
         const interval = this._minLiveTouchThreshold();
 
         if (this._liveTouchTimer !== null && interval < this._liveTouchInterval) {
@@ -413,13 +412,6 @@ export class LocalStateStorage {
             return;
         }
 
-        this._touchLiveSlots();
-
-        // Re-evaluate the dedicated loop here as well: GC_OPTIONS.checkInterval
-        // may have been raised mid-session, turning slots that used to be
-        // covered by the GC cadence into ones that need their own loop.
-        this._armLiveTouchTimer(this._minLiveTouchThreshold());
-
         // GC was turned off while this timer was pending — leave the deadline to
         // sessions that still run GC and stop here without re-scheduling.
         if (!isGcEnabled()) return;
@@ -497,10 +489,9 @@ export class LocalStateStorage {
     }
 
     /**
-     * Refreshes `at` of this session's live slots (runs on every GC timer
-     * fire and on the dedicated live-touch loop, so no tab — including this
-     * one — expires a value the app is actively holding). Ownership was
-     * checked by the caller.
+     * Refreshes `at` of this session's live slots, so no other tab's sweep
+     * expires a value the app is actively holding. Ownership was checked by
+     * the caller.
      */
     private _touchLiveSlots() {
         const now = Date.now();
@@ -524,13 +515,15 @@ export class LocalStateStorage {
     }
 
     /**
-     * Dedicated re-touch loop for slots whose TTL is tighter than the GC
-     * cadence: the GC timer visits live slots only about once per
-     * checkInterval, which is too rare to keep e.g. a 4-day slot alive
-     * against sweeps from tabs that do not hold it live.
+     * The live-touch loop: the only re-touch of live slots, independent of
+     * this tab's GC timer — that one is not armed while GC is off here
+     * (`checkInterval: Infinity`, no key enumeration, a missing meta), yet
+     * other tabs may still sweep. Each round re-reads the cadence, so a
+     * changed `GC_OPTIONS` or a tighter slot applies from the next round.
+     * Only GC-exempt slots under an infinite `checkInterval` need no loop.
      */
     private _armLiveTouchTimer(interval: number) {
-        if (this._liveTouchTimer !== null || interval >= GC_OPTIONS.checkInterval) return;
+        if (this._liveTouchTimer !== null || !Number.isFinite(interval)) return;
 
         this._liveTouchInterval = interval;
 

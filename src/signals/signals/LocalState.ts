@@ -105,8 +105,8 @@ export class LocalState<T = string | null | number | undefined> {
         this._storageKey = slotStorageKey(options.key, options.userId);
         this._slotTtl = resolveSlotTtl(options.gc);
 
-        // Live registration: the GC re-touches this slot instead of expiring
-        // it, so a value held by a running app never hits its maxUnreadTime.
+        // Live registration: this slot is re-touched periodically instead of
+        // expiring, so a value held by a running app never hits its maxUnreadTime.
         this._storage.registerSlot(this._storageKey, this._slotTtl);
 
         let initialValue = this._getStorageValue(options);
