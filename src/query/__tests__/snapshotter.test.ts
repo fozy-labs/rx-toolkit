@@ -693,3 +693,58 @@ describe("Snapshotter hydration — snapshot version migration", () => {
         expect(statuses).toEqual(["invalidate-error", "success"]);
     });
 });
+
+describe("Snapshotter hydration — consume and resetAll", () => {
+    const now = Date.now();
+
+    function profileSnapshot(): TApiSnapshot {
+        return {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: now,
+            resources: {
+                profile: {
+                    entries: {
+                        [stableStringify({ id: 1 })]: {
+                            status: "success",
+                            args: { id: 1 },
+                            data: { name: "ssr" },
+                            updatedAt: now,
+                        },
+                    },
+                },
+            },
+        };
+    }
+
+    const createProfile = (api: ReturnType<typeof createApi>) =>
+        api.createResource<{ id: number }, { name: string }>({
+            key: "profile",
+            queryFn: async () => ({ name: "fresh" }),
+        });
+
+    it("a hydrated slice is consumed: a second resource with the same key starts empty", () => {
+        const api = createApi({ initialSnapshot: profileSnapshot() });
+
+        expect(createProfile(api).getState({ id: 1 }).data).toEqual({ name: "ssr" });
+        expect(createProfile(api).getState({ id: 1 }).status).toBe("idle");
+    });
+
+    it("consuming a slice leaves the caller's snapshot object intact", () => {
+        const snapshot = profileSnapshot();
+        const api = createApi({ initialSnapshot: snapshot });
+
+        createProfile(api);
+
+        expect(snapshot).toEqual(profileSnapshot());
+        expect(createProfile(createApi({ initialSnapshot: snapshot })).getState({ id: 1 }).status).toBe("success");
+    });
+
+    it("resetAll() clears the stored snapshot: a resource created afterwards is not hydrated", () => {
+        const api = createApi({ initialSnapshot: profileSnapshot() });
+
+        api.resetAll();
+
+        expect(createProfile(api).getState({ id: 1 }).status).toBe("idle");
+    });
+});

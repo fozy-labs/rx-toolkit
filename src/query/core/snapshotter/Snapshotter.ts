@@ -35,37 +35,43 @@ function normalizeSnapshotStatus(status: string, snapshotVersion: number): strin
 }
 
 export class Snapshotter {
-    private readonly _initialSnapshot: TApiSnapshot | null;
+    /**
+     * The initial snapshot's resource slices not hydrated yet, by resource key.
+     * An own map, so consuming a slice leaves the caller's snapshot intact.
+     */
+    private readonly _slices: Map<string, TResourceSnapshot>;
+    private readonly _snapshotVersion: number;
     private readonly _snapshotValidTime: number | false;
     private readonly _keyPrefix: string | null;
 
     constructor(options: TSnapshotterOptions) {
-        this._initialSnapshot = options.initialSnapshot;
+        this._slices = new Map(Object.entries(options.initialSnapshot?.resources ?? {}));
+        this._snapshotVersion = options.initialSnapshot?.version ?? CURRENT_SNAPSHOT_VERSION;
         this._snapshotValidTime = options.snapshotValidTime;
         this._keyPrefix = options.keyPrefix;
     }
 
     /**
-     * Build hydration entries for a resource from the initial snapshot.
-     * Returns `undefined` when no matching snapshot data exists.
+     * Take a resource's slice out of the initial snapshot and build its
+     * hydration entries. The slice is consumed: a later call with the same key
+     * gets nothing. Returns `undefined` when no matching snapshot data exists.
      */
     hydrateResource(
         snapshotKey: string | undefined,
         resourceSnapshotValidTime?: number | false,
     ): TResourceSnapshot | undefined {
-        const initialSnapshot = this._initialSnapshot;
-        if (!initialSnapshot || !snapshotKey || !initialSnapshot.resources[snapshotKey]) {
-            return undefined;
-        }
+        if (!snapshotKey) return undefined;
+        const resSnapshot = this._slices.get(snapshotKey);
+        if (!resSnapshot) return undefined;
+        this._slices.delete(snapshotKey);
 
-        const resSnapshot = initialSnapshot.resources[snapshotKey];
         const entries: Record<string, TResourceSnapshotEntry> = {};
         const now = Date.now();
         const effectiveSnapshotValidTime =
             resourceSnapshotValidTime !== undefined ? resourceSnapshotValidTime : this._snapshotValidTime;
 
         for (const [entryKey, snapEntry] of Object.entries(resSnapshot.entries)) {
-            const status = normalizeSnapshotStatus(snapEntry.status, initialSnapshot.version);
+            const status = normalizeSnapshotStatus(snapEntry.status, this._snapshotVersion);
             if (status !== "success" && status !== "invalidate-error") continue;
 
             // An invalidate-error entry's data is last-known-good (a successful
@@ -92,6 +98,11 @@ export class Snapshotter {
         }
 
         return Object.keys(entries).length > 0 ? { entries } : undefined;
+    }
+
+    /** Drop every slice not hydrated yet: resources created afterwards start empty. */
+    clear(): void {
+        this._slices.clear();
     }
 
     /**
