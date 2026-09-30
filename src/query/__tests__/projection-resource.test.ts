@@ -4,6 +4,7 @@ import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { createApi } from "@/query/api/createApi";
 import type { QueryCacheEntry } from "@/query/core/cache/QueryCacheEntry";
 import { ProjectionItemMissingError } from "@/query/core/errors";
+import type { Resource } from "@/query/core/resource/Resource";
 import type { TInFlightPolicy, TResourceEntryIdleState, TResourceEntryState } from "@/query/types";
 
 type TUser = { id: number; name: string };
@@ -1320,6 +1321,36 @@ describe("ProjectionResource", () => {
             expect(queryFn).toHaveBeenCalledTimes(2);
             expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [1, 2] });
             expect(data.map((user) => user.id)).toEqual([1, 2]);
+        });
+
+        it("a set loaded after resetAll() mid-batch sends its own request instead of joining the removed one", async () => {
+            const { api, requests, projection } = setupControlled();
+
+            const first = projection.fetch([1, 2]).catch((error: unknown) => error);
+            api.resetAll();
+            const second = projection.fetch([1, 2]);
+
+            expect(requests).toHaveLength(2);
+            for (const request of requests) request.resolve();
+            expect((await second).map((user) => user.id)).toEqual([1, 2]);
+            await first;
+        });
+
+        it("a set loaded after the wrapped resource's reset mid-batch sends its own request", async () => {
+            const { requests, userResource, projection } = setupControlled();
+
+            const first = projection.fetch([1, 2]).catch((error: unknown) => error);
+            // `reset()` is not on the public IResource; api.resetAll() reaches it.
+            (userResource as Resource<TBatchQueryArgs, TUser[]>).reset();
+            const second = projection.fetch([3, 1]);
+
+            expect(requests.map((request) => request.args.userIds)).toEqual([
+                [1, 2],
+                [3, 1],
+            ]);
+            for (const request of requests) request.resolve();
+            expect((await second).map((user) => user.id)).toEqual([3, 1]);
+            await first;
         });
     });
 
