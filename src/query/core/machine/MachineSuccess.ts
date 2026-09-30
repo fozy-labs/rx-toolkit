@@ -22,8 +22,19 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
         return new MachineSuccess(state as TQueryEntrySuccessState<TArgs, TData>) as this;
     }
 
-    /** success → success (subsequent stream emission; replays patches on new data) */
-    next(data: TData): MachineSuccess<TArgs, TData> {
+    protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): MachineInvalidating<TArgs, TData> {
+        return new MachineInvalidating<TArgs, TData>(state);
+    }
+
+    /**
+     * success → success (subsequent stream emission; replays patches on new data).
+     *
+     * Goes `invalidating` when the replay is discarded: the emission brought
+     * data the pending patches cannot live on, so the data shown is no longer
+     * a server answer and the owner has to bring the correction. See
+     * `replayPatches`.
+     */
+    next(data: TData): MachineSuccess<TArgs, TData> | MachineInvalidating<TArgs, TData> {
         const patchState = this.state.patchState;
 
         if (!patchState) {
@@ -38,10 +49,9 @@ export class MachineSuccess<TArgs, TData> extends MachineWithData<TArgs, TData> 
             return new MachineSuccess<TArgs, TData>(state);
         }
 
-        // Replay pending patches on new base. A discarded replay keeps this
-        // state as it is (flagged) — the emission brings nothing usable.
+        // Replay pending patches on new base
         const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
-        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withState(replayed.state);
+        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withViolation(replayed.state);
     }
 
     /** success → invalidate-error (a streaming query failed after delivering data; data is kept) */

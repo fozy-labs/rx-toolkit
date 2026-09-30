@@ -311,10 +311,7 @@ export class QueryCacheEntry<TArgs, TData>
             ) {
                 const finished = current.finishPatch();
                 this._setMachine(finished, "patch-settled");
-
-                if (finished.patchState?.isConsistencyViolation) {
-                    this.invalidate();
-                }
+                this._rerunOnDiscardedData(finished);
             }
         };
 
@@ -841,7 +838,7 @@ export class QueryCacheEntry<TArgs, TData>
                     case "invalidating": {
                         const rebased = machine.rebase(data);
                         this._setMachine(rebased, "rebase");
-                        this._rerunOnDiscardedRebase(rebased);
+                        this._rerunOnDiscardedData(rebased);
                         break;
                     }
                     default:
@@ -971,22 +968,22 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Re-query when a rebase discarded its own result — a consistency
-     * violation, handled like the one a patch settle raises: through
-     * {@link invalidate}, so the lazy rule and the entry's in-flight policy
-     * apply as they are. The entry is still `invalidating` (the run settled
-     * nothing): a promise run has already left flight, so a held entry re-runs
-     * at once and a melting one is marked; a stream run is still open, so
-     * under `cancel` it is torn down and reopened, under `trail` it is marked
-     * and lives on, under `join` it lives on unmarked — its next emission
-     * rebases over the now empty patch list and lands in a clean `success`,
-     * and so does the next run's first result. A joined stream that ends
-     * without that emission leaves the entry owing the run (see
-     * {@link _onRunLeftFlight}).
+     * Re-query after a consistency violation — a rebase or a stream emission
+     * that discarded the server data, a patch settle that could not replay
+     * the stack: through {@link invalidate}, so the lazy rule and the entry's
+     * in-flight policy apply as they are. The violation left the entry
+     * `invalidating` (nothing settled): a promise run has already left
+     * flight, so a held entry re-runs at once and a melting one is marked; a
+     * stream run is still open, so under `cancel` it is torn down and
+     * reopened, under `trail` it is marked and lives on, under `join` it lives
+     * on unmarked — its next emission rebases over the now empty patch list
+     * and lands in a clean `success`, and so does the next run's first
+     * result. A joined stream that ends without that emission leaves the
+     * entry owing the run (see {@link _onRunLeftFlight}).
      */
-    private _rerunOnDiscardedRebase(rebased: Machine<TArgs, TData>): void {
-        if (rebased.status !== "invalidating") return;
-        if (!rebased.state.patchState?.isConsistencyViolation) return;
+    private _rerunOnDiscardedData(machine: MachineBase<TArgs, TData>): void {
+        const state = machine.state;
+        if (state.status !== "invalidating" || !state.patchState?.isConsistencyViolation) return;
 
         this.invalidate();
     }
@@ -1002,16 +999,13 @@ export class QueryCacheEntry<TArgs, TData>
             case "invalidating": {
                 const rebased = machine.rebase(data);
                 this._setMachine(rebased, "rebase");
-                this._rerunOnDiscardedRebase(rebased);
+                this._rerunOnDiscardedData(rebased);
                 break;
             }
             case "success": {
                 const next = machine.next(data);
                 this._setMachine(next, "stream-next");
-
-                if (next.patchState?.isConsistencyViolation) {
-                    this.invalidate();
-                }
+                this._rerunOnDiscardedData(next);
                 break;
             }
             default:

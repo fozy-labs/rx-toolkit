@@ -16,6 +16,10 @@ export class MachineInvalidateError<TArgs, TData> extends MachineWithData<TArgs,
         return new MachineInvalidateError(state as TQueryEntryInvalidateErrorState<TArgs, TData>) as this;
     }
 
+    protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): MachineInvalidating<TArgs, TData> {
+        return new MachineInvalidating<TArgs, TData>(state);
+    }
+
     /** invalidate-error → invalidating */
     invalidate(): MachineInvalidating<TArgs, TData> {
         const state: TQueryEntryInvalidatingState<TArgs, TData> = {

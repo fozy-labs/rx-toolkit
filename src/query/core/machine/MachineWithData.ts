@@ -1,10 +1,11 @@
-import type { IPatchHandle, TPatchEntry, TPatchState } from "@/query/types";
+import type { IPatchHandle, TPatchEntry, TPatchState, TQueryEntryInvalidatingState } from "@/query/types";
 
 import { QueryEntryStateError } from "../errors";
 import { createPatches } from "../patcher";
 
 import { processAllPatches, processPatches, withDataState, type TDataState } from "./machine-helpers";
 import { MachineBase } from "./MachineBase";
+import type { MachineInvalidating } from "./MachineInvalidating";
 
 export type TPatchCreateResult<TMachine> = { machine: TMachine; handle: IPatchHandle };
 
@@ -35,6 +36,16 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
     }
 
     protected abstract withState(state: TDataState<TArgs, TData>): this;
+
+    /** Wrap the `invalidating` state a consistency violation lands in (see `consistencyViolation`). */
+    protected abstract withViolation(
+        state: TQueryEntryInvalidatingState<TArgs, TData>,
+    ): this | MachineInvalidating<TArgs, TData>;
+
+    /** Wrap the state a patch settle produced: this status, or `invalidating` after a violation. */
+    private withSettled(state: TDataState<TArgs, TData>): this | MachineInvalidating<TArgs, TData> {
+        return state.status === "invalidating" ? this.withViolation(state) : this.withState(state);
+    }
 
     // ==================== Patch Methods ====================
 
@@ -80,19 +91,21 @@ export abstract class MachineWithData<TArgs, TData> extends MachineBase<TArgs, T
         return { machine: this.withState(newState), handle };
     }
 
-    finishPatch(): this {
+    /** Fold the settled patches up to the first pending one; a consistency violation lands in `invalidating`. */
+    finishPatch(): this | MachineInvalidating<TArgs, TData> {
         if (!this.state.patchState) {
             throw new QueryEntryStateError("finishPatch", "no active patchState");
         }
 
-        return this.withState(processPatches(this.state, this.state.patchState));
+        return this.withSettled(processPatches(this.state, this.state.patchState));
     }
 
-    finishAllPatches(): this {
+    /** Fold every settled patch; a consistency violation lands in `invalidating`. */
+    finishAllPatches(): this | MachineInvalidating<TArgs, TData> {
         if (!this.state.patchState) {
             throw new QueryEntryStateError("finishAllPatches", "no active patchState");
         }
 
-        return this.withState(processAllPatches(this.state, this.state.patchState));
+        return this.withSettled(processAllPatches(this.state, this.state.patchState));
     }
 }

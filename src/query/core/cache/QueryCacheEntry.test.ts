@@ -2011,32 +2011,54 @@ describe("QueryCacheEntry — invalidate() with a stream run in flight", () => {
             },
         );
 
-        it("a consistency violation on a stream emission joins: nothing is marked or re-queried", () => {
+        // A violation raised while the stream sits in `success` discards the
+        // data like a failed rebase does: the entry goes `invalidating`, and
+        // under `join` the stream lives on unmarked — its next emission lands
+        // the correction, and a stream that ends without one leaves the entry
+        // owing the run.
+
+        /** Join entry, held, stream 1 open with data and a pending patch on `items[0]`. */
+        function createJoinedPatchedStream() {
             const { stream, state } = trackedStream<TData>();
             const entry = createEntry<void, TData>({ queryFn: () => stream, invalidateInFlight: "join" });
             entry.hold();
             const run1 = state.subscriber!;
             run1.next({ items: [{ n: 1 }] });
+            return { entry, state, run1 };
+        }
 
+        it("a consistency violation on a stream emission joins: the entry goes invalidating, the stream lives on unmarked", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            run1.next({ items: [] });
+
+            expect(state.teardownCount).toBe(0);
+            expect(entry.isInvalidated).toBe(false);
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+
+            run1.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
+        });
+
+        it("a joined violation on a stream emission whose stream ends without another emission re-queries", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
             entry.createPatch((draft) => {
                 draft.items[0]!.n = 99;
             });
             run1.next({ items: [] });
 
-            expect(state.teardownCount).toBe(0);
-            expect(entry.isInvalidated).toBe(false);
-
             run1.complete();
-            expect(state.subscribeCount).toBe(1);
-            expect(entry.isInvalidated).toBe(false);
+
+            expect(state.subscribeCount).toBe(2);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
         });
 
-        it("a consistency violation on a patch settle joins: nothing is marked or re-queried", () => {
-            const { stream, state } = trackedStream<TData>();
-            const entry = createEntry<void, TData>({ queryFn: () => stream, invalidateInFlight: "join" });
-            entry.hold();
-            const run1 = state.subscriber!;
-            run1.next({ items: [{ n: 1 }] });
+        it("a joined violation on a patch settle whose stream ends without another emission re-queries", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
 
             // Patch 2 depends on the item patch 1 adds; aborting patch 1 makes
             // patch 2's replay fail on settle — a consistency violation.
@@ -2048,13 +2070,17 @@ describe("QueryCacheEntry — invalidate() with a stream run in flight", () => {
             });
             h1.abort();
 
-            expect(entry.peek()).toMatchObject({ patchState: { isConsistencyViolation: true } });
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                patchState: { isConsistencyViolation: true },
+            });
             expect(state.teardownCount).toBe(0);
             expect(entry.isInvalidated).toBe(false);
 
             run1.complete();
-            expect(state.subscribeCount).toBe(1);
-            expect(entry.isInvalidated).toBe(false);
+            expect(state.subscribeCount).toBe(2);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
         });
     });
 });

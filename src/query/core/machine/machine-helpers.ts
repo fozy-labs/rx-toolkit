@@ -146,8 +146,8 @@ export function withDataState<TArgs, TData>(
 }
 
 /**
- * Give up on the pending patches: drop them and flag the patch state so the
- * owner re-queries.
+ * Give up on the pending patches: drop them, flag the patch state and land in
+ * `invalidating`, so the owner re-queries.
  *
  * The data they produced stays shown, and becomes the base (`originalData`)
  * until the re-query lands: with an empty stack, `data` must equal the base,
@@ -155,17 +155,23 @@ export function withDataState<TArgs, TData>(
  * afterwards — would recompute `data` from the old base and roll back changes
  * nobody undid.
  *
- * Everything else is left exactly as it is — including `status` and
- * `updatedAt`. A discarded replay is not a settled run: the entry keeps the
- * status it was in (an interrupted rebase stays `invalidating`) and the
- * timestamp of its last real settle, so no reader can mistake the optimistic
- * data it still shows for a fresh server answer.
+ * The status is `invalidating` whatever it was: the data shown is no longer a
+ * server answer the entry vouches for — a `success` (a stream emission, a
+ * patch settle) must not keep claiming it is — and the entry now waits for
+ * the load that corrects it. `updatedAt` stays the timestamp of the last real
+ * settle, so no reader can mistake the optimistic data it still shows for a
+ * fresh server answer.
  */
-export function consistencyViolation<TArgs, TData, TState extends TDataState<TArgs, TData>>(
-    currentState: TState,
-): TState {
+export function consistencyViolation<TArgs, TData>(
+    currentState: TDataState<TArgs, TData>,
+): TQueryEntryInvalidatingState<TArgs, TData> {
     return {
-        ...currentState,
+        status: "invalidating",
+        args: currentState.args,
+        data: currentState.data,
+        // A retry in flight keeps the failure it retries (see buildDataState).
+        error: currentState.status === "invalidating" ? currentState.error : null,
+        updatedAt: currentState.updatedAt,
         patchState: {
             originalData: currentState.data,
             patches: [],
@@ -178,12 +184,14 @@ export function consistencyViolation<TArgs, TData, TState extends TDataState<TAr
  * Outcome of replaying optimistic patches over freshly received data.
  *
  * `ok` — they applied, and the transition settles in `targetStatus`.
- * Otherwise the run is discarded: `state` is the caller's own state with the
- * patches dropped and {@link TPatchState.isConsistencyViolation} raised, and it
- * is up to the caller to start another run.
+ * Otherwise the run is discarded: `state` is the caller's own state gone
+ * `invalidating`, with the patches dropped and
+ * {@link TPatchState.isConsistencyViolation} raised, and it is up to the caller
+ * to start another run.
  */
 export type TReplayOutcome<TArgs, TData, TStatus extends TDataStatus> =
-    { ok: true; state: TDataStateOf<TArgs, TData, TStatus> } | { ok: false; state: TDataState<TArgs, TData> };
+    | { ok: true; state: TDataStateOf<TArgs, TData, TStatus> }
+    | { ok: false; state: TQueryEntryInvalidatingState<TArgs, TData> };
 
 /**
  * Replay the pending patches over `baseData`, landing in `targetStatus` if they

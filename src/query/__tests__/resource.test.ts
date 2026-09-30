@@ -518,10 +518,11 @@ describe("Resource.invalidate — lazy on an entry nobody holds", () => {
         h1.abort();
         await flushMicrotasks();
 
-        // Nobody holds the entry: marked, not re-queried.
+        // Nobody holds the entry: marked, not re-queried. The data is no
+        // longer a server answer, so the entry waits for the load it owes.
         expect(fetchCount).toBe(1);
         expect(entry.isInvalidated).toBe(true);
-        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         entry.hold();
         expect(fetchCount).toBe(2);

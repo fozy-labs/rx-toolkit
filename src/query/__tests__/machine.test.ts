@@ -903,6 +903,46 @@ describe("Machine", () => {
             expect(settled.state).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
             expect(settled.state.patchState).toBeNull();
         });
+
+        it("scenario 8: a discarded stream emission leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            const { machine: patched } = base.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const next = patched.next({ items: [] });
+
+            expect(next).toBeInstanceOf(MachineInvalidating);
+            expect(next.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 99 }] },
+                updatedAt: base.state.updatedAt,
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+        });
+
+        it("scenario 9: a patch settle that cannot replay the stack leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            // Patch 2 edits the item patch 1 adds: once patch 1 is aborted, patch 2 cannot replay.
+            const { machine: m1, handle: h1 } = base.createPatch((draft) => {
+                draft.items.push({ n: 2 });
+            });
+            const { machine: m2 } = m1.createPatch((draft) => {
+                draft.items[1]!.n = 3;
+            });
+            h1.abort();
+
+            const finished = m2.finishPatch();
+
+            expect(finished).toBeInstanceOf(MachineInvalidating);
+            expect(finished.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 1 }, { n: 3 }] },
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+        });
     });
 
     // ── Edge Cases ─────────────────────────────────────────────────

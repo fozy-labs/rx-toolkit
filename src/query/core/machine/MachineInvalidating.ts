@@ -22,6 +22,10 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
         return new MachineInvalidating(state as TQueryEntryInvalidatingState<TArgs, TData>) as this;
     }
 
+    protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): this {
+        return this.withState(state);
+    }
+
     /**
      * invalidating → success (replays patches on new data).
      *
@@ -46,7 +50,7 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
 
         // Replay pending patches on new base
         const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
-        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withState(replayed.state);
+        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withViolation(replayed.state);
     }
 
     /** invalidating → invalidate-error */
