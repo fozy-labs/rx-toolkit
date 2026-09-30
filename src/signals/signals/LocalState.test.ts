@@ -1032,6 +1032,47 @@ describe("LocalState", () => {
             expect(env.at).toBe(BASE);
             expect(env.ttl).toBe(4 * DAY);
         });
+
+        it("a load stamps a changed gc policy on the stored envelope, before the touch threshold", () => {
+            const driver = createMarkedDriver(
+                {
+                    [storageKey("to-exempt")]: envelope(1, BASE - HOUR, DAY),
+                    [storageKey("to-default")]: envelope(2, BASE - HOUR, null),
+                    [storageKey("to-custom")]: envelope(3, BASE - HOUR),
+                },
+                BASE + WEEK,
+            );
+
+            LocalSignal.state({ key: "to-exempt", defaultValue: 0, driver, gc: false });
+            LocalSignal.state({ key: "to-default", defaultValue: 0, driver });
+            LocalSignal.state({ key: "to-custom", defaultValue: 0, driver, gc: { maxUnreadTime: 2 * DAY } });
+
+            const stored = (key: string) => JSON.parse(driver.getItem(storageKey(key))!);
+            expect(stored("to-exempt")).toEqual({ at: BASE, ttl: null, data: 1 });
+            expect(stored("to-default")).toEqual({ at: BASE, data: 2 });
+            expect(stored("to-custom")).toEqual({ at: BASE, ttl: 2 * DAY, data: 3 });
+        });
+
+        it("another tab does not sweep a slot loaded with gc: false over an older 1-day ttl", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + 25 * HOUR)],
+                [storageKey("prefs"), envelope("dark", BASE - HOUR, DAY)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            // Tab B does not hold the slot and claims the sweep first.
+            LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+            LocalSignal.state({ key: "prefs", defaultValue: "light", driver: makeTab(), gc: false });
+
+            vi.advanceTimersByTime(26 * HOUR);
+
+            expect(map.has(storageKey("prefs"))).toBe(true);
+        });
     });
 
     describe("DEFAULT_DRIVER import safety", () => {

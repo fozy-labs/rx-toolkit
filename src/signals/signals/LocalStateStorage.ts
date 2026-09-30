@@ -220,9 +220,10 @@ export class LocalStateStorage {
         }
 
         // Touch-on-read (throttled): keeps slots that are read but rarely
-        // written from expiring under GC. Best-effort — a read must never
-        // fail because the freshness write did (e.g. QuotaExceededError).
-        if (Date.now() - envelope.at >= this._touchThreshold(ttl) && this._refreshOwnership()) {
+        // written from expiring under GC, and stamps a changed gc policy.
+        // Best-effort — a read must never fail because the freshness write
+        // did (e.g. QuotaExceededError).
+        if (this._needsTouch(envelope, ttl, Date.now()) && this._refreshOwnership()) {
             try {
                 this.writeSlot(storageKey, envelope.data, ttl);
             } catch {
@@ -479,7 +480,7 @@ export class LocalStateStorage {
 
             const envelope = this._parseEnvelope(raw);
 
-            if (!envelope || now - envelope.at < this._touchThreshold(ttl)) continue;
+            if (!envelope || !this._needsTouch(envelope, ttl, now)) continue;
 
             try {
                 this.writeSlot(storageKey, envelope.data, ttl);
@@ -528,6 +529,15 @@ export class LocalStateStorage {
     }
 
     // === utils ===
+
+    /**
+     * The envelope is rewritten when it is due for a freshness touch, or when
+     * it carries another gc policy than this session's: the sweep of any tab
+     * trusts the stored `ttl`, so a changed policy must reach storage at once.
+     */
+    private _needsTouch(envelope: Envelope, ttl: SlotTtl, now: number) {
+        return now - envelope.at >= this._touchThreshold(ttl) || envelope.ttl !== ttl;
+    }
 
     /**
      * A slot must be re-touched well before its own TTL expires, not only
