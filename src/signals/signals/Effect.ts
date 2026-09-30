@@ -15,6 +15,8 @@ type EffectFn = () => void | Teardown;
  *   before the throw; the error surfaces from the write that triggered it.
  * - A write of the running body to a signal it read directly does not re-run
  *   it; one that changes a computed it read does, except in the first run.
+ * - A write of another reaction during the run (an effect, an `.obs`
+ *   subscriber, a bridge) that changes a signal the body read re-runs it.
  */
 export class Effect implements SubscriptionLike {
     private readonly _node: EffectNode;

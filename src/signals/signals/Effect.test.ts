@@ -1,6 +1,6 @@
-import { Subject } from "rxjs";
+import { map, Subject } from "rxjs";
 
-import { Batcher, SourceSignal } from "../base";
+import { Batcher, SignalCycleError, SourceSignal } from "../base";
 
 import { Effect } from "./Effect";
 import { Signal } from "./Signal";
@@ -599,6 +599,104 @@ describe("Effect", () => {
             });
 
             expect(fn).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("a write of another reaction during the run", () => {
+        it("first run: another effect, run by the body's write, changes a signal the body read — the effect re-runs", () => {
+            const x = Signal.state(0);
+            const y = Signal.state(0);
+            const other = Signal.effect(() => {
+                if (y() > 0) x.set(y() * 10);
+            });
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(x());
+                if (y.peek() === 0) y.set(1);
+            });
+
+            expect(seen).toEqual([0, 10]);
+            eff.unsubscribe();
+            other.unsubscribe();
+        });
+
+        it("first run: a State.obs subscriber, run by the body's write, changes a signal the body read — the effect re-runs", () => {
+            const x = Signal.state(0);
+            const y = Signal.state(0);
+            const sub = y.obs.subscribe((v) => {
+                if (v > 0) x.set(v * 10);
+            });
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(x());
+                if (y.peek() === 0) y.set(3);
+            });
+
+            expect(seen).toEqual([0, 30]);
+            eff.unsubscribe();
+            sub.unsubscribe();
+        });
+
+        it("re-run: a State.obs subscriber changes a signal the body read — the effect re-runs", () => {
+            const x = Signal.state(0);
+            const y = Signal.state(0);
+            const trigger = Signal.state(0);
+            const sub = y.obs.subscribe((v) => {
+                if (v > 0) x.set(v * 10);
+            });
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                const t = trigger();
+                seen.push(x());
+                if (t > 0) y.set(t);
+            });
+
+            trigger.set(2);
+
+            expect(seen).toEqual([0, 0, 20]);
+            eff.unsubscribe();
+            sub.unsubscribe();
+        });
+
+        it("re-run: a bridge over a State the body writes changes after the body read it — the effect re-runs", () => {
+            const a = Signal.state(1);
+            const b = Signal.from(a.obs.pipe(map((v) => v * 10)));
+            const trigger = Signal.state(0);
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                const t = trigger();
+                seen.push(b());
+                if (t > 0) a.set(t);
+            });
+
+            trigger.set(2);
+
+            expect(seen).toEqual([10, 10, 20]);
+            eff.unsubscribe();
+        });
+
+        it("a loop that the first run starts and that never settles throws SignalCycleError out of Signal.effect", () => {
+            const a = Signal.state(0);
+            const b = Signal.state(0);
+            const first = Signal.effect(() => {
+                a.set(b() + 1);
+            });
+
+            expect(() =>
+                Signal.effect(() => {
+                    b.set(a() + 1);
+                }),
+            ).toThrow(SignalCycleError);
+            first.unsubscribe();
+
+            const s = Signal.state(0);
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(s());
+            });
+            s.set(1);
+            expect(seen).toEqual([0, 1]);
+            eff.unsubscribe();
         });
     });
 

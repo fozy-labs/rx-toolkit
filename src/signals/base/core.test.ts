@@ -249,14 +249,17 @@ describe("engine robustness", () => {
                 // the loop limit refuses writes
             }
         });
+        let on = false;
         const e2 = Signal.effect(() => {
             const v = k.get$("b") ?? 0;
+            if (!on) return;
             try {
                 k.set("a", v + 1);
             } catch {
                 // the loop limit refuses writes
             }
         });
+        on = true;
 
         expect(() => k.set("a", 100)).toThrow();
         e1.unsubscribe();
@@ -288,11 +291,16 @@ describe("engine robustness", () => {
         sub2.unsubscribe();
     });
 
-    it("a loop through effects still reports SignalCycleError after the fixes", () => {
+    it("a loop through effects, started by a write, throws SignalCycleError from it", () => {
         const a = Signal.state(0);
         const b = Signal.state(0);
+        let on = false;
         const e1 = Signal.effect(() => b.set(a() + 1));
-        const e2 = Signal.effect(() => a.set(b() + 1));
+        const e2 = Signal.effect(() => {
+            const v = b();
+            if (on) a.set(v + 1);
+        });
+        on = true;
 
         let thrown: unknown;
         try {

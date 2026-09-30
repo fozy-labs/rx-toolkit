@@ -28,6 +28,8 @@ export const HAS_ERROR = 1 << 4;
 export const TRACKING = 1 << 5;
 /** An effect was notified while its body ran (its own write): sorted out when the run ends. */
 export const NOTIFIED_WHILE_RUNNING = 1 << 6;
+/** An effect was notified while its body ran by another reaction's write: it may have read a stale value. */
+const FOREIGN_WHILE_RUNNING = 1 << 12;
 /** A producer has observers: its lifecycle hook ran. */
 export const OBSERVED = 1 << 7;
 /** A computed that just became observed: computes afresh instead of trusting its cached state. */
@@ -748,9 +750,7 @@ export class SourceNode<T> extends Producer {
         this._version++;
         globalVersion++;
         try {
-            for (let link = this._targets; link !== undefined; link = link._nextTarget) {
-                link._target._notify();
-            }
+            notifyTargets(this);
             if (this._recs !== null) this._deliverRecs(value);
         } catch (error) {
             // An exception no reaction owns (a stack exhausted by a deep graph): the batch still ends.
@@ -1206,6 +1206,11 @@ export class EffectNode implements Evaluator {
         // while the body still runs (so their echo to this effect is dropped).
         try {
             this._execute(false);
+            // Queued by a write of another reaction during the run, outside any batch.
+            if (effectFirst !== undefined && batchDepth === 0) {
+                batchDepth++;
+                endBatch();
+            }
         } catch (error) {
             // The caller has no handle to unsubscribe yet: an effect whose first run throws is released.
             try {
@@ -1223,8 +1228,9 @@ export class EffectNode implements Evaluator {
             this._flags = flags | NOTIFIED;
             enqueueEffect(this);
         } else if ((flags & RUNNING) !== 0) {
-            // A write of the running body: sorted out when the run ends.
-            this._flags = flags | NOTIFIED_WHILE_RUNNING;
+            // A write of the running body, or of another reaction (an effect of a
+            // nested flush, an .obs subscriber, a bridge): sorted out when the run ends.
+            this._flags = flags | NOTIFIED_WHILE_RUNNING | (evalContext === this ? 0 : FOREIGN_WHILE_RUNNING);
         }
     }
 
@@ -1262,7 +1268,7 @@ export class EffectNode implements Evaluator {
         // eslint-disable-next-line @typescript-eslint/no-this-alias -- the engine's tracking context, not an alias
         evalContext = this;
         this._flags |= RUNNING;
-        this._flags &= ~NOTIFIED_WHILE_RUNNING;
+        this._flags &= ~(NOTIFIED_WHILE_RUNNING | FOREIGN_WHILE_RUNNING);
         let result: void | (() => void) = undefined;
         let bodyError: { error: unknown } | null = null;
         try {
@@ -1289,27 +1295,30 @@ export class EffectNode implements Evaluator {
             if (typeof result === "function") this._teardown = result;
             if ((this._flags & NOTIFIED_WHILE_RUNNING) !== 0) this._settleSources(rerun);
         }
-        this._flags &= ~NOTIFIED_WHILE_RUNNING;
+        this._flags &= ~(NOTIFIED_WHILE_RUNNING | FOREIGN_WHILE_RUNNING);
 
         if (teardownError) throw teardownError.error;
         if (bodyError) throw bodyError.error;
     }
 
     /**
-     * The body's own write notified it: bring its sources up to date so
-     * their NOTIFIED marks clear and the next write reaches it again. A write
-     * to a source it read directly is ignored. In a re-run (inside a flush),
-     * one that changed a computed it read queues the next run, or the effect
-     * would keep the computed's old value; the first run drops that echo too.
+     * The run was notified: bring its sources up to date so their NOTIFIED
+     * marks clear and the next write reaches it again, and queue the next run
+     * if the body read a value that is stale now. The body's own write to a
+     * source it read is no change (see notifyTargets); one that changed a
+     * computed it read is, except in the first run. A write of another
+     * reaction always is.
      */
     private _settleSources(rerun: boolean): void {
-        let changed = false;
+        const foreign = (this._flags & FOREIGN_WHILE_RUNNING) !== 0;
+        let stale = false;
         for (let link = this._sources; link !== undefined; link = link._nextSource) {
             const source = link._source;
             source._refresh();
-            if (source._kind === KIND_COMPUTED && source._version !== link._version) changed = true;
+            if (source._version === link._version) continue;
+            if (source._kind !== KIND_COMPUTED || rerun || foreign) stale = true;
         }
-        if (changed && rerun && (this._flags & NOTIFIED) === 0) {
+        if (stale && (this._flags & NOTIFIED) === 0) {
             this._flags |= NOTIFIED;
             enqueueEffect(this);
         }
@@ -1822,15 +1831,26 @@ export function writeProducer(node: Producer): Watcher | null {
     cycleWatcher = null;
     let cycle: Watcher | null = null;
     try {
-        for (let link = node._targets; link !== undefined; link = link._nextTarget) {
-            link._target._notify();
-        }
+        notifyTargets(node);
         cycle = cycleWatcher;
         cycleWatcher = null;
     } finally {
         endBatch();
     }
     return cycle;
+}
+
+/**
+ * Marks the dependents of a written producer. A running effect body that
+ * writes a source it read has seen the value it wrote: its link takes the
+ * new version instead of a notification.
+ */
+function notifyTargets(node: Producer): void {
+    const own = evalContext instanceof EffectNode ? evalContext : undefined;
+    for (let link = node._targets; link !== undefined; link = link._nextTarget) {
+        if (link._target === own) link._version = node._version;
+        else link._target._notify();
+    }
 }
 
 /** Bumps a producer's version without notifying (a change nobody observes). */

@@ -265,14 +265,17 @@ describe("defect: a cycle through effects is not detected", () => {
         const a = Signal.state(0);
         const b = Signal.state(0);
         const guard = hangGuard("effects");
+        let on = false;
         const e1 = Signal.effect(() => {
             guard();
             b.set(a() + 1);
         });
         const e2 = Signal.effect(() => {
             guard();
-            a.set(b() + 1);
+            const v = b();
+            if (on) a.set(v + 1);
         });
+        on = true;
 
         const thrown = caught(() => a.set(100));
 
