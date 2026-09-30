@@ -16,8 +16,8 @@ import {
     type FormInitial,
     type FormInstance,
     type FormReactInstanceMembers,
-    type FormsPluginErrorMismatch,
 } from "../../index";
+import type { FormsPluginErrorMismatch } from "../../types/plugin";
 
 const h = React.createElement;
 const f = FormSignal.field;

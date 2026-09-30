@@ -1,2 +1,2 @@
 export { unstable_FormsReactPlugin, unstable_formsReactPlugin } from "./formsReactPlugin";
-export * from "./types";
+export type { FormReactInstanceMembers, FormReactMembers, FormsReactPluginHKT, UseFormOptions } from "./types";

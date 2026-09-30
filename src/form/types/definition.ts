@@ -131,17 +131,15 @@ export type AnyItemDef = AnyFieldDef | AnyGroupDef;
 /** The children of a group: names to definitions. */
 export type Children = Record<string, AnyDef>;
 
-export type NodesOf<F extends Children> = { [K in keyof F]: F[K]["__node"] };
-export type ViewsOf<F extends Children> = { [K in keyof F]: F[K]["__view"] };
-export type GroupInitial<F extends Children> = { [K in keyof F]?: F[K]["__initial"] };
+// Module-local, so a consumer's declaration inlines them (see `types/index.ts`).
+type NodesOf<F extends Children> = { [K in keyof F]: F[K]["__node"] };
+type ViewsOf<F extends Children> = { [K in keyof F]: F[K]["__view"] };
+type GroupInitial<F extends Children> = { [K in keyof F]?: F[K]["__initial"] };
 
 /** The value of a group: children listed in `disabled` (`DK`) are optional. */
-export type GroupInput<F extends Children, DK extends PropertyKey> = WithOptionalKeys<
-    { [K in keyof F]: F[K]["__input"] },
-    DK
->;
+type GroupInput<F extends Children, DK extends PropertyKey> = WithOptionalKeys<{ [K in keyof F]: F[K]["__input"] }, DK>;
 
-export type GroupOutput<F extends Children, DK extends PropertyKey> = WithOptionalKeys<
+type GroupOutput<F extends Children, DK extends PropertyKey> = WithOptionalKeys<
     { [K in keyof F]: F[K]["__output"] },
     DK
 >;

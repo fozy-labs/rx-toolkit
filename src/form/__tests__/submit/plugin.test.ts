@@ -8,9 +8,9 @@ import {
     unstable_FormSignal as FormSignal,
     unstable_FormsPlugin,
     unstable_formsPlugin,
-    type FormsPluginErrorMismatch,
     type IssueInput,
 } from "../../index";
+import type { FormsPluginErrorMismatch } from "../../types/plugin";
 
 import { flush } from "./helpers";
 

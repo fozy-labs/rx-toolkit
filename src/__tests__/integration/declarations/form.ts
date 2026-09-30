@@ -72,6 +72,12 @@ export const submission = form.submission$();
 export const info = form.fields.email.queries.info$();
 export const state = form.state$();
 export const title = form.computed.title$;
+export const fields = form.fields;
+export const computed = form.computed;
+export const queries = form.fields.email.queries;
+export const phoneFields = row.fields;
+export const defineForm = api.defineForm;
+export const { field, group, list, context, state: createForm } = FormSignal;
 
 export function createDraft() {
     return FormSignal.state(Draft);
@@ -91,3 +97,6 @@ export function useNote() {
 export function useNoteContext() {
     return Note.useFormContext();
 }
+
+export const useNoteForm = Note.useForm;
+export const defineReactForm = reactApi.defineForm;

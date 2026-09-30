@@ -2,7 +2,8 @@ import type React from "react";
 
 import type { IPluginHKT } from "@/query/types";
 
-import type { AnyGroupDef, FormContext, FormInit, FormsApiOf, InitializeOptions } from "../types";
+import type { AnyGroupDef, FormContext, FormInit, InitializeOptions } from "../types";
+import type { FormsApiOf } from "../types/plugin";
 
 /** Options of `useForm`. */
 export interface UseFormOptions {

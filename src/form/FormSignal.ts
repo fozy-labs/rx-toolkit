@@ -22,11 +22,10 @@ import type {
     ListOptions,
     MappedIssues,
     PendingQueries,
-    SchemaInput,
-    SchemaOutput,
-    SubmitErrorOf,
     SubmitResult,
 } from "./types";
+import type { SchemaInput, SchemaOutput } from "./types/common";
+import type { SubmitErrorOf } from "./types/definition";
 
 /**
  * The form primitives: the definition builders `field` / `group` / `list`, the context
