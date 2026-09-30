@@ -40,6 +40,13 @@ function deepEqualImpl(a: unknown, b: unknown, seen: SeenPairs): boolean {
         return false;
     }
 
+    // Keys are the whole state only of plain objects, user class instances and arrays. Built-ins
+    // like File, Blob, URL, Error or Promise keep it in internal slots that Object.keys does not
+    // see, so two distinct ones are compared by reference, and here they are distinct.
+    if (!aIsMap && !aIsSet && !Array.isArray(a) && !(isPlainTagged(a) && isPlainTagged(b))) {
+        return false;
+    }
+
     // Защита от циклов: пара, которая уже сравнивается выше по стеку,
     // считается равной — расхождение обнаружится по другим полям.
     let seenForA = seen.get(a);
@@ -74,6 +81,10 @@ function deepEqualImpl(a: unknown, b: unknown, seen: SeenPairs): boolean {
     }
 
     return result;
+}
+
+function isPlainTagged(value: object): boolean {
+    return Object.prototype.toString.call(value) === "[object Object]";
 }
 
 function objectsEqual(a: object, b: object, seen: SeenPairs): boolean {

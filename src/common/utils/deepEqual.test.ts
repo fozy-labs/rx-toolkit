@@ -262,6 +262,35 @@ describe("deepEqual", () => {
         });
     });
 
+    describe("objects with internal state", () => {
+        it("distinct File, Blob and URL are not equal", () => {
+            expect(deepEqual(new File(["a"], "a.txt"), new File(["b"], "b.txt"))).toBe(false);
+            expect(deepEqual(new Blob(["a"]), new Blob(["b"]))).toBe(false);
+            expect(deepEqual(new URL("https://a.com"), new URL("https://b.com"))).toBe(false);
+        });
+
+        it("compares them by reference", () => {
+            const file = new File(["a"], "a.txt");
+            expect(deepEqual(file, file)).toBe(true);
+            expect(deepEqual({ avatar: file }, { avatar: file })).toBe(true);
+            expect(deepEqual({ avatar: file }, { avatar: new File(["a"], "a.txt") })).toBe(false);
+        });
+
+        it("distinct errors and promises are not equal", () => {
+            expect(deepEqual(new Error("a"), new Error("b"))).toBe(false);
+            expect(deepEqual(Promise.resolve(1), Promise.resolve(2))).toBe(false);
+        });
+
+        it("instances of user classes are still compared by their fields", () => {
+            class Money {
+                constructor(readonly amount: number) {}
+            }
+            expect(deepEqual(new Money(1), new Money(1))).toBe(true);
+            expect(deepEqual(new Money(1), new Money(2))).toBe(false);
+            expect(deepEqual(Object.create(null), {})).toBe(true);
+        });
+    });
+
     describe("circular references", () => {
         it("self-referencing objects with the same shape", () => {
             const a: any = { x: 1 };

@@ -292,6 +292,27 @@ describe("useForm: the init sync", () => {
         expect(form.fields.name.errors$.peek().map((issue) => issue.message)).toEqual(["Taken"]);
     });
 
+    it("applies a state and a context that differ only by a file", () => {
+        const api = createApi({ plugins: [unstable_formsReactPlugin()] });
+        const AvatarForm = api.defineForm({
+            name: "avatar",
+            fields: { avatar: f({ schema: z.instanceof(File).nullable(), defaultValue: null }) },
+            context: FormSignal.context<{ source: File }>(),
+        });
+        type AvatarInit = { state: { avatar: File }; context: { source: File } };
+        let form = null as unknown as FormInstance<typeof AvatarForm>;
+        function Editor({ init }: { init: AvatarInit }) {
+            form = AvatarForm.useForm(init);
+            return null;
+        }
+        const a = new File(["a"], "a.png");
+        const b = new File(["b"], "b.png");
+        const view = render(h(Editor, { init: { state: { avatar: a }, context: { source: a } } }));
+        view.rerender(h(Editor, { init: { state: { avatar: b }, context: { source: b } } }));
+        expect(form.fields.avatar.value$.peek()).toBe(b);
+        expect(form.context$.peek().source).toBe(b);
+    });
+
     it("reads the definition and the key once, and warns when they change", () => {
         const { EmailForm } = emailSetup();
         const { EmailForm: OtherForm } = emailSetup();

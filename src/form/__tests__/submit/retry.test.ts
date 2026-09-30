@@ -138,6 +138,24 @@ describe("retry", () => {
         expect(save.runs[1].requestId).not.toBe(save.runs[0].requestId);
         sub.unsubscribe();
     });
+
+    it("another file in the args: trigger() sends the new file, not a retry of the old one", async () => {
+        const save = manualCommand<{ avatar: File | null }>();
+        const def = g({
+            fields: { avatar: f({ schema: z.instanceof(File).nullable(), defaultValue: null }) },
+            submit: ({ parsed$ }) => save.command.bind(parsed$().value),
+        });
+        const form = FormSignal.state(def);
+        const sub = form.submission$.obs.subscribe();
+        const next = new File(["b"], "b.png");
+        form.fields.avatar.set(new File(["a"], "a.png"));
+        await settle(form, () => save.runs[0].reject(new Error("Timeout")));
+        form.fields.avatar.set(next);
+        await settle(form, () => save.runs[1].resolve({ id: "1" }));
+        expect(save.runs[1].args.avatar).toBe(next);
+        expect(save.runs[1].requestId).not.toBe(save.runs[0].requestId);
+        sub.unsubscribe();
+    });
 });
 
 describe("one clutch per command", () => {
