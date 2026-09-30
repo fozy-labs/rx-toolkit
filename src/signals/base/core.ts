@@ -177,13 +177,21 @@ interface StateDelivery {
     value: unknown;
     version: number;
     gen: number;
-    /** Its bridges wait too (a write from inside a bridge's chain). */
+    /** The delivery to its bridges (a write from inside a bridge's chain), not to the others. */
     bridges: boolean;
 }
 /** State writes to deliver, `[stateHead, stateTail)`, in write order. */
 const stateQueue: (StateDelivery | null)[] = [];
 let stateHead = 0;
 let stateTail = 0;
+/**
+ * Bridge deliveries of writes made inside a bridge's chain, `[bridgeHead,
+ * bridgeTail)`: delivered before any write in `stateQueue`, so no subscriber
+ * reads a bridge lagging behind its state.
+ */
+const bridgeQueue: (StateDelivery | null)[] = [];
+let bridgeHead = 0;
+let bridgeTail = 0;
 /** A State delivery runs: the subscribers of a write made meanwhile wait in `stateQueue`. */
 let stateDelivering = false;
 
@@ -782,14 +790,13 @@ export class SourceNode<T> extends Producer {
         // A write from inside a bridge's chain (a tap) makes no bridge write:
         // its bridges wait as well, or a loop through chains would recurse.
         const queueBridges = stateDelivering && inBridgeDelivery();
-        if (recs.others.length !== 0 || (queueBridges && recs.bridges.length !== 0)) {
-            stateQueue[stateTail++] = {
-                node: this as SourceNode<unknown>,
-                value,
-                version: this._version,
-                gen: generation + 1,
-                bridges: queueBridges,
-            };
+        const node = this as SourceNode<unknown>;
+        const gen = generation + 1;
+        if (queueBridges && recs.bridges.length !== 0) {
+            bridgeQueue[bridgeTail++] = { node, value, version: this._version, gen, bridges: true };
+        }
+        if (recs.others.length !== 0) {
+            stateQueue[stateTail++] = { node, value, version: this._version, gen, bridges: false };
         }
         if (stateDelivering) {
             if (!queueBridges && recs.bridges.length !== 0) this._deliverBridges(recs, value);
@@ -826,8 +833,7 @@ export class SourceNode<T> extends Producer {
         if (recs === null) return;
         recs.delivering++;
         try {
-            if (bridges) deliverSince(recs.bridges, value, version);
-            deliverSince(recs.others, value, version);
+            deliverSince(bridges ? recs.bridges : recs.others, value, version);
         } finally {
             recs.endDelivery();
         }
@@ -1479,13 +1485,21 @@ export class RecList {
     }
 }
 
-/** Delivers the State writes waiting in `stateQueue`; writes made meanwhile join it. */
+/** Delivers the State writes waiting in the queues, bridges first; writes made meanwhile join them. */
 function drainStateQueue(): void {
     const writer = generation;
     try {
-        while (stateHead < stateTail) {
-            const item = stateQueue[stateHead]!;
-            stateQueue[stateHead++] = null;
+        for (;;) {
+            let item: StateDelivery;
+            if (bridgeHead < bridgeTail) {
+                item = bridgeQueue[bridgeHead]!;
+                bridgeQueue[bridgeHead++] = null;
+            } else if (stateHead < stateTail) {
+                item = stateQueue[stateHead]!;
+                stateQueue[stateHead++] = null;
+            } else {
+                break;
+            }
             checkGeneration(item.gen);
             generation = item.gen;
             if (item.version === -1) item.node._finishRecs();
@@ -1494,7 +1508,8 @@ function drainStateQueue(): void {
     } finally {
         // An abandoned flush leaves writes behind: they are dropped with it.
         for (let i = stateHead; i < stateTail; i++) stateQueue[i] = null;
-        stateHead = stateTail = 0;
+        for (let i = bridgeHead; i < bridgeTail; i++) bridgeQueue[i] = null;
+        stateHead = stateTail = bridgeHead = bridgeTail = 0;
         generation = writer;
     }
 }
