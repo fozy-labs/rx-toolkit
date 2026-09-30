@@ -66,13 +66,13 @@ const api = createApi({
 
 ## Управление синхронизацией
 
-Опции определяющие, участвует ли ресурс или команда в синхронизации.
+Опции, определяющие, участвует ли ресурс в синхронизации.
+Команды не синхронизируются, поэтому `defaultSync: 'all'` действует так же, как `'resources'`.
 
 | Сущность    | Опция         | Принимаемое значение           | По умолчанию        |
 |-------------|---------------|--------------------------------|---------------------|
 | **api**     | `defaultSync` | `resources` \| `all` \| `none` | `none`              |
 | **Ресурс**  | `sync`        | `boolean`                      | **api defaultSync** |
-| **Команда** | `sync`        | `boolean`                      | **api defaultSync** |
 
 > Если `syncDriver` не задан в `createApi`, то синхронизация работать не будет.
 
@@ -88,13 +88,6 @@ const getProfile = api.createResource({
   key: 'profile',
   queryFn: fetchProfile,
   sync: false,
-});
-
-// Мутация, результат которой нужен всем вкладкам
-const markRead = api.createCommand({
-  key: 'markRead',
-  queryFn: markNotificationRead,
-  sync: true,
 });
 ```
 
@@ -154,7 +147,7 @@ const api = createApi({
   keyPrefix: 'main-api',
   syncDriver: broadcastSyncDriver(),
   plugins: [reactHooksPlugin()],
-  defaultSync: 'resources', // по умолчанию синхронизировать только ресурсы
+  defaultSync: 'resources', // синхронизировать ресурсы по умолчанию
 });
 
 // Ресурс — sync: true (наследуется от defaultSync: 'resources')
@@ -166,7 +159,7 @@ const todosResource = api.createResource({
   },
 });
 
-// Команда — sync: false (defaultSync: 'resources'). Её связь инвалидирует ресурс,
+// Команда не синхронизируется. Её связь инвалидирует ресурс,
 // а инвалидация уезжает в другие вкладки вместе с записью ресурса.
 const addTodoCommand = api.createCommand({
   key: 'add-todo',
