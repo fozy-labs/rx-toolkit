@@ -1,4 +1,4 @@
-import { type StandardSchemaV1 } from "@/common/standard-schema";
+import { type StandardSchemaV1, type StandardSchemaV1Result } from "@/common/standard-schema";
 import { type SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
@@ -27,7 +27,7 @@ export type LocalStateOptions<T> = {
     /**
      * Validates the stored value on load — any Standard Schema implementation
      * (zod, valibot, arktype, ...). The schema output becomes the value;
-     * a failure drops the slot and falls back to `defaultValue`. Must be
+     * a failure (issues or a throw) drops the slot and falls back to `defaultValue`. Must be
      * synchronous: an async schema is reported and the stored value ignored.
      */
     schema?: StandardSchemaV1<unknown, T>;
@@ -156,7 +156,17 @@ export class LocalState<T = string | null | number | undefined> {
 
         if (!options.schema) return slot.data as T;
 
-        const result = options.schema["~standard"].validate(slot.data);
+        let result: StandardSchemaV1Result<T> | PromiseLike<StandardSchemaV1Result<T>>;
+
+        try {
+            result = options.schema["~standard"].validate(slot.data);
+        } catch (error) {
+            // A throw means the schema could not handle the stored data: treat it
+            // as a failed validation, or the slot would crash every later load.
+            console.error(`[LocalSignal]: the schema for key "${options.key}" threw on the stored value`, error);
+            this._storage.healSlot(this._storageKey);
+            return NONE;
+        }
 
         if (isPromiseLike(result)) {
             // The initial value is needed synchronously, so an async schema is

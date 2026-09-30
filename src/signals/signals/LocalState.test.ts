@@ -323,6 +323,31 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it("a schema that throws on stored data → defaultValue, the slot is dropped, construction does not throw", () => {
+            seedStorage("throws", { a: null });
+            const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+            const failure = new TypeError("Cannot read properties of null");
+            const throwingSchema: StandardSchemaV1<unknown, number> = {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: () => {
+                        throw failure;
+                    },
+                },
+            };
+
+            const s = LocalSignal.state({ key: "throws", schema: throwingSchema, defaultValue: 0 });
+
+            expect(s.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("throws"))).toBeNull();
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"throws"'), failure);
+            // The bad slot is gone, so the next load is clean.
+            expect(LocalSignal.state({ key: "throws", schema: throwingSchema, defaultValue: 0 }).peek()).toBe(0);
+
+            errorSpy.mockRestore();
+        });
+
         it("an async schema is rejected without touching the stored slot", () => {
             const slot = envelope(42);
             localStorage.setItem(storageKey("async"), slot);
