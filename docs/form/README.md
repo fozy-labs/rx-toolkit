@@ -127,7 +127,6 @@ const form = FormSignal.state(LoginForm);
 - [Правило, читающее запрос, проверяет свежесть данных](validation.md#проверка-email).
 - [Цикл через приведение типов или замыкание не всегда обнаруживается](validation.md#ошибки-конфигурации) — не читайте вердикты формы из её колбэков.
 - [Запись узла запроса в devtools живёт до перезагрузки страницы](instance.md#devtools) (только dev).
-- [SSR формы не поддерживается](react.md#ssr).
 
 [signals]: ../signals/README.md
 [query]: ../query/README.md

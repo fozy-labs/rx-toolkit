@@ -21,7 +21,7 @@ const removeTag = (index: number) => profile.mutate((d) => { d.tags.splice(index
 const reset = () => profile.set(initial);
 
 export function Base() {
-    // useSignal(ps) — контроллер совместим с { obs, peek }, поэтому хук
+    // useSignal(ps) — контроллер сам сигнал, поэтому хук
     // возвращает весь снимок дерева и обновляет компонент на любое изменение.
     const { user, tags } = useSignal(profile);
 

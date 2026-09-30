@@ -1,8 +1,8 @@
-import { act, render, renderHook, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import React from "react";
 import { flushSync } from "react-dom";
-import { config, Observable, Subject } from "rxjs";
 
+import { Batcher } from "@/signals/base/Batcher";
 import { Signal } from "@/signals/signals/Signal";
 import type { StateSignal } from "@/signals/types";
 
@@ -53,20 +53,23 @@ describe("useSignal", () => {
         expect(result.current).toBe("c");
     });
 
-    it("unsubscribes on unmount", async () => {
-        const signal = Signal.state(1);
+    it("unsubscribes on unmount", () => {
+        const source = Signal.state(1);
+        const computeFn = vi.fn(() => source() * 10);
+        const signal = Signal.compute(computeFn);
         const { result, unmount } = renderHook(() => useSignal(signal));
+        expect(result.current).toBe(10);
 
-        expect(result.current).toBe(1);
+        // Observed: a write recomputes the signal right away
+        act(() => source.set(2));
+        expect(result.current).toBe(20);
 
         unmount();
+        computeFn.mockClear();
 
-        // After unmount, setting the signal should not cause errors
-        signal.set(2);
-        await flushMicrotasks();
-
-        // Value frozen at last rendered value
-        expect(result.current).toBe(1);
+        // Unobserved: a write leaves a lazy computed alone
+        source.set(3);
+        expect(computeFn).not.toHaveBeenCalled();
     });
 
     it("resubscribes when signal reference changes", async () => {
@@ -101,15 +104,31 @@ describe("useSignal", () => {
         expect(result.current).toBe(300);
     });
 
-    it("does not provide getServerSnapshot (SSR limitation)", () => {
-        // useSignal uses useSyncExternalStore without a getServerSnapshot
-        // This means it cannot be used during SSR. We verify by checking
-        // that the hook works client-side but the implementation has no
-        // server snapshot arg — this is a design constraint, not a bug.
-        const signal = Signal.state("client-only");
-        const { result } = renderHook(() => useSignal(signal));
+    it("keeps the caret of a controlled input in place while typing", () => {
+        const signal = Signal.state("abc");
 
-        expect(result.current).toBe("client-only");
+        function Input() {
+            const value = useSignal(signal);
+            return React.createElement("input", {
+                "data-testid": "input",
+                value,
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => signal.set(e.target.value),
+            });
+        }
+
+        render(React.createElement(Input, null));
+        const input = screen.getByTestId("input") as HTMLInputElement;
+
+        // Typing "X" after "a": the browser has already put the new value and the caret into the DOM
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setValue.call(input, "aXbc");
+        input.setSelectionRange(2, 2);
+        act(() => {
+            fireEvent.input(input);
+        });
+
+        expect(input.value).toBe("aXbc");
+        expect(input.selectionStart).toBe(2);
     });
 
     describe("re-render batching (regression guard)", () => {
@@ -125,7 +144,7 @@ describe("useSignal", () => {
             return { renders, Display };
         }
 
-        it("mounts with a single render (BehaviorSubject replay on subscribe must not re-render)", async () => {
+        it("mounts with a single render (subscribing must not re-render)", async () => {
             const signal = Signal.state(0);
             const { renders, Display } = renderCountingDisplay(signal);
 
@@ -164,8 +183,10 @@ describe("useSignal", () => {
             const mountRenders = renders.count;
 
             await act(async () => {
-                signal.set(1);
-                signal.set(0);
+                Batcher.run(() => {
+                    signal.set(1);
+                    signal.set(0);
+                });
                 await flushMicrotasks();
             });
 
@@ -264,12 +285,8 @@ describe("useSignal", () => {
                 const listener = vi.fn();
                 const unsubscribe = capturedSubscribe!(listener);
 
-                // BehaviorSubject replays the current value on subscribe —
-                // drain that notification first.
-                await act(async () => {
-                    await flushMicrotasks();
-                });
-                listener.mockClear();
+                // Subscribing is no change: only a write notifies
+                expect(listener).not.toHaveBeenCalled();
 
                 act(() => {
                     signal.set(1);
@@ -445,14 +462,13 @@ describe("useSignal", () => {
         });
 
         it.each([false, true])(
-            "keeps updating when the signal recovers after the deferred update, before React renders (StrictMode: %s)",
+            "keeps updating when the signal recovers before React renders (StrictMode: %s)",
             async (strict) => {
                 const { source } = setup(strict);
 
                 await act(async () => {
                     source.set(-1);
-                    // Runs after the hook's deferred update, before React renders
-                    queueMicrotask(() => source.set(2));
+                    source.set(2);
                     await flushMicrotasks();
                 });
                 expect(screen.getByTestId("value").textContent).toBe("20");
@@ -470,77 +486,10 @@ describe("useSignal", () => {
 
             await act(async () => {
                 source.set(-1);
-                queueMicrotask(() => source.set(1));
+                source.set(1);
                 await flushMicrotasks();
             });
             expect(screen.getByTestId("value").textContent).toBe("10");
-
-            await act(async () => {
-                source.set(3);
-                await flushMicrotasks();
-            });
-            expect(screen.getByTestId("value").textContent).toBe("30");
-        });
-
-        it("does not loop for a signal whose stream errors while peek() still returns a value", async () => {
-            const onUnhandledError = vi.fn();
-            const previous = config.onUnhandledError;
-            config.onUnhandledError = onUnhandledError;
-
-            try {
-                const error = new Error("stream-error");
-                let isBroken = false;
-                const errors$ = new Subject<void>();
-                let subscribes = 0;
-                const signal = {
-                    obs: new Observable<number>((subscriber) => {
-                        subscribes++;
-                        if (isBroken) {
-                            subscriber.error(error);
-                            return;
-                        }
-                        subscriber.next(1);
-                        return errors$.subscribe(() => subscriber.error(error));
-                    }),
-                    peek: () => 1,
-                };
-                let renders = 0;
-
-                function Display() {
-                    renders++;
-                    return React.createElement("div", { "data-testid": "value" }, String(useSignal(signal)));
-                }
-
-                render(React.createElement(Display, null));
-                const subscribesBefore = subscribes;
-                const rendersBefore = renders;
-
-                await act(async () => {
-                    isBroken = true;
-                    errors$.next();
-                    for (let i = 0; i < 10; i++) await flushMicrotasks();
-                });
-
-                // One resubscribe attempt for the one real notification, one extra render
-                expect(subscribes - subscribesBefore).toBe(1);
-                expect(renders - rendersBefore).toBeLessThanOrEqual(2);
-                expect(screen.getByTestId("value").textContent).toBe("1");
-                // Not swallowed: surfaced once, as an unhandled RxJS error
-                expect(onUnhandledError).toHaveBeenCalledExactlyOnceWith(error);
-            } finally {
-                config.onUnhandledError = previous;
-            }
-        });
-
-        it("keeps updating when the signal recovers before the component re-renders", async () => {
-            const { source } = setup();
-
-            await act(async () => {
-                source.set(-1);
-                source.set(2);
-                await flushMicrotasks();
-            });
-            expect(screen.getByTestId("value").textContent).toBe("20");
 
             await act(async () => {
                 source.set(3);

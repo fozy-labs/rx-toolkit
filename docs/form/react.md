@@ -120,4 +120,4 @@ function ProfileEditor({ id }: { id: string }) {
 
 ## SSR
 
-`useSignal` не даёт `getServerSnapshot`, поэтому рендер формы на сервере бросает `Missing getServerSnapshot`. Поддерево формы рендерится только на клиенте.
+Форма рендерится на сервере со значениями из `state`, переданного в `useForm`. Чтобы гидрация не разошлась, клиент передаёт тот же `state`.
