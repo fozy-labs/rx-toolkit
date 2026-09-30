@@ -470,6 +470,35 @@ describe("Signal.from", () => {
             });
         });
 
+        describe.each(["microtask", "forever", "none"] as const)(
+            'an unobserved computed that catches the error retries the source on each read (keepAlive "%s")',
+            (keepAlive) => {
+                it("and gets the value once the source recovers", () => {
+                    let subscriptions = 0;
+                    const signal = Signal.from(
+                        new Observable<number>((subscriber) => {
+                            subscriptions++;
+                            if (subscriptions <= 3) subscriber.error(new Error("down"));
+                            else subscriber.next(42);
+                        }),
+                        { keepAlive },
+                    );
+                    const safe = Signal.compute(() => {
+                        try {
+                            return signal();
+                        } catch {
+                            return -1;
+                        }
+                    });
+
+                    const reads = Array.from({ length: 5 }, () => safe.peek());
+
+                    expect(reads).toEqual([-1, -1, -1, 42, 42]);
+                    signal.dispose();
+                });
+            },
+        );
+
         describe("an error of an observed source: the reactions it wakes read it, a later read retries", () => {
             it("an effect sees the error once and retries on its next run", () => {
                 let subject = new Subject<number>();

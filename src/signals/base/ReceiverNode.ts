@@ -377,6 +377,9 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         } else {
             this._errorState = ERR_TRANSIENT;
             this._flags = (this._flags & ~CONNECTED) | FRESH_FAILURE;
+            // The upstream is gone and the next read retries it: a cold reader
+            // validated before now must not trust its cache by the global version.
+            stopWatchingChanges();
             if ((this._flags & CONNECTING) !== 0 && this._lastKind === KIND_ERROR) {
                 // A retry that failed again at once: still the same failure for
                 // readers, or every read would wake them to retry again.
