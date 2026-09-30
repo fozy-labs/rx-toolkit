@@ -1,4 +1,4 @@
-import { config, map, Observable, Subject, Subscriber } from "rxjs";
+import { config, map, Observable, Subject, Subscriber, tap } from "rxjs";
 
 import { Batcher, Signal, SignalCycleError, SourceSignal, unstable_KeyedSignal } from "@/index";
 
@@ -504,6 +504,29 @@ describe("engine robustness", () => {
 
             expect(performance.now() - start).toBeLessThan(500);
         });
+    });
+
+    it("a loop through writes inside bridge chains throws SignalCycleError from the write, and the engine keeps working", () => {
+        const a = Signal.state(0);
+        const b = Signal.state(0);
+        let on = false;
+        const fa = Signal.from(a.obs.pipe(tap((v) => on && b.set(v + 1))));
+        const fb = Signal.from(b.obs.pipe(tap((v) => on && a.set(v + 1))));
+        const subs = [fa.obs.subscribe({ error: () => {} }), fb.obs.subscribe({ error: () => {} })];
+        on = true;
+
+        expect(() => a.set(1)).toThrow(SignalCycleError);
+        on = false;
+        subs.forEach((sub) => sub.unsubscribe());
+
+        const t = Signal.state(0);
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            seen.push(t());
+        });
+        t.set(1);
+        expect(seen).toEqual([0, 1]);
+        effect.unsubscribe();
     });
 
     it("a subscriber that leaves and one that joins during a delivery leave the upstream released at the end", () => {

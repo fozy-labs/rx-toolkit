@@ -177,6 +177,8 @@ interface StateDelivery {
     value: unknown;
     version: number;
     gen: number;
+    /** Its bridges wait too (a write from inside a bridge's chain). */
+    bridges: boolean;
 }
 /** State writes to deliver, `[stateHead, stateTail)`, in write order. */
 const stateQueue: (StateDelivery | null)[] = [];
@@ -777,16 +779,20 @@ export class SourceNode<T> extends Producer {
      */
     private _deliverRecs(value: T): void {
         const recs = this._recs!;
-        if (recs.others.length !== 0) {
+        // A write from inside a bridge's chain (a tap) makes no bridge write:
+        // its bridges wait as well, or a loop through chains would recurse.
+        const queueBridges = stateDelivering && inBridgeDelivery();
+        if (recs.others.length !== 0 || (queueBridges && recs.bridges.length !== 0)) {
             stateQueue[stateTail++] = {
                 node: this as SourceNode<unknown>,
                 value,
                 version: this._version,
                 gen: generation + 1,
+                bridges: queueBridges,
             };
         }
         if (stateDelivering) {
-            if (recs.bridges.length !== 0) this._deliverBridges(recs, value);
+            if (!queueBridges && recs.bridges.length !== 0) this._deliverBridges(recs, value);
             return;
         }
         stateDelivering = true;
@@ -815,17 +821,13 @@ export class SourceNode<T> extends Producer {
     }
 
     /** Delivers a queued write to the subscribers that were there when it was made. */
-    _deliverQueued(value: unknown, version: number): void {
+    _deliverQueued(value: unknown, version: number, bridges: boolean): void {
         const recs = this._recs;
         if (recs === null) return;
-        const list = recs.others;
-        const n = list.length;
         recs.delivering++;
         try {
-            for (let i = 0; i < n; i++) {
-                const rec = list[i];
-                if (rec.since < version) deliverGuarded(rec, value);
-            }
+            if (bridges) deliverSince(recs.bridges, value, version);
+            deliverSince(recs.others, value, version);
         } finally {
             recs.endDelivery();
         }
@@ -858,6 +860,7 @@ export class SourceNode<T> extends Producer {
                 value: undefined,
                 version: -1,
                 gen: generation + 1,
+                bridges: false,
             };
             return;
         }
@@ -1486,7 +1489,7 @@ function drainStateQueue(): void {
             checkGeneration(item.gen);
             generation = item.gen;
             if (item.version === -1) item.node._finishRecs();
-            else item.node._deliverQueued(item.value, item.version);
+            else item.node._deliverQueued(item.value, item.version, item.bridges);
         }
     } finally {
         // An abandoned flush leaves writes behind: they are dropped with it.
@@ -1494,6 +1497,20 @@ function drainStateQueue(): void {
         stateHead = stateTail = 0;
         generation = writer;
     }
+}
+
+function deliverSince(list: ObsRec[], value: unknown, version: number): void {
+    const n = list.length;
+    for (let i = 0; i < n; i++) {
+        const rec = list[i];
+        if (rec.since < version) deliverGuarded(rec, value);
+    }
+}
+
+/** Whether the innermost delivery is to a bridge (a write now comes from inside its chain). */
+function inBridgeDelivery(): boolean {
+    const top = frameDepth !== 0 ? frameStack[frameDepth - 1] : undefined;
+    return top instanceof ObsRec && top.bridge;
 }
 
 /** A State delivery; a subscriber RxJS does not guard (a raw `Subscriber`) that throws is a failed reaction. */
