@@ -1721,6 +1721,94 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         engine.dispose();
     });
 
+    it("a restart from onError counts toward the depth: an effect re-sending the failing event throws SignalCycleError", () => {
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { on: { GO: { actions: "explode" } } } } },
+            {
+                actions: {
+                    explode: () => {
+                        throw new Error("x");
+                    },
+                },
+            },
+        );
+        let looping = true;
+        let restarts = 0;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                if (looping && ++restarts < 5000) engine.start();
+            },
+        });
+        const effect = Signal.effect(() => {
+            if (engine.state().status === "active" && looping) engine.send({ type: "GO" });
+        });
+        expect(() => engine.send({ type: "GO" })).toThrow(SignalCycleError);
+        expect(restarts).toBeLessThan(5000);
+
+        looping = false;
+        engine.start();
+        expect(engine.status).toBe("running");
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    it("onError restarting a machine whose initialization always fails throws SignalCycleError", () => {
+        const definition = createMachine({
+            id: "m",
+            context: (): { n: number } => {
+                throw new Error("init");
+            },
+            initial: "a",
+            states: { a: {} },
+        });
+        let looping = false;
+        let restarts = 0;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                if (looping && ++restarts < 5000) engine.start();
+            },
+        });
+        looping = true;
+        expect(() => engine.start()).toThrow(SignalCycleError);
+        expect(restarts).toBeLessThan(5000);
+        expect(engine.status).toBe("stopped");
+        engine.dispose();
+    });
+
+    it("start() from onError restarts once onError has returned; a later stop() there cancels it", () => {
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { on: { GO: "b" } }, b: { on: { BOOM: { actions: "explode" } } } } },
+            {
+                actions: {
+                    explode: () => {
+                        throw new Error("x");
+                    },
+                },
+            },
+        );
+        const seen: string[] = [];
+        let cancel = false;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                engine.start();
+                if (cancel) engine.stop();
+                seen.push(engine.status);
+            },
+        });
+        engine.send({ type: "GO" });
+        engine.send({ type: "BOOM" });
+        expect(seen).toEqual(["stopped"]);
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe("a");
+
+        cancel = true;
+        engine.send({ type: "GO" });
+        engine.send({ type: "BOOM" });
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("error");
+        engine.dispose();
+    });
+
     it("dispose() requested inside the burst wins over a restart requested by another effect", () => {
         const definition = createMachine({
             id: "m",

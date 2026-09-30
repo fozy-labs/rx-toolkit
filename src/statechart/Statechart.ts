@@ -220,7 +220,7 @@ export class unstable_Statechart<
      * `stopped` when the initial snapshot is already done/error. Throws after
      * `dispose()`. Called from inside a burst (an action, a synchronous
      * subscriber or an effect reacting to the done / error / stop snapshot,
-     * or right after a `stop()` of the same burst) the restart is deferred
+     * `onError`, or right after a `stop()` of the same burst) the restart is deferred
      * until the burst has finished; a later `stop()` in the burst cancels it.
      */
     start(): void {
@@ -481,6 +481,15 @@ export class unstable_Statechart<
                 }
                 failure = this._failure;
                 this._failure = null;
+            }
+            try {
+                // `onError` is the last step of the burst, still guarded: a
+                // `start()` there becomes the next segment (and a level of
+                // depth), a `stop()` / `dispose()` there is deferred as usual.
+                // An unhandled failure is rethrown here and drops a pending
+                // restart: the engine stays in its error state.
+                if (failure) this._report(failure.error);
+            } finally {
                 restart = this._restartRequested;
                 this._restartRequested = false;
                 this._processing = false;
@@ -490,9 +499,6 @@ export class unstable_Statechart<
                     this.dispose();
                 }
             }
-            // An unhandled failure is rethrown here and drops a pending restart:
-            // the engine stays in its error state, consistent with the exception.
-            if (failure) this._report(failure.error);
             segment = null;
             if (restart && this._status === "stopped") {
                 if (++this._depth > MAX_REACTION_DEPTH) reactionError ??= { error: this._detectCycle() };
