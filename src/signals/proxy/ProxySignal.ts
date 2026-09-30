@@ -236,10 +236,12 @@ class ProxySignalCore<T extends object> {
      * observer leaves. Deferring to the end of the tick lets an effect or a
      * computed that re-subscribes within it keep the node, so a flickering
      * selector never thrashes the trie. A still-unobserved node is pruned and
-     * the reap bubbles up, dropping ancestor branches that became fully
-     * unobserved. Correctness holds because PathState validates live against
-     * the root, and a computed that gains an observer computes afresh, linking
-     * the path's current node.
+     * the reap bubbles up through ancestors left with no observer and no
+     * children. An ancestor that keeps children needs no check: every node is
+     * queued when created and when it goes idle, so each of those children
+     * is reaped on its own. Correctness holds because PathState validates
+     * live against the root, and a computed that gains an observer computes
+     * afresh, linking the path's current node.
      */
     private _scheduleReap(node: TrieNode) {
         if (this._reapQueue === null) {
@@ -254,17 +256,20 @@ class ProxySignalCore<T extends object> {
     }
 
     private _reap(node: TrieNode) {
-        let cur: TrieNode | null = node;
-        while (cur && cur.parent && !ProxySignalCore._hasObservers(cur)) {
+        if (ProxySignalCore._hasObservers(node)) return;
+        let cur = node;
+        while (cur.parent) {
+            const parent: TrieNode = cur.parent;
             const seg = cur.segments[cur.segments.length - 1];
             // A commit's _walk may have already pruned this node within the tick,
             // and a later read recreated the segment with a fresh, observed node.
             // Deleting by key would then orphan the live node — detach only when
             // the parent still points at *this* exact node.
-            if (cur.parent.children.get(seg) !== cur) break;
-            cur.parent.children.delete(seg);
+            if (parent.children.get(seg) !== cur) break;
+            parent.children.delete(seg);
             ProxySignalCore._disposeSubtree(cur);
-            cur = cur.parent;
+            if (parent.state?.observed || parent.children.size > 0) break;
+            cur = parent;
         }
     }
 

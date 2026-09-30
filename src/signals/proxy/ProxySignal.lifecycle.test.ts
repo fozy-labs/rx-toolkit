@@ -363,6 +363,28 @@ describe("unstable_ProxySignal lifecycle", () => {
             keep.unsubscribe();
         });
 
+        // Counts trie nodes the end-of-tick reap visits: each visit reads a
+        // node's children Map. Unobserved siblings sitting before an observed
+        // one must not be rewalked for every reaped sibling.
+        it("reaps many navigated siblings of an observed path in linear work", async () => {
+            const count = 1000;
+            const s$ = ProxySignal.state<{ c: Record<string, number> }>({ c: {} });
+            for (let i = 0; i < count; i++) void s$.root.c[`k${i}`];
+            const hot = Signal.effect(() => void s$.root.c.hot());
+
+            const values = vi.spyOn(Map.prototype, "values");
+            try {
+                await flushMicrotasks();
+                expect(values.mock.calls.length).toBeLessThan(10 * count);
+            } finally {
+                values.mockRestore();
+            }
+            const kept = s$.root.c.hot;
+            await flushMicrotasks();
+            expect(s$.root.c.hot).toBe(kept);
+            hot.unsubscribe();
+        });
+
         it("a computed whose path was dropped wakes its later observer", async () => {
             const s$ = ProxySignal.state({ a: { b: 1 } });
             const c = Signal.compute(() => s$.root.a.b());
