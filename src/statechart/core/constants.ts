@@ -10,6 +10,12 @@ export const XSTATE_STOP = "xstate.stop";
 /** Root id when the config declares none (XState default). */
 export const DEFAULT_MACHINE_ID = "(machine)";
 export const DEFAULT_MAX_MICROSTEPS = 10_000;
+/**
+ * Rounds of reactions one burst may drain (each round: the events that
+ * effects and subscribers sent while reacting to the previous one) before it
+ * is reported as a `SignalCycleError`. Matches the signal core's cycle limit.
+ */
+export const MAX_REACTION_ROUNDS = 1000;
 
 /**
  * Port of XState `createInitEvent(input)`: the `input` key is always present

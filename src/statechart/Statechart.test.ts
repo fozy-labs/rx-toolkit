@@ -3,6 +3,7 @@ import { createActor, createMachine as createXStateMachine } from "xstate";
 import type { MachineDevtoolsActor, MachineDevtoolsLike, MachineDevtoolsSnapshot } from "@/common/devtools/types";
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import { SignalCycleError } from "@/signals/base/SignalCycleError";
 import { Signal } from "@/signals/signals/Signal";
 
 import { assign, cancel, log, raise } from "./actions";
@@ -1485,6 +1486,34 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         expect(handled.state().status).toBe("active");
         restartHandled.unsubscribe();
         handled.dispose();
+    });
+
+    it("an effect that sends an event on every snapshot throws SignalCycleError instead of looping forever", () => {
+        const definition = createMachine({
+            id: "m",
+            initial: "off",
+            states: { off: { on: { TOGGLE: "on" } }, on: { on: { TOGGLE: "off" } } },
+        });
+        const engine = new Statechart(definition);
+        let looping = false;
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            engine.state();
+            // The cap only keeps a broken runtime from hanging the test run.
+            if (looping && ++runs < 5000) engine.send({ type: "TOGGLE" });
+        });
+        looping = true;
+        expect(() => engine.send({ type: "TOGGLE" })).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+
+        // The loop is dropped, the machine keeps working.
+        looping = false;
+        const value = engine.state.peek().value;
+        engine.send({ type: "TOGGLE" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe(value === "on" ? "off" : "on");
+        effect.unsubscribe();
+        engine.dispose();
     });
 
     it("dispose() requested inside the burst wins over a restart requested by another effect", () => {

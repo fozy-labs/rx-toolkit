@@ -2,11 +2,18 @@ import type { MachineDevtoolsActor, MachineDevtoolsLike } from "@/common/devtool
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import { SignalCycleError } from "@/signals/base/SignalCycleError";
 import { untracked } from "@/signals/base/untracked";
 import { State } from "@/signals/signals/State";
 import type { ReadonlySignal } from "@/signals/types";
 
-import { createInitEvent, createStopEvent, DEFAULT_MAX_MICROSTEPS, XSTATE_STOP } from "./core/constants";
+import {
+    createInitEvent,
+    createStopEvent,
+    DEFAULT_MAX_MICROSTEPS,
+    MAX_REACTION_ROUNDS,
+    XSTATE_STOP,
+} from "./core/constants";
 import {
     canHandle,
     createSnapshot,
@@ -396,7 +403,10 @@ export class unstable_Statechart<
      * returned; an effect reacting to the new snapshot may itself `send()`
      * (queued, because the guard is still set). Those events are drained in
      * further rounds — each one a `Batcher.run` of its own, so its effects are
-     * flushed too — until nothing new arrives.
+     * flushed too — until nothing new arrives. Reactions that never stop
+     * sending are a loop the signal core cannot see across rounds: after
+     * `MAX_REACTION_ROUNDS` the queue is dropped and a `SignalCycleError` is
+     * thrown like a reaction error; the machine itself keeps running.
      *
      * An error thrown out of `Batcher.run` (a throwing effect; the batch still
      * ran every other reaction) does not stop the drain: events those
@@ -425,7 +435,19 @@ export class unstable_Statechart<
         };
         try {
             flush(body);
+            let rounds = 0;
             while (this._queue.length > 0 && this._status === "running") {
+                if (++rounds > MAX_REACTION_ROUNDS) {
+                    this._queue.length = 0;
+                    reactionError ??= {
+                        error: new SignalCycleError(
+                            [],
+                            `Cycle detected: reactions to machine "${this.definition.id}" kept sending events ` +
+                                `after ${MAX_REACTION_ROUNDS} rounds (a loop through effects and send())`,
+                        ),
+                    };
+                    break;
+                }
                 flush(() => this._drain());
             }
         } finally {
