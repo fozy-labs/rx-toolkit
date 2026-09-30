@@ -736,6 +736,34 @@ describe("engine robustness", () => {
             sub.unsubscribe();
         });
 
+        it("a State.obs subscriber whose write starts a chain reads the bridges it wrote, and so does the next one", () => {
+            const a = Signal.state(0);
+            const p = Signal.state(0);
+            const q = Signal.state(0);
+            const pb = Signal.from(p.obs.pipe(tap((v) => q.set(v))));
+            const qb = Signal.from(q.obs.pipe(map((v) => v * 10)));
+            const effect = Signal.effect(() => {
+                pb();
+                qb();
+            });
+            const seen: string[] = [];
+            const subs = [
+                a.obs.subscribe((v) => {
+                    if (!v) return;
+                    p.set(v);
+                    seen.push(`${q()}:${qb()}`);
+                }),
+                a.obs.subscribe((v) => seen.push(`${v}:${q()}:${qb()}`)),
+            ];
+            seen.length = 0;
+
+            a.set(1);
+
+            expect(seen).toEqual(["1:10", "1:1:10"]);
+            effect.unsubscribe();
+            subs.forEach((sub) => sub.unsubscribe());
+        });
+
         it("a Computed.obs subscriber reads the bridge", () => {
             const s = Signal.state(1);
             const a = Signal.compute(() => s() + 1);
