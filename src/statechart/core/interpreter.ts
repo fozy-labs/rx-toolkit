@@ -7,6 +7,9 @@
  * `resolveAndExecuteActionsWithContext`, `evaluateGuard`, ...) and of
  * `StateNode.next` / `StateMachine.getInitialSnapshot`.
  * Spec: section 3.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
 import { Immer } from "immer";
 

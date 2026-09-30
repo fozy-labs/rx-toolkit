@@ -4,6 +4,10 @@
  * linked lists; RxJS appears only at the edges (`.obs`, `Signal.from`).
  *
  * Internal module: nothing here is part of the public API.
+ *
+ * The dependency tracking (flags, `Link` lists, `needsToRecompute`,
+ * `cleanupSources`) is derived from @preact/signals-core,
+ * Copyright (c) 2022-present Preact Team, MIT License (see LICENSE).
  */
 import { config, Observable, type Subscriber, type TeardownLogic } from "rxjs";
 

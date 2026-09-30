@@ -8,6 +8,9 @@
  * strictness the brief asks for: anything XState would silently ignore or
  * misinterpret (unknown keys, `initial` on parallel nodes, dead `onDone`,
  * same-region multi-targets, duplicate ids, ...) is an error here.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
 import { cancel, raise } from "../actions";
 import type {

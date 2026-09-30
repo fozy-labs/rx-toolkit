@@ -3,6 +3,9 @@
  * `getStateValue`, `matchesState`, `toStatePath`, `pathToStateValue`,
  * `getStateNodeById`, `getStateNodeByPath`. Spec: section 3.8. `normalize`
  * reuses the lookups (with a config path for its errors) and `toStatePath`.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
 import type { EventObject, MachineContext, StateValue, StateValueMap } from "../types";
 

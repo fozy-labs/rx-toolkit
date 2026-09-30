@@ -11,6 +11,9 @@
  * `getProperAncestors(node, undefined)` reaches the root; our root has
  * `parent: null` and the helpers below reproduce exactly that behaviour for
  * `null`.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
 import type { EventObject, MachineContext } from "../types";
 
