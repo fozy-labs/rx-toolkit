@@ -96,6 +96,20 @@ describe("_commit()", () => {
         expect(form.fields.phones.value$()).toEqual([{ number: "1" }, { number: "2" }, { number: "3" }]);
     });
 
+    it("lists: data deferred by keepDirtyLists during the flight survives, since the commit is skipped", async () => {
+        const { form, last } = contacts();
+        form.fields.phones.push({ number: "3" });
+        const result = form.submit();
+        await flush();
+        form.initialize({ state: { phones: [{ number: "server" }] } }, { keepDirtyValues: true });
+        last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+        // The newer base wins over what was sent: nothing is committed.
+        expect(form.fields.phones.isDirty$()).toBe(true);
+        form.reset();
+        expect(form.fields.phones.value$()).toEqual([{ number: "server" }]);
+    });
+
     it("a disabled child is not sent and not committed", async () => {
         const save = manualCommand<unknown>();
         const def = g({
