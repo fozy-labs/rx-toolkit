@@ -1758,7 +1758,8 @@ function watchInBatch<T>(node: WatchableNode<T>, subscriber: Subscriber<T>): Tea
     linkRecContext(rec);
     watcher._recs.add(rec);
     const owner = watcher;
-    if (watcher._recs.live === 1) {
+    // The first subscriber links the watcher (not the first live one: a delivery may still hold one that left).
+    if (watcher._sources === undefined) {
         try {
             watcher._link();
         } catch (error) {

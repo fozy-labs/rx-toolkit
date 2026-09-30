@@ -506,6 +506,22 @@ describe("engine robustness", () => {
         });
     });
 
+    it("a subscriber that leaves and one that joins during a delivery leave the upstream released at the end", () => {
+        const subject = new Subject<number>();
+        const f = Signal.from(subject, { default: 0, keepAlive: "none" });
+        let second: { unsubscribe(): void } | undefined;
+        const first = f.obs.subscribe((v) => {
+            if (v !== 1) return;
+            first.unsubscribe();
+            second = f.obs.subscribe(() => {});
+        });
+
+        subject.next(1);
+        second!.unsubscribe();
+
+        expect(subject.observed).toBe(false);
+    });
+
     it("subscribers that stay get every value, whoever leaves and when", () => {
         for (const kind of ["state", "computed"]) {
             const s = Signal.state(0);
