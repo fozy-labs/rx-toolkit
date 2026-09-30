@@ -163,7 +163,7 @@ let gateEpoch = 0;
 /** Receivers with keepAlive "none" read while unobserved: released after the outermost read. */
 const releaseQueue: ReceiverLike[] = [];
 
-/** A State write waiting for its `.obs` subscribers (see `SourceNode._deliverRecs`). */
+/** A State write waiting for its `.obs` subscribers (see `SourceNode._deliverRecs`); version -1: its dispose. */
 interface StateDelivery {
     node: SourceNode<unknown>;
     value: unknown;
@@ -841,16 +841,26 @@ export class SourceNode<T> extends Producer {
         this._recs?.remove(rec);
     }
 
-    /** Completes every `.obs` subscriber (dispose). */
+    /** Completes every `.obs` subscriber (dispose), after the writes still waiting for them. */
     _completeRecs(): void {
+        if (this._recs === null) return;
+        if (stateDelivering) {
+            stateQueue[stateTail++] = {
+                node: this as SourceNode<unknown>,
+                value: undefined,
+                version: -1,
+                gen: generation + 1,
+            };
+            return;
+        }
+        this._finishRecs();
+    }
+
+    _finishRecs(): void {
         const recs = this._recs;
         if (recs === null) return;
         this._recs = null;
-        for (const rec of recs.takeAll()) {
-            if (rec.closed) continue;
-            closeRec(rec);
-            rec.subscriber.complete();
-        }
+        for (const rec of recs.takeAll()) if (!rec.closed) completeTo(rec);
     }
 }
 
@@ -1131,7 +1141,7 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
     _disposeNode(): void {
         if ((this._flags & DISPOSED) !== 0) return;
         this._flags |= DISPOSED | OUTDATED | RETRY;
-        this._watcher?._completeAll();
+        this._watcher?._dispose();
         if ((this._flags & TRACKING) !== 0) {
             this._flags &= ~TRACKING;
             for (let link = this._sources; link !== undefined; link = link._nextSource) unsubscribeQuietly(link);
@@ -1422,7 +1432,8 @@ function drainStateQueue(): void {
             stateQueue[stateHead++] = null;
             checkGeneration(item.gen);
             generation = item.gen;
-            item.node._deliverQueued(item.value, item.version);
+            if (item.version === -1) item.node._finishRecs();
+            else item.node._deliverQueued(item.value, item.version);
         }
     } finally {
         // An abandoned flush leaves writes behind: they are dropped with it.
@@ -1677,13 +1688,10 @@ export class Watcher implements Consumer {
         unlinkSources(this);
     }
 
-    _completeAll(): void {
-        for (const rec of this._recs.takeAll()) {
-            if (rec.closed) continue;
-            closeRec(rec);
-            rec.subscriber.complete();
-        }
-        this._unlink();
+    /** The node is disposed: the subscribers get the value a running or pending delivery brings, then complete. */
+    _dispose(): void {
+        if (this._delivering || this._queued) this._completing = true;
+        else this._finish();
     }
 }
 

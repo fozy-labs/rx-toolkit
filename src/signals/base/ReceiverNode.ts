@@ -26,6 +26,7 @@ import {
     receiverLive,
     RecoveryWatcher,
     reportUnhandled,
+    runBatch,
     scheduleAfterFlush,
     stopWatchingChanges,
     untracked,
@@ -245,10 +246,13 @@ export class ReceiverNode<T> extends Producer implements ReceiverLike, Watchable
         if ((this._flags & CONNECTED) !== 0 && this._hasValue && this._errorState === ERR_NONE) {
             this._frozen = { value: this._value as T };
         }
-        this._disconnect();
+        // Disposed first: a read from the upstream teardown must not connect again.
         this._flags |= DISPOSED;
-        this._watcher?._completeAll();
-        this._reconcile();
+        this._disconnect();
+        runBatch(() => {
+            this._reconcile();
+            this._watcher?._dispose();
+        });
     }
 
     /** A new value was committed (devtools). */

@@ -483,6 +483,99 @@ describe("engine robustness", () => {
         effect.unsubscribe();
     });
 
+    describe("dispose() completes .obs subscribers after the value they are due", () => {
+        const log = (into: unknown[], tag: string) => ({
+            next: (v: unknown) => into.push(`${tag}${String(v)}`),
+            complete: () => into.push(`${tag}C`),
+        });
+
+        function arrange(kind: "state" | "computed" | "from") {
+            const s = Signal.state(1);
+            const subject = new Subject<number>();
+            const signal =
+                kind === "state"
+                    ? s
+                    : kind === "computed"
+                      ? Signal.compute(() => s() * 10)
+                      : Signal.from(subject, { default: 0, keepAlive: "forever" });
+            const write = (v: number) => (kind === "from" ? subject.next(v * 10) : s.set(v));
+            return { signal, write };
+        }
+
+        it.each(["state", "computed", "from"] as const)(
+            "%s: disposed from the first of two subscribers, both get the value, then complete",
+            (kind) => {
+                const { signal, write } = arrange(kind);
+                const got: unknown[] = [];
+                signal.obs.subscribe({
+                    next: (v) => {
+                        got.push(`a${v}`);
+                        if (v === 20 || v === 2) signal.dispose();
+                    },
+                    complete: () => got.push("aC"),
+                });
+                signal.obs.subscribe(log(got, "b"));
+                got.length = 0;
+
+                expect(() => write(2)).not.toThrow();
+
+                const v = kind === "state" ? 2 : 20;
+                expect(got).toEqual([`a${v}`, `b${v}`, "aC", "bC"]);
+            },
+        );
+
+        it.each(["computed", "from"] as const)(
+            "%s: a write, then dispose() inside one batch: the value, then complete",
+            (kind) => {
+                const { signal, write } = arrange(kind);
+                const got: unknown[] = [];
+                signal.obs.subscribe(log(got, ""));
+                got.length = 0;
+
+                Batcher.run(() => {
+                    write(5);
+                    signal.dispose();
+                });
+
+                expect(got).toEqual(["50", "C"]);
+            },
+        );
+
+        it("complete callbacks of a signal disposed in an effect are no dependencies of the effect", () => {
+            const read = Signal.state(0);
+            const c = Signal.compute(() => 1);
+            c.obs.subscribe({ complete: () => read() });
+            let runs = 0;
+            const effect = Signal.effect(() => {
+                runs++;
+                c.dispose();
+            });
+
+            read.set(1);
+
+            expect(runs).toBe(1);
+            effect.unsubscribe();
+        });
+
+        it("a Signal.from teardown that reads the signal does not subscribe the upstream again", () => {
+            let subscriptions = 0;
+            const signal: ReturnType<typeof Signal.from<number>> = Signal.from(
+                new Observable<number>((subscriber) => {
+                    subscriptions++;
+                    subscriber.next(1);
+                    return () => signal.peek();
+                }),
+                { keepAlive: "forever" },
+            );
+            signal();
+
+            signal.dispose();
+
+            expect(subscriptions).toBe(1);
+            expect(signal()).toBe(1);
+        });
+    });
+
     describe("an .obs subscriber of a bridge's source, subscribed before the bridge, reads the bridge current", () => {
         it("a State.obs subscriber reads the bridge", () => {
             const a = Signal.state(1);
