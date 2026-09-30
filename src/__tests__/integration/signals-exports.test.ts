@@ -1,9 +1,7 @@
 import {
     // base
     Batcher,
-    ComputeCache,
     Computed,
-    DependencyTracker,
     Devtools,
     Effect,
     FromSignal,
@@ -17,7 +15,6 @@ import {
     SourceSignal,
     // signals
     State,
-    SyncObservable,
     unstable_ProxySignal,
     // react
     useSignal,
@@ -29,18 +26,6 @@ describe("Signals module exports", () => {
         it("exports Batcher", () => {
             expect(Batcher).toBeDefined();
             expect(typeof Batcher.run).toBe("function");
-            expect(typeof Batcher.scheduler).toBe("function");
-        });
-
-        it("exports ComputeCache", () => {
-            expect(ComputeCache).toBeDefined();
-            expect(typeof ComputeCache).toBe("function"); // class
-        });
-
-        it("exports DependencyTracker", () => {
-            expect(DependencyTracker).toBeDefined();
-            expect(typeof DependencyTracker.track).toBe("function");
-            expect(typeof DependencyTracker.start).toBe("function");
         });
 
         it("exports Devtools", () => {
@@ -51,11 +36,6 @@ describe("Signals module exports", () => {
         it("exports SourceSignal", () => {
             expect(SourceSignal).toBeDefined();
             expect(typeof SourceSignal.create).toBe("function");
-        });
-
-        it("exports SyncObservable", () => {
-            expect(SyncObservable).toBeDefined();
-            expect(typeof SyncObservable).toBe("function"); // class
         });
     });
 

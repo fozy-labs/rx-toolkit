@@ -6,6 +6,7 @@ import type { DisposableSignal } from "@/signals/types";
 import { SignalCycleError } from "../base";
 
 import { Computed } from "./Computed";
+import { LocalSignal } from "./LocalSignal";
 import { Signal } from "./Signal";
 
 describe("Computed", () => {
@@ -177,6 +178,84 @@ describe("Computed", () => {
             // onDispose hook never fired and devtools learned of completion only at GC.
             c.dispose();
             expect(mockStateFn).toHaveBeenCalledWith("$COMPLETED", undefined);
+        });
+
+        it("an effect reading a disposed computed is no longer woken by it", () => {
+            const source = Signal.state(1);
+            const doubled = Signal.compute(() => source() * 2);
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(doubled());
+            });
+
+            doubled.dispose();
+            source.set(2);
+            source.set(3);
+
+            expect(seen).toEqual([2]);
+            // Reads still compute the current value.
+            expect(doubled.peek()).toBe(6);
+            eff.unsubscribe();
+        });
+
+        it(".obs of a disposed computed completes at once", () => {
+            const source = Signal.state(1);
+            const doubled = Signal.compute(() => source() * 2);
+            doubled.dispose();
+
+            const seen: unknown[] = [];
+            doubled.obs.subscribe({ next: (v) => seen.push(v), complete: () => seen.push("complete") });
+            source.set(2);
+
+            expect(seen).toEqual(["complete"]);
+        });
+
+        it("an observed computed over a disposed one is no longer woken through it", () => {
+            const source = Signal.state(1);
+            const doubled = Signal.compute(() => source() * 2);
+            const plusOne = Signal.compute(() => doubled() + 1);
+            const seen: number[] = [];
+            const sub = plusOne.obs.subscribe((v) => seen.push(v));
+
+            doubled.dispose();
+            source.set(2);
+
+            expect(seen).toEqual([3]);
+            sub.unsubscribe();
+        });
+    });
+
+    describe("devtools", () => {
+        afterEach(() => {
+            SharedOptions.DEVTOOLS = null;
+        });
+
+        it("reports the value when the computed becomes observed after a cold read of it", () => {
+            const createState = vi.fn(() => vi.fn());
+            SharedOptions.DEVTOOLS = { state: createState };
+            const c = Computed.create(() => 2, "c2");
+
+            expect(c.peek()).toBe(2);
+            const sub = c.obs.subscribe();
+
+            expect(createState).toHaveBeenCalledWith("c2", 2);
+            sub.unsubscribe();
+        });
+
+        it("reports a LocalSignal with devtoolsOptions once it is observed", () => {
+            const createState = vi.fn(() => vi.fn());
+            SharedOptions.DEVTOOLS = { state: createState };
+            const local = LocalSignal.state<number>({
+                key: "devtools-local",
+                defaultValue: 5,
+                devtoolsOptions: "local-entry",
+            });
+
+            expect(local.peek()).toBe(5);
+            const sub = local.obs.subscribe();
+
+            expect(createState).toHaveBeenCalledWith("local-entry", 5);
+            sub.unsubscribe();
         });
     });
 
@@ -638,6 +717,32 @@ describe("Computed", () => {
 
             expect(() => bad.peek()).toThrow("Bad → Bad");
             expect(a.peek()).toBe(2);
+        });
+
+        it("a node the cycle cut short takes the final state of the node that closed it", () => {
+            const closing = Signal.state(false);
+            // `r` closes the cycle and handles it; `v` only saw `r` while it was computing.
+            const r: DisposableSignal<string> = Computed.create(() => {
+                if (!closing()) return "idle";
+                try {
+                    return `read ${v()}`;
+                } catch {
+                    return "handled";
+                }
+            }, "R");
+            const v: DisposableSignal<string> = Computed.create(() => r(), "V");
+            const sub = r.obs.subscribe();
+            let seen: unknown = null;
+            const eff = Signal.effect(() => {
+                seen = v();
+            });
+
+            closing.set(true);
+
+            expect(seen).toBe("handled");
+            expect(v.peek()).toBe("handled");
+            eff.unsubscribe();
+            sub.unsubscribe();
         });
     });
 

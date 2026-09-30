@@ -2,10 +2,37 @@ import { Observable, Subject } from "rxjs";
 
 import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 import type { ICacheEntry, ICacheEntryOptions } from "@/query/types";
-import { DependencyTracker, State, type DependencyRecord, type ReadonlySignal } from "@/signals";
+import { type ReadonlySignal, type SignalOptionsOrKey } from "@/signals";
 import { untracked } from "@/signals/base/untracked";
+import { StateNode } from "@/signals/signals/State";
 
 import { Retainer } from "./Retainer";
+
+/**
+ * The entry's state node: a computed or an effect that observes it holds the
+ * entry, as a subscriber of {@link CacheEntry.obs} does.
+ */
+class HeldState<T> extends StateNode<T> {
+    private _release: (() => void) | null = null;
+
+    constructor(
+        initialValue: T,
+        options: SignalOptionsOrKey<T>,
+        private readonly _hold: () => () => void,
+    ) {
+        super(initialValue, options);
+    }
+
+    override _onObserved(): void {
+        this._release = this._hold();
+    }
+
+    override _onUnobserved(): void {
+        const release = this._release;
+        this._release = null;
+        release?.();
+    }
+}
 
 // ==================== Retention normalization ====================
 
@@ -44,21 +71,25 @@ function normalizeRetentionTime(value: number | false): number | null {
  *   no subscription, no retention cycle, no side effect.
  */
 export class CacheEntry<TState> implements ICacheEntry<TState> {
-    private readonly _state$: State<TState>;
+    private readonly _state$: StateNode<TState>;
     private readonly _retainer: Retainer<TState>;
     private _isCompleted = false;
 
     readonly completed$ = new Subject<void>();
     /** The state stream. Replays the current state on subscribe; subscribing holds the entry. */
     readonly obs: Observable<TState>;
-    /** The state as a signal: `get()` tracks {@link obs} as its dependency, `peek()` is a plain read. */
+    /** The state as a signal: an observed `get()` holds the entry, `peek()` is a plain read. */
     readonly state$: ReadonlySignal<TState>;
 
     constructor(initialState: TState, options: ICacheEntryOptions<TState>) {
-        this._state$ = new State<TState>(initialState, {
-            key: options.devtoolsKey,
-            beforeDevtoolsPush: options.beforeDevtoolsPush,
-        });
+        this._state$ = new HeldState<TState>(
+            initialState,
+            {
+                key: options.devtoolsKey,
+                beforeDevtoolsPush: options.beforeDevtoolsPush,
+            },
+            () => this._retainer.hold(),
+        );
 
         // The hooks run inside a consumer's subscribe / teardown, which may be
         // a tracking scope: whatever they read must not become that
@@ -72,23 +103,10 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         });
         this.obs = this._retainer.obs;
 
-        // Hand-built rather than `SourceSignal.create` / `Signal.from`: both
-        // `peek()` through a transient subscription, which here would be a
-        // `0 → 1 → 0` hold cycle on every read. This record makes `get()`
-        // register the holding stream as the dependency — the subscription
-        // appears when the reading Computed / Effect is itself subscribed —
-        // while `peek()` stays a direct read of the State.
-        const depRecord: DependencyRecord = {
-            getRang: () => 0,
-            obs: this.obs,
-            peek: () => this._state$.peek(),
-        };
-        const read = (): TState => {
-            if (DependencyTracker.isTracking) {
-                DependencyTracker.track(depRecord);
-            }
-            return this._state$.peek();
-        };
+        // A tracked read links the state node: the hold appears when the
+        // reading Computed / Effect is itself observed, and a cold read only
+        // validates against it — no `0 → 1 → 0` hold cycle per read.
+        const read = (): TState => this._state$.get();
         this.state$ = Object.assign(read, {
             obs: this.obs,
             get: read,

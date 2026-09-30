@@ -1,5 +1,18 @@
-import { defer, Observable, of, scan, startWith, Subject, throwError } from "rxjs";
+import {
+    BehaviorSubject,
+    defer,
+    lastValueFrom,
+    map,
+    Observable,
+    of,
+    scan,
+    startWith,
+    Subject,
+    take,
+    throwError,
+} from "rxjs";
 
+import { Batcher } from "../base/Batcher";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
 import { FromSignal } from "./FromSignal";
@@ -296,6 +309,29 @@ describe("Signal.from", () => {
             sub.unsubscribe();
             doubled.dispose();
         });
+
+        it('an unobserved computed reads a fresh value after the upstream changed unseen (keepAlive "none")', () => {
+            const source$ = new BehaviorSubject(1);
+            const signal = Signal.from(source$, { keepAlive: "none" });
+            const tenfold = Signal.compute(() => signal() * 10);
+
+            expect(tenfold.peek()).toBe(10);
+            expect(tenfold.peek()).toBe(10);
+            source$.next(2);
+            expect(tenfold.peek()).toBe(20);
+        });
+
+        it("an unobserved computed reads a fresh value once the grace window is over", async () => {
+            const source$ = new BehaviorSubject(1);
+            const signal = Signal.from(source$);
+            const tenfold = Signal.compute(() => signal() * 10);
+
+            expect(tenfold.peek()).toBe(10);
+            expect(tenfold.peek()).toBe(10);
+            await Promise.resolve();
+            source$.next(2);
+            expect(tenfold.peek()).toBe(20);
+        });
     });
 
     describe("errors", () => {
@@ -310,6 +346,42 @@ describe("Signal.from", () => {
             expect(() => signal.peek()).toThrow("boom");
             expect(signal.peek()).toBe(42);
             expect(attempts).toBe(2);
+        });
+
+        describe("a source that fails synchronously is subscribed once and its error delivered", () => {
+            function failing() {
+                const counter = { subscriptions: 0 };
+                const source = defer(() => {
+                    counter.subscriptions += 1;
+                    return throwError(() => new Error(`fail${counter.subscriptions}`));
+                });
+                return { signal: Signal.from(source), counter };
+            }
+
+            it("to an .obs subscriber", () => {
+                const { signal, counter } = failing();
+                let caught: unknown = null;
+                signal.obs.subscribe({ error: (e) => (caught = e) });
+
+                expect(counter.subscriptions).toBe(1);
+                expect((caught as Error).message).toBe("fail1");
+            });
+
+            it("to a reading effect", () => {
+                const { signal, counter } = failing();
+                expect(() => Signal.effect(() => signal())).toThrow("fail1");
+                expect(counter.subscriptions).toBe(1);
+            });
+
+            it("to an .obs subscriber of a computed over it", () => {
+                const { signal, counter } = failing();
+                const doubled = Signal.compute(() => signal() * 2);
+                let caught: unknown = null;
+                doubled.obs.subscribe({ error: (e) => (caught = e) });
+
+                expect(counter.subscriptions).toBe(1);
+                expect((caught as Error).message).toBe("fail1");
+            });
         });
 
         it("delivers an asynchronous error to .obs subscribers, then resets to cold", () => {
@@ -350,6 +422,128 @@ describe("Signal.from", () => {
 
             expect(signal()).toBe(42);
             expect(counter.subscriptions).toBe(2);
+        });
+
+        /** Logs a subscriber's values and its completion. */
+        const log = (into: unknown[], tag = "") => ({
+            next: (v: unknown) => into.push(`${tag}${String(v)}`),
+            complete: () => into.push(`${tag}complete`),
+        });
+
+        it("lastValueFrom(.obs) resolves with the last value", async () => {
+            await expect(lastValueFrom(Signal.from(of(1, 2, 3)).obs)).resolves.toBe(3);
+        });
+
+        it("current .obs subscribers get the last value, then complete; reads keep the last value", () => {
+            const source$ = new Subject<number>();
+            const signal = Signal.from(source$);
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen));
+
+            source$.next(1);
+            source$.next(2);
+            source$.complete();
+
+            expect(seen).toEqual(["1", "2", "complete"]);
+            expect(signal()).toBe(2);
+        });
+
+        it("a subscriber arriving while the completed value is retained gets it, then complete", async () => {
+            const { source, counter } = counting(of(42));
+            const signal = Signal.from(source, { keepAlive: "forever" });
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen, "a:"));
+            signal.obs.subscribe(log(seen, "b:"));
+            await macrotask();
+            signal.obs.subscribe(log(seen, "c:"));
+
+            expect(seen).toEqual(["a:42", "a:complete", "b:42", "b:complete", "c:42", "c:complete"]);
+            expect(signal()).toBe(42);
+            expect(counter.subscriptions).toBe(1);
+        });
+
+        it("once keepAlive releases the completed source, a subscriber restarts it cold", async () => {
+            const { source, counter } = counting(of(42));
+            const signal = Signal.from(source);
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen, "a:"));
+            signal.obs.subscribe(log(seen, "b:"));
+            expect(counter.subscriptions).toBe(1);
+
+            await macrotask();
+            signal.obs.subscribe(log(seen, "c:"));
+
+            expect(seen).toEqual(["a:42", "a:complete", "b:42", "b:complete", "c:42", "c:complete"]);
+            expect(counter.subscriptions).toBe(2);
+        });
+
+        it('keepAlive "none": the completed source restarts cold for the next reader', () => {
+            let subject!: Subject<number>;
+            const { source, counter } = counting(defer(() => (subject = new Subject<number>())));
+            const signal = Signal.from(source, { keepAlive: "none", default: -1 });
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen));
+
+            subject.next(1);
+            subject.complete();
+
+            expect(seen).toEqual(["1", "complete"]);
+            expect(signal()).toBe(-1);
+            expect(counter.subscriptions).toBe(2);
+        });
+
+        it("a completion without a value completes the subscribers; reads serve the default", () => {
+            const source$ = new Subject<number>();
+            const signal = Signal.from(source$, { default: 0, keepAlive: "forever" });
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen, "a:"));
+
+            source$.complete();
+            signal.obs.subscribe(log(seen, "b:"));
+
+            expect(seen).toEqual(["a:complete", "b:complete"]);
+            expect(signal()).toBe(0);
+        });
+
+        it("inside a batch: one value, then complete, when the batch ends", () => {
+            const source$ = new Subject<number>();
+            const signal = Signal.from(source$);
+            const seen: unknown[] = [];
+            signal.obs.subscribe(log(seen));
+
+            Batcher.run(() => {
+                source$.next(1);
+                source$.next(2);
+                source$.complete();
+                seen.push("batch end");
+            });
+
+            expect(seen).toEqual(["batch end", "2", "complete"]);
+            expect(signal()).toBe(2);
+        });
+
+        it("through a bridge chain: each bridge completes after its last value, readers keep the values", () => {
+            const s = Signal.state(0);
+            const b1 = Signal.from(s.obs.pipe(take(3)), { keepAlive: "forever" });
+            const b2 = Signal.from(b1.obs.pipe(map((v) => v * 10)), { keepAlive: "forever" });
+            const c = Signal.compute(() => b2() + 1);
+            const seen: unknown[] = [];
+            b1.obs.subscribe(log(seen, "b1:"));
+            b2.obs.subscribe(log(seen, "b2:"));
+            c.obs.subscribe(log(seen, "c:"));
+
+            s.set(1);
+            s.set(2);
+            s.set(3);
+
+            const of_ = (tag: string) => seen.filter((e) => String(e).startsWith(tag));
+            expect(of_("b1:")).toEqual(["b1:0", "b1:1", "b1:2", "b1:complete"]);
+            expect(of_("b2:")).toEqual(["b2:0", "b2:10", "b2:20", "b2:complete"]);
+            expect(of_("c:")).toEqual(["c:1", "c:11", "c:21"]);
+            expect([b1(), b2(), c()]).toEqual([2, 20, 21]);
+            const late: unknown[] = [];
+            b2.obs.subscribe(log(late));
+            expect(late).toEqual(["20", "complete"]);
         });
     });
 

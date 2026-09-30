@@ -1,9 +1,8 @@
-import { BehaviorSubject, Observable } from "rxjs";
-
 import type { SignalOptionsOrKey } from "@/signals/types";
 
-import { Batcher, DependencyTracker, type DependencyRecord } from "../base";
+import { Batcher } from "../base";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
+import { LiveSourceNode } from "../base/LiveSourceNode";
 import { State } from "../signals/State";
 
 import { isDraftable, produce } from "./produce";
@@ -25,56 +24,23 @@ function getAtPath(root: unknown, segments: string[]): unknown {
 }
 
 /**
- * A per-path source signal. `peek` reads the CURRENT value from the root by
- * path (not the local subject): dependency records captured by a dormant
- * Computed's ComputeCache must stay truthful even after this node is pruned
- * from the trie, otherwise the cache would validate against a stale value.
+ * A per-path source signal. It validates against the CURRENT value at its
+ * path in the root: an unobserved computed that holds a link to it stays
+ * truthful even after this node is pruned from the trie. When its last
+ * observer leaves, the core learns it and can reap it — even in a subtree no
+ * commit will ever walk again.
  */
-class PathState {
-    private readonly bs$: BehaviorSubject<unknown>;
-    readonly depRecord: DependencyRecord;
-    private _refCount = 0;
-
-    constructor(initialValue: unknown, peekLive: () => unknown, onIdle: () => void) {
-        this.bs$ = new BehaviorSubject(initialValue);
-        // Precise per-node refcount: each reactive observer subscribes through
-        // this wrapper, so the core learns when a node's last observer leaves
-        // and can reap it — even in a subtree no commit will ever walk again.
-        const obs = new Observable((subscriber) => {
-            this._refCount++;
-            const sub = this.bs$.subscribe(subscriber);
-            return () => {
-                sub.unsubscribe();
-                if (--this._refCount === 0) onIdle();
-            };
-        });
-        this.depRecord = {
-            getRang: () => 0,
-            obs,
-            peek: peekLive,
-        };
-    }
-
-    get observed() {
-        return this._refCount > 0;
-    }
-
+class PathState extends LiveSourceNode<unknown> {
     get() {
-        if (DependencyTracker.isTracking) {
-            DependencyTracker.track(this.depRecord);
-        }
-        return this.bs$.getValue();
+        return this.read();
     }
 
     /** Called only inside a commit's Batcher.run. */
     set(value: unknown) {
-        if (Object.is(value, this.bs$.getValue())) return;
-        this.bs$.next(value);
+        this.notify(value);
     }
 
-    dispose() {
-        this.bs$.complete();
-    }
+    dispose() {}
 }
 
 interface TrieNode {
@@ -196,8 +162,8 @@ class ProxySignalCore<T extends object> {
      * microtask runs a re-subscribe has revived the node (observed again), so a
      * flickering selector never thrashes the trie. A still-cold node is pruned
      * and the reap bubbles up, dropping ancestor branches that became fully
-     * unobserved. Correctness holds because PathState.peek reads live from the
-     * root, so a dormant Computed's ComputeCache stays truthful after a prune.
+     * unobserved. Correctness holds because PathState validates live against the
+     * root, so an unobserved Computed holding it stays truthful after a prune.
      */
     private _scheduleReap(node: TrieNode) {
         queueMicrotask(() => this._reap(node));
@@ -223,7 +189,7 @@ class ProxySignalCore<T extends object> {
      * skipped entirely — with structural sharing from mutate() the cost is
      * proportional to the changed region, not to the number of paths ever
      * read. Inside changed regions, nodes nobody observes are pruned (their
-     * dependency records stay valid thanks to PathState's live peek).
+     * links stay valid thanks to PathState's live validation).
      */
     private _commit(value: T, actionName?: string) {
         const previous = this._root.peek();

@@ -1,4 +1,4 @@
-import { Batcher } from "@/signals";
+import { scheduleAfterFlush } from "@/signals/base/core";
 
 import { DevtoolsLike } from "./types";
 
@@ -53,10 +53,6 @@ type Options = {
  * - Отмену запланированного flush при новых обновлениях (для task стратегии)
  */
 function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
-    // Для sync режима используем Batcher.scheduler(Infinity),
-    // чтобы обновления devtools происходили в конце батча сигналов
-    const batcherScheduler = Batcher.scheduler(Infinity);
-
     let isPending = false;
     let pendingFlush: (() => void) | null = null;
 
@@ -75,9 +71,9 @@ function createBatchScheduler(strategy: BatchStrategy, taskDelay: number) {
 
         switch (strategy) {
             case "sync":
-                // Используем Batcher — выполнится в конце текущего батча сигналов
+                // Очередь «после сброса» ядра сигналов: выполнится в конце текущего батча
                 // или сразу, если батч не активен
-                batcherScheduler.schedule(executePending);
+                scheduleAfterFlush(executePending);
                 break;
             case "microtask":
                 queueMicrotask(executePending);

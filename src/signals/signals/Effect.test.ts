@@ -680,5 +680,43 @@ describe("Effect", () => {
 
             eff.unsubscribe();
         });
+
+        it("re-runs when its write changed a computed it read earlier in the run", () => {
+            const trigger = Signal.state(0);
+            const x = Signal.state(0);
+            const c = Signal.compute(() => x() * 10);
+            const seen: number[] = [];
+
+            const eff = Signal.effect(() => {
+                trigger();
+                seen.push(c());
+                if (trigger() === 1 && !x.peek()) x.set(1);
+            });
+
+            trigger.set(1);
+
+            expect(seen).toEqual([0, 0, 10]);
+            eff.unsubscribe();
+        });
+
+        it("is not re-run when its write leaves a computed it read unchanged", () => {
+            const trigger = Signal.state(0);
+            const x = Signal.state(0);
+            const positive = Signal.compute(() => x() > 0);
+            const runs = vi.fn();
+
+            const eff = Signal.effect(() => {
+                runs();
+                trigger();
+                positive();
+                if (trigger() > 0 && x.peek() < 2) x.set(x.peek() + 1);
+            });
+            runs.mockClear();
+
+            // The first write flips `positive`: one more run, whose write does not.
+            trigger.set(1);
+            expect(runs).toHaveBeenCalledTimes(2);
+            eff.unsubscribe();
+        });
     });
 });

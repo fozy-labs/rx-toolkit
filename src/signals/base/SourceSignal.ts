@@ -1,42 +1,44 @@
-import { Subscriber, TeardownLogic } from "rxjs";
+import { Observable, Subscriber, TeardownLogic } from "rxjs";
 
 import { type ReadonlySignal } from "@/signals/types";
 
-import { DependencyRecord, DependencyTracker } from "./DependencyTracker";
-import { SyncObservable } from "./SyncObservable";
+import { ReceiverNode } from "./ReceiverNode";
 
+function producerNode<T>(
+    subscribe: ((subscriber: Subscriber<T>) => TeardownLogic) | undefined,
+    defaultValue: [defaultValue?: T],
+): ReceiverNode<T> {
+    return new ReceiverNode(new Observable<T>(subscribe), "none", defaultValue.length > 0, defaultValue[0], undefined);
+}
+
+/**
+ * A read-only signal over a producer function: the producer starts on the
+ * first observer and stops when the last one leaves; a read without
+ * observers starts and stops it around the read. Without `defaultValue`, a
+ * read before the producer emitted throws `"No value emitted"`.
+ */
 export class SourceSignal<T> {
-    protected rang = 0;
-    readonly obs;
-    // Стабильный record на инстанс (см. State): переиспользуется на каждом get()
-    // вместо аллокации нового объекта с замыканиями.
-    private readonly _depRecord: DependencyRecord;
+    private readonly _node: ReceiverNode<T>;
+    readonly obs: Observable<T>;
 
     constructor(subscribe?: (subscriber: Subscriber<T>) => TeardownLogic, ...defaultValue: [defaultValue?: T]) {
-        this.obs = new SyncObservable<T>(subscribe, ...defaultValue);
-        this._depRecord = {
-            getRang: () => this.rang,
-            obs: this.obs,
-            peek: () => this.peek(),
-        };
+        this._node = producerNode(subscribe, defaultValue);
+        this.obs = this._node.obs;
     }
 
     get(): T {
-        if (DependencyTracker.isTracking) {
-            DependencyTracker.track(this._depRecord);
-        }
-        return this.obs.value;
+        return this._node.get();
     }
 
     peek(): T {
-        return this.obs.value;
+        return this._node.peek();
     }
 
     static create<T>(
         subscribe?: (subscriber: Subscriber<T>) => TeardownLogic,
         ...defaultValue: [defaultValue?: T]
     ): ReadonlySignal<T> {
-        const signal = new SourceSignal<T>(subscribe, ...defaultValue);
+        const signal = producerNode(subscribe, defaultValue);
 
         function readonlySignalFn(): T {
             return signal.get();

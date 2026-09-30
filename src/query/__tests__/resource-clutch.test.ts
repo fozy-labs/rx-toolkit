@@ -6,6 +6,7 @@ import { SKIP } from "@/query/constants";
 import { Resource } from "@/query/core/resource/Resource";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { IResourceClutch, IResourceConfig, TResourceClutchState } from "@/query/types";
+import { Batcher } from "@/signals/base/Batcher";
 import { Signal } from "@/signals/signals/Signal";
 
 // ==================== Matrix ====================
@@ -1316,6 +1317,40 @@ describe("ResourceClutch — stale re-trigger on rapid args change (microtask)",
             ([keyed, doInitiate]) => doInitiate === true && (keyed as { value: number }).value === 1,
         );
         expect(recreated).toBe(true);
+    });
+});
+
+describe("ResourceClutch — a read inside a batch", () => {
+    it("does not hold an entry the batch switches away from, nor revalidate it", async () => {
+        const calls: number[] = [];
+        const resource = new Resource<number, string>({
+            retentionTime: false,
+            serializeArgs: stableStringify as (args: number) => string,
+            queryFn: async (n: number) => {
+                calls.push(n);
+                return `d-${n}`;
+            },
+        });
+        for (const args of [1, 2]) _effects.push({ unsubscribe: resource.getEntry(args, true).hold() });
+        await flushMicrotasks();
+        while (_effects.length) _effects.pop()!.unsubscribe();
+        // Both entries are in retention: an invalidation only marks them.
+        resource.invalidate(1);
+        resource.invalidate(2);
+        calls.length = 0;
+
+        const clutch = resource.createClutch();
+        clutch.start();
+        observe(clutch);
+
+        Batcher.run(() => {
+            clutch.switch(1);
+            clutch.state$.peek();
+            clutch.switch(2);
+        });
+        await flushMicrotasks();
+
+        expect(calls).toEqual([2]);
     });
 });
 

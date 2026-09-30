@@ -2,6 +2,8 @@
 // computation.
 import { z } from "zod";
 
+import { Signal } from "@/signals/signals/Signal";
+
 import { FormConfigError, unstable_FormSignal as FormSignal } from "../../index";
 
 import { record, schemaOf } from "./helpers";
@@ -238,5 +240,31 @@ describe("configuration errors during a computation", () => {
         expect(error).toHaveBeenCalledWith(expect.any(FormConfigError));
         form.fields.a.set("fine");
         expect(form.isValid$()).toBe(true);
+    });
+
+    it("in a subscribed form every reader of the cycle gets FormConfigError, whichever node the flush reaches first", () => {
+        const loop = Signal.state(false);
+        let isValid$: (() => boolean) | null = null;
+        const def = g({ fields: { a: text() }, computed: { valid: () => (loop() ? isValid$!() : true) } });
+        const form = FormSignal.state(def);
+        isValid$ = form.isValid$;
+        const computedError = vi.fn();
+        const subscription = form.computed.valid$.obs.subscribe({ error: computedError });
+        let verdictError: unknown = null;
+        const effect = Signal.effect(() => {
+            try {
+                form.isValid$();
+            } catch (error) {
+                verdictError = error;
+            }
+        });
+
+        loop.set(true);
+
+        expect(computedError).toHaveBeenCalledWith(expect.any(FormConfigError));
+        expect(verdictError).toBeInstanceOf(FormConfigError);
+        expect(() => form.isValid$()).toThrow(FormConfigError);
+        effect.unsubscribe();
+        subscription.unsubscribe();
     });
 });

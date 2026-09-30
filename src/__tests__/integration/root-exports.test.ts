@@ -53,16 +53,6 @@ describe("Root module exports (@/index)", () => {
             expect(mod.Batcher).toBeDefined();
         });
 
-        it("exports ComputeCache", async () => {
-            const mod = await import("@/index");
-            expect(mod.ComputeCache).toBeDefined();
-        });
-
-        it("exports DependencyTracker", async () => {
-            const mod = await import("@/index");
-            expect(mod.DependencyTracker).toBeDefined();
-        });
-
         it("exports Devtools", async () => {
             const mod = await import("@/index");
             expect(mod.Devtools).toBeDefined();
@@ -71,11 +61,6 @@ describe("Root module exports (@/index)", () => {
         it("exports SourceSignal", async () => {
             const mod = await import("@/index");
             expect(mod.SourceSignal).toBeDefined();
-        });
-
-        it("exports SyncObservable", async () => {
-            const mod = await import("@/index");
-            expect(mod.SyncObservable).toBeDefined();
         });
 
         it("no longer exports the removed signalize", async () => {
