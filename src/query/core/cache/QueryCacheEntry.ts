@@ -195,6 +195,23 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
+     * @internal `state` as the entry shows it once held. A hold starts the
+     * revalidation the entry owes before its holder's first snapshot (see
+     * {@link onActive}), so a consumer that reads before it holds — a clutch
+     * read during render, ahead of its subscription — gets that in-flight
+     * state at once: `success` / `invalidate-error` → `invalidating`, `error`
+     * → `pending` with the failure cleared. Without an owed revalidation, or
+     * with a trailed run in the way, `state` comes back as it is.
+     */
+    _stateOnHold(state: TQueryEntryState<TArgs, TData>): TQueryEntryState<TArgs, TData> {
+        if (!this._isRevalidationDue) return state;
+
+        const machine = Machine.of(state);
+        if (machine.status === "pending" || machine.status === "invalidating") return state;
+        return machine.invalidate().state;
+    }
+
+    /**
      * @internal The in-flight policy of the invalidation the current run
      * answers, or `null` when it answers none. Set when a run is started by
      * `invalidate()` — at once, or as a mark honoured later — and when a run
@@ -504,24 +521,30 @@ export class QueryCacheEntry<TArgs, TData>
     // ==================== Private ====================
 
     /**
-     * The one rule behind lazy invalidation: the entry revalidates when it is
-     * held, nothing is in flight and it owes a revalidation. Checked wherever
-     * one of the three can change — `invalidate()` itself, the settle of any
-     * run, and the first hold. A completed entry cannot be held, but the guard
-     * keeps that explicit.
+     * Whether the entry owes a revalidation that nothing in flight stands in
+     * the way of — so a hold starts it. A completed entry cannot be held, but
+     * the guard keeps that explicit.
      *
-     * A run that revalidates in place does not count as in flight here: the
-     * revalidation is handed to it (see {@link _revalidateInPlace}); should
-     * the run turn it down, it is restarted instead.
+     * A run that revalidates in place does not stand in the way: the
+     * revalidation is handed to it (see {@link _revalidateInPlace}). Any other
+     * run in flight here is a trailed one: its settle takes over.
+     */
+    private get _isRevalidationDue(): boolean {
+        return !this.isCompleted && this._isInvalidated && (!this._isInFlight || this._revalidateInRun !== undefined);
+    }
+
+    /**
+     * The one rule behind lazy invalidation: the entry revalidates when it is
+     * held and the revalidation it owes is due. Checked wherever either can
+     * change — `invalidate()` itself, the settle of any run, and the first
+     * hold. A run that revalidates in place and turns the revalidation down
+     * is restarted instead.
      */
     private _maybeRevalidate(actionName: "invalidate" | "revalidate" = "revalidate"): void {
-        if (this.isCompleted || this.isMelting || !this._isInvalidated) return;
+        if (this.isMelting || !this._isRevalidationDue) return;
 
         const policy = this._markPolicy ?? this._invalidateInFlight;
         if (this._isInFlight) {
-            // Without in-place revalidation, a run in flight here is a
-            // trailed one: its settle takes over.
-            if (!this._revalidateInRun) return;
             if (this._revalidateInPlace(actionName, policy)) return;
             this._abortRun();
         }

@@ -175,7 +175,7 @@ describe("useResource", () => {
         expect(c.state.isInitialLoading).toBe(true);
     });
 
-    it("mounting on an entry marked for revalidation shows its data at once, then isInvalidating, then fresh data", async () => {
+    it("mounting on an entry marked for revalidation shows its data as an invalidation from the first render", async () => {
         let call = 0;
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const resource = api.createResource<TArgs, TUser>({
@@ -193,19 +193,45 @@ describe("useResource", () => {
 
         // Every render has the marked data on screen — no empty flash.
         expect(c.history.map((s) => s.hasData)).not.toContain(false);
-        expect(c.history[0].data).toEqual({ id: 1, name: "user-1-v1" });
+        // The hook's subscription is the first hold and starts the re-query: the
+        // first render already shows it as an invalidation behind the data (row 6).
+        expect(c.history[0]).toMatchObject({
+            status: "pending",
+            dataSource: "current",
+            isInvalidating: true,
+            data: { id: 1, name: "user-1-v1" },
+        });
 
-        // The hook's subscription is the first hold: the re-query goes out and the
-        // clutch reports it as an invalidation behind the data.
         await settle();
         expect(call).toBe(2);
-        expect(c.history.some((s) => s.status === "pending" && s.isInvalidating && s.dataSource === "current")).toBe(
-            true,
-        );
-
+        // The stale data never passes for a settled success.
+        expect(c.history.some((s) => s.status === "success" && s.data?.name === "user-1-v1")).toBe(false);
         expect(c.state.status).toBe("success");
         expect(c.state.isInvalidating).toBe(false);
         expect(c.state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
+    it("mounting on a failed entry marked for revalidation never shows the cleared error", async () => {
+        let fail = true;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => {
+                if (fail) throw new Error("old failure");
+                return { id, name: `user-${id}` };
+            },
+        });
+
+        await resource.ensure({ id: 1 }).catch(() => {});
+        fail = false;
+        resource.invalidate({ id: 1 });
+
+        const c = setup(resource.useResource, { id: 1 });
+        // Row 2: the re-query the mount starts, with the failure cleared.
+        expect(c.history[0]).toMatchObject({ status: "pending", dataSource: "none", error: null });
+
+        await settle();
+        expect(c.history.map((s) => s.status)).not.toContain("error");
+        expect(c.state.data).toEqual({ id: 1, name: "user-1" });
     });
 
     it("unmounting the last consumer and invalidating leaves the entry marked until the next mount", async () => {

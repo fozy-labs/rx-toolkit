@@ -358,7 +358,9 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             return this._idleState;
         }
 
-        return this._deriveNotIdleState(tracking.keyed, entry.state$());
+        // What the entry shows once held: a read ahead of the subscription (a
+        // render) already sees the revalidation that subscription starts.
+        return this._deriveNotIdleState(tracking.keyed, entry._stateOnHold(entry.state$()));
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {

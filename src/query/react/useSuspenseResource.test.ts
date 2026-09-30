@@ -190,7 +190,7 @@ describe("useSuspenseResource", () => {
         expect(screen.getByTestId("name").textContent).toBe("cached");
     });
 
-    it("does not suspend on an entry marked for revalidation: data renders at once and refreshes", async () => {
+    it("does not suspend on an entry marked for revalidation: the first render already shows the re-query", async () => {
         let call = 0;
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const resource = api.createResource<{ id: number }, { name: string }>({
@@ -214,17 +214,56 @@ describe("useSuspenseResource", () => {
             render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
         });
 
-        // The marked data rendered without a fallback; the subscription started
-        // the re-query, which then delivered fresh data.
+        // The marked data rendered without a fallback, already as the re-query
+        // the subscription starts (row 6), which then delivered fresh data.
         expect(screen.queryByTestId("fallback")).toBeNull();
-        expect(seen[0]).toEqual({ name: "v1", isInvalidating: false });
+        expect(seen[0]).toEqual({ name: "v1", isInvalidating: true });
         await act(async () => {
             await flushMicrotasks();
             await flushMicrotasks();
         });
         expect(call).toBe(2);
-        expect(seen.some((s) => s.name === "v1" && s.isInvalidating)).toBe(true);
+        expect(seen.some((s) => s.name === "v1" && !s.isInvalidating)).toBe(false);
         expect(screen.getByTestId("name").textContent).toBe("v2");
+    });
+
+    it("suspends for the re-query a failed entry owes after invalidate(), instead of throwing the cleared error", async () => {
+        const errors: unknown[] = [];
+        vi.spyOn(console, "error").mockImplementation((error: unknown) => errors.push(error));
+        let fail = true;
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<{ id: number }, { name: string }>({
+            queryFn: async () => {
+                call++;
+                if (fail) throw new Error("old failure");
+                return { name: "fresh" };
+            },
+        });
+
+        // A failed entry nobody holds: invalidate() only marks it.
+        await resource.ensure({ id: 7 }).catch(() => {});
+        fail = false;
+        resource.invalidate({ id: 7 });
+        expect(resource.getEntry({ id: 7 })!.isInvalidated).toBe(true);
+
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 7 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+
+        render(shell(h(View)));
+        expect(screen.getByTestId("fallback")).toBeTruthy();
+
+        await act(async () => {
+            await flushMicrotasks();
+            await flushMicrotasks();
+        });
+
+        expect(call).toBe(2);
+        expect(screen.queryByTestId("boundary")).toBeNull();
+        expect(screen.getByTestId("name").textContent).toBe("fresh");
+        expect(errors).toEqual([]);
     });
 
     it("settles an args change made inside startTransition without a render loop", async () => {

@@ -1378,6 +1378,52 @@ describe("ResourceClutch — a read inside a batch", () => {
 // was never held never expires — so the clutch creates it only while its
 // state$ has subscribers.
 
+describe("ResourceClutch — a read before the subscription, on an entry marked while nobody held it", () => {
+    /** An entry of args 5 settled through `ensure` — nobody holds it afterwards. */
+    async function settledEntry(t: Harness, outcome: "ok" | "fail"): Promise<void> {
+        const loaded = t.resource.ensure(5).catch(() => {});
+        if (outcome === "ok") await t.ok("E5");
+        else await t.fail(FAIL_1);
+        await loaded;
+        expect(t.resource.getEntry(5)!.isMelting).toBe(true);
+    }
+
+    function coldClutch(t: Harness): IResourceClutch<number, string> {
+        const clutch = t.resource.createClutch();
+        clutch.switch(5, { markPending: true });
+        return clutch;
+    }
+
+    it("reports the re-query the subscription starts: success → row 6", async () => {
+        const t = harness();
+        await settledEntry(t, "ok");
+        t.resource.invalidate(5);
+
+        const clutch = coldClutch(t);
+        expectRow(clutch.state$.peek(), 6, { args: 5, data: "E5", dataArgs: 5 });
+        // The read itself starts nothing.
+        expect(t.runs()).toBe(1);
+
+        const state = observe(clutch);
+        expect(t.runs()).toBe(2);
+        expectRow(state(), 6, { args: 5, data: "E5", dataArgs: 5 });
+    });
+
+    it("reports the re-query the subscription starts: error → row 2, the failure cleared", async () => {
+        const t = harness();
+        await settledEntry(t, "fail");
+        t.resource.invalidate(5);
+
+        const clutch = coldClutch(t);
+        expectRow(clutch.state$.peek(), 2, { args: 5 });
+        expect(t.runs()).toBe(1);
+
+        const state = observe(clutch);
+        expect(t.runs()).toBe(2);
+        expectRow(state(), 2, { args: 5 });
+    });
+});
+
 describe("ResourceClutch — creates entries only while observed", () => {
     function expiringResource() {
         const queryFn = vi.fn(async (n: number) => `d-${n}`);
