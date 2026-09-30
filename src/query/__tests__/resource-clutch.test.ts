@@ -946,6 +946,55 @@ describe("ResourceClutch.whenSettled", () => {
         await expect(t.clutch.whenSettled()).resolves.toBeUndefined();
     });
 
+    describe("hands its hold over at the settle", () => {
+        function settledOnEvictingResource() {
+            const resource = new Resource<number, string>({
+                retentionTime: 0,
+                serializeArgs: stableStringify as (args: number) => string,
+                queryFn: async (n) => `d-${n}`,
+            });
+            const clutch = resource.createClutch();
+            clutch.switch(1);
+            clutch.start();
+            return { resource, settled: clutch.whenSettled() };
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("the entry outlives the wait until the next hold, whose release is then the last", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+            await vi.advanceTimersByTimeAsync(1000);
+
+            const entry = resource.getEntry(1)!;
+            expect(entry.isMelting).toBe(false);
+
+            entry.hold()();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("without a next hold, the entry is let go 5 s after the settle", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+            const entry = resource.getEntry(1)!;
+
+            await vi.advanceTimersByTimeAsync(4999);
+            expect(entry.isMelting).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(entry.isMelting).toBe(true);
+            // A zero delay armed inside a fake timer's callback runs 1 ms later.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+    });
+
     it("does not resolve on a retry with nothing to show (row 10)", async () => {
         const t = harness({ placeholder: false });
         await driveTo(t, 10);

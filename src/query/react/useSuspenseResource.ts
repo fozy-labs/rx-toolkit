@@ -52,7 +52,8 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
     //    A suspended render runs no effects, so the query starts right after
     //    this render: started in it, it would create a cache entry and run
     //    user code (queryFn, lifecycle hooks) in the middle of React's render.
-    //    The subscription of `whenSettled` holds the entry until it settles.
+    //    `whenSettled` holds the entry until it settles, then hands the hold
+    //    over to the retried render, which holds it once committed.
     const settled = clutch.whenSettled();
     queueMicrotask(() => clutch.start());
     throw settled;

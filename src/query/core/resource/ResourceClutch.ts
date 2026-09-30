@@ -1,4 +1,4 @@
-import { first, firstValueFrom } from "rxjs";
+import { first, firstValueFrom, tap } from "rxjs";
 
 import type {
     IResourceClutch,
@@ -67,6 +67,14 @@ function hasSettledData<TArgs, TData>(entry$: ReadonlySignal<QueryCacheEntry<TAr
 function isRenderable(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
     return state.hasData || state.status === "error";
 }
+
+/**
+ * How long {@link ResourceClutch.whenSettled} keeps holding the entry after the
+ * settle when nobody takes the hold over. React commits the render it wakes
+ * within a few hundred ms (its fallback throttle is 300 ms); a render it
+ * discards never holds, and the entry then melts once this runs out.
+ */
+const SETTLED_HAND_OVER_MS = 5_000;
 
 /** The `waitForDone` rule: no query is in flight — `idle`, `success` or `error`. */
 function isDone(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
@@ -287,6 +295,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * renders throw the same promise (a fresh promise every render would loop),
      * and cleared on settle so a later argument change can suspend again. Each
      * mode has its own instance.
+     *
+     * The wait holds the entry, and at the settle hands the hold over to
+     * whoever holds the entry next: the render it wakes holds only once
+     * committed, and a short `retentionTime` would evict the entry in between.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void> {
         const mode = options?.waitForDone ? "done" : "renderable";
@@ -308,7 +320,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const settle = (): void => {
             this._whenSettled[mode] = null;
         };
-        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady))).then(settle, settle);
+        const handOver = (): void => {
+            this._tracking$.peek()?.current$.peek()?._handOver(SETTLED_HAND_OVER_MS);
+        };
+        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(handOver))).then(settle, settle);
 
         this._whenSettled[mode] = promise;
         return promise;

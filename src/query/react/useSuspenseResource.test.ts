@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
+import { outsideAct, sleep, Slow, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TSuspenseResourceState } from "@/query/types";
@@ -310,6 +310,59 @@ describe("useSuspenseResource", () => {
         expect(renders).toBeLessThanOrEqual(4);
 
         await act(async () => {});
+    });
+});
+
+// ==================== Retention across a suspension ====================
+
+describe("useSuspenseResource — a short retentionTime", () => {
+    function setupShortRetention(retentionTime: number) {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            return { id, name: `user-${id}` };
+        });
+        const resource = api.createResource<TArgs, TUser>({ queryFn, retentionTime });
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        return { queryFn, View };
+    }
+
+    // React commits the retry of a suspended render up to ~300 ms after the
+    // fallback showed; the wait's hold must last until the committed hook holds.
+    for (const retentionTime of [0, 50]) {
+        it(`retentionTime ${retentionTime}: the data the suspension waited for renders, loaded once`, async () => {
+            const { queryFn, View } = setupShortRetention(retentionTime);
+
+            await outsideAct(async () => {
+                render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
+                await sleep(800);
+            });
+
+            expect(screen.getByTestId("name").textContent).toBe("user-1");
+            expect(queryFn).toHaveBeenCalledTimes(1);
+        });
+    }
+
+    it("retentionTime 0 under a slow sibling tree: the data renders, loaded once", async () => {
+        const { queryFn, View } = setupShortRetention(0);
+
+        await outsideAct(async () => {
+            render(
+                h(
+                    React.Suspense,
+                    { fallback: suspenseFallback("fallback") },
+                    h(View),
+                    ...Array.from({ length: 6 }, (_, i) => h(Slow, { key: i, value: 1 })),
+                ),
+            );
+            await sleep(1500);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("user-1");
+        expect(queryFn).toHaveBeenCalledTimes(1);
     });
 });
 

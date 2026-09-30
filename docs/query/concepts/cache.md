@@ -28,6 +28,7 @@ stateDiagram-v2
 | `Signal.effect` / подписанный `Signal.compute`, читающие `entry.state$()` или `clutch.state$()`    | да            |
 | `entry.obs.subscribe(…)`, `entry.hold()`                                                           | да            |
 | `ensure` / `prefetch` / `fetch` (`whenLoaded` / `whenFetched`)                                     | да, пока ждут |
+| `clutch.whenSettled()`                                                                             | да, пока ждёт, и после settle — до следующего удержания, не дольше 5 с |
 | `Command.execute`                                                                                  | да, до завершения мутации |
 | подписанное сцепление — предыдущую запись, пока показывает её как SWR-фолбэк (`dataSource: "previous"`) | да            |
 | `entry.peek()`, `entry.state$.peek()`, `resource.getState(args)`, `clutch.state$.peek()`           | нет           |

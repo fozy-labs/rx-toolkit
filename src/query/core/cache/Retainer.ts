@@ -43,6 +43,8 @@ export class Retainer<T> {
     private _holds = 0;
     private _timer: ReturnType<typeof setTimeout> | null = null;
     private _isDisposed = false;
+    /** The standing {@link handOver}: its hold and the timer that ends it. */
+    private _handOver: { release: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
     /** The source, held for as long as the subscription lives. */
     readonly obs: Observable<T>;
@@ -102,13 +104,32 @@ export class Retainer<T> {
             }
         }
 
+        // The successor has arrived: a standing hand-over is done.
+        this._endHandOver();
+
         return release;
+    }
+
+    /**
+     * A hold for whoever holds the entry next: it ends when the next hold is
+     * taken, or after `maxMs` if none is. For a consumer that lets go before
+     * its successor takes hold — a wait whose settle wakes code that only
+     * holds later, like a suspended render retried and committed by React.
+     * The bound is for a successor that never comes (a render React
+     * discards). A new hand-over replaces the standing one.
+     */
+    handOver(maxMs: number): void {
+        const release = this.hold();
+        if (this._isDisposed) return;
+
+        this._handOver = { release, timer: setTimeout(() => this._endHandOver(), maxMs) };
     }
 
     /** Stop the timer for good; every later hold / release is a no-op. */
     dispose(): void {
         this._isDisposed = true;
         this._disarm();
+        this._endHandOver();
     }
 
     // ==================== Private ====================
@@ -131,6 +152,14 @@ export class Retainer<T> {
             this._timer = null;
             this._opts.onExpire();
         }, delay);
+    }
+
+    private _endHandOver(): void {
+        const handOver = this._handOver;
+        if (handOver === null) return;
+        this._handOver = null;
+        clearTimeout(handOver.timer);
+        handOver.release();
     }
 
     private _disarm(): void {

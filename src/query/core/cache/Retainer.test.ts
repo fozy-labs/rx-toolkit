@@ -263,6 +263,68 @@ describe("Retainer", () => {
         expect(opts.onMelting).toHaveBeenCalledTimes(1);
     });
 
+    // ==================== handOver ====================
+
+    it("handOver() holds until the next hold takes over: no melting cycle in between", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 0 });
+
+        const waiter = retainer.hold();
+        retainer.handOver(5000);
+        waiter();
+        expect(retainer.isMelting).toBe(false);
+        expect(opts.onMelting).not.toHaveBeenCalled();
+
+        const successor = retainer.hold();
+        expect(opts.onActive).toHaveBeenCalledTimes(1);
+
+        // The successor holds alone now: its release is the last one.
+        successor();
+        expect(retainer.isMelting).toBe(true);
+        expect(opts.onMelting).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(0);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("handOver() without a successor ends after its maximum", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 1000 });
+
+        retainer.handOver(100);
+        expect(retainer.isMelting).toBe(false);
+
+        vi.advanceTimersByTime(99);
+        expect(retainer.isMelting).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(retainer.isMelting).toBe(true);
+        expect(opts.onMelting).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(1000);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("a second handOver() replaces the standing one", () => {
+        const { retainer } = createRetainer();
+
+        retainer.handOver(100);
+        vi.advanceTimersByTime(50);
+        retainer.handOver(100);
+
+        vi.advanceTimersByTime(99);
+        expect(retainer.isMelting).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(retainer.isMelting).toBe(true);
+    });
+
+    it("dispose() ends a standing handOver() silently", () => {
+        const { retainer, opts } = createRetainer();
+
+        retainer.handOver(100);
+        retainer.dispose();
+
+        vi.advanceTimersByTime(60_000);
+        expect(opts.onMelting).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
     // ==================== dispose ====================
 
     it("dispose() disarms the timer", () => {
