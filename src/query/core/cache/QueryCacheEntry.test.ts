@@ -1,4 +1,4 @@
-import { Observable, of, Subject } from "rxjs";
+import { config, Observable, of, Subject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -264,6 +264,117 @@ describe("QueryCacheEntry — invalidate() on an active entry", () => {
             expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: 1, error: null });
         },
     );
+});
+
+// ==================== A consumer throwing on a state write ====================
+
+/**
+ * A signal write rethrows what a reacting effect threw. The entry's own writes
+ * must not let that interrupt or redirect a transition: the transition
+ * completes as it would without the consumer, and the consumer's error goes
+ * where errors without a synchronous caller go (`config.onUnhandledError`).
+ */
+describe("QueryCacheEntry — a consumer throwing on a state write", () => {
+    let reported: unknown[];
+    let previousHandler: typeof config.onUnhandledError;
+
+    beforeEach(() => {
+        reported = [];
+        previousHandler = config.onUnhandledError;
+        config.onUnhandledError = (error) => reported.push(error);
+    });
+
+    afterEach(() => {
+        config.onUnhandledError = previousHandler;
+        vi.restoreAllMocks();
+    });
+
+    /** An effect over the entry's state that throws `boom` whenever `when` matches. */
+    function throwWhen<TData>(
+        entry: QueryCacheEntry<void, TData>,
+        when: (state: TQueryEntryState<void, TData>) => boolean,
+        boom: Error,
+    ) {
+        return Signal.effect(() => {
+            if (when(entry.state$())) throw boom;
+        });
+    }
+
+    it("a promise run settling into success stays a success", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { entry, runs } = createControlledEntry();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.status === "success", boom);
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+
+        expect(entry.peek()).toMatchObject({ status: "success", data: 1, error: null });
+        expect(warn).not.toHaveBeenCalled();
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("a discarded rebase still re-queries instead of failing", async () => {
+        const runs: ((value: TData) => void)[] = [];
+        const entry = createEntry<void, TData>({
+            queryFn: () => new Promise<TData>((resolve) => runs.push(resolve)),
+        });
+        entry.hold();
+        runs[0]!({ items: [{ n: 1 }] });
+        await flushMicrotasks();
+        entry.invalidate();
+        entry.createPatch((draft) => {
+            draft.items[0]!.n = 99;
+        });
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(
+            entry,
+            (state) => state.status === "invalidating" && !!state.patchState?.isConsistencyViolation,
+            boom,
+        );
+
+        runs[1]!({ items: [] });
+        await flushMicrotasks();
+
+        expect(runs).toHaveLength(3);
+        expect(entry._isInFlight).toBe(true);
+        expect(entry.peek()).toMatchObject({ status: "invalidating", error: null });
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("invalidate() does not throw and leaves the re-query in flight", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.status === "invalidating", boom);
+
+        expect(() => entry.invalidate()).not.toThrow();
+
+        expect(runs).toHaveLength(2);
+        expect(entry._isInFlight).toBe(true);
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("createPatch() does not throw and returns the patch handle", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.data === 2, boom);
+
+        let handle: ReturnType<typeof entry.createPatch> = null;
+        expect(() => {
+            handle = entry.createPatch(() => 2);
+        }).not.toThrow();
+
+        expect(handle).not.toBeNull();
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
 });
 
 describe("QueryCacheEntry — retry()", () => {
