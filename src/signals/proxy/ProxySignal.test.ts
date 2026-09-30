@@ -399,6 +399,20 @@ describe("unstable_ProxySignal", () => {
             c.dispose();
         });
 
+        it("path subscriber is notified when mutate assigns undefined to its key", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const seen: unknown[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(s$.root.maybe());
+            });
+            s$.mutate((draft) => {
+                draft.maybe = undefined;
+            });
+            expect(s$.peek().maybe).toBeUndefined();
+            expect(seen).toEqual([{ v: 5 }, undefined]);
+            eff.unsubscribe();
+        });
+
         it("path subscriber is notified when an ancestor is replaced with null", () => {
             const s$ = ProxySignal.state<{ a: { b: number } | null }>({ a: { b: 1 } });
             const seen: (number | undefined)[] = [];

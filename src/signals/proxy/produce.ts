@@ -97,7 +97,7 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
             return childValue(state, touch, prop, (container, key) => container[key]);
         },
         set(_target, prop, value) {
-            if (state.drafts.get(prop) === value) return true;
+            if (state.drafts.has(prop) && state.drafts.get(prop) === value) return true;
             const source = latest(state);
             if (Object.is(source[prop], value) && prop in source) return true;
             touch();
@@ -148,7 +148,8 @@ function createMapDraft(state: DraftState, touch: () => void): any {
         has: (key: unknown) => latest(state).has(key),
         set(key: unknown, value: unknown) {
             const source: Map<unknown, unknown> = latest(state);
-            if (state.drafts.get(key) !== value && !(source.has(key) && Object.is(source.get(key), value))) {
+            const isOwnDraft = state.drafts.has(key) && state.drafts.get(key) === value;
+            if (!isOwnDraft && !(source.has(key) && Object.is(source.get(key), value))) {
                 touch();
                 state.drafts.delete(key);
                 if (isDraft(value)) {

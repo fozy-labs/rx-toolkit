@@ -52,6 +52,47 @@ describe("produce", () => {
         });
     });
 
+    describe("writing undefined", () => {
+        it("clears an existing key", () => {
+            const base: { a?: number; o?: { x: number } } = { a: 1, o: { x: 1 } };
+            const next = produce(base, (draft) => {
+                draft.a = undefined;
+                draft.o = undefined;
+            });
+            expect(next).toEqual({ a: undefined, o: undefined });
+            expect(base).toEqual({ a: 1, o: { x: 1 } });
+        });
+
+        it("creates a missing key", () => {
+            const base: { a?: number } = {};
+            const next = produce(base, (draft) => {
+                draft.a = undefined;
+            });
+            expect(next).not.toBe(base);
+            expect("a" in next).toBe(true);
+        });
+
+        it("clears an array element", () => {
+            const base: (number | undefined)[] = [1, 2, 3];
+            const next = produce(base, (draft) => {
+                draft[1] = undefined;
+            });
+            expect(next).toEqual([1, undefined, 3]);
+        });
+
+        it("Map.set(k, undefined) clears an existing key and creates a missing one", () => {
+            const base = new Map<string, number | undefined>([["a", 1]]);
+            const next = produce(base, (draft) => {
+                draft.set("a", undefined);
+                draft.set("b", undefined);
+            });
+            expect([...next]).toEqual([
+                ["a", undefined],
+                ["b", undefined],
+            ]);
+        });
+    });
+
     describe("Map support", () => {
         it("map.set adds an entry copy-on-write (base map untouched)", () => {
             const base = { m: new Map<string, number>([["a", 1]]) };
