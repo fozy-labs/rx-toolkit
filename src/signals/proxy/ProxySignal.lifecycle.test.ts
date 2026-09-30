@@ -1,6 +1,7 @@
 import { Signal } from "../signals";
 
 import { unstable_ProxySignal as ProxySignal } from "./ProxySignal";
+import type { ProxyStateSignal } from "./types";
 
 describe("unstable_ProxySignal lifecycle", () => {
     describe("dormant computed correctness", () => {
@@ -319,6 +320,77 @@ describe("unstable_ProxySignal lifecycle", () => {
 
             effA.unsubscribe();
             s$.dispose();
+        });
+    });
+
+    // A path proxy is cached on its trie node, so getting the same proxy back
+    // after a tick means the node was retained.
+    describe("retention (never-observed paths)", () => {
+        const flushMicrotasks = () => new Promise<void>((r) => setTimeout(r, 0));
+        type Cache = { cache: Record<string, number>; other: number };
+
+        it.each([
+            ["navigated", (s$: ProxyStateSignal<Cache>, key: string) => void s$.root.cache[key]],
+            ["read untracked", (s$: ProxyStateSignal<Cache>, key: string) => void s$.root.cache[key]()],
+            [
+                "read by an unobserved computed",
+                (s$: ProxyStateSignal<Cache>, key: string) => {
+                    Signal.compute(() => s$.root.cache[key]()).peek();
+                },
+            ],
+            [
+                "checked with `in` by an unobserved computed",
+                (s$: ProxyStateSignal<Cache>, key: string) => {
+                    Signal.compute(() => key in s$.root.cache[key]).peek();
+                },
+            ],
+        ])("drops a path that is only %s, under an observed branch", async (_, access) => {
+            const s$ = ProxySignal.state<Cache>({ cache: { hot: 1 }, other: 0 });
+            const keep = Signal.effect(() => void s$.root.cache.hot());
+            const kept = ["k0", "k1", "k2", "hot"].map((key) => {
+                access(s$, key);
+                return s$.root.cache[key];
+            });
+            await flushMicrotasks();
+            s$.mutate((d) => void (d.other = 1));
+
+            expect(["k0", "k1", "k2", "hot"].map((key, i) => s$.root.cache[key] === kept[i])).toEqual([
+                false,
+                false,
+                false,
+                true,
+            ]);
+            keep.unsubscribe();
+        });
+
+        it("a computed whose path was dropped wakes its later observer", async () => {
+            const s$ = ProxySignal.state({ a: { b: 1 } });
+            const c = Signal.compute(() => s$.root.a.b());
+            expect(c.peek()).toBe(1);
+            await flushMicrotasks();
+
+            const seen: number[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            s$.mutate((d) => void (d.a.b = 2));
+            expect(seen).toEqual([1, 2]);
+            eff.unsubscribe();
+        });
+
+        it("a computed over Object.keys whose path was dropped wakes its later observer", async () => {
+            const s$ = ProxySignal.state<{ a: Record<string, number> }>({ a: { x: 1 } });
+            const c = Signal.compute(() => Object.keys(s$.root.a).join());
+            expect(c.peek()).toBe("x");
+            await flushMicrotasks();
+
+            const seen: string[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            s$.mutate((d) => void (d.a.y = 2));
+            expect(seen).toEqual(["x", "x,y"]);
+            eff.unsubscribe();
         });
     });
 });

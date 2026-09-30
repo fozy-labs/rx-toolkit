@@ -83,6 +83,8 @@ class ProxySignalCore<T extends object> {
         keys: null,
         proxy: null,
     };
+    /** Nodes to reap at the end of the tick; null while no reap is scheduled. */
+    private _reapQueue: Set<TrieNode> | null = null;
 
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
         this._root = new State(initialValue, options);
@@ -174,7 +176,9 @@ class ProxySignalCore<T extends object> {
         return node.proxy;
     }
 
+    /** An untracked read gains no reactivity, so it allocates no node. */
     private _readPath(segments: string[]): unknown {
+        if (!isTracking()) return getAtPath(this._root.peek(), segments);
         return this._ensureState(this._nodeFor(segments)).get();
     }
 
@@ -205,6 +209,10 @@ class ProxySignalCore<T extends object> {
                     proxy: null,
                 };
                 node.children.set(segment, child);
+                // Navigation and a read by an unobserved computed create a
+                // node that no observer will ever leave; it is dropped at the
+                // end of the tick unless something observes it by then.
+                this._scheduleReap(child);
             }
             node = child;
         }
@@ -224,17 +232,25 @@ class ProxySignalCore<T extends object> {
     }
 
     /**
-     * Deferred reap: runs after the synchronous commit that dropped the node's
-     * last observer. Deferring is essential — a Computed recompute unsubscribes
-     * old deps then subscribes new ones in the same commit; by the time the
-     * microtask runs a re-subscribe has revived the node (observed again), so a
-     * flickering selector never thrashes the trie. A still-cold node is pruned
-     * and the reap bubbles up, dropping ancestor branches that became fully
-     * unobserved. Correctness holds because PathState validates live against the
-     * root, so an unobserved Computed holding it stays truthful after a prune.
+     * Deferred reap, scheduled when a node is created and when its last
+     * observer leaves. Deferring to the end of the tick lets an effect or a
+     * computed that re-subscribes within it keep the node, so a flickering
+     * selector never thrashes the trie. A still-unobserved node is pruned and
+     * the reap bubbles up, dropping ancestor branches that became fully
+     * unobserved. Correctness holds because PathState validates live against
+     * the root, and a computed that gains an observer computes afresh, linking
+     * the path's current node.
      */
     private _scheduleReap(node: TrieNode) {
-        queueMicrotask(() => this._reap(node));
+        if (this._reapQueue === null) {
+            const queue = new Set<TrieNode>();
+            this._reapQueue = queue;
+            queueMicrotask(() => {
+                this._reapQueue = null;
+                for (const queued of queue) this._reap(queued);
+            });
+        }
+        this._reapQueue.add(node);
     }
 
     private _reap(node: TrieNode) {
