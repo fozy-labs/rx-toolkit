@@ -205,19 +205,23 @@ export class unstable_Statechart<
      * re-initializes a stopped/done/errored machine). Moves straight to
      * `stopped` when the initial snapshot is already done/error. Throws after
      * `dispose()`. Called from inside a burst (an action, a synchronous
-     * subscriber or an effect reacting to the done / error / stop snapshot)
-     * the restart is deferred until the burst has finished.
+     * subscriber or an effect reacting to the done / error / stop snapshot,
+     * or right after a `stop()` of the same burst) the restart is deferred
+     * until the burst has finished; a later `stop()` in the burst cancels it.
      */
     start(): void {
         if (this._status === "disposed") throw new Error("Statechart has been disposed");
-        if (this._status === "running") return;
         if (this._processing) {
-            // Only reachable once the burst in progress stopped the engine;
-            // `_runGuarded` performs the restart after the batch (and after
-            // the error report, if the burst failed).
-            this._restartRequested = true;
+            // A restart matters once the burst stopped the engine or will stop
+            // it (a `stop()` queued earlier in the burst); `_runGuarded`
+            // performs it after the batch (and after the error report, if the
+            // burst failed).
+            if (this._status !== "running" || this._queue.some((event) => event.type === XSTATE_STOP)) {
+                this._restartRequested = true;
+            }
             return;
         }
+        if (this._status === "running") return;
 
         let initError: { error: unknown } | null = null;
         if (this._status === "stopped") {
@@ -274,6 +278,8 @@ export class unstable_Statechart<
      * behaviour).
      */
     stop(): void {
+        // Inside a burst a later `stop()` cancels a restart requested before it.
+        if (this._processing) this._restartRequested = false;
         if (this._status !== "running") return;
         this._queue.length = 0;
         const stopEvent = createStopEvent();

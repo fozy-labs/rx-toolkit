@@ -817,6 +817,52 @@ describe("Statechart lifecycle", () => {
         engine.dispose();
     });
 
+    it("stop() then start() inside a burst restarts the engine after the burst; start() then stop() leaves it stopped", () => {
+        const definition = createMachine(
+            {
+                id: "m",
+                initial: "a",
+                states: {
+                    a: { on: { RESTART: { actions: "restart" }, HALT: { actions: "halt" }, GO: "b" } },
+                    b: { on: { BACK: "a" } },
+                },
+            },
+            {
+                actions: {
+                    restart: () => {
+                        engine.stop();
+                        engine.start();
+                    },
+                    halt: () => {
+                        engine.stop();
+                        engine.start();
+                        engine.stop();
+                    },
+                },
+            },
+        );
+        const engine = new Statechart(definition);
+
+        const effect = Signal.effect(() => {
+            if (engine.state().value !== "b") return;
+            engine.stop();
+            engine.start();
+        });
+        engine.send({ type: "GO" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+        effect.unsubscribe();
+
+        engine.send({ type: "RESTART" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+
+        engine.send({ type: "HALT" });
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("stopped");
+        engine.dispose();
+    });
+
     it("dispose() is idempotent, completes the observable and makes start() throw", () => {
         const definition = createMachine({ id: "m", initial: "a", states: { a: {} } });
         const engine = new Statechart(definition);
