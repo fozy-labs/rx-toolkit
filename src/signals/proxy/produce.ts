@@ -18,7 +18,17 @@
 
 const DRAFT_STATE = Symbol("rx-toolkit.draft-state");
 
+/** Shared by the drafts of one `produce` call. */
+interface DraftScope {
+    /**
+     * Whether the recipe got a child draft. Only a child draft can end up in
+     * data the recipe built (the root draft there would be a cycle).
+     */
+    childDrafts: boolean;
+}
+
 interface DraftState {
+    scope: DraftScope;
     base: any;
     /**
      * Shallow copy of base, created on the first write to this node. From then
@@ -27,6 +37,12 @@ interface DraftState {
     copy: any | null;
     /** Child drafts handed out before the first write, keyed by property / Map key. */
     drafts: Map<unknown, any>;
+    /**
+     * Keys (Set elements) whose entry in the copy may differ from the base:
+     * written, deleted or holding a child draft. Every other entry is shared
+     * with the base, so finalization reads only these.
+     */
+    dirty: Set<unknown>;
     draft: any;
 }
 
@@ -57,6 +73,12 @@ function writeAt(container: any, key: unknown, value: unknown): void {
     else container[key as any] = value;
 }
 
+/** Records a write to `key` of the node; the caller then changes the copy. */
+function write(state: DraftState, touch: () => void, key: unknown): void {
+    touch();
+    state.dirty.add(key);
+}
+
 function unsupported(operation: string): never {
     throw new TypeError(`produce: ${operation} is not supported on a draft`);
 }
@@ -79,8 +101,8 @@ const collectionTraps: ProxyHandler<object> = {
     deleteProperty: () => unsupported("deleting a property of a Map or Set"),
 };
 
-function createDraft(base: any, onWrite: (() => void) | null): DraftState {
-    const state: DraftState = { base, copy: null, drafts: new Map(), draft: null };
+function createDraft(base: any, scope: DraftScope, onWrite: (() => void) | null): DraftState {
+    const state: DraftState = { scope, base, copy: null, drafts: new Map(), dirty: new Set(), draft: null };
 
     const touch = () => {
         if (state.copy === null) {
@@ -109,8 +131,10 @@ function current(state: DraftState, key: unknown): unknown {
     return state.drafts.get(key) ?? readAt(state.base, key);
 }
 
-function hasOwnEntry(container: any, key: unknown): boolean {
-    return container instanceof Map ? container.has(key) : Object.prototype.hasOwnProperty.call(container, key as any);
+/** An own property, a Map key or a Set element. */
+function hasEntry(container: any, key: unknown): boolean {
+    if (container instanceof Map || container instanceof Set) return container.has(key);
+    return Object.prototype.hasOwnProperty.call(container, key as any);
 }
 
 /** Returns the child at `key`, drafting a value still shared with the base. */
@@ -118,10 +142,12 @@ function childValue(state: DraftState, touch: () => void, key: unknown): unknown
     const value = current(state, key);
     // Objects assigned during the recipe are owned by the draft and mutate
     // directly; an inherited member (`__proto__`) is not an entry of the node.
-    if (!isDraftable(value) || !Object.is(value, readAt(state.base, key)) || !hasOwnEntry(state.base, key)) {
+    if (!isDraftable(value) || !Object.is(value, readAt(state.base, key)) || !hasEntry(state.base, key)) {
         return value;
     }
-    const child = createDraft(value, touch).draft;
+    state.scope.childDrafts = true;
+    state.dirty.add(key);
+    const child = createDraft(value, state.scope, touch).draft;
     if (state.copy === null) state.drafts.set(key, child);
     else writeAt(state.copy, key, child);
     return child;
@@ -140,13 +166,13 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
             // Compared with the child draft, not the raw value: assigning the
             // base value back drops the edits made through the draft.
             if (prop in latest(state) && Object.is(current(state, prop), value)) return true;
-            touch();
+            write(state, touch, prop);
             state.copy[prop] = value;
             return true;
         },
         deleteProperty(_target, prop) {
             if (!(prop in latest(state))) return true;
-            touch();
+            write(state, touch, prop);
             delete state.copy[prop];
             return true;
         },
@@ -182,14 +208,14 @@ function createMapDraft(state: DraftState, touch: () => void): any {
         has: (key: unknown) => latest(state).has(key),
         set(key: unknown, value: unknown) {
             if (!(latest(state).has(key) && Object.is(current(state, key), value))) {
-                touch();
+                write(state, touch, key);
                 state.copy.set(key, value);
             }
             return state.draft;
         },
         delete(key: unknown) {
             if (!latest(state).has(key)) return false;
-            touch();
+            write(state, touch, key);
             return state.copy.delete(key);
         },
         clear() {
@@ -235,14 +261,14 @@ function createSetDraft(state: DraftState, touch: () => void): any {
         has: (value: unknown) => latest(state).has(value),
         add(value: unknown) {
             if (!latest(state).has(value)) {
-                touch();
+                write(state, touch, value);
                 state.copy.add(value);
             }
             return state.draft;
         },
         delete(value: unknown) {
             if (!latest(state).has(value)) return false;
-            touch();
+            write(state, touch, value);
             return state.copy.delete(value);
         },
         clear() {
@@ -275,68 +301,163 @@ function createSetDraft(state: DraftState, touch: () => void): any {
     });
 }
 
-type Memo = Map<object, unknown>;
-
-/**
- * The plain value for `value`: a draft resolves to its result, and a container
- * the recipe built gets its drafts replaced the same way, in a copy. Each draft
- * resolves once, so a draft placed at two spots gives one shared result.
- */
-function finalize(value: unknown, memo: Memo): unknown {
-    if (!isDraftable(value)) return value;
-    if (memo.has(value)) return memo.get(value);
-    memo.set(value, value); // cycles are not supported: a back edge stays as is
-    const state: DraftState | undefined = (value as any)[DRAFT_STATE];
-    const result = state === undefined ? finalizeEntries(value, null, false, memo) : finalizeDraft(state, memo);
-    memo.set(value, result);
-    return result;
+interface Frame {
+    node: object;
+    state: DraftState | undefined;
+    /** Entries of the node that may hold a draft. */
+    children: object[];
+    next: number;
 }
 
-function finalizeDraft(state: DraftState, memo: Memo): unknown {
-    // A write touches every ancestor, so nothing below an untouched node changed.
+type Resolve = (value: unknown) => unknown;
+
+/**
+ * The plain value for the root draft: a draft resolves to its result, and a
+ * container the recipe built gets its drafts replaced the same way, in a
+ * copy. Each value resolves once, so a draft placed at two spots gives one
+ * shared result. A draft is read at its dirty keys only; a container the
+ * recipe built is walked whole, and only when the recipe got a child draft
+ * that could sit in it. The walk is iterative, so a deep structure cannot
+ * overflow the stack.
+ */
+function finalize(root: DraftState): unknown {
+    const walkBuilt = root.scope.childDrafts;
+    const results = new Map<object, unknown>();
+    const resolve: Resolve = (value) =>
+        value !== null && typeof value === "object" && results.has(value) ? results.get(value) : value;
+    const stack: Frame[] = [];
+
+    const enter = (node: object) => {
+        if (results.has(node)) return;
+        const state: DraftState | undefined = (node as any)[DRAFT_STATE];
+        if (state === undefined && !walkBuilt) return;
+        const children: object[] = [];
+        const visit = (value: unknown) => {
+            if (isDraftable(value)) children.push(value);
+        };
+        if (state === undefined) forEachEntry(node, visit);
+        // A write touches every ancestor, so nothing below an untouched node changed.
+        else if (state.copy !== null) forEachDirtyEntry(state, visit);
+        // A built container with nothing to resolve is its own result.
+        if (state === undefined && children.length === 0) return;
+        results.set(node, node); // cycles are not supported: a back edge stays as is
+        stack.push({ node, state, children, next: 0 });
+    };
+
+    enter(root.draft);
+    while (stack.length > 0) {
+        const frame = stack[stack.length - 1];
+        if (frame.next < frame.children.length) {
+            enter(frame.children[frame.next++]);
+            continue;
+        }
+        stack.pop();
+        results.set(frame.node, resultOf(frame, resolve));
+    }
+    return results.get(root.draft);
+}
+
+function resultOf({ node, state, children }: Frame, resolve: Resolve): unknown {
+    if (state === undefined) {
+        return children.every((child) => resolve(child) === child) ? node : resolveEntries(node, resolve);
+    }
     if (state.copy === null) return state.base;
-    const result = finalizeEntries(state.copy, state.base, true, memo);
-    return isShallowEqual(result, state.base) ? state.base : result;
+    const result = resolveDirtyEntries(state, resolve);
+    // Only a dirty entry can differ; the full comparison checks the key order.
+    return !differsAtDirtyKeys(state, result) && isShallowEqual(result, state.base) ? state.base : result;
+}
+
+/** Calls `visit` with each entry of `container`, Map keys included. */
+function forEachEntry(container: any, visit: (value: unknown) => void): void {
+    if (container instanceof Map) {
+        for (const [key, value] of container) {
+            visit(key);
+            visit(value);
+        }
+    } else if (container instanceof Set) {
+        for (const value of container) visit(value);
+    } else {
+        forEachKey(container, (key) => visit(container[key]));
+    }
 }
 
 /**
- * Finalizes the entries of `container`. An entry equal to the one `base` has
- * at the same key is shared with the base, which holds no drafts, so it is
- * not walked. `owned`: the container is a draft's copy and changes in place.
+ * Calls `callback` with each entry key of an array or object: the indices of
+ * an array, the enumerable own keys of an object — what `shallowCopy` copies.
  */
-function finalizeEntries(container: any, base: any, owned: boolean, memo: Memo): any {
-    if (container instanceof Map) {
-        let changed = false;
-        const entries: [unknown, unknown][] = [];
-        for (const [key, value] of container) {
-            const shared = base !== null && base.has(key);
-            const nextKey = shared ? key : finalize(key, memo);
-            const nextValue = shared && Object.is(value, base.get(key)) ? value : finalize(value, memo);
-            changed ||= nextKey !== key || nextValue !== value;
-            entries.push([nextKey, nextValue]);
-        }
-        return changed ? new Map(entries) : container;
+function forEachKey(container: any, callback: (key: PropertyKey) => void): void {
+    if (Array.isArray(container)) {
+        for (let i = 0; i < container.length; i++) callback(i);
+        return;
     }
-    if (container instanceof Set) {
-        let changed = false;
-        const values: unknown[] = [];
-        for (const value of container) {
-            const next = base !== null && base.has(value) ? value : finalize(value, memo);
-            changed ||= next !== value;
-            values.push(next);
-        }
-        return changed ? new Set(values) : container;
+    for (const key of Object.keys(container)) callback(key);
+    for (const key of Object.getOwnPropertySymbols(container)) {
+        if (Object.prototype.propertyIsEnumerable.call(container, key)) callback(key);
     }
+}
+
+function forEachDirtyEntry(state: DraftState, visit: (value: unknown) => void): void {
+    const copy = state.copy;
+    for (const key of state.dirty) {
+        if (!hasEntry(copy, key)) continue;
+        visit(key);
+        if (!(copy instanceof Set)) visit(readAt(copy, key));
+    }
+}
+
+/** `container` with every entry resolved; a changed one is copied. */
+function resolveEntries(container: any, resolve: Resolve): any {
+    if (container instanceof Map || container instanceof Set) return resolveCollection(container, resolve);
     let result = container;
-    for (const key of Reflect.ownKeys(container)) {
+    forEachKey(container, (key) => {
         const value = container[key];
-        if (base !== null && Object.is(value, base[key])) continue;
-        const next = finalize(value, memo);
-        if (next === value) continue;
-        if (result === container && !owned) result = shallowCopy(container);
+        const next = resolve(value);
+        if (next === value) return;
+        if (result === container) result = shallowCopy(container);
         result[key] = next;
-    }
+    });
     return result;
+}
+
+/** A Map or Set with every entry resolved, rebuilt in order when one changed. */
+function resolveCollection(container: Map<unknown, unknown> | Set<unknown>, resolve: Resolve): any {
+    let changed = false;
+    const entries: [unknown, unknown][] = [];
+    for (const [key, value] of container.entries()) {
+        const next: [unknown, unknown] = [resolve(key), resolve(value)];
+        changed ||= next[0] !== key || next[1] !== value;
+        entries.push(next);
+    }
+    if (!changed) return container;
+    return container instanceof Map ? new Map(entries) : new Set(entries.map(([value]) => value));
+}
+
+/** The draft's copy with its dirty entries resolved: in place, unless a Map key or Set element changes. */
+function resolveDirtyEntries(state: DraftState, resolve: Resolve): any {
+    const copy = state.copy;
+    for (const key of state.dirty) {
+        if (!hasEntry(copy, key)) continue;
+        // A resolved Map key or Set element takes a rebuild to keep the order.
+        if (resolve(key) !== key && (copy instanceof Map || copy instanceof Set)) {
+            return resolveCollection(copy, resolve);
+        }
+        if (copy instanceof Set) continue;
+        const value = readAt(copy, key);
+        const next = resolve(value);
+        if (next !== value) writeAt(copy, key, next);
+    }
+    return copy;
+}
+
+function differsAtDirtyKeys(state: DraftState, result: any): boolean {
+    const base = state.base;
+    if ((result instanceof Map || result instanceof Set) && result.size !== base.size) return true;
+    for (const key of state.dirty) {
+        const present = hasEntry(result, key);
+        if (present !== hasEntry(base, key)) return true;
+        if (present && !(result instanceof Set) && !Object.is(readAt(result, key), readAt(base, key))) return true;
+    }
+    return false;
 }
 
 /** Same entries in the same order, compared with Object.is. */
@@ -361,7 +482,7 @@ export function produce<T extends object>(base: T, recipe: (draft: T) => void): 
     if (!isDraftable(base)) {
         throw new TypeError("produce: base state must be a plain object, an array, a Map or a Set");
     }
-    const state = createDraft(base, null);
+    const state = createDraft(base, { childDrafts: false }, null);
     recipe(state.draft as T);
-    return finalize(state.draft, new Map()) as T;
+    return finalize(state) as T;
 }

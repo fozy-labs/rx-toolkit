@@ -183,6 +183,90 @@ describe("produce", () => {
         });
     });
 
+    describe("large containers", () => {
+        it("finalizing an edit reads only the changed entries of the base", () => {
+            let reads = 0;
+            let counting = false;
+            const items = new Proxy(
+                Array.from({ length: 1000 }, (_, id) => ({ id })),
+                {
+                    get(target, prop, receiver) {
+                        if (counting) reads++;
+                        return Reflect.get(target, prop, receiver);
+                    },
+                },
+            );
+            const next = produce({ items }, (draft) => {
+                draft.items[5].id = -1;
+                draft.items.push({ id: 1000 });
+                counting = true;
+            });
+            expect(next.items[5]).toEqual({ id: -1 });
+            expect(next.items).toHaveLength(1001);
+            expect(reads).toBeLessThan(10);
+        });
+    });
+
+    describe("fresh data assigned in the recipe", () => {
+        type ListNode = { next: ListNode | { x: number } | null };
+
+        function deepList(depth: number, tail: ListNode["next"] = null): ListNode {
+            let head: ListNode = { next: tail };
+            for (let i = 1; i < depth; i++) head = { next: head };
+            return head;
+        }
+
+        function lastOf(list: ListNode): ListNode["next"] {
+            let node: ListNode = list;
+            while (node.next !== null && "next" in node.next) node = node.next;
+            return node.next;
+        }
+
+        it("is not walked when the recipe handed out no child draft", () => {
+            let walks = 0;
+            const items = new Proxy([{ id: 1 }], {
+                ownKeys(target) {
+                    walks++;
+                    return Reflect.ownKeys(target);
+                },
+            });
+            const next = produce({ items: [] as { id: number }[] }, (draft) => {
+                draft.items = items;
+            });
+            expect(next.items).toBe(items);
+            expect(walks).toBe(0);
+        });
+
+        it("a deep list is kept as is", () => {
+            const list = deepList(20000);
+            const next = produce({ list: null as ListNode | null }, (draft) => {
+                draft.list = list;
+            });
+            expect(next.list).toBe(list);
+        });
+
+        it("a deep list next to a child draft is finalized without overflowing the stack", () => {
+            const list = deepList(20000);
+            const next = produce({ meta: { n: 0 }, list: null as ListNode | null }, (draft) => {
+                draft.meta.n = 1;
+                draft.list = list;
+            });
+            expect(next.list).toBe(list);
+            expect(next.meta).toEqual({ n: 1 });
+        });
+
+        it("a draft deep inside fresh data resolves to its result", () => {
+            const base = { a: { x: 1 }, list: null as ListNode | null };
+            const next = produce(base, (draft) => {
+                draft.a.x = 2;
+                draft.list = deepList(20000, draft.a);
+            });
+            expect(lastOf(next.list!)).toBe(next.a);
+            expect(next.a).toEqual({ x: 2 });
+            expect(types.isProxy(next.a)).toBe(false);
+        });
+    });
+
     describe("inherited members", () => {
         it("reading `__proto__` of an object draft returns the prototype, not a draft", () => {
             const base = { a: 1, o: { x: 1 } };
