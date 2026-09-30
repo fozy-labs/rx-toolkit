@@ -17,6 +17,24 @@ const makeShape = (): Shape => ({
     maybe: { v: 5 },
 });
 
+/** How many Proxies `run` constructs. */
+function countProxies(run: () => void): number {
+    const NativeProxy = globalThis.Proxy;
+    let count = 0;
+    globalThis.Proxy = new NativeProxy(NativeProxy, {
+        construct(target, args, newTarget) {
+            count++;
+            return Reflect.construct(target, args, newTarget);
+        },
+    });
+    try {
+        run();
+    } finally {
+        globalThis.Proxy = NativeProxy;
+    }
+    return count;
+}
+
 describe("unstable_ProxySignal", () => {
     describe("root signal (classic behavior)", () => {
         it("returns the initial state when called", () => {
@@ -591,6 +609,33 @@ describe("unstable_ProxySignal", () => {
                 draft.b = 2;
             });
             expect(c.peek()).toBe("a,b");
+        });
+
+        it("a property descriptor gets the child path on access", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const desc = Object.getOwnPropertyDescriptor(s$.root.user, "name")!;
+            expect(desc).toMatchObject({ enumerable: true, configurable: true, set: undefined });
+            expect((desc.get!() as () => string)()).toBe("Alice");
+            expect({ ...s$.root.user }.age()).toBe(30);
+            expect(Object.getOwnPropertyDescriptor(s$.root.user, "nick")).toBeUndefined();
+        });
+
+        it("Object.keys creates no child paths, tracked or not", () => {
+            const s$ = ProxySignal.state<{ c: Record<string, { i: number }> }>({
+                c: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, { i }])),
+            });
+            const node = s$.root.c;
+            const lengths: number[] = [];
+            let created = countProxies(() => lengths.push(Object.keys(node).length));
+            const effect = Signal.effect(() => {
+                created += countProxies(() => lengths.push(Object.keys(node).length));
+            });
+            s$.mutate((draft) => {
+                draft.c.extra = { i: -1 };
+            });
+            effect.unsubscribe();
+            expect(lengths).toEqual([100, 100, 101]);
+            expect(created).toBe(0);
         });
     });
 

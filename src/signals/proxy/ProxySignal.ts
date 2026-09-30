@@ -164,8 +164,10 @@ class ProxySignalCore<T extends object> {
                 const value = this._readKeys(segments);
                 const desc = isPathContainer(value) ? Reflect.getOwnPropertyDescriptor(value, prop) : undefined;
                 if (desc === undefined) return undefined;
-                const child = this._pathProxy([...segments, prop]);
-                return { value: child, writable: false, enumerable: desc.enumerable, configurable: true };
+                // An accessor: Object.keys asks for the descriptor of every
+                // key, and a child path is built only when it is read.
+                const get = () => this._pathProxy([...segments, prop]);
+                return { get, set: undefined, enumerable: desc.enumerable, configurable: true };
             },
             set: readOnly,
             deleteProperty: readOnly,
