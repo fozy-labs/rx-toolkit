@@ -758,6 +758,52 @@ describe("actions", () => {
         expect(same.context).toBe(after.context);
     });
 
+    it("mutate drafts Map and Set like plain objects: a new collection on change, the previous one untouched", () => {
+        const tags = new Set(["x"]);
+        const initial = { counts: new Map([["a", 1]]), tags, size: 0 };
+        const h = start(
+            createMachine({
+                id: "m",
+                initial: "a",
+                context: initial,
+                states: {
+                    a: {
+                        on: {
+                            COUNT: {
+                                actions: mutate(({ context }) => {
+                                    context.counts.set("b", (context.counts.get("a") ?? 0) + 1);
+                                }),
+                            },
+                            TAG: { actions: mutate(({ context }) => void context.tags.add("y")) },
+                            SIZE: {
+                                actions: mutate(({ context }) => {
+                                    context.size = context.counts.size;
+                                }),
+                            },
+                        },
+                    },
+                },
+            }),
+        );
+        const before = h.state.context;
+        const counted = h.send({ type: "COUNT" }).context;
+        expect([...counted.counts]).toEqual([
+            ["a", 1],
+            ["b", 2],
+        ]);
+        expect(counted.counts).not.toBe(before.counts);
+        expect([...before.counts]).toEqual([["a", 1]]);
+        expect(counted.tags).toBe(tags);
+
+        const tagged = h.send({ type: "TAG" }).context;
+        expect([...tagged.tags]).toEqual(["x", "y"]);
+        expect([...tags]).toEqual(["x"]);
+
+        // A recipe that only reads a collection does not fail.
+        expect(h.send({ type: "SIZE" }).context.size).toBe(2);
+        expect(h.state.status).toBe("active");
+    });
+
     it("resolves `{ type, params }` references: static and dynamic params, custom and builtin implementations", () => {
         const h = start(
             createMachine(
