@@ -688,8 +688,7 @@ export function drainForRead(): void {
 /** A plain source: a value written with `_write`. */
 export class SourceNode<T> extends Producer {
     /** `.obs` subscribers, delivered at write time (not queued). */
-    _recs: ObsRec[] | null = null;
-    _delivering = 0;
+    _recs: RecList | null = null;
 
     constructor(public _value: T) {
         super();
@@ -744,28 +743,33 @@ export class SourceNode<T> extends Producer {
         endBatch();
     }
 
-    /** Immediate delivery of a write to `.obs` subscribers. */
+    /** Immediate delivery of a write to `.obs` subscribers, bridges first. */
     private _deliverRecs(value: T): void {
         const recs = this._recs!;
-        const version = this._version;
-        const n = recs.length;
-        this._delivering++;
+        recs.delivering++;
         try {
-            for (let i = 0; i < n; i++) {
-                // A newer write inside a subscriber already delivered a newer value.
-                if (this._version !== version) break;
-                const rec = recs[i];
-                if (rec.closed) continue;
-                try {
-                    deliverTo(rec, value, NONE);
-                } catch (error) {
-                    // A subscriber RxJS does not guard (a raw `Subscriber`) threw: a failed reaction.
-                    failBatch(error);
-                }
-            }
+            if (this._deliverList(recs.bridges, value)) this._deliverList(recs.others, value);
         } finally {
-            if (--this._delivering === 0) compactRecs(this);
+            recs.endDelivery();
         }
+    }
+
+    /** Returns false once a newer write inside a subscriber already delivered a newer value. */
+    private _deliverList(list: ObsRec[], value: T): boolean {
+        const version = this._version;
+        const n = list.length;
+        for (let i = 0; i < n; i++) {
+            if (this._version !== version) return false;
+            const rec = list[i];
+            if (rec.closed) continue;
+            try {
+                deliverTo(rec, value, NONE);
+            } catch (error) {
+                // A subscriber RxJS does not guard (a raw `Subscriber`) threw: a failed reaction.
+                failBatch(error);
+            }
+        }
+        return this._version === version;
     }
 
     /** `.obs` subscription: the current value now, then every write. */
@@ -774,17 +778,16 @@ export class SourceNode<T> extends Producer {
             subscriber.complete();
             return;
         }
-        const rec = new ObsRec(this, null, subscriber);
+        const rec = new ObsRec(this, subscriber);
         linkRecContext(rec);
-        (this._recs ??= []).push(rec);
+        (this._recs ??= new RecList()).add(rec);
         deliverTo(rec, this._value, NONE);
         return () => this._removeRec(rec);
     }
 
     _removeRec(rec: ObsRec): void {
         if (rec.closed) return;
-        closeRec(rec);
-        if (this._delivering === 0) compactRecs(this);
+        this._recs?.remove(rec);
     }
 
     /** Completes every `.obs` subscriber (dispose). */
@@ -792,20 +795,12 @@ export class SourceNode<T> extends Producer {
         const recs = this._recs;
         if (recs === null) return;
         this._recs = null;
-        for (const rec of recs) {
+        for (const rec of recs.takeAll()) {
             if (rec.closed) continue;
             closeRec(rec);
             rec.subscriber.complete();
         }
     }
-}
-
-function compactRecs(owner: { _recs: ObsRec[] | null }): void {
-    const recs = owner._recs;
-    if (recs === null) return;
-    let j = 0;
-    for (let i = 0; i < recs.length; i++) if (!recs[i].closed) recs[j++] = recs[i];
-    recs.length = j;
 }
 
 // ==================== Computed ====================
@@ -1294,6 +1289,12 @@ export class EffectNode implements Evaluator {
 export class ObsRec {
     last: unknown = NONE;
     closed = false;
+    /**
+     * Part of a receiver's upstream: made while a receiver connects, or inside
+     * the delivery of such a subscription (a switchMap inner). Its deliveries
+     * are a bridge's writes, the others are writes of user code.
+     */
+    bridge = false;
     /** Hints: receivers this subscription was seen feeding. */
     feeds: Set<ReceiverLike> | null = null;
     /** The delivery during which this subscription was made (switchMap inner). */
@@ -1303,9 +1304,67 @@ export class ObsRec {
 
     constructor(
         readonly node: Producer,
-        readonly watcher: Watcher | null,
         readonly subscriber: Subscriber<any>,
     ) {}
+}
+
+/**
+ * The `.obs` subscribers of one node, each group in subscription order.
+ * Bridges are delivered first: they bring receivers up to date, and a
+ * subscriber of the others that reads such a receiver reads it current.
+ */
+export class RecList {
+    readonly bridges: ObsRec[] = [];
+    readonly others: ObsRec[] = [];
+    /** Deliveries iterating the lists: removals compact after them. */
+    delivering = 0;
+    private _dirty = false;
+
+    get size(): number {
+        return this.bridges.length + this.others.length;
+    }
+
+    add(rec: ObsRec): void {
+        (rec.bridge ? this.bridges : this.others).push(rec);
+    }
+
+    has(rec: ObsRec): boolean {
+        return (rec.bridge ? this.bridges : this.others).includes(rec);
+    }
+
+    /** Returns how many subscribers are left, or -1 while a delivery defers the compaction. */
+    remove(rec: ObsRec): number {
+        closeRec(rec);
+        this._dirty = true;
+        return this.delivering === 0 ? this.compact() : -1;
+    }
+
+    /** Ends one delivery; after the last, compacts if a subscriber left meanwhile (see `remove`). */
+    endDelivery(): number {
+        return --this.delivering === 0 && this._dirty ? this.compact() : -1;
+    }
+
+    /** Drops closed subscribers; returns how many are left. */
+    compact(): number {
+        this._dirty = false;
+        return compactList(this.bridges) + compactList(this.others);
+    }
+
+    /** Empties the lists; returns their subscribers, bridges first. */
+    takeAll(): ObsRec[] {
+        const all = this.bridges.concat(this.others);
+        this.bridges.length = 0;
+        this.others.length = 0;
+        this._dirty = false;
+        return all;
+    }
+}
+
+function compactList(list: ObsRec[]): number {
+    let j = 0;
+    for (let i = 0; i < list.length; i++) if (!list[i].closed) list[j++] = list[i];
+    list.length = j;
+    return j;
 }
 
 function closeRec(rec: ObsRec): void {
@@ -1323,8 +1382,10 @@ function linkRecContext(rec: ObsRec): void {
     if (top === undefined) return;
     if (top instanceof ObsRec) {
         rec.parent = top;
+        rec.bridge = top.bridge;
         if (top.feeds !== null) for (const receiver of top.feeds) addHint(rec, receiver);
     } else {
+        rec.bridge = true;
         addHint(rec, top);
     }
 }
@@ -1413,10 +1474,9 @@ export class Watcher implements Consumer {
     /** Generation of the queued delivery (see CYCLE_LIMIT). */
     _gen = 0;
     _dead = false;
-    _recs: ObsRec[] = [];
+    readonly _recs = new RecList();
     private _delivering = false;
     private _requeue = false;
-    private _compact = false;
     /** The node completed: the subscribers complete after the next delivery. */
     private _completing = false;
 
@@ -1466,15 +1526,13 @@ export class Watcher implements Consumer {
         if (error === NONE && deliverable === DELIVER_ERROR) return;
         this._delivering = true;
         const recs = this._recs;
-        const n = recs.length;
+        recs.delivering++;
         try {
-            for (let i = 0; i < n; i++) {
-                const rec = recs[i];
-                if (!rec.closed) deliverTo(rec, value, error);
-            }
+            deliverList(recs.bridges, value, error);
+            deliverList(recs.others, value, error);
         } finally {
             this._delivering = false;
-            if (this._compact) this._compactRecs();
+            if (recs.endDelivery() === 0) this._unlink();
         }
         if (this._requeue) {
             this._requeue = false;
@@ -1502,26 +1560,14 @@ export class Watcher implements Consumer {
     /** Completes every subscriber; a later one starts a new watcher. */
     private _finish(): void {
         this._completing = false;
-        const recs = this._recs;
-        this._recs = [];
+        const recs = this._recs.takeAll();
         this._unlink();
         for (const rec of recs) if (!rec.closed) completeTo(rec);
     }
 
     _remove(rec: ObsRec): void {
-        if (rec.closed && !this._recs.includes(rec)) return;
-        closeRec(rec);
-        if (this._delivering) this._compact = true;
-        else this._compactRecs();
-    }
-
-    private _compactRecs(): void {
-        this._compact = false;
-        const recs = this._recs;
-        let j = 0;
-        for (let i = 0; i < recs.length; i++) if (!recs[i].closed) recs[j++] = recs[i];
-        recs.length = j;
-        if (j === 0) this._unlink();
+        if (rec.closed && !this._recs.has(rec)) return;
+        if (this._recs.remove(rec) === 0) this._unlink();
     }
 
     private _unlink(): void {
@@ -1532,14 +1578,20 @@ export class Watcher implements Consumer {
     }
 
     _completeAll(): void {
-        const recs = this._recs.slice();
-        for (const rec of recs) {
+        for (const rec of this._recs.takeAll()) {
             if (rec.closed) continue;
             closeRec(rec);
             rec.subscriber.complete();
         }
-        this._recs.length = 0;
         this._unlink();
+    }
+}
+
+function deliverList(list: ObsRec[], value: unknown, error: unknown): void {
+    const n = list.length;
+    for (let i = 0; i < n; i++) {
+        const rec = list[i];
+        if (!rec.closed) deliverTo(rec, value, error);
     }
 }
 
@@ -1564,11 +1616,11 @@ function watchInBatch<T>(node: WatchableNode<T>, subscriber: Subscriber<T>): Tea
     if (watcher === null) {
         watcher = node._watcher = new Watcher(node);
     }
-    const rec = new ObsRec(node, watcher, subscriber);
+    const rec = new ObsRec(node, subscriber);
     linkRecContext(rec);
-    watcher._recs.push(rec);
+    watcher._recs.add(rec);
     const owner = watcher;
-    if (watcher._recs.length === 1) {
+    if (watcher._recs.size === 1) {
         try {
             watcher._link();
         } catch (error) {

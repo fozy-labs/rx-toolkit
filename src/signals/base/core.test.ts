@@ -483,6 +483,56 @@ describe("engine robustness", () => {
         effect.unsubscribe();
     });
 
+    describe("an .obs subscriber of a bridge's source, subscribed before the bridge, reads the bridge current", () => {
+        it("a State.obs subscriber reads the bridge", () => {
+            const a = Signal.state(1);
+            const b = Signal.from(a.obs.pipe(map((v) => v * 10)));
+            const seen: string[] = [];
+            const sub = a.obs.subscribe((v) => seen.push(`${v}:${b()}`));
+            const effect = Signal.effect(() => {
+                b();
+            });
+
+            a.set(2);
+
+            expect(seen).toEqual(["1:10", "2:20"]);
+            effect.unsubscribe();
+            sub.unsubscribe();
+        });
+
+        it("a State.obs subscriber reads a computed over the source and the bridge", () => {
+            const a = Signal.state(1);
+            const b = Signal.from(a.obs.pipe(map((v) => v * 10)), { keepAlive: "forever" });
+            const pair = Signal.compute(() => `${a()}:${b()}`);
+            const seen: string[] = [];
+            const sub = a.obs.subscribe(() => seen.push(pair()));
+            b();
+
+            a.set(2);
+
+            expect(seen).toEqual(["1:10", "2:20"]);
+            sub.unsubscribe();
+            b.dispose();
+        });
+
+        it("a Computed.obs subscriber reads the bridge", () => {
+            const s = Signal.state(1);
+            const a = Signal.compute(() => s() + 1);
+            const b = Signal.from(a.obs.pipe(map((v) => v * 10)));
+            const seen: string[] = [];
+            const sub = a.obs.subscribe((v) => seen.push(`${v}:${b()}`));
+            const effect = Signal.effect(() => {
+                b();
+            });
+
+            s.set(2);
+
+            expect(seen).toEqual(["2:20", "3:30"]);
+            effect.unsubscribe();
+            sub.unsubscribe();
+        });
+    });
+
     describe("a read outside reactions inside a batch sees its writes, and leaves what observed nodes observe as it is", () => {
         function arrange() {
             const flag = Signal.state(false);
