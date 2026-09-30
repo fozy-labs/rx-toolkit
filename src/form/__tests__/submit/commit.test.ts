@@ -81,6 +81,21 @@ describe("_commit()", () => {
         expect(phones.isDirty$()).toBe(false);
     });
 
+    it("lists: data deferred by keepDirtyLists before the submit does not outlive its commit", async () => {
+        const { form, last } = contacts();
+        form.fields.phones.push({ number: "3" });
+        // Server data for a dirty structure waits for reset().
+        form.initialize({ state: { phones: [{ number: "server" }] } }, { keepDirtyValues: true });
+        const result = form.submit();
+        await flush();
+        last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+        expect(form.fields.phones.isDirty$()).toBe(false);
+        // reset() returns to the sent rows, the newer base.
+        form.reset();
+        expect(form.fields.phones.value$()).toEqual([{ number: "1" }, { number: "2" }, { number: "3" }]);
+    });
+
     it("a disabled child is not sent and not committed", async () => {
         const save = manualCommand<unknown>();
         const def = g({
