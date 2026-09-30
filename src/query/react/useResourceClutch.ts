@@ -29,15 +29,12 @@ interface Committed<TArgs, TData, TError> {
  * leaks into the committed tree and a successor always continues from what is
  * actually on screen.
  *
- * @param startDuringRender - Start the query when the clutch is created (the
- *   Suspense hook: a suspended render aborts its effects, so a deferred start
- *   would leave the fallback hanging forever). Otherwise the query starts in a
- *   layout effect, once the render is committed.
+ * The query starts in a layout effect, once the render is committed; a
+ * suspending hook starts it itself (see `useSuspenseResource`).
  */
 export function useResourceClutch<TArgs, TData, TError>(
     resource: IResource<TArgs, TData, TError>,
     args: TArgsOrVoidOrSkip<TArgs>,
-    startDuringRender: boolean,
 ): IResourceClutch<TArgs, TData, TError> {
     const key = args === SKIP ? SKIP : resource.serialize(args as TArgsOrKeyed<TArgs>);
     const committedRef = React.useRef<Committed<TArgs, TData, TError> | null>(null);
@@ -57,12 +54,8 @@ export function useResourceClutch<TArgs, TData, TError>(
         // (`dataSource: "previous"`), with nothing to show otherwise.
         next.switch(args, { markPending: true });
 
-        if (startDuringRender) {
-            next.start();
-        }
-
         return next;
-        // `args` is represented by `key`; `startDuringRender` is constant per hook.
+        // `args` is represented by `key`.
     }, [resource, key]);
 
     useIsomorphicLayoutEffect(() => {

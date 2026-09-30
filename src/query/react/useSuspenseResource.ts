@@ -33,9 +33,7 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
     args: TArgsOrVoid<TArgs>,
 ): TSuspenseResourceState<TArgs, TData, TError> {
-    // Started during render: a suspended render aborts its effects, so a
-    // deferred start would leave the fallback hanging forever.
-    const clutch = useResourceClutch(resource, args, true);
+    const clutch = useResourceClutch(resource, args);
 
     const state = useSignal(clutch.state$);
 
@@ -51,5 +49,11 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
 
     // 3. Idle or loading with nothing to show → suspend until the clutch has
     //    data or fails with nothing to show (the same condition as step 1 / 2).
-    throw clutch.whenSettled();
+    //    A suspended render runs no effects, so the query starts right after
+    //    this render: started in it, it would create a cache entry and run
+    //    user code (queryFn, lifecycle hooks) in the middle of React's render.
+    //    The subscription of `whenSettled` holds the entry until it settles.
+    const settled = clutch.whenSettled();
+    queueMicrotask(() => clutch.start());
+    throw settled;
 }

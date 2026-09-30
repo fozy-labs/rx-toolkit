@@ -24,7 +24,7 @@ export function useResource<TArgs, TData, TError = unknown>(
     resource: IResource<TArgs, TData, TError>,
     args: TArgsOrVoidOrSkip<TArgs>,
 ): TResourceClutchState<TArgs, TData, TError> {
-    const clutch = useResourceClutch(resource, args, false);
+    const clutch = useResourceClutch(resource, args);
 
     return useSignal(clutch.state$);
 }

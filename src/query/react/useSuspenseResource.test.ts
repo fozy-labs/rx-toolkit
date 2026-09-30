@@ -6,6 +6,7 @@ import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurr
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TSuspenseResourceState } from "@/query/types";
+import { Signal, useSignal } from "@/signals";
 
 import { flushMicrotasks } from "../../__tests__/helpers/async-helpers";
 
@@ -53,6 +54,8 @@ function createControlled(options?: { placeholderData?: (args: TArgs) => { data:
 /** Settle the n-th query and let every derived signal / render flush. */
 async function settleCall(calls: Deferred<TUser>[], index: number, outcome: TUser | Error): Promise<void> {
     await act(async () => {
+        // A suspending render starts its query right after itself, in a microtask
+        await flushMicrotasks();
         if (outcome instanceof Error) {
             calls[index]!.reject(outcome);
         } else {
@@ -268,6 +271,74 @@ describe("useSuspenseResource", () => {
         expect(renders).toBeLessThanOrEqual(4);
 
         await act(async () => {});
+    });
+});
+
+// ==================== A pure render ====================
+
+describe("useSuspenseResource — render stays pure", () => {
+    it("starts the query outside render: a signal written by queryFn raises no render-phase update", async () => {
+        const inFlight = Signal.state(0);
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => {
+                inFlight.set(inFlight.peek() + 1);
+                return { id, name: `user-${id}` };
+            },
+        });
+        const consoleError = vi.spyOn(console, "error");
+
+        function Indicator() {
+            return h("span", { "data-testid": "in-flight" }, String(useSignal(inFlight)));
+        }
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        function App({ show }: { show: boolean }) {
+            return h(React.Fragment, null, h(Indicator), show ? shell(h(View)) : null);
+        }
+
+        const view = render(h(App, { show: false }));
+        await act(async () => {
+            view.rerender(h(App, { show: true }));
+        });
+
+        expect(await screen.findByTestId("name")).toHaveProperty("textContent", "user-1");
+        expect(screen.getByTestId("in-flight").textContent).toBe("1");
+        const renderPhaseUpdates = consoleError.mock.calls.filter((args) =>
+            String(args[0]).includes("Cannot update a component"),
+        );
+        expect(renderPhaseUpdates).toEqual([]);
+    });
+
+    it("creates no cache entry in a render React discards", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            retentionTime: 10,
+            queryFn: async ({ id }) => ({ id, name: `user-${id}` }),
+            placeholderData: () => ({ data: { id: 0, name: "skeleton" } }),
+        });
+
+        function View() {
+            resource.useSuspenseResource({ id: 1 });
+            return null;
+        }
+        function Blocker(): React.ReactNode {
+            // A sibling suspends forever: the render of View is never committed
+            throw new Promise<void>(() => {});
+        }
+
+        const view = render(h(React.Suspense, { fallback: null }, h(View), h(Blocker)));
+        await act(async () => {
+            await flushMicrotasks();
+        });
+        view.unmount();
+        await act(async () => {
+            await sleep(50);
+        });
+
+        expect(resource.getEntry({ id: 1 })).toBeNull();
     });
 });
 
