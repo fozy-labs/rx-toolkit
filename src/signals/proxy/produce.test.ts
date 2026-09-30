@@ -93,6 +93,73 @@ describe("produce", () => {
         });
     });
 
+    describe("frozen base", () => {
+        it("writes through a deep-frozen object", () => {
+            const base = Object.freeze({ a: Object.freeze({ b: 1 }), c: 1 });
+            const next = produce(base as { a: { b: number }; c: number }, (draft) => {
+                draft.a.b = 2;
+                draft.c = 2;
+            });
+            expect(next).toEqual({ a: { b: 2 }, c: 2 });
+            expect(base).toEqual({ a: { b: 1 }, c: 1 });
+        });
+
+        it("pushes into a frozen array", () => {
+            const base = Object.freeze([1, 2]);
+            const next = produce(base as number[], (draft) => {
+                draft.push(3);
+            });
+            expect(next).toEqual([1, 2, 3]);
+            expect(Array.isArray(next)).toBe(true);
+        });
+
+        it("writes through a frozen Map value", () => {
+            const base = { m: new Map([["a", Object.freeze({ x: 1 })]]) };
+            const next = produce(base as { m: Map<string, { x: number }> }, (draft) => {
+                draft.m.get("a")!.x = 2;
+            });
+            expect(next.m.get("a")).toEqual({ x: 2 });
+        });
+
+        it("reads a frozen base through the draft", () => {
+            const base = Object.freeze({ a: Object.freeze({ b: 1 }), list: Object.freeze([1, 2]) });
+            produce(base, (draft) => {
+                expect(draft.a.b).toBe(1);
+                expect(Object.keys(draft)).toEqual(["a", "list"]);
+                expect({ ...draft.list }).toEqual({ 0: 1, 1: 2 });
+                expect(Object.isFrozen(draft)).toBe(false);
+            });
+        });
+    });
+
+    describe("operations a draft does not support", () => {
+        it.each([
+            ["Object.defineProperty", (d: object) => Object.defineProperty(d, "x", { value: 1 })],
+            ["Object.setPrototypeOf", (d: object) => Object.setPrototypeOf(d, null)],
+            ["Object.preventExtensions", (d: object) => Object.preventExtensions(d)],
+            ["Object.freeze", (d: object) => Object.freeze(d)],
+        ])("%s throws and leaves the base as it was", (_, operation) => {
+            const base = { a: { x: 1 }, m: new Map<string, number>(), s: new Set<number>() };
+            produce(base, (draft) => {
+                expect(() => operation(draft.a)).toThrow(TypeError);
+                expect(() => operation(draft.m)).toThrow(TypeError);
+                expect(() => operation(draft.s)).toThrow(TypeError);
+            });
+            expect(base).toEqual({ a: { x: 1 }, m: new Map(), s: new Set() });
+            expect(Object.getPrototypeOf(base.a)).toBe(Object.prototype);
+            expect(Object.isExtensible(base.a) && Object.isExtensible(base.m)).toBe(true);
+        });
+
+        it("assigning or deleting a property of a Map or Set draft throws and leaves the base as it was", () => {
+            const base = { m: new Map<string, number>(), s: new Set<number>() };
+            produce(base, (draft) => {
+                expect(() => ((draft.m as unknown as Record<string, number>).x = 1)).toThrow(TypeError);
+                expect(() => delete (draft.s as unknown as Record<string, number>).size).toThrow(TypeError);
+            });
+            expect(Object.keys(base.m)).toEqual([]);
+        });
+    });
+
     describe("Map support", () => {
         it("map.set adds an entry copy-on-write (base map untouched)", () => {
             const base = { m: new Map<string, number>([["a", 1]]) };

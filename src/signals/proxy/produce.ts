@@ -6,6 +6,11 @@
  *
  * Map values are draftable; Set elements and class instances are atomic leaf
  * values — they are replaced wholesale, never drafted.
+ *
+ * A draft reads and writes its own copy, never the base, so a frozen base is
+ * fine. `Object.defineProperty`, `Object.setPrototypeOf` and
+ * `Object.preventExtensions` (hence `Object.freeze`) on a draft throw, and so
+ * do property writes on a Map or Set draft.
  */
 
 const DRAFT_STATE = Symbol("rx-toolkit.draft-state");
@@ -41,6 +46,28 @@ function latest(state: DraftState): any {
 function isDraft(value: unknown): boolean {
     return isDraftable(value) && (value as any)[DRAFT_STATE] !== undefined;
 }
+
+function unsupported(operation: string): never {
+    throw new TypeError(`produce: ${operation} is not supported on a draft`);
+}
+
+/**
+ * Traps for what a draft does not support. Every draft proxies a detached
+ * target, never the base: an operation without a trap would otherwise land on
+ * the target, and one on the base would break Proxy invariants for a frozen
+ * base and mutate it.
+ */
+const unsupportedTraps: ProxyHandler<object> = {
+    defineProperty: () => unsupported("Object.defineProperty"),
+    setPrototypeOf: () => unsupported("Object.setPrototypeOf"),
+    preventExtensions: () => unsupported("Object.preventExtensions"),
+};
+
+const collectionTraps: ProxyHandler<object> = {
+    ...unsupportedTraps,
+    set: () => unsupported("assigning a property of a Map or Set"),
+    deleteProperty: () => unsupported("deleting a property of a Map or Set"),
+};
 
 function createDraft(base: any, onWrite: (() => void) | null): DraftState {
     const state: DraftState = { base, copy: null, modified: false, drafts: new Map(), draft: null };
@@ -90,8 +117,10 @@ function childValue(
 }
 
 function createObjectDraft(state: DraftState, touch: () => void): any {
-    return new Proxy(state.base, {
-        get(target, prop) {
+    // An array target keeps Array.isArray(draft) true.
+    return new Proxy(Array.isArray(state.base) ? [] : {}, {
+        ...unsupportedTraps,
+        get(_target, prop) {
             if (prop === DRAFT_STATE) return state;
             if (typeof prop === "symbol") return Reflect.get(latest(state), prop);
             return childValue(state, touch, prop, (container, key) => container[key]);
@@ -125,9 +154,12 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
         },
         getOwnPropertyDescriptor(target, prop) {
             const desc = Reflect.getOwnPropertyDescriptor(latest(state), prop);
-            if (desc && desc.configurable === false && !Reflect.getOwnPropertyDescriptor(target, prop)) {
-                desc.configurable = true;
-            }
+            if (desc === undefined) return undefined;
+            // The draft is writable even over a frozen base. Proxy invariants
+            // let only the target's own non-configurable `length` of an array
+            // be reported as non-configurable.
+            if ("value" in desc) desc.writable = true;
+            desc.configurable = Reflect.getOwnPropertyDescriptor(target, prop)?.configurable ?? true;
             return desc;
         },
         getPrototypeOf() {
@@ -192,12 +224,13 @@ function createMapDraft(state: DraftState, touch: () => void): any {
     };
     methods[Symbol.iterator] = methods.entries;
 
-    return new Proxy(state.base, {
-        get(target, prop) {
+    return new Proxy(Object.create(Map.prototype), {
+        ...collectionTraps,
+        get(_target, prop) {
             if (prop === DRAFT_STATE) return state;
             if (prop === "size") return latest(state).size;
             if (prop in methods) return methods[prop as keyof typeof methods];
-            return Reflect.get(target, prop);
+            return Reflect.get(latest(state), prop);
         },
         getPrototypeOf() {
             return Map.prototype;
@@ -236,12 +269,13 @@ function createSetDraft(state: DraftState, touch: () => void): any {
     };
     methods[Symbol.iterator] = methods.values;
 
-    return new Proxy(state.base, {
-        get(target, prop) {
+    return new Proxy(Object.create(Set.prototype), {
+        ...collectionTraps,
+        get(_target, prop) {
             if (prop === DRAFT_STATE) return state;
             if (prop === "size") return latest(state).size;
             if (prop in methods) return methods[prop as keyof typeof methods];
-            return Reflect.get(target, prop);
+            return Reflect.get(latest(state), prop);
         },
         getPrototypeOf() {
             return Set.prototype;

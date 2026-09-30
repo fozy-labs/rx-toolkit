@@ -248,6 +248,16 @@ describe("unstable_ProxySignal", () => {
             expect("maybe" in s$.peek()).toBe(false);
         });
 
+        it("mutates a deep-frozen state", () => {
+            const s$ = ProxySignal.state<{ user: { name: string } }>(
+                Object.freeze({ user: Object.freeze({ name: "a" }) }),
+            );
+            s$.mutate((draft) => {
+                draft.user.name = "b";
+            });
+            expect(s$.peek()).toEqual({ user: { name: "b" } });
+        });
+
         it("reading from the draft returns already-mutated values", () => {
             const s$ = ProxySignal.state(makeShape());
             let seen: string | undefined;
