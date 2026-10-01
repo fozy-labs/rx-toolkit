@@ -655,6 +655,76 @@ describe("unstable_ProxySignal", () => {
         });
     });
 
+    describe("commit delivery order", () => {
+        it("an .obs subscriber reads fresh path values during delivery", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            const eff = Signal.effect(() => {
+                c();
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe(() => {
+                seen.push(c.peek());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(seen).toEqual(["Alice", "Bob"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+
+        it("a cold computed read during delivery does not swallow the path notification", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            expect(c.peek()).toBe("Alice");
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe(() => {
+                seen.push(c.peek());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(seen).toEqual(["Alice", "Bob"]);
+            expect(names).toEqual(["Alice", "Bob"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+
+        it("a nested write from an .obs subscriber leaves paths and effects at the newest value", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe((value) => {
+                seen.push(c.peek());
+                if (value.user.name === "outer") {
+                    s$.mutate((draft) => {
+                        draft.user.name = "nested";
+                    });
+                }
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "outer";
+            });
+            expect(seen).toEqual(["Alice", "outer", "nested"]);
+            expect(names).toEqual(["Alice", "nested"]);
+            expect(s$.root.user.name()).toBe("nested");
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+    });
+
     describe("dispose", () => {
         it("completes the root obs", () => {
             const s$ = ProxySignal.state({ n: 1 });

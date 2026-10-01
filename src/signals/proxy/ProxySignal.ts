@@ -281,12 +281,21 @@ class ProxySignalCore<T extends object> {
      * proportional to the changed region, not to the number of paths ever
      * read. Inside changed regions, nodes nobody observes are pruned (their
      * links stay valid thanks to PathState's live validation).
+     *
+     * The walk runs BEFORE the root write: `State.set` delivers to `obs`
+     * subscribers synchronously, and a path node written after that delivery
+     * would read stale in it (an observed computed still trusts its cache) or
+     * swallow the notification (a cold computed's live validation pulls the
+     * new value silently, so the walk's `Object.is` dedupe skips the notify).
+     * Between the walk and the root write no user code runs — path writes
+     * inside a batch only mark their dependents — so the window in which a
+     * PathState's live validation still sees the old root is unreachable.
      */
     private _commit(value: T, actionName?: string) {
         const previous = this._root.peek();
         Batcher.run(() => {
-            this._root.set(value, actionName);
             this._walk(this._trie, previous, value);
+            this._root.set(value, actionName);
         });
     }
 
