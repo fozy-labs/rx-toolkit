@@ -194,11 +194,9 @@ export interface TCommandOptions<TArgs, TData> {
      * how its result is normalized. The `idle` row is excluded because the
      * entry exists whenever it runs.
      *
-     * The *first* evaluation always finds the entry settled (`success` or
-     * `error`): `execute()` holds it alive until the mutation resolves or
-     * rejects. A later run started by `retry()` carries no such keepalive, so
-     * losing the last subscriber while a retry is in flight does hand the
-     * function a `pending` row — with `hasError` marking it as a retry.
+     * Every evaluation finds the entry settled (`success` or `error`):
+     * `execute()` and each `retry()` hold the entry until their run resolves
+     * or rejects.
      */
     retentionTime?: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /**

@@ -1357,7 +1357,7 @@ describe("onQueryStarted lifecycle", () => {
         });
 
         command.execute("x", "k1");
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(fulfilledData).toEqual({ data: "result" });
     });
@@ -2157,11 +2157,9 @@ type TCommandRetentionState<TArgs, TData, TError = unknown> = Exclude<
 
 /**
  * `retentionTime` as a function of the mutation's args and its entry state. It
- * runs on the `active → retention` transition. The *first* evaluation always
- * finds the entry settled: `execute()` holds it alive until the mutation
- * resolves or rejects. A later run started by `retry()` carries no such
- * keepalive, so losing the last subscriber while a retry is in flight does hand
- * the policy a `pending` row.
+ * runs on the `active → retention` transition, and every evaluation finds the
+ * entry settled: each run of the mutation — the first one and every `retry()`
+ * — holds the entry until it resolves or rejects.
  */
 describe("Command retentionTime as a function", () => {
     it("the first evaluation sees the settled success state and the command's args", async () => {
@@ -2220,14 +2218,7 @@ describe("Command retentionTime as a function", () => {
         expect("retry" in seen[0]!).toBe(false);
     });
 
-    /**
-     * Only `execute()` holds a keepalive, and only for the first run. A retry is
-     * started through the entry, so dropping the last subscriber while it is in
-     * flight is an ordinary `active → retention` transition — and the policy
-     * does see a `pending` row, with `hasError` marking it as a retry. Pinned so
-     * the narrower "the first evaluation is settled" contract stays honest.
-     */
-    it("a retry in flight hands the policy a pending row", async () => {
+    it("a retry in flight holds the entry: the policy sees the retry settled", async () => {
         const failure = new Error("boom");
         const seen: TCommandRetentionState<string, string>[] = [];
         let attempt = 0;
@@ -2258,27 +2249,30 @@ describe("Command retentionTime as a function", () => {
         await flushMicrotasks();
         expect(entry.peek().status).toBe("pending");
 
-        // Cycle 2 — the retry is still running and nothing holds the entry.
+        // The last subscriber leaves while the retry is in flight: the retry
+        // still holds the entry, so this is no transition to retention.
         subscription.unsubscribe();
+        expect(seen).toHaveLength(1);
+
+        // Cycle 2 — the retry's hold released on its settled result.
+        resolveRetry("ok");
+        await flushMicrotasks();
 
         expect(seen).toHaveLength(2);
         expect(seen[1]).toMatchObject({
-            status: "pending",
-            isPending: true,
-            hasData: false,
-            data: null,
-            hasError: true,
-            error: failure,
+            status: "success",
+            isPending: false,
+            hasData: true,
+            data: "ok",
+            hasError: false,
+            error: null,
             args: "a",
         });
-
-        resolveRetry("ok");
-        await flushMicrotasks();
     });
 
     /**
      * A read-only look at an in-flight entry is not a loss of subscribers, so it
-     * must not evaluate the policy — that is what keeps the "first evaluation is
+     * must not evaluate the policy — that is what keeps the "every evaluation is
      * settled" contract a guarantee rather than an accident of timing.
      */
     it("a read-only look at an in-flight entry does not evaluate the function", async () => {
@@ -2453,5 +2447,223 @@ describe("Command — running it from an effect does not track reads of user cod
 
         expect(runs).toBe(1);
         eff.unsubscribe();
+    });
+});
+
+describe("Command — a mutation whose entry is removed mid-flight", () => {
+    type TNote = { note: string };
+
+    function defer<T>() {
+        let resolve!: (value: T) => void;
+        const promise = new Promise<T>((res) => {
+            resolve = res;
+        });
+        return { promise, resolve };
+    }
+
+    async function setup(
+        queryFn: ICommandConfig<string, string>["queryFn"],
+        options: Partial<Pick<ICommandConfig<string, string>, "generateRequestId" | "retentionTime">> = {},
+    ) {
+        const resource = createLinkedResource<number, TNote>({ queryFn: async () => ({ note: "server" }) });
+        const resourceQueryFn = vi.spyOn(resource as unknown as { _queryFn: () => unknown }, "_queryFn");
+        await resource.fetch(1);
+        resourceQueryFn.mockClear();
+
+        const command = createCommand<string, string>({
+            queryFn,
+            ...options,
+            links: [
+                {
+                    resource,
+                    forwardArgs: () => 1,
+                    optimisticUpdate: (draft, args) => {
+                        draft.note = `optimistic ${args}`;
+                    },
+                    update: (draft, _args, result) => {
+                        draft.note = result;
+                    },
+                    invalidate: true,
+                },
+            ],
+        });
+        const note = () => resource.getEntry(1)!.peek().data!.note;
+        const patchState = () => {
+            const state = resource.getEntry(1)!.peek();
+            if (!isDataState(state)) throw new Error(`expected data state, got "${state.status}"`);
+            return state.patchState;
+        };
+        return { resource, resourceQueryFn, command, note, patchState };
+    }
+
+    it("reset(): the optimistic patch is rolled back at once, and the late result applies no link", async () => {
+        const response = defer<string>();
+        const { resourceQueryFn, command, note, patchState } = await setup(() => response.promise);
+
+        const executed = command.execute("a", "k");
+        expect(note()).toBe("optimistic a");
+
+        command.reset();
+        await expect(executed).rejects.toBeInstanceOf(CacheEntryRemovedError);
+        expect(note()).toBe("server");
+        expect(patchState()).toBeNull();
+
+        response.resolve("from the dropped mutation");
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(note()).toBe("server");
+        expect(resourceQueryFn).not.toHaveBeenCalled();
+    });
+
+    it("re-execute with the same key: the superseded run's patch never leaks, even if its request never settles", async () => {
+        const { command, note, patchState } = await setup((args) =>
+            args === "first" ? new Promise<string>(() => {}) : Promise.resolve(`saved ${args}`),
+        );
+
+        const first = command.execute("first", "k");
+        await command.execute("second", "k");
+        await expect(first).rejects.toBeInstanceOf(CacheEntryRemovedError);
+
+        expect(note()).toBe("saved second");
+        expect(patchState()).toBeNull();
+    });
+
+    it("re-execute with the same key: the superseded run's late result applies no link", async () => {
+        const responses: Array<ReturnType<typeof defer<string>>> = [];
+        const { command, note } = await setup(() => {
+            const response = defer<string>();
+            responses.push(response);
+            return response.promise;
+        });
+
+        const first = command.execute("first", "k").catch(() => {});
+        const second = command.execute("second", "k");
+        responses[1]!.resolve("saved second");
+        await second;
+        responses[0]!.resolve("saved first");
+        await first;
+        await flushMicrotasks();
+
+        expect(note()).toBe("saved second");
+    });
+
+    it("a retry outlives its last subscriber: the entry is kept until it settles and its links apply", async () => {
+        const responses: Array<ReturnType<typeof defer<string>>> = [];
+        const { resource, resourceQueryFn, command } = await setup(
+            (args) => {
+                if (responses.length === 0) {
+                    responses.push(defer<string>());
+                    return Promise.reject(new Error(`boom ${args}`));
+                }
+                const response = defer<string>();
+                responses.push(response);
+                return response.promise;
+            },
+            { retentionTime: 0 },
+        );
+
+        // A mounted reader of the linked resource: the invalidation re-fetches it at once.
+        const notesSeen: string[] = [];
+        const reader = resource.getEntry(1)!.obs.subscribe((state) => {
+            if (state.data) notesSeen.push(state.data.note);
+        });
+
+        await command.execute("a", "k").catch(() => {});
+        const entry = command.getEntry("k")!;
+        const subscription = entry.obs.subscribe();
+        entry.retry();
+        subscription.unsubscribe();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(command.getEntry("k")).toBe(entry);
+
+        responses[1]!.resolve("from the retry");
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        // `update` wrote the result, then `invalidate` re-fetched the resource.
+        expect(notesSeen).toContain("from the retry");
+        expect(resourceQueryFn).toHaveBeenCalledTimes(1);
+        expect(entry.peek()).toMatchObject({ status: "success", data: "from the retry" });
+
+        // Settled, the entry melts as usual.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(command.getEntry("k")).toBeNull();
+        reader.unsubscribe();
+    });
+
+    it("an async request id still being minted when the entry is removed: the mutation is never sent", async () => {
+        const requestId = defer<string>();
+        const queryFn = vi.fn(async () => "ok");
+        const { command, note } = await setup(queryFn, { generateRequestId: () => requestId.promise });
+
+        const executed = command.execute("a", "k");
+        command.reset();
+        await expect(executed).rejects.toBeInstanceOf(CacheEntryRemovedError);
+
+        requestId.resolve("id-1");
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(note()).toBe("server");
+    });
+});
+
+describe("Command — onQueryStarted milestones follow the entry", () => {
+    for (const milestone of ["queryFulfilled", "firstReceived"] as const) {
+        it(`${milestone}: once it rejects, the entry already shows the failure — a hook can retry it`, async () => {
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            let calls = 0;
+            const command = createCommand<string, number>({
+                queryFn: async () => {
+                    if (++calls === 1) throw new Error("boom");
+                    return calls;
+                },
+                onQueryStarted: async (_args, ctx) => {
+                    try {
+                        await (milestone === "queryFulfilled" ? ctx.$queryFulfilled : ctx.$queryStream.firstReceived);
+                    } catch {
+                        ctx.entry.retry();
+                    }
+                },
+            });
+
+            await command.execute("a", "k").catch(() => {});
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(calls).toBe(2);
+            expect(command.getEntry("k")!.peek()).toMatchObject({ status: "success", data: 2 });
+            expect(warn).not.toHaveBeenCalled();
+            warn.mockRestore();
+        });
+    }
+
+    it("a run whose entry is removed mid-flight rejects its milestones with the abort reason", async () => {
+        let resolveResponse!: (value: string) => void;
+        const reasons: unknown[] = [];
+        const command = createCommand<string, string>({
+            queryFn: () => new Promise<string>((resolve) => (resolveResponse = resolve)),
+            onQueryStarted: (_args, ctx) => {
+                for (const milestone of [
+                    ctx.$queryFulfilled,
+                    ctx.$queryStream.firstReceived,
+                    ctx.$queryStream.allReceived,
+                ]) {
+                    milestone.then(
+                        () => reasons.push("fulfilled"),
+                        (reason: unknown) => reasons.push((reason as Error).name),
+                    );
+                }
+            },
+        });
+
+        const executed = command.execute("a", "k").catch(() => {});
+        command.reset();
+        resolveResponse("discarded");
+        await executed;
+        await flushMicrotasks();
+
+        expect(reasons).toEqual(["AbortError", "AbortError", "AbortError"]);
     });
 });

@@ -16,8 +16,10 @@ import { Signal, unstable_KeyedSignal } from "@/signals";
 import { untracked } from "@/signals/base/untracked";
 
 import { KEYED_BRAND } from "../../constants";
+import { abortReason } from "../../lib/abortReason";
 import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
+import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "../resource/instrumentQueryRun";
 
 import { CommandClutch } from "./CommandClutch";
 import { buildCommandEntryState } from "./entry-state";
@@ -110,9 +112,16 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // so a throwing optimisticUpdate enters the entry's state like any other
         // mutation failure — the entry exists and settles in `error`, state
         // observers (clutch / useCommand) see it, and mapError normalizes it at
-        // the single fail() boundary.
+        // the single fail() boundary. The handles belong to the first run: the
+        // run that settles first takes them, any later one settles none.
         let patchHandles: IPatchHandle[] = [];
         let optimisticApplied = false;
+
+        const settleLinks = (outcome: PromiseSettledResult<TData>): void => {
+            const handles = patchHandles;
+            patchHandles = [];
+            linkManager.settle(args, handles, outcome);
+        };
 
         // Clean up existing entry for the same entry key, if any
         const existing = this._cache.get(resolvedEntryKey);
@@ -122,8 +131,26 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
         // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
         let entry!: QueryCacheEntry<TArgs, TData>;
-        let initialQueryPromise: Promise<TData> | null = null;
-        let firstAttemptSettled = false;
+        let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
+
+        // A mutation in flight keeps its entry: every run — the first one and
+        // each retry() — holds it until the entry records the run's outcome.
+        // Nobody may be subscribed (with the default retentionTime: 0 a fresh
+        // entry, or one whose last subscriber left mid-retry, would be collected
+        // out from under the mutation), so only an explicit removal —
+        // re-execute, reset() / resetAll() — drops a mutation in flight. It also
+        // means every `active → retention` transition happens on a settled
+        // entry: a `retentionTime` policy sees `success` or `error`, never
+        // `pending`. Returns the run's result (see `currentResult`).
+        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
+        // re-rejects with the run's error and nobody consumes it, so every
+        // failed run would surface a global unhandled rejection.
+        const holdUntilSettled = (): Promise<TData> => {
+            const release = entry.hold();
+            const result = entry.currentResult();
+            void result.then(release, release);
+            return result;
+        };
 
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
@@ -131,7 +158,14 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         let requestId: string | undefined;
         let requestIdPromise: Promise<string> | undefined;
 
-        const runQueryFn = (): Promise<TData> => {
+        // A run whose entry was removed while its id was being minted is
+        // dropped before it is sent (see the abort handling in wrappedQueryFn).
+        const sendOnceMinted = (id: string, signal: AbortSignal): Promise<TData> => {
+            if (signal.aborted) return Promise.reject(abortReason(signal));
+            return this._queryFn(args, id);
+        };
+
+        const runQueryFn = (signal: AbortSignal): Promise<TData> => {
             // Reuse an already-minted id across retries (same idempotency token).
             if (requestId !== undefined) {
                 return this._queryFn(args, requestId);
@@ -139,7 +173,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
             // An async mint is already in flight: chain onto it rather than re-minting.
             if (requestIdPromise) {
-                return requestIdPromise.then((id) => this._queryFn(args, id));
+                return requestIdPromise.then((id) => sendOnceMinted(id, signal));
             }
 
             const minted = this._generateRequestId(args);
@@ -162,10 +196,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             });
             requestIdPromise = pending;
 
-            return pending.then((id) => this._queryFn(args, id));
+            return pending.then((id) => sendOnceMinted(id, signal));
         };
 
-        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
+        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, signal: AbortSignal): Promise<TData> => {
             // A throwing optimisticUpdate, a non-async queryFn, or a sync
             // generateRequestId can all throw *before* a promise exists. Convert
             // that synchronous throw into a rejected promise here — this is the
@@ -187,7 +221,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
                     patchHandles = linkManager.applyOptimisticPatches(args);
                 }
 
-                promise = runQueryFn();
+                promise = runQueryFn(signal);
             } catch (error) {
                 promise = Promise.reject(error);
             }
@@ -196,66 +230,59 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             // the entry's native promise (`entry.currentResult()`), settled where the
             // entry transitions. This `.then` is registered before the one in
             // `_execute`, so `settle` runs before `execute()`'s promise resolves.
+            // A retry that succeeds applies update patches and invalidation only;
+            // one that fails has nothing to settle.
+            //
+            // A retry holds the entry like the first run does (see holdUntilSettled);
+            // the first run is held once the entry exists.
+            if (entry) void holdUntilSettled();
+
+            // The entry aborts the run only when it is removed — a re-execute with
+            // the same key, reset() / resetAll(). The mutation is then
+            // dropped like a failed one: its optimistic patches roll back at once,
+            // and a result that still arrives applies no link — the cache it would
+            // write into may already belong to someone else (a reset on logout).
+            signal.addEventListener("abort", () => settleLinks({ status: "rejected", reason: abortReason(signal) }), {
+                once: true,
+            });
             promise.then(
-                (result) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "fulfilled", value: result });
-                    } else {
-                        // Retry succeeded: optimistic patches were already rolled back on
-                        // the first failure, so only apply update patches + invalidation.
-                        linkManager.settle(args, [], { status: "fulfilled", value: result });
-                    }
+                (value) => {
+                    if (!signal.aborted) settleLinks({ status: "fulfilled", value });
                 },
-                (error) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
-                    }
-                    // Retry failed: nothing to settle — optimistic handles were already
-                    // aborted and the original execute promise already rejected. The
-                    // entry stays in `error`, ready for another retry.
+                (reason: unknown) => {
+                    if (!signal.aborted) settleLinks({ status: "rejected", reason });
                 },
             );
 
             // Lifecycle: onQueryStarted
-            if (entry) {
-                this._fireOnQueryStarted(entry, args, promise);
-            } else {
-                initialQueryPromise = promise;
+            if (this._onQueryStarted) {
+                const { lifecycle } = instrumentQueryRun(promise, signal);
+                if (entry) {
+                    this._fireOnQueryStarted(entry, args, lifecycle);
+                } else {
+                    initialRunLifecycle = lifecycle;
+                }
             }
 
             return promise;
         };
 
         // Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
-        entry = new QueryCacheEntry<TArgs, TData>({
-            queryFn: wrappedQueryFn,
-            retentionTime: this._entryRetentionTime(keyed),
-            keyedArgs: keyed,
-            resourceKey: this._key,
-            mapError: this._mapError,
-            errorSource: "command",
-        });
+        entry = new QueryCacheEntry<TArgs, TData>(
+            {
+                queryFn: wrappedQueryFn,
+                retentionTime: this._entryRetentionTime(keyed),
+                keyedArgs: keyed,
+                resourceKey: this._key,
+                mapError: this._mapError,
+                errorSource: "command",
+            },
+            { onPromiseRunSettled: settleQueryRun },
+        );
 
         // Mutation result = the entry's first run. Captured now (before any retry
         // replaces the current execution) so it reflects only the first attempt.
-        const firstResult = entry.currentResult();
-
-        // A freshly created entry has no subscribers, so with the default
-        // retentionTime: 0 it would be collected out from under the mutation.
-        // Hold it until the first run settles: the GC timer cannot fire and
-        // complete() the entry mid-flight, and — since this is the only
-        // keepalive a command entry ever gets — the first `active → retention`
-        // transition is guaranteed to happen on a settled entry. That is what
-        // lets a `retentionTime` policy assume `success` or `error` on its
-        // first evaluation (a later run started by retry() has no such
-        // guarantee and can be observed as `pending`).
-        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
-        // re-rejects with firstResult's error and nobody consumes it, so every
-        // failed execute would surface a global unhandled rejection.
-        const release = entry.hold();
-        void firstResult.then(release, release);
+        const firstResult = holdUntilSettled();
 
         // Register in cache
         this._cache.set(resolvedEntryKey, entry);
@@ -272,8 +299,8 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         this._fireOnCacheEntryAdded(entry, keyed);
 
         // Fire onQueryStarted for the initial query (deferred from constructor)
-        if (initialQueryPromise) {
-            this._fireOnQueryStarted(entry, keyed.value, initialQueryPromise);
+        if (initialRunLifecycle) {
+            this._fireOnQueryStarted(entry, keyed.value, initialRunLifecycle);
         }
 
         return firstResult;
@@ -413,22 +440,19 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    private _fireOnQueryStarted(entry: QueryCacheEntry<TArgs, TData>, args: TArgs, queryPromise: Promise<TData>): void {
+    private _fireOnQueryStarted(
+        entry: QueryCacheEntry<TArgs, TData>,
+        args: TArgs,
+        lifecycle: TQueryRunLifecycle<TData>,
+    ): void {
         if (!this._onQueryStarted) return;
 
-        const $queryFulfilled = queryPromise.then((data) => ({ data }));
-        // Derived promise: rejects with the query error even though the base
-        // promise is consumed by _execute. Suppress "nobody awaited" rejections
-        // (the hook may not consume it); awaiting hooks still see the rejection.
-        void $queryFulfilled.catch(() => {});
-
+        // Commands are promise-only: both stream milestones coincide with the
+        // run's outcome (see instrumentQueryRun).
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,
-            $queryFulfilled,
-            // Commands are promise-only: both stream milestones coincide with
-            // the run's outcome. The base promise is safe to hand out — the
-            // entry always attaches a rejection handler to it.
-            $queryStream: { firstReceived: queryPromise, allReceived: queryPromise },
+            $queryFulfilled: lifecycle.$queryFulfilled,
+            $queryStream: lifecycle.$queryStream,
         };
 
         try {
