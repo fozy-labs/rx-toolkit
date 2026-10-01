@@ -779,3 +779,105 @@ describe("Snapshotter hydration — consume and resetAll", () => {
         expect(createProfile(api).getState({ id: 1 }).status).toBe("idle");
     });
 });
+
+describe("Snapshotter hydration — the stored snapshot is a deep clone", () => {
+    const now = Date.now();
+
+    function profileSnapshot(): TApiSnapshot {
+        return {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: now,
+            resources: {
+                profile: {
+                    entries: {
+                        [stableStringify({ id: 1 })]: {
+                            status: "success",
+                            args: { id: 1 },
+                            data: { name: "ssr", tags: ["a"] },
+                            updatedAt: now,
+                        },
+                    },
+                },
+            },
+        };
+    }
+
+    const createProfile = (api: ReturnType<typeof createApi>) =>
+        api.createResource<{ id: number }, { name: string; tags: string[] }>({
+            key: "profile",
+            queryFn: async () => ({ name: "fresh", tags: [] }),
+        });
+
+    it("mutating the caller's snapshot after createApi does not reach hydrated entries", () => {
+        const snapshot = profileSnapshot();
+        const api = createApi({ initialSnapshot: snapshot });
+
+        // The caller reuses / mutates its object after handing it over.
+        const entry = snapshot.resources.profile.entries[stableStringify({ id: 1 })];
+        (entry.data as { name: string }).name = "mutated";
+        (entry.args as { id: number }).id = 999;
+
+        const state = createProfile(api).getState({ id: 1 });
+        expect(state.status).toBe("success");
+        expect(state.data).toEqual({ name: "ssr", tags: ["a"] });
+        expect(state.args).toEqual({ id: 1 });
+    });
+
+    it("mutating the caller's snapshot after hydration does not reach the cache entry", () => {
+        const snapshot = profileSnapshot();
+        const api = createApi({ initialSnapshot: snapshot });
+        const resource = createProfile(api);
+
+        const entry = snapshot.resources.profile.entries[stableStringify({ id: 1 })];
+        (entry.data as { tags: string[] }).tags.push("mutated");
+
+        expect(resource.getState({ id: 1 }).data).toEqual({ name: "ssr", tags: ["a"] });
+    });
+
+    it("the clone keeps values JSON would not: bigint, NaN, Infinity, undefined in an array", () => {
+        const args = { id: 1n };
+        const data = { n: 1n, x: NaN, y: Infinity, list: [undefined] };
+        const snapshot: TApiSnapshot = {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: now,
+            resources: {
+                profile: {
+                    entries: {
+                        [stableStringify(args)]: { status: "success", args, data, updatedAt: now },
+                    },
+                },
+            },
+        };
+        const api = createApi({ initialSnapshot: snapshot });
+        const resource = api.createResource<typeof args, typeof data>({
+            key: "profile",
+            queryFn: async () => data,
+        });
+
+        const state = resource.getState({ id: 1n });
+        expect(state.status).toBe("success");
+        expect(state.data).toEqual({ n: 1n, x: NaN, y: Infinity, list: [undefined] });
+    });
+});
+
+describe("Snapshotter.getSnapshot — reference semantics (documented: no clone)", () => {
+    // docs/query/usage/snapshot.md documents getSnapshot() as handing the raw
+    // values out for serialization ("не приводит args и data к JSON"): the
+    // caller JSON.stringifies and transfers it, never mutates it. Unlike
+    // createApi({ initialSnapshot }), no deep-clone is promised here — this
+    // pins that decision.
+    it("returns the cache's own data by reference", async () => {
+        const payload = { name: "Alice" };
+        const api = createApi();
+        const resource = api.createResource({ key: "users", queryFn: async () => payload });
+        resource.getEntry(undefined as void, true);
+        await flushMicrotasks();
+
+        const snapshot = api.getSnapshot();
+
+        const entries = snapshot.resources["users"].entries;
+        expect(entries[Object.keys(entries)[0]].data).toBe(payload);
+    });
+});

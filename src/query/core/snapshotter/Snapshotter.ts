@@ -38,7 +38,11 @@ function normalizeSnapshotStatus(status: string, snapshotVersion: number): strin
 export class Snapshotter {
     /**
      * The initial snapshot's resource slices not hydrated yet, by resource key.
-     * An own map, so consuming a slice leaves the caller's snapshot intact.
+     * Deep-cloned at construction (structured clone — it keeps the values JSON
+     * would not: `bigint`, `NaN`, `Infinity`, `undefined` in an array), so the
+     * caller mutating its object after the hand-off reaches neither the stored
+     * snapshot nor the entries hydrated from it. An own map, so consuming a
+     * slice leaves the caller's snapshot intact.
      */
     private readonly _slices: Map<string, TResourceSnapshot>;
     private readonly _snapshotVersion: number;
@@ -46,8 +50,9 @@ export class Snapshotter {
     private readonly _keyPrefix: string | null;
 
     constructor(options: TSnapshotterOptions) {
-        this._slices = new Map(Object.entries(options.initialSnapshot?.resources ?? {}));
-        this._snapshotVersion = options.initialSnapshot?.version ?? CURRENT_SNAPSHOT_VERSION;
+        const initial = options.initialSnapshot === null ? null : structuredClone(options.initialSnapshot);
+        this._slices = new Map(Object.entries(initial?.resources ?? {}));
+        this._snapshotVersion = initial?.version ?? CURRENT_SNAPSHOT_VERSION;
         this._snapshotValidTime = options.snapshotValidTime;
         this._keyPrefix = options.keyPrefix;
     }
