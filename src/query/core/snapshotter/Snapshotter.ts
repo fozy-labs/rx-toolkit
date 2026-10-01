@@ -1,6 +1,7 @@
 import type { TApiSnapshot, TResourceSnapshot, TResourceSnapshotEntry } from "@/query/types";
 
 import { CURRENT_SNAPSHOT_VERSION } from "../../constants";
+import { confirmedData } from "../machine";
 import type { Resource } from "../resource/Resource";
 
 export interface TSnapshotterOptions {
@@ -121,15 +122,16 @@ export class Snapshotter {
                 const isIdleInvalidating = state.status === "invalidating" && !entry._isInFlight;
                 if (state.status !== "success" && state.status !== "invalidate-error" && !isIdleInvalidating) continue;
 
-                // A non-null patchState means unconfirmed optimistic patches are
-                // still pending; `state.data` reflects them, so persist the
-                // confirmed base (`originalData`) instead — mirrors Syncer.
-                const data = state.patchState ? state.patchState.originalData : state.data;
+                // Pending optimistic patches are not persisted, only the data
+                // the entry vouches for; an entry left with none by a
+                // consistency violation is skipped — mirrors Syncer.
+                const confirmed = confirmedData(state);
+                if (!confirmed) continue;
 
                 entries[entry.keyedArgs.key] = {
                     status: isIdleInvalidating ? "success" : state.status,
                     args: state.args,
-                    data,
+                    data: confirmed.data,
                     updatedAt: state.updatedAt,
                     // An entry marked for revalidation carries data it no longer
                     // vouches for: the hydrating side must re-query it too.

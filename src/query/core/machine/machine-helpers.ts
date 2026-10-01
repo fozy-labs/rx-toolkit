@@ -9,7 +9,7 @@ import type {
     TQueryEntrySuccessState,
 } from "@/query/types";
 
-import { processAllSettledPatches, processPatchState, replayPatchEntries } from "../patcher";
+import { processAllSettledPatches, processPatchState, replayPatchEntries, type TPatchResult } from "../patcher";
 
 // ==================== Initial states ====================
 
@@ -146,22 +146,36 @@ export function withDataState<TArgs, TData>(
 }
 
 /**
- * Give up on the pending patches: drop them and flag the patch state so the
- * owner re-queries.
+ * Give up on the pending patches: drop them, flag the patch state and land in
+ * `invalidating`, so the owner re-queries.
  *
- * Everything else is left exactly as it is — including `status` and
- * `updatedAt`. A discarded replay is not a settled run: the entry keeps the
- * status it was in (an interrupted rebase stays `invalidating`) and the
- * timestamp of its last real settle, so no reader can mistake the optimistic
- * data it still shows for a fresh server answer.
+ * The data they produced stays shown, and becomes the base (`originalData`)
+ * until the re-query lands: with an empty stack, `data` must equal the base,
+ * or the next patch settle — a dropped patch's own handle, or a patch made
+ * afterwards — would recompute `data` from the old base and roll back changes
+ * nobody undid. So `originalData` is no confirmed data any more: the flag
+ * stays raised through later patches and settles until a server answer
+ * lands, and {@link confirmedData} has none to give meanwhile.
+ *
+ * The status is `invalidating` whatever it was: the data shown is no longer a
+ * server answer the entry vouches for — a `success` (a stream emission, a
+ * patch settle) must not keep claiming it is — and the entry now waits for
+ * the load that corrects it. `updatedAt` stays the timestamp of the last real
+ * settle, so no reader can mistake the optimistic data it still shows for a
+ * fresh server answer.
  */
-export function consistencyViolation<TArgs, TData, TState extends TDataState<TArgs, TData>>(
-    currentState: TState,
-): TState {
+export function consistencyViolation<TArgs, TData>(
+    currentState: TDataState<TArgs, TData>,
+): TQueryEntryInvalidatingState<TArgs, TData> {
     return {
-        ...currentState,
+        status: "invalidating",
+        args: currentState.args,
+        data: currentState.data,
+        // A retry in flight keeps the failure it retries (see buildDataState).
+        error: currentState.status === "invalidating" ? currentState.error : null,
+        updatedAt: currentState.updatedAt,
         patchState: {
-            originalData: currentState.patchState?.originalData ?? currentState.data,
+            originalData: currentState.data,
             patches: [],
             isConsistencyViolation: true,
         },
@@ -172,18 +186,26 @@ export function consistencyViolation<TArgs, TData, TState extends TDataState<TAr
  * Outcome of replaying optimistic patches over freshly received data.
  *
  * `ok` — they applied, and the transition settles in `targetStatus`.
- * Otherwise the run is discarded: `state` is the caller's own state with the
- * patches dropped and {@link TPatchState.isConsistencyViolation} raised, and it
- * is up to the caller to start another run.
+ * Otherwise the run is discarded: `state` is the caller's own state gone
+ * `invalidating`, with the patches dropped and
+ * {@link TPatchState.isConsistencyViolation} raised, and it is up to the caller
+ * to start another run.
  */
 export type TReplayOutcome<TArgs, TData, TStatus extends TDataStatus> =
-    { ok: true; state: TDataStateOf<TArgs, TData, TStatus> } | { ok: false; state: TDataState<TArgs, TData> };
+    | { ok: true; state: TDataStateOf<TArgs, TData, TStatus> }
+    | { ok: false; state: TQueryEntryInvalidatingState<TArgs, TData> };
 
 /**
- * Replay the pending patches over `baseData`, landing in `targetStatus` if they
- * apply.
+ * Replay the pending patches over `baseData` — fresh server data — landing in
+ * `targetStatus` if they apply.
  *
- * They may not: a patch can address a path the server data no longer has. The
+ * Only the pending ones: the server is the source of truth, and its data
+ * supersedes every settled patch — a committed one is already in it, an
+ * aborted one never happened. A committed patch still in the stack (behind a
+ * pending one) is dropped here, just as a lone one, folded into the base on
+ * settle, is replaced with it; replaying it would apply the change twice.
+ *
+ * The pending ones may not apply: a patch can address a path the server data no longer has. The
  * server answer is then unusable — it would have to be presented either with
  * patches that do not fit it or without patches the caller believes are
  * applied — so the run is thrown away rather than settled. See
@@ -196,7 +218,10 @@ export function replayPatches<TArgs, TData, TStatus extends TDataStatus>(
     patches: TPatchEntry[],
     updatedAt?: number,
 ): TReplayOutcome<TArgs, TData, TStatus> {
-    const result = replayPatchEntries(baseData, patches);
+    const result = replayPatchEntries(
+        baseData,
+        patches.filter((patch) => patch.status === "pending"),
+    );
 
     if (!result.ok) return { ok: false, state: consistencyViolation(currentState) };
 
@@ -206,20 +231,59 @@ export function replayPatches<TArgs, TData, TStatus extends TDataStatus>(
     return { ok: true, state: state as TDataStateOf<TArgs, TData, TStatus> };
 }
 
+/**
+ * Outcome of a patch settle: `ok` keeps the status, otherwise the stack could
+ * not be replayed and the state is a fresh {@link consistencyViolation}.
+ */
+export type TSettleOutcome<TArgs, TData> = TReplayOutcome<TArgs, TData, TDataStatus>;
+
+/**
+ * The state a patch settle leaves. After a consistency violation the data is
+ * no server answer until one lands, so the flag — and with it the patch
+ * state, however empty its stack — outlives every settle: only a server
+ * answer (`replayPatches`) clears it.
+ */
+function settled<TArgs, TData>(
+    currentState: TDataState<TArgs, TData>,
+    result: TPatchResult<TData>,
+): TSettleOutcome<TArgs, TData> {
+    if (!result.ok) return { ok: false, state: consistencyViolation(currentState) };
+
+    const patchState: TPatchState<TData> | null = currentState.patchState?.isConsistencyViolation
+        ? {
+              originalData: result.patchState?.originalData ?? result.data,
+              patches: result.patchState?.patches ?? [],
+              isConsistencyViolation: true,
+          }
+        : result.patchState;
+    return { ok: true, state: withDataState(currentState, result.data, patchState) };
+}
+
 export function processPatches<TArgs, TData>(
     currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
-): TDataState<TArgs, TData> {
-    const result = processPatchState(patchState);
-    if (!result.ok) return consistencyViolation(currentState);
-    return withDataState(currentState, result.data, result.patchState);
+): TSettleOutcome<TArgs, TData> {
+    return settled(currentState, processPatchState(patchState));
 }
 
 export function processAllPatches<TArgs, TData>(
     currentState: TDataState<TArgs, TData>,
     patchState: TPatchState<TData>,
-): TDataState<TArgs, TData> {
-    const result = processAllSettledPatches(patchState);
-    if (!result.ok) return consistencyViolation(currentState);
-    return withDataState(currentState, result.data, result.patchState);
+): TSettleOutcome<TArgs, TData> {
+    return settled(currentState, processAllSettledPatches(patchState));
+}
+
+/**
+ * The data an entry vouches for: the server's answer with its committed
+ * patches folded in, without the pending ones — what a snapshot persists and
+ * another tab is seeded with. `null` when there is none: no data yet, or a
+ * consistency violation made the data shown something other than a server
+ * answer until the next one lands.
+ */
+export function confirmedData<TArgs, TData>(state: TQueryEntryState<TArgs, TData>): { data: TData } | null {
+    if (!isDataState(state)) return null;
+    const patchState = state.patchState;
+    if (!patchState) return { data: state.data };
+    if (patchState.isConsistencyViolation) return null;
+    return { data: patchState.originalData };
 }

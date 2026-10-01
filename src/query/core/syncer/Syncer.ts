@@ -1,6 +1,7 @@
 import { randomUUID } from "@/common/utils/randomUUID";
 import type { ISyncDriver, ISyncMessage, TResourceOptions } from "@/query/types";
 
+import { confirmedData } from "../machine";
 import type { Resource } from "../resource/Resource";
 
 export interface ISyncerConfig {
@@ -86,13 +87,13 @@ export class Syncer {
             // Only settled data the entry still vouches for: an entry marked for
             // revalidation must not seed another tab's cold entry as fresh.
             const state = entry.peek();
-            if (state.status === "success" && !entry.isInvalidated) {
-                const data = state.patchState ? state.patchState.originalData : state.data;
+            const confirmed = confirmedData(state);
+            if (state.status === "success" && !entry.isInvalidated && confirmed) {
                 this.syncDriver.send({
                     type: "RES",
                     reqId: msg.reqId,
                     keys: msg.keys,
-                    data,
+                    data: confirmed.data,
                 });
             }
         } else if (msg.type === "RES") {

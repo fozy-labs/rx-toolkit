@@ -14,12 +14,16 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
     readonly status = "invalidating" as const;
     declare readonly state: TQueryEntryInvalidatingState<TArgs, TData>;
 
-    constructor(state: TQueryEntryInvalidatingState<TArgs, TData>) {
-        super(state);
+    constructor(state: TQueryEntryInvalidatingState<TArgs, TData>, violated = false) {
+        super(state, violated);
     }
 
     protected withState(state: TDataState<TArgs, TData>): this {
         return new MachineInvalidating(state as TQueryEntryInvalidatingState<TArgs, TData>) as this;
+    }
+
+    protected withViolation(state: TQueryEntryInvalidatingState<TArgs, TData>): this {
+        return new MachineInvalidating(state, true) as this;
     }
 
     /**
@@ -46,7 +50,7 @@ export class MachineInvalidating<TArgs, TData> extends MachineWithData<TArgs, TD
 
         // Replay pending patches on new base
         const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
-        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withState(replayed.state);
+        return replayed.ok ? new MachineSuccess<TArgs, TData>(replayed.state) : this.withViolation(replayed.state);
     }
 
     /** invalidating → invalidate-error */
