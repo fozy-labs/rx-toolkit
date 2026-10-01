@@ -310,6 +310,7 @@ export class Api implements IApi {
         for (const command of this.commands) {
             command.reset();
         }
+        this.snapshotter.clear();
 
         // Clean up sync state and reconnect
         this.syncer?.cleanup();

@@ -406,12 +406,16 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.peek());
     }
 
-    /** Clear all cache entries. */
+    /**
+     * Clear all cache entries. Each entry is completed and leaves the cache on
+     * its own completion; an entry a reader re-creates meanwhile (e.g. an
+     * effect over `getEntry$(args, true)`) belongs to the fresh cache and stays.
+     */
     reset(): void {
-        for (const entry of this._cache.values()) {
+        // Iterate a snapshot: completing an entry can re-create one in the live map.
+        for (const entry of [...this._cache.values()]) {
             entry.complete();
         }
-        this._cache.clear();
     }
 
     // ==================== Private ====================

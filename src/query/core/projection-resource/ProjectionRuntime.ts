@@ -1,4 +1,4 @@
-import { Observable, type Subscriber } from "rxjs";
+import { Observable, type Subscriber, type Subscription } from "rxjs";
 
 import { stableStringify } from "@/query/lib/stableStringify";
 import type {
@@ -371,15 +371,31 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
         // Taken synchronously: the number orders batches by when they went out.
         const seq = ++this._batchSeq;
 
+        const unlist = (): void => {
+            for (const sid of sids) {
+                if (this._inFlight.get(sid) === promise) this._inFlight.delete(sid);
+            }
+        };
+        let removal: Subscription | undefined;
+
         const promise: TBatch = (async () => {
+            // A throw of `makeArgs` or the wrapped `serializeArgs` is raw — no
+            // entry mapped it — so it rejects the batch as is, and the outer
+            // entry maps it once, like any of its own failures.
+            const args = this._wrapped.toKeyed(this._makeArgs(ids));
+            // The invalidation makes a run go out now (or, on an entry
+            // nobody holds, on the hold `fetch` takes); `fetch` then
+            // awaits whichever run is in flight.
+            if (isFresh) this._wrapped.invalidate(args, { inFlight: "cancel" });
+            const fetched = this._wrapped.fetch(args, { inFlight: "join" });
+            // The batch is only as alive as the wrapped entry it awaits: a
+            // reset that removes the entry dooms the batch at once, so
+            // loads from then on must request their ids afresh, not join it.
+            removal = this._wrapped.getEntry(args.value as TArgsOrVoid<TResArgs>)?.completed$.subscribe(unlist);
+
             let data: TResData;
             try {
-                const args = this._wrapped.toKeyed(this._makeArgs(ids));
-                // The invalidation makes a run go out now (or, on an entry
-                // nobody holds, on the hold `fetch` takes); `fetch` then
-                // awaits whichever run is in flight.
-                if (isFresh) this._wrapped.invalidate(args, { inFlight: "cancel" });
-                data = await this._wrapped.fetch(args, { inFlight: "join" });
+                data = await fetched;
             } catch (error) {
                 // The wrapped resource rejects with its entry error, which
                 // already passed the api's mapError at that entry's
@@ -392,9 +408,8 @@ export class ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData> {
             }
             return this._distribute(data, seq);
         })().finally(() => {
-            for (const sid of sids) {
-                if (this._inFlight.get(sid) === promise) this._inFlight.delete(sid);
-            }
+            removal?.unsubscribe();
+            unlist();
         });
 
         for (const sid of sids) {

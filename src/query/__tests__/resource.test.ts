@@ -1940,6 +1940,41 @@ describe("Resource.reset", () => {
         expect(entry).not.toBeNull();
         expect(entry!.state$.peek().data).toBe("data-2");
     });
+
+    it("an effect re-creating its entry during reset gets one fresh entry, and reset returns", async () => {
+        let calls = 0;
+        const resource = createResource<number, number>({
+            queryFn: async (n) => {
+                calls++;
+                return n;
+            },
+        });
+
+        let runs = 0;
+        const eff = Signal.effect(() => {
+            runs++;
+            // Guard against the old runaway loop so a failure reports instead of hanging.
+            if (runs > 20) return;
+            resource.getEntry$(1, true)().state$();
+        });
+        await flushMicrotasks();
+        const first = resource.getEntry(1);
+        expect(calls).toBe(1);
+        const runsBefore = runs;
+
+        resource.reset();
+        await flushMicrotasks();
+
+        const entries = [...resource.getEntries()];
+        // Re-created (pending), then loaded.
+        expect(runs - runsBefore).toBeLessThanOrEqual(3);
+        expect(calls).toBe(2);
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).not.toBe(first);
+        expect(entries[0].peek()).toMatchObject({ status: "success", data: 1 });
+
+        eff.unsubscribe();
+    });
 });
 
 // ==================== createClutch ====================

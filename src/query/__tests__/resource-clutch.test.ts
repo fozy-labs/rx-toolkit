@@ -228,8 +228,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    // Always unsubscribe effects BEFORE any resource.reset() to avoid
-    // infinite reactive loop in getEntry$(args, true) re-creation.
     while (_effects.length) _effects.pop()!.unsubscribe();
     warn.mockRestore();
 });
