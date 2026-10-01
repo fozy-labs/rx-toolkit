@@ -75,7 +75,7 @@ export function createGroupDef(input: unknown, extras?: FormExtras): GroupRecord
 
     const disabled = checkCallbacks(options.disabled, "disabled", false);
     for (const name of Object.keys(disabled)) {
-        if (!(name in fields)) {
+        if (!Object.prototype.hasOwnProperty.call(fields, name)) {
             throw new FormConfigError(joinPath("disabled", name), `'${name}' is not a child of this group`);
         }
     }

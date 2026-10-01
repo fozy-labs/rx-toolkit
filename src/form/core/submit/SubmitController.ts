@@ -1,4 +1,4 @@
-import { first, firstValueFrom, type Unsubscribable } from "rxjs";
+import { first, firstValueFrom, Subject, takeUntil, type Unsubscribable } from "rxjs";
 
 import { deepEqual } from "@/common/utils/deepEqual";
 import { randomUUID } from "@/common/utils/randomUUID";
@@ -70,6 +70,16 @@ interface Flight {
     readonly configError: () => FormConfigError | undefined;
 }
 
+/** One run of `submit()`, from the entry to the phase back at idle. */
+interface Attempt {
+    /** Waits for the queries: a root reset ends the attempt there. */
+    waiting: boolean;
+    /** A root reset / initialize came after the wait: the result is not applied. */
+    superseded: boolean;
+    /** Emits when a reset ends the attempt during the wait. */
+    readonly ended$: Subject<void>;
+}
+
 const IDLE: SubmitMeta = Object.freeze({ phase: "idle", lastOutcome: "idle", submitAttempts: 0, submitCount: 0 });
 const NO_ISSUES: Issue[] = [];
 const SUCCESS: Settled = Object.freeze({ status: "success" });
@@ -110,8 +120,8 @@ export class SubmitController {
     private _entryKey: string | undefined;
     /** The request of the last attempt that failed at the command. */
     private _failed: Request | null = null;
-    /** A root reset / initialize came while an attempt ran: its result is not applied. */
-    private _superseded = false;
+    /** The attempt that owns the phase; `null` while it is idle. */
+    private _current: Attempt | null = null;
 
     constructor(
         private readonly _root: GroupCore,
@@ -148,32 +158,41 @@ export class SubmitController {
     }
 
     submit(options?: { force?: boolean }): Promise<boolean> {
-        const isIdle = act(() => {
+        const attempt = act(() => {
             const meta = this._meta$.peek();
             this._patch({ submitAttempts: meta.submitAttempts + 1 });
-            if (meta.phase !== "idle") return false;
+            if (this._current) return null;
             this._patch({ phase: "preparing" });
-            this._superseded = false;
-            return true;
+            return (this._current = { waiting: false, superseded: false, ended$: new Subject<void>() });
         });
-        if (!isIdle) return Promise.resolve(false);
+        if (!attempt) return Promise.resolve(false);
         const force = options?.force === true;
-        return untracked(() => this._attempt(force)).finally(() => this._toIdle());
+        return untracked(() => this._attempt(attempt, force)).finally(() => this._toIdle(attempt));
     }
 
     /**
-     * Resets the submit state: `status$ → idle`, a new `entryKey`, `submission$ → null`. While an
-     * attempt runs, it is superseded instead and the reset waits for the phase to become idle.
+     * Resets the submit state: `status$ → idle`, a new `entryKey`, `submission$ → null`. An
+     * attempt still waiting for the queries ends here, and the phase is idle at once. An attempt
+     * past the wait is superseded instead, and the reset waits for its phase to become idle.
      */
     reset(): void {
         this._failed = null;
-        if (this._meta$.peek().phase === "idle") this._resetNow();
-        else this._superseded = true;
+        const attempt = this._current;
+        if (attempt && !attempt.waiting) {
+            attempt.superseded = true;
+            return;
+        }
+        if (attempt) {
+            this._current = null;
+            attempt.ended$.next();
+            this._patch({ phase: "idle" });
+        }
+        this._resetNow();
     }
 
     // ==================== Attempt ====================
 
-    private async _attempt(force: boolean): Promise<boolean> {
+    private async _attempt(attempt: Attempt, force: boolean): Promise<boolean> {
         const root = this._root;
         act(() => {
             root.clearServerIssues();
@@ -189,20 +208,27 @@ export class SubmitController {
         let flight: Flight;
         let snapshot: GroupSnapshot;
         try {
-            if (hold) await whenNotPending(root.isPending$);
-            else if (policy === "reject" && untracked(() => root.isPending$.peek())) return false;
+            if (hold) {
+                attempt.waiting = true;
+                await this._whenNotPending(attempt);
+                // Ended by a reset: the phase belongs to no one or to a newer attempt.
+                if (this._current !== attempt) return false;
+                attempt.waiting = false;
+            } else if (policy === "reject" && untracked(() => root.isPending$.peek())) return false;
 
-            if (!untracked(() => root.isValid$.peek())) return act(() => this._finish("invalid", false));
+            if (!untracked(() => root.isValid$.peek())) {
+                return act(() => this._finish(attempt, "invalid", false));
+            }
             const handler = this._record.submit;
-            if (!handler) return act(() => this._finish("success", true));
+            if (!handler) return act(() => this._finish(attempt, "success", true));
 
             const outcome = untracked(() => guard(() => handler(this._ctx), "submit"));
             if (!outcome.ok) {
                 return act(() => {
-                    if (!this._superseded) {
+                    if (!attempt.superseded) {
                         this._issues$.set([callbackIssue(root, ROOT_PATH, "submit", outcome.error)]);
                     }
-                    return this._finish("error", false);
+                    return this._finish(attempt, "error", false);
                 });
             }
             snapshot = untracked(() => root.snapshot());
@@ -213,7 +239,25 @@ export class SubmitController {
         }
 
         const settled = await flight.settled;
-        return act(() => this._settle(settled, flight, snapshot));
+        return act(() => this._settle(attempt, settled, flight, snapshot));
+    }
+
+    /**
+     * Waits for `isPending$` to be false, re-checking after each settle: a settle can start more
+     * work (a debounce, a dependent key), which the next round waits for. Ends early when a reset
+     * ends the attempt.
+     */
+    private async _whenNotPending(attempt: Attempt): Promise<void> {
+        const isPending$ = this._root.isPending$;
+        const settled$ = isPending$.obs.pipe(
+            first((isPending) => !isPending),
+            takeUntil(attempt.ended$),
+        );
+        while (this._current === attempt) {
+            await firstValueFrom(settled$, { defaultValue: undefined });
+            await Promise.resolve();
+            if (!untracked(() => isPending$.peek())) return;
+        }
     }
 
     /** Classifies the handler result and starts the command: a retry of the failed request, or a trigger. */
@@ -328,7 +372,7 @@ export class SubmitController {
      * since the command started, and rotates the key; an error lays the server issues out. A
      * superseded attempt applies neither its issues nor its outcome.
      */
-    private _settle(settled: Settled, flight: Flight, snapshot: GroupSnapshot): boolean {
+    private _settle(attempt: Attempt, settled: Settled, flight: Flight, snapshot: GroupSnapshot): boolean {
         const configError = flight.configError();
         if (configError) throw configError;
         switch (settled.status) {
@@ -337,27 +381,28 @@ export class SubmitController {
             case "success":
                 if (this._root.scope.bases.generation === flight.generation) commitSnapshot(snapshot);
                 this._defaultKey = undefined;
-                return this._finish("success", true);
+                return this._finish(attempt, "success", true);
             case "error":
                 this._failed = flight.request;
-                if (!this._superseded) {
+                if (!attempt.superseded) {
                     layoutServerIssues(snapshot, toServerIssues(settled.error, this._record.mapSubmitError));
                 }
-                return this._finish("error", false);
+                return this._finish(attempt, "error", false);
         }
     }
 
-    private _finish(outcome: Outcome, result: boolean): boolean {
-        if (!this._superseded) this._patch({ lastOutcome: outcome });
+    private _finish(attempt: Attempt, outcome: Outcome, result: boolean): boolean {
+        if (!attempt.superseded) this._patch({ lastOutcome: outcome });
         return result;
     }
 
-    private _toIdle(): void {
+    /** The attempt ended: the phase becomes idle, unless a reset has already taken it away. */
+    private _toIdle(attempt: Attempt): void {
+        if (this._current !== attempt) return;
         act(() => {
+            this._current = null;
             this._patch({ phase: "idle" });
-            if (!this._superseded) return;
-            this._superseded = false;
-            this._resetNow();
+            if (attempt.superseded) this._resetNow();
         });
     }
 
@@ -393,18 +438,6 @@ export class SubmitController {
 }
 
 // ==================== Functions ====================
-
-/**
- * Waits for `isPending$` to be false, re-checking after each settle: a settle can start more work
- * (a debounce, a dependent key), which the next round waits for.
- */
-async function whenNotPending(isPending$: ReadonlySignal<boolean>): Promise<void> {
-    for (;;) {
-        await firstValueFrom(isPending$.obs.pipe(first((isPending) => !isPending)));
-        await Promise.resolve();
-        if (!untracked(() => isPending$.peek())) return;
-    }
-}
 
 /** Watches an entry's lifecycle: `removed` once it completes. */
 function watchRemoval(entry: IQueryCacheEntry<unknown, unknown> | null) {

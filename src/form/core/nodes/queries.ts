@@ -139,6 +139,11 @@ function createQuery(owner: NodeCore, name: string, record: QueryRecord, ctx: ob
 
     let resource: AnyResource | null = null;
     let clutch: AnyClutch | null = null;
+    /**
+     * The key the clutch observes, applied in this hot period; `undefined` before the first one.
+     * `apply` sets it right before it switches the clutch, so it changes with `state$`.
+     */
+    let applied: string | null | undefined;
 
     const toTarget = (bound: unknown): Target | null => {
         if (!bound || bound === SKIP) return null;
@@ -165,8 +170,6 @@ function createQuery(owner: NodeCore, name: string, record: QueryRecord, ctx: ob
     );
 
     const activate = (subscriber: Subscriber<AnyState>) => {
-        /** The key applied in this hot period; `undefined` before the first one. */
-        let applied: string | null | undefined;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let clutchSub: Subscription | undefined;
 
@@ -220,6 +223,7 @@ function createQuery(owner: NodeCore, name: string, record: QueryRecord, ctx: ob
                 cancel();
                 clutchSub?.unsubscribe();
                 clutch?.switch(SKIP);
+                applied = undefined;
             });
     };
 
@@ -230,16 +234,16 @@ function createQuery(owner: NodeCore, name: string, record: QueryRecord, ctx: ob
         key: `${label}$`,
     });
 
-    // The mismatch of the key's args and the clutch's args. Without the option the args reach the
-    // clutch in the same flush, so the node never debounces.
+    // The mismatch of the key and the key the clutch observes. Without the option the key reaches
+    // the clutch in the same flush, so the node never debounces.
     const isDebouncing$ =
         debounce === null
             ? derived(`${label}.isDebouncing$`, () => false)
             : derived(`${label}.isDebouncing$`, () => {
                   const key = keyOf(target$());
-                  const state = state$();
-                  // A non-idle state exists only once the clutch, and so the resource, does.
-                  return key !== (state.status === "idle" ? null : resource!.serialize(state.args));
+                  // Activates the node, and re-runs this when `apply` switches the clutch.
+                  state$();
+                  return key !== (applied ?? null);
               });
 
     const isPending$ = derived(`${label}.isPending$`, () => {

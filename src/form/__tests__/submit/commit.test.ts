@@ -3,8 +3,9 @@
 import { z } from "zod";
 
 import { unstable_FormSignal as FormSignal } from "../../index";
+import { emailResource, LATENCY } from "../queries/helpers";
 
-import { flush, manualCommand } from "./helpers";
+import { advance, flush, manualCommand } from "./helpers";
 
 const f = FormSignal.field;
 const g = FormSignal.group;
@@ -78,6 +79,35 @@ describe("_commit()", () => {
         expect(phones.items$()[2]).toBe(three);
         expect(phones.value$()).toEqual([{ number: "2" }, { number: "1" }, { number: "3" }]);
         expect(phones.isDirty$()).toBe(false);
+    });
+
+    it("lists: data deferred by keepDirtyLists before the submit does not outlive its commit", async () => {
+        const { form, last } = contacts();
+        form.fields.phones.push({ number: "3" });
+        // Server data for a dirty structure waits for reset().
+        form.initialize({ state: { phones: [{ number: "server" }] } }, { keepDirtyValues: true });
+        const result = form.submit();
+        await flush();
+        last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+        expect(form.fields.phones.isDirty$()).toBe(false);
+        // reset() returns to the sent rows, the newer base.
+        form.reset();
+        expect(form.fields.phones.value$()).toEqual([{ number: "1" }, { number: "2" }, { number: "3" }]);
+    });
+
+    it("lists: data deferred by keepDirtyLists during the flight survives, since the commit is skipped", async () => {
+        const { form, last } = contacts();
+        form.fields.phones.push({ number: "3" });
+        const result = form.submit();
+        await flush();
+        form.initialize({ state: { phones: [{ number: "server" }] } }, { keepDirtyValues: true });
+        last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+        // The newer base wins over what was sent: nothing is committed.
+        expect(form.fields.phones.isDirty$()).toBe(true);
+        form.reset();
+        expect(form.fields.phones.value$()).toEqual([{ number: "server" }]);
     });
 
     it("a disabled child is not sent and not committed", async () => {
@@ -196,6 +226,88 @@ describe("a root reset / initialize during the flight", () => {
         expect(form.fields.title.isDirty$()).toBe(false);
         expect(form.status$()).toBe("success");
     });
+});
+
+describe("a root reset / initialize while the attempt waits for queries", () => {
+    /** A form whose `email` query keeps the attempt in the preparing phase for `LATENCY` ms. */
+    function checked() {
+        const { resource } = emailResource();
+        const save = manualCommand<unknown>();
+        const handler = vi.fn(({ parsed$ }: { parsed$: () => { value: unknown } }) =>
+            save.command.bind(parsed$().value),
+        );
+        const def = g({
+            fields: {
+                email: f({
+                    schema: z.string(),
+                    defaultValue: "",
+                    queries: { info: ({ value$ }) => resource.bind(value$()) },
+                }),
+            },
+            submit: handler as never,
+        });
+        const form = FormSignal.state(def, { state: { email: "ann@x.com" } });
+        form.fields.email.set("bob@x.com");
+        return { ...save, handler, form };
+    }
+
+    it.each(["reset", "initialize"] as const)(
+        "%s(): the attempt stops at once — no handler, no command, false; a new submit() goes through",
+        async (method) => {
+            const { form, handler, queryFn, runs } = checked();
+            const settled = vi.fn();
+            void form.submit().then(settled);
+            await flush();
+            expect(form.isSubmitting$()).toBe(true);
+
+            form[method]();
+            await flush();
+            // Not held until the queries settle.
+            expect(settled).toHaveBeenCalledWith(false);
+            expect(form.isSubmitting$()).toBe(false);
+            expect(form.status$()).toBe("idle");
+            await advance(LATENCY * 2);
+            expect(handler).not.toHaveBeenCalled();
+            expect(queryFn).not.toHaveBeenCalled();
+            expect(form.submitCount$()).toBe(0);
+
+            const next = form.submit();
+            await advance(LATENCY);
+            expect(runs).toHaveLength(1);
+            runs[0].resolve({ id: "1" });
+            expect(await next).toBe(true);
+        },
+    );
+
+    it.each([
+        ["reset()", (form: ReturnType<typeof checked>["form"]) => form.reset()],
+        ["initialize({ state })", (form: ReturnType<typeof checked>["form"]) => form.initialize({ state: {} })],
+    ])(
+        "%s ends the attempt synchronously; a submit() in the same tick is a new attempt the old one does not touch",
+        async (_, supersede) => {
+            const { form, handler, runs } = checked();
+            const first = form.submit();
+            await flush();
+
+            supersede(form);
+            expect(form.isSubmitting$()).toBe(false);
+            expect(form.canSubmit$()).toBe(true);
+            const next = form.submit();
+            expect(form.submitAttempts$()).toBe(2);
+            expect(form.isSubmitting$()).toBe(true);
+
+            expect(await first).toBe(false);
+            await flush();
+            // The old attempt's end leaves the new one in its phase.
+            expect(form.isSubmitting$()).toBe(true);
+            await advance(LATENCY);
+            expect(handler).toHaveBeenCalledTimes(1);
+            expect(runs).toHaveLength(1);
+            runs[0].resolve({ id: "1" });
+            expect(await next).toBe(true);
+            expect(form.status$()).toBe("success");
+        },
+    );
 });
 
 describe("the command entry removed mid-flight (F66)", () => {

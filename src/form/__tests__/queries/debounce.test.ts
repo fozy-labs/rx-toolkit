@@ -2,6 +2,7 @@
 // stale-verdict scenario of the design's Field example.
 import { z } from "zod";
 
+import { toKeyed } from "@/query";
 import type { IResource } from "@/query/types";
 
 import { unstable_FormSignal as FormSignal } from "../../index";
@@ -170,6 +171,34 @@ describe("debounce", () => {
         expect(debouncing.values).toEqual([false, true, false]);
         expect(pending.values).toEqual([true, false, true, false]);
         debouncing.unsubscribe();
+        pending.unsubscribe();
+    });
+
+    it("a key bound with its own TKeyed key stops debouncing once applied", async () => {
+        const { resource } = emailResource();
+        const def = g({
+            fields: {
+                email: f({
+                    schema: z.string(),
+                    defaultValue: "",
+                    queries: {
+                        info: {
+                            bind: ({ value$ }) => resource.bind(toKeyed(value$(), (email) => `email:${email}`)),
+                            debounce: DEBOUNCE,
+                        },
+                    },
+                }),
+            },
+        });
+        const { email } = FormSignal.state(def, { state: { email: "a@x.com" } }).fields;
+        const pending = record(email.isPending$);
+        expect(email.queries.info.isDebouncing$()).toBe(false);
+        email.set("b@x.com");
+        expect(email.queries.info.isDebouncing$()).toBe(true);
+        await advance(DEBOUNCE);
+        expect(email.queries.info.isDebouncing$()).toBe(false);
+        await advance(LATENCY);
+        expect(email.isPending$()).toBe(false);
         pending.unsubscribe();
     });
 

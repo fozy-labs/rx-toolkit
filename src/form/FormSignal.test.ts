@@ -199,6 +199,7 @@ describe("group()", () => {
         expect(group({ queries: { "q/x": () => null } })).toThrow(configError("queries.q/x", "must not end with"));
         expect(group({ validate: { "r.x": () => {} } })).toThrow(configError("validate.r.x", "must not end with"));
         expect(group({ disabled: { b: () => true } })).toThrow(configError("disabled.b", "not a child"));
+        expect(group({ disabled: { toString: () => true } })).toThrow(configError("disabled.toString", "not a child"));
         expect(group({ disabled: { a: true } })).toThrow(configError("disabled.a", "function"));
         expect(group({ name: 1 })).toThrow(configError("name", "string"));
         expect(group({ submit: 1 })).toThrow(configError("submit", "function"));

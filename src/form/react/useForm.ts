@@ -1,5 +1,6 @@
 import React from "react";
 
+import { useConstant } from "@/common/react/useConstant";
 import { useIsomorphicLayoutEffect } from "@/common/react/useIsomorphicLayoutEffect";
 import { deepEqual } from "@/common/utils/deepEqual";
 import { useSignal } from "@/signals/react/useSignal";
@@ -41,9 +42,13 @@ const KEEP_DIRTY_VALUES: InitializeOptions = Object.freeze({ keepDirtyValues: tr
  * The hook re-renders on the submit phase, so a `state` that changed in flight is applied at idle
  * — unless it is back to what was applied at the start of the submit. Nothing is closed on
  * unmount: the instance holds no resources of its own.
+ *
+ * The instance is created once per mounted component, not in a `useState` initializer: StrictMode
+ * calls that twice and keeps the first result, while the discarded second instance would take
+ * over the devtools keys of the live one.
  */
 export function useForm(definition: object, init: Init | undefined, options: UseFormOptions | undefined): object {
-    const [created] = React.useState<Created>(() => ({
+    const created = useConstant<Created>(() => ({
         form: createInstance(definition, init) as Root,
         definition,
         key: init?.key,
