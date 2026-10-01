@@ -753,15 +753,31 @@ export class QueryCacheEntry<TArgs, TData>
      * `mapError` at an upstream entry's boundary (a projection run re-surfacing its
      * wrapped resource's rejection) — it is unwrapped instead of being mapped
      * a second time.
-     *
-     * A failure is reported to the global `onQueryError` here too, once, as it
-     * enters the state — the pre-mapped one was reported at the entry it came from.
      */
     private _normalizeError(error: unknown): unknown {
         if (error instanceof PreMappedError) return error.error;
-        const mapped = this._mapError(error, this._errorContext());
-        reportQueryError(mapped);
-        return mapped;
+        return this._mapError(error, this._errorContext());
+    }
+
+    /**
+     * Record a run's failure in the entry's state, then report it to the
+     * global `onQueryError` — in that order on purpose: the handler is user
+     * code, and it must find the entry already showing the failure. Called the
+     * other way around, a handler that re-queries this very entry (an
+     * `invalidate()` on an auth failure) starts its run and then has the
+     * in-flight state overwritten by this fail transition: the run's result is
+     * dropped and the entry is left showing a failure it already recovered
+     * from. A failure in a {@link PreMappedError} envelope was reported at the
+     * entry it came from.
+     */
+    private _recordFailure(
+        machine: Machine<TArgs, TData>,
+        error: unknown,
+        failedAction: "error" | "invalidate-error",
+    ): void {
+        const mappedError = this._normalizeError(error);
+        this._setMachine(machine.fail(mappedError), failedAction);
+        if (!(error instanceof PreMappedError)) reportQueryError(mappedError);
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
@@ -930,13 +946,11 @@ export class QueryCacheEntry<TArgs, TData>
                 // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
                 // told the raw error (see onPromiseRunSettled). Aborted runs
                 // returned above and are never mapped.
-                const mappedError = this._normalizeError(error);
-
                 // Name the failure by the state it lands in: a failed background invalidation
                 // keeps its data, a failed first load has none to keep.
                 const failedAction = machine.status === "invalidating" ? "invalidate-error" : "error";
 
-                this._setMachine(machine.fail(mappedError), failedAction);
+                this._recordFailure(machine, error, failedAction);
                 this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
                 this._onRunLeftFlight();
             },
@@ -1088,12 +1102,10 @@ export class QueryCacheEntry<TArgs, TData>
             return;
         }
 
-        // Same single normalization boundary as the promise path (see _execute).
-        const mappedError = this._normalizeError(error);
-
         const failedAction = machine.status === "pending" ? "error" : "invalidate-error";
 
-        this._setMachine(machine.fail(mappedError), failedAction);
+        // Same recording as the promise path (see _recordFailure).
+        this._recordFailure(machine, error, failedAction);
     }
 }
 

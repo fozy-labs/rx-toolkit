@@ -1,4 +1,4 @@
-import { Observable } from "rxjs";
+import { Observable, Subject } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
 
 import { DefaultOptions } from "@/common/options";
@@ -141,5 +141,80 @@ describe("DefaultOptions.onQueryError", () => {
         expect(resource.getState(1).error).toBe(boom);
         expect(consoleError).toHaveBeenCalled();
         consoleError.mockRestore();
+    });
+
+    // The handler is user code and may re-query the very entry whose failure it
+    // reports (an `invalidate()` on an auth failure). It must therefore run when
+    // the entry already shows the failure: reported earlier, the handler's run
+    // would be overwritten by the fail transition that follows it.
+
+    it("promise run: the handler sees the failure recorded, and a re-query from it lands", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        let calls = 0;
+        const boom = new Error("boom");
+        const resource = createApi().createResource<number, number>({
+            queryFn: () => {
+                calls += 1;
+                return calls === 2 ? Promise.reject(boom) : Promise.resolve(calls * 10);
+            },
+        });
+
+        await resource.fetch(1); // success: 10
+        const entry = resource.getEntry(1)!;
+        const release = entry.hold();
+
+        const seenInHandler: string[] = [];
+        DefaultOptions.update({
+            onQueryError: () => {
+                seenInHandler.push(entry.peek().status);
+                resource.invalidate(1);
+            },
+        });
+
+        entry.invalidate(); // run 2 rejects with boom; the handler starts run 3
+        await settle();
+        await settle();
+
+        expect(seenInHandler).toEqual(["invalidate-error"]);
+        expect(calls).toBe(3);
+        expect(entry.peek()).toMatchObject({ status: "success", data: 30, error: null });
+        expect(warn).not.toHaveBeenCalled();
+        release();
+        warn.mockRestore();
+    });
+
+    it("stream run: the handler sees the failure recorded, and a re-query from it re-subscribes", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const subjects: Subject<number>[] = [];
+        const boom = new Error("boom");
+        const queryFn = vi.fn(() => {
+            const subject = new Subject<number>();
+            subjects.push(subject);
+            return subject.asObservable();
+        });
+        const resource = createApi().createResource<number, number>({ queryFn });
+
+        const entry = resource.getEntry(1, true);
+        const release = entry.hold();
+        subjects[0]!.next(10);
+        expect(entry.peek().status).toBe("success");
+
+        const seenInHandler: string[] = [];
+        DefaultOptions.update({
+            onQueryError: () => {
+                seenInHandler.push(entry.peek().status);
+                resource.invalidate(1);
+            },
+        });
+
+        subjects[0]!.error(boom); // the stream fails after data; the handler re-queries
+        subjects[1]!.next(30);
+
+        expect(seenInHandler).toEqual(["invalidate-error"]);
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(entry.peek()).toMatchObject({ status: "success", data: 30, error: null });
+        expect(warn).not.toHaveBeenCalled();
+        release();
+        warn.mockRestore();
     });
 });
