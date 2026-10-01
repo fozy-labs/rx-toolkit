@@ -1,6 +1,7 @@
 import { Signal } from "../signals";
 
 import { unstable_ProxySignal as ProxySignal } from "./ProxySignal";
+import type { ProxyStateSignal } from "./types";
 
 type Shape = {
     user: { name: string; age: number };
@@ -722,6 +723,117 @@ describe("unstable_ProxySignal", () => {
             eff.unsubscribe();
             c.dispose();
             sub.unsubscribe();
+        });
+    });
+
+    describe("nested write from a lifecycle hook", () => {
+        /** A hook that writes back into the signal on a specific value, like a clamp/validation hook. */
+        const withNestedWrite = (
+            write: (s$: ProxyStateSignal<Shape>, value: Shape) => void,
+            options?: { name?: string },
+        ) => {
+            const nested = options?.name ?? "nested";
+            let s$: ProxyStateSignal<Shape>;
+            s$ = ProxySignal.state(makeShape(), {
+                hooks: [
+                    {
+                        onChange: (value: Shape) => {
+                            if (value.user.name === "outer") write(s$, { ...makeShape(), user: { name: nested, age: 40 } });
+                        },
+                    },
+                ],
+            });
+            return s$;
+        };
+
+        it("an effect on the path converges to the committed value, as with plain Signal.state", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            // The outer write assigns the root after the nested one, so it wins
+            // (plain Signal.state semantics); path readers must land there too.
+            expect(s$.peek().user.name).toBe("outer");
+            expect(names).toEqual(["Alice", "outer"]);
+            eff.unsubscribe();
+            s$.dispose();
+        });
+
+        it("an observed computed over the path converges to the committed value", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const c = Signal.compute(() => s$.root.user.name());
+            const seen: string[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            expect(s$.peek().user.name).toBe("outer");
+            expect(seen).toEqual(["Alice", "outer"]);
+            expect(c.peek()).toBe("outer");
+            eff.unsubscribe();
+            c.dispose();
+            s$.dispose();
+        });
+
+        it("an .obs subscriber reads fresh path values during both the nested and the outer delivery", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const c = Signal.compute(() => s$.root.user.name());
+            const eff = Signal.effect(() => {
+                c();
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe((value) => {
+                // The delivered root and the path nodes must agree at every delivery.
+                seen.push(`${value.user.name}:${s$.root.user.name()}:${c.peek()}`);
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            expect(seen).toEqual(["Alice:Alice:Alice", "nested:nested:nested", "outer:outer:outer"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+            s$.dispose();
+        });
+
+        it("a nested mutate from the hook converges the same way", () => {
+            const s$ = withNestedWrite((ps) => {
+                ps.mutate((draft) => {
+                    draft.user.name = "nested";
+                });
+            });
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "outer";
+            });
+            expect(s$.peek().user.name).toBe("outer");
+            expect(names).toEqual(["Alice", "outer"]);
+            eff.unsubscribe();
+            s$.dispose();
+        });
+
+        it("a throwing hook aborts the write before anything changes", () => {
+            const s$ = ProxySignal.state(makeShape(), {
+                hooks: [
+                    {
+                        onChange: () => {
+                            throw new Error("hook failed");
+                        },
+                    },
+                ],
+            });
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            expect(() => s$.set({ ...makeShape(), user: { name: "Bob", age: 40 } })).toThrow("hook failed");
+            expect(s$.peek().user.name).toBe("Alice");
+            expect(names).toEqual(["Alice"]);
+            eff.unsubscribe();
+            s$.dispose();
         });
     });
 
