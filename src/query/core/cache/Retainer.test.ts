@@ -263,6 +263,59 @@ describe("Retainer", () => {
         expect(opts.onMelting).toHaveBeenCalledTimes(1);
     });
 
+    // ==================== keepFor ====================
+
+    it("keepFor() puts off an eviction due within it to its end", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 0 });
+
+        retainer.keepFor(100);
+        retainer.hold()();
+        expect(retainer.isMelting).toBe(true);
+        expect(opts.onMelting).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(99);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("keepFor() reaches a retention timer already armed", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 10 });
+
+        retainer.hold()();
+        retainer.keepFor(100);
+
+        vi.advanceTimersByTime(99);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("keepFor() does not shorten a longer retention, nor a longer keepFor()", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 1000 });
+
+        retainer.keepFor(500);
+        retainer.keepFor(100);
+        retainer.hold()();
+
+        vi.advanceTimersByTime(999);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(opts.onExpire).toHaveBeenCalledTimes(1);
+    });
+
+    it("keepFor() neither holds nor arms: a never-held entry still never expires", () => {
+        const { retainer, opts } = createRetainer({ retentionTime: () => 0 });
+
+        retainer.keepFor(100);
+        expect(retainer.isMelting).toBe(true);
+        expect(opts.onActive).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+
+        vi.advanceTimersByTime(60_000);
+        expect(opts.onExpire).not.toHaveBeenCalled();
+    });
+
     // ==================== dispose ====================
 
     it("dispose() disarms the timer", () => {

@@ -268,7 +268,9 @@ export interface IResourceClutch<TArgs, TData, TError = unknown> {
      * became available (`hasData` — fresh, previous or placeholder) or the
      * query failed with nothing to show (`status === "error"`). With
      * `waitForDone` — once no query is in flight. Never rejects. Used by the
-     * Suspense hook to wake React after a suspended render.
+     * Suspense hook to wake React after a suspended render. Holds the entry
+     * while waiting; a settle on data then keeps it from eviction for 5 s, so
+     * the render it wakes finds it when it commits and holds.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void>;
     get args(): TArgs | null;

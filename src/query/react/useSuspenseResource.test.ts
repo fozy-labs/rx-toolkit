@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
+import { outsideAct, sleep, Slow, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TSuspenseResourceState } from "@/query/types";
@@ -190,7 +190,7 @@ describe("useSuspenseResource", () => {
         expect(screen.getByTestId("name").textContent).toBe("cached");
     });
 
-    it("does not suspend on an entry marked for revalidation: data renders at once and refreshes", async () => {
+    it("does not suspend on an entry marked for revalidation: the first render already shows the re-query", async () => {
         let call = 0;
         const api = createApi({ plugins: [reactHooksPlugin()] });
         const resource = api.createResource<{ id: number }, { name: string }>({
@@ -214,17 +214,56 @@ describe("useSuspenseResource", () => {
             render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
         });
 
-        // The marked data rendered without a fallback; the subscription started
-        // the re-query, which then delivered fresh data.
+        // The marked data rendered without a fallback, already as the re-query
+        // the subscription starts (row 6), which then delivered fresh data.
         expect(screen.queryByTestId("fallback")).toBeNull();
-        expect(seen[0]).toEqual({ name: "v1", isInvalidating: false });
+        expect(seen[0]).toEqual({ name: "v1", isInvalidating: true });
         await act(async () => {
             await flushMicrotasks();
             await flushMicrotasks();
         });
         expect(call).toBe(2);
-        expect(seen.some((s) => s.name === "v1" && s.isInvalidating)).toBe(true);
+        expect(seen.some((s) => s.name === "v1" && !s.isInvalidating)).toBe(false);
         expect(screen.getByTestId("name").textContent).toBe("v2");
+    });
+
+    it("suspends for the re-query a failed entry owes after invalidate(), instead of throwing the cleared error", async () => {
+        const errors: unknown[] = [];
+        vi.spyOn(console, "error").mockImplementation((error: unknown) => errors.push(error));
+        let fail = true;
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<{ id: number }, { name: string }>({
+            queryFn: async () => {
+                call++;
+                if (fail) throw new Error("old failure");
+                return { name: "fresh" };
+            },
+        });
+
+        // A failed entry nobody holds: invalidate() only marks it.
+        await resource.ensure({ id: 7 }).catch(() => {});
+        fail = false;
+        resource.invalidate({ id: 7 });
+        expect(resource.getEntry({ id: 7 })!.isInvalidated).toBe(true);
+
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 7 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+
+        render(shell(h(View)));
+        expect(screen.getByTestId("fallback")).toBeTruthy();
+
+        await act(async () => {
+            await flushMicrotasks();
+            await flushMicrotasks();
+        });
+
+        expect(call).toBe(2);
+        expect(screen.queryByTestId("boundary")).toBeNull();
+        expect(screen.getByTestId("name").textContent).toBe("fresh");
+        expect(errors).toEqual([]);
     });
 
     it("settles an args change made inside startTransition without a render loop", async () => {
@@ -271,6 +310,193 @@ describe("useSuspenseResource", () => {
         expect(renders).toBeLessThanOrEqual(4);
 
         await act(async () => {});
+    });
+});
+
+// ==================== Retention across a suspension ====================
+
+describe("useSuspenseResource — a short retentionTime", () => {
+    function setupShortRetention(retentionTime: number) {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            return { id, name: `user-${id}` };
+        });
+        const resource = api.createResource<TArgs, TUser>({ queryFn, retentionTime });
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        return { resource, queryFn, View };
+    }
+
+    // React commits the retry of a suspended render up to ~300 ms after the
+    // fallback showed; the wait's hold must last until the committed hook holds.
+    for (const retentionTime of [0, 50]) {
+        it(`retentionTime ${retentionTime}: the data the suspension waited for renders, loaded once`, async () => {
+            const { queryFn, View } = setupShortRetention(retentionTime);
+
+            await outsideAct(async () => {
+                render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
+                await sleep(800);
+            });
+
+            expect(screen.getByTestId("name").textContent).toBe("user-1");
+            expect(queryFn).toHaveBeenCalledTimes(1);
+        });
+    }
+
+    it("retentionTime 0 under a slow sibling tree: the data renders, loaded once", async () => {
+        const { queryFn, View } = setupShortRetention(0);
+
+        await outsideAct(async () => {
+            render(
+                h(
+                    React.Suspense,
+                    { fallback: suspenseFallback("fallback") },
+                    h(View),
+                    ...Array.from({ length: 6 }, (_, i) => h(Slow, { key: i, value: 1 })),
+                ),
+            );
+            await sleep(1500);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("user-1");
+        expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    // Anyone may hold the entry for a moment between the settle and the
+    // commit; letting go must not cost the render the entry it is about to show.
+    const shortHolds = {
+        ensure: (resource: ReturnType<typeof setupShortRetention>["resource"]) => resource.ensure({ id: 1 }),
+        prefetch: (resource: ReturnType<typeof setupShortRetention>["resource"]) => resource.prefetch({ id: 1 }),
+        "entry.hold()": (resource: ReturnType<typeof setupShortRetention>["resource"]) =>
+            resource.getEntry({ id: 1 })!.hold()(),
+    };
+    for (const [name, shortHold] of Object.entries(shortHolds)) {
+        it(`retentionTime 0 with a short ${name} before the commit: the data renders, loaded once`, async () => {
+            const { resource, queryFn, View } = setupShortRetention(0);
+
+            await outsideAct(async () => {
+                render(h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)));
+                await sleep(30);
+                await shortHold(resource);
+                await sleep(800);
+            });
+
+            expect(screen.getByTestId("name").textContent).toBe("user-1");
+            expect(queryFn).toHaveBeenCalledTimes(1);
+        });
+    }
+
+    // Nothing commits a failure with nothing to show: the render it wakes
+    // throws to the Error Boundary. The entry follows the policy from the settle.
+    it("a failure evicted at once by the policy is queried again when the boundary remounts", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        let fail = true;
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            if (fail) throw new Error("boom");
+            return { id, name: `user-${id}` };
+        });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn,
+            retentionTime: (_args, state) => (state.hasError ? 0 : 60_000),
+        });
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        const tree = (attempt: number) =>
+            h(
+                ErrorBoundary,
+                { key: attempt, fallback: h("span", { "data-testid": "boundary" }, "boom") },
+                h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)),
+            );
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await outsideAct(async () => {
+            const { rerender } = render(tree(0));
+            await sleep(800);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+
+            fail = false;
+            rerender(tree(1));
+            await sleep(800);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("user-1");
+        expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+});
+
+// ==================== A retained failure across an Error Boundary reset ====================
+
+describe("useSuspenseResource — a retained failure across an Error Boundary reset", () => {
+    // The default retention keeps a failure: once the boundary shows, nobody
+    // holds the entry, but its 60 s are far from over at the reset.
+    function setupDefaultRetention(queryFn: (args: TArgs) => Promise<TUser>) {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({ queryFn });
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        const tree = (attempt: number) =>
+            h(
+                ErrorBoundary,
+                { key: attempt, fallback: h("span", { "data-testid": "boundary" }, "boom") },
+                h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)),
+            );
+        return { resource, tree };
+    }
+
+    it("re-queries the retained failure when the boundary remounts, instead of re-throwing it", async () => {
+        let fail = true;
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            if (fail) throw new Error("boom");
+            return { id, name: `user-${id}` };
+        });
+        const { resource, tree } = setupDefaultRetention(queryFn);
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await outsideAct(async () => {
+            const { rerender } = render(tree(0));
+            await sleep(300);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+            expect(resource.getEntry({ id: 1 })!.peek().status).toBe("error");
+
+            fail = false;
+            rerender(tree(1));
+            await sleep(800);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("user-1");
+        expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws the fresh failure when the re-query after the reset fails again, without looping", async () => {
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            throw new Error(`boom-${id}`);
+        });
+        const { tree } = setupDefaultRetention(queryFn);
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await outsideAct(async () => {
+            const { rerender } = render(tree(0));
+            await sleep(300);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+
+            rerender(tree(1));
+            await sleep(800);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+        });
+
+        // One re-query per reset: the fresh failure reaches the boundary, it
+        // is not retried forever behind the fallback.
+        expect(queryFn).toHaveBeenCalledTimes(2);
     });
 });
 

@@ -141,6 +141,14 @@ export class CacheEntry<TState> implements ICacheEntry<TState> {
         return this._retainer.hold();
     }
 
+    /**
+     * @internal Do not evict the entry within `ms` from now, whoever holds and
+     * lets go meanwhile (see `Retainer.keepFor`).
+     */
+    _keepFor(ms: number): void {
+        this._retainer.keepFor(ms);
+    }
+
     /** Non-reactive read */
     peek(): TState {
         return this._state$.peek();

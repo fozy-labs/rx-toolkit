@@ -75,7 +75,10 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
         this._pages$ = Signal.state(pages, { isDisabled: true });
     }
 
-    /** Start every not-yet-started page. Runs in a layout effect after each render. */
+    /**
+     * Start every not-yet-started page. Runs in a layout effect once the feed
+     * is committed, and again when it comes back (StrictMode, `<Activity>`).
+     */
     start(): void {
         this._isStarted = true;
         for (const page of this._pages$.peek()) {
@@ -84,6 +87,17 @@ class InfiniteFeedStore<TArgs, TItem, TError> {
                 page.clutch.start();
             }
         }
+    }
+
+    /**
+     * The feed left the screen: unmounted, hidden, or replaced by new initial
+     * args. A `fetchNext` kept past this point still appends its page, but
+     * only {@link start} queries it: nobody observes the feed, so a started
+     * page would create a cache entry nobody ever holds — one that never
+     * expires.
+     */
+    stop(): void {
+        this._isStarted = false;
     }
 
     /** See {@link TInfiniteResourceState.fetchNext}. */
@@ -287,6 +301,7 @@ export function useInfiniteResource<TArgs, TItem, TError = unknown>(
 
     useIsomorphicLayoutEffect(() => {
         store.start();
+        return () => store.stop();
     }, [store]);
 
     const pages = useSignal(store.pagesState$);
