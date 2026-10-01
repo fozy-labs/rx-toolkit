@@ -894,6 +894,51 @@ describe("engine robustness", () => {
             effect.unsubscribe();
         });
 
+        it("a peek of an observed computed through a cold one", () => {
+            const { flag, c, effect, live } = arrange();
+            const cold = Signal.compute(() => c());
+            let read = -1;
+            let liveAtRead = -1;
+
+            Batcher.run(() => {
+                flag.set(true);
+                read = cold.peek();
+                liveAtRead = live();
+                flag.set(false);
+            });
+
+            expect(read).toBe(1);
+            expect(liveAtRead).toBe(0);
+            expect(live()).toBe(0);
+            effect.unsubscribe();
+        });
+
+        it("a read through a cold computed neither stops nor restarts the upstream an observed computed holds", () => {
+            let starts = 0;
+            let stops = 0;
+            const upstream = SourceSignal.create<number>((subscriber) => {
+                starts++;
+                subscriber.next(1);
+                return () => stops++;
+            });
+            const flag = Signal.state(false);
+            const c = Signal.compute(() => (flag() ? 0 : upstream()));
+            const effect = Signal.effect(() => {
+                c();
+            });
+            const cold = Signal.compute(() => c());
+            starts = 0;
+
+            Batcher.run(() => {
+                flag.set(true);
+                expect(cold.peek()).toBe(0);
+                flag.set(false);
+            });
+
+            expect({ starts, stops }).toEqual({ starts: 0, stops: 0 });
+            effect.unsubscribe();
+        });
+
         it("the first value of a new .obs subscriber of an observed computed, which later writes of the batch still reach", () => {
             const { flag, c, effect } = arrange();
             const other = Signal.state(0);

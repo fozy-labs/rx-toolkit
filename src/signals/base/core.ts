@@ -962,9 +962,27 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
      * until a reaction reads it. Otherwise the batch's intermediate state
      * would start and stop what the computed observes (a cache entry's hold,
      * an upstream subscription) before the batch is over.
+     *
+     * A cold computed is computed for this read only as well: a real
+     * `_refresh()` would commit the batch's intermediate state — its own
+     * sources, and, once its evaluation becomes the tracking context, the
+     * sources of every observed computed it reads. Keeping the evaluation
+     * untracked routes those nested reads back here, so a read reaches the
+     * same fresh value through a cold computed without churning anything.
      */
     private _readInBatch(): T {
-        if ((this._flags & (OUTDATED | TRACKING | RETRY)) !== (OUTDATED | TRACKING) || flushing || draining) {
+        const flags = this._flags;
+        if ((flags & (OUTDATED | TRACKING | RETRY)) !== (OUTDATED | TRACKING) || flushing || draining) {
+            if ((flags & TRACKING) === 0 && !flushing && !draining) {
+                // Still valid: nothing was written since it computed (an error or
+                // a RETRY mark is recomputed, as a real read would retry it).
+                if ((flags & (OUTDATED | RETRY | HAS_ERROR)) === 0 && this._globalVersion === globalVersion) {
+                    return this._value as T;
+                }
+                if (this._batchStamp !== globalVersion) this._computeInBatch();
+                if (this._batchError !== NONE) throw this._batchError;
+                return this._batchValue as T;
+            }
             this._refresh();
             if ((this._flags & HAS_ERROR) !== 0) throw this._error;
             return this._value as T;
