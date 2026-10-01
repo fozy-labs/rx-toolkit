@@ -74,15 +74,18 @@ type Meta = {
  *   throttled touch-on-read and by the periodic live-slot re-touch);
  * - `ttl` — `null` = slot is GC-exempt, number = per-slot `maxUnreadTime`,
  *   absent = `LOCAL_STATE_GC_DEFAULTS.maxUnreadTime` applies at sweep time;
- * - `data` — the stored value; absent when it is `undefined` (JSON drops it).
+ * - `data` — the stored value; absent when it is `undefined` (JSON drops it);
+ * - `out` — `true` marks `data` as a ready value (a schema's output written
+ *   by `set()`), trusted on load instead of being validated as schema input.
  */
 type Envelope = {
     at: number;
     ttl?: number | null;
     data: unknown;
+    out?: true;
 };
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -108,6 +111,7 @@ function toEnvelope(json: unknown): Envelope | null {
     const envelope: Envelope = { at: json.at, data: json.data };
 
     if (ttl !== undefined) envelope.ttl = ttl;
+    if (json.out === true) envelope.out = true;
 
     return envelope;
 }
@@ -222,7 +226,7 @@ export class LocalStateStorage {
         this._armLiveTouchTimer(interval);
     }
 
-    readSlot(storageKey: string, ttl: SlotTtl): { found: false } | { found: true; data: unknown } {
+    readSlot(storageKey: string, ttl: SlotTtl): { found: false } | { found: true; data: unknown; out?: true } {
         const raw = this._driver.getItem(storageKey);
 
         if (raw === null) return { found: false };
@@ -242,16 +246,16 @@ export class LocalStateStorage {
         // did (e.g. QuotaExceededError).
         if (this._needsTouch(envelope, ttl, Date.now()) && this._refreshOwnership()) {
             try {
-                this.writeSlot(storageKey, envelope.data, ttl);
+                this.writeSlot(storageKey, envelope.data, ttl, envelope.out);
             } catch {
                 // The value itself was read successfully — serve it.
             }
         }
 
-        return { found: true, data: envelope.data };
+        return { found: true, data: envelope.data, out: envelope.out };
     }
 
-    writeSlot(storageKey: string, data: unknown, ttl: SlotTtl) {
+    writeSlot(storageKey: string, data: unknown, ttl: SlotTtl, out?: true) {
         // A slot outlives the next init only under a valid meta — without one
         // the namespace reads as an unknown format and is wiped. The meta can
         // vanish mid-session (localStorage.clear() on logout): re-mark first.
@@ -262,6 +266,7 @@ export class LocalStateStorage {
         // `undefined` means "default policy" and is omitted, so changing the
         // default later applies to already stored slots as well.
         if (ttl !== undefined) envelope.ttl = ttl;
+        if (out) envelope.out = true;
 
         this._driver.setItem(storageKey, JSON.stringify(envelope));
     }
@@ -506,7 +511,7 @@ export class LocalStateStorage {
             if (!envelope || !this._needsTouch(envelope, ttl, now)) continue;
 
             try {
-                this.writeSlot(storageKey, envelope.data, ttl);
+                this.writeSlot(storageKey, envelope.data, ttl, envelope.out);
             } catch {
                 // Best-effort per slot: one failed write (size-dependent
                 // quota) must not leave the remaining slots un-refreshed.

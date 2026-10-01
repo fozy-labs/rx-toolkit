@@ -4,6 +4,7 @@ import { type SignalOptionsOrKey } from "@/signals/types";
 import { Computed } from "./Computed";
 import {
     GC_OPTIONS,
+    isPlainRecord,
     KEY_PREFIX,
     LOCAL_STATE_GC_DEFAULTS,
     LocalStateStorage,
@@ -31,6 +32,14 @@ export type LocalStateOptions<T> = {
      * (zod, valibot, arktype, ...). The schema output becomes the value;
      * a failure (issues or a throw) drops the slot and falls back to `defaultValue`. Must be
      * synchronous: an async schema is reported and the stored value ignored.
+     *
+     * Values written by `set()` are stored as the ready value (the schema's
+     * output) and trusted on load — validation covers only data not written
+     * by this code, so a transforming schema (`transform`, `z.date()`,
+     * coercion) does not reject the signal's own writes. Dates survive
+     * storage (nested included); other values must be JSON-serializable.
+     * When changing the schema incompatibly, change `key`: trusted
+     * self-writes are not re-checked against the new schema.
      */
     schema?: StandardSchemaV1<unknown, T>;
     key: string;
@@ -63,6 +72,58 @@ function resolveDefaultDriver(): StorageLike | null {
 /** Duck-typed on purpose: a thenable from another realm fails `instanceof Promise`. */
 function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
     return typeof (value as { then?: unknown } | null)?.then === "function";
+}
+
+const DATE_TAG = "__LSDate__";
+
+function isDateTag(value: Record<string, unknown>): value is { [DATE_TAG]: string } {
+    return typeof value[DATE_TAG] === "string" && Object.keys(value).length === 1;
+}
+
+/**
+ * Folds `Date` instances (nested included) into tagged plain objects so a
+ * schema-written value survives JSON storage; undone by `decodeDates` on the
+ * trusted load path. Returns a fresh structure — the stored representation
+ * never aliases the in-memory value.
+ */
+function encodeDates(value: unknown): unknown {
+    if (value instanceof Date) return { [DATE_TAG]: value.toJSON() };
+
+    if (Array.isArray(value)) return value.map(encodeDates);
+
+    if (isPlainRecord(value)) {
+        const result: Record<string, unknown> = {};
+
+        for (const [key, entry] of Object.entries(value)) {
+            result[key] = encodeDates(entry);
+        }
+
+        return result;
+    }
+
+    return value;
+}
+
+/** Undoes `encodeDates`; a malformed tag is left as data, not revived. */
+function decodeDates(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(decodeDates);
+
+    if (isPlainRecord(value)) {
+        if (isDateTag(value)) {
+            const time = Date.parse(value[DATE_TAG]);
+            if (!Number.isNaN(time)) return new Date(time);
+        }
+
+        const result: Record<string, unknown> = {};
+
+        for (const [key, entry] of Object.entries(value)) {
+            result[key] = decodeDates(entry);
+        }
+
+        return result;
+    }
+
+    return value;
 }
 
 /**
@@ -147,7 +208,15 @@ export class LocalState<T = string | null | number | undefined> {
     }
 
     set(value: T, actionName?: string) {
-        this._storage.writeSlot(this._storageKey, value, this._slotTtl);
+        // With a schema, storage keeps the ready value (the schema's output
+        // domain), marked as such: revalidating it on load as schema INPUT
+        // would reject the signal's own writes under a transforming schema.
+        if (this._options.schema) {
+            this._storage.writeSlot(this._storageKey, encodeDates(value), this._slotTtl, true);
+        } else {
+            this._storage.writeSlot(this._storageKey, value, this._slotTtl);
+        }
+
         this._state$.set(value, actionName);
     }
 
@@ -172,6 +241,12 @@ export class LocalState<T = string | null | number | undefined> {
         const slot = this._storage.readSlot(this._storageKey, this._slotTtl);
 
         if (!slot.found) return NONE;
+
+        // Written by set() of this format: already the ready value (the
+        // schema's output domain) — serve it without revalidation. Only data
+        // NOT written by this code (older versions, foreign writers) goes
+        // through the schema below.
+        if (slot.out) return decodeDates(slot.data) as T;
 
         if (!options.schema) return slot.data as T;
 

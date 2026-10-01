@@ -323,6 +323,71 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it("a value written by set() survives reload under a transforming schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const schema = z.string().transform((v) => v.split(","));
+
+            seedStorage("rt", "a,b");
+            const s = LocalSignal.state<string[]>({ key: "rt", schema, defaultValue: [] });
+            expect(s.peek()).toEqual(["a", "b"]);
+
+            s.set(["x", "y"]);
+
+            const reloaded = LocalSignal.state<string[]>({ key: "rt", schema, defaultValue: [] });
+            expect(reloaded.peek()).toEqual(["x", "y"]);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("a Date written by set() survives reload under a z.date() schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const date = new Date("2024-05-06T07:08:09.000Z");
+
+            const s = LocalSignal.state({ key: "dt", schema: z.date(), defaultValue: new Date(0) });
+            s.set(date);
+
+            const reloaded = LocalSignal.state({ key: "dt", schema: z.date(), defaultValue: new Date(0) });
+            expect(reloaded.peek()).toEqual(date);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("nested Dates written by set() survive reload under a schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const schema = z.object({ at: z.date(), tags: z.array(z.date()) });
+            const value = { at: new Date("2024-01-02T03:04:05.000Z"), tags: [new Date(0)] };
+
+            const s = LocalSignal.state({ key: "ndt", schema, defaultValue: { at: new Date(0), tags: [] } });
+            s.set(value);
+
+            const reloaded = LocalSignal.state({ key: "ndt", schema, defaultValue: { at: new Date(0), tags: [] } });
+            expect(reloaded.peek()).toEqual(value);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("a gc-policy re-stamp keeps a schema-written value trusted", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const driver = createMarkedDriver();
+            const schema = z.string().transform((v) => v.split(","));
+
+            const s = LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver });
+            s.set(["x"]);
+
+            // A different gc policy rewrites the envelope on the next load.
+            LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver, gc: false });
+            expect(JSON.parse(driver.getItem(storageKey("pol"))!).out).toBe(true);
+
+            const reloaded = LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver, gc: false });
+            expect(reloaded.peek()).toEqual(["x"]);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
         it("a schema that throws on stored data → defaultValue, the slot is dropped, construction does not throw", () => {
             seedStorage("throws", { a: null });
             const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
