@@ -13,14 +13,16 @@ export type StateValue = string | StateValueMap;
 
 export type SnapshotStatus = "active" | "done" | "error" | "stopped";
 
-interface MachineSnapshotBase<TContext extends MachineContext> {
+// A type alias, not an interface: an interface has no name a consumer's declaration
+// could use, and declaration emit cannot inline one (see `types/index.ts`).
+type MachineSnapshotBase<TContext extends MachineContext> = {
     /** The current state value, computed from the active state nodes. */
     readonly value: StateValue;
     /** The current extended state. */
     readonly context: TContext;
     /** Tags of every active state node (deduplicated, document order). */
     readonly tags: readonly string[];
-}
+};
 
 export interface ActiveMachineSnapshot<TContext extends MachineContext> extends MachineSnapshotBase<TContext> {
     readonly status: "active";

@@ -55,6 +55,13 @@ export type LocalStateOptions<T> = {
 const NONE = Symbol("NONE");
 
 /**
+ * The shape of the global GC tuning object (`LocalState.GC_OPTIONS`). Module-local, so a
+ * consumer's declaration inlines it: annotating the accessor with `typeof GC_OPTIONS`
+ * would point into `LocalStateStorage`, a module the package root does not publish.
+ */
+type GlobalGcOptions = { syncLimit: number; checkInterval: number; randomOffset: number };
+
+/**
  * `typeof localStorage` guards only against an *undeclared* identifier. In a
  * browser `localStorage` is a defined accessor on `window`, so `typeof` still
  * invokes the getter — which throws `SecurityError` in a sandboxed iframe
@@ -291,11 +298,11 @@ export class LocalState<T = string | null | number | undefined> {
     static DEFAULT_DRIVER = resolveDefaultDriver();
 
     /** Global GC tuning: `checkInterval` / `randomOffset` in ms, `syncLimit` in keys. */
-    static get GC_OPTIONS(): typeof GC_OPTIONS {
+    static get GC_OPTIONS(): GlobalGcOptions {
         return GC_OPTIONS;
     }
 
-    static set GC_OPTIONS(value: typeof GC_OPTIONS) {
+    static set GC_OPTIONS(value: GlobalGcOptions) {
         // The GC engine reads the module-level object; replacing the reference
         // would silently disconnect it, so assignment mutates it in place.
         Object.assign(GC_OPTIONS, value);

@@ -9,7 +9,14 @@ import type {
     StateInGuard,
     StateValue,
 } from "./types";
-import type { DoNotInfer } from "./types/common";
+
+/**
+ * Blocks inference without wrapping the type (the native `NoInfer` survives
+ * instantiation as a wrapper and breaks distributive conditionals and discriminated
+ * object-literal checks in this module). Module-local so a consumer's declaration
+ * inlines it (see `types/index.ts`).
+ */
+type DoNotInfer<T> = [T][T extends any ? 0 : any];
 
 /**
  * Builtin guard combinators. Like XState they return frozen *functions* (named

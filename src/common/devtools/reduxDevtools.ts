@@ -2,14 +2,18 @@ import { scheduleAfterFlush } from "@/signals/base/core";
 
 import { DevtoolsLike } from "./types";
 
-interface ReduxDevtoolsExtension {
+// Structural types of the browser extension stay module-local type aliases (not
+// interfaces): an interface has no name a consumer's declaration could use, and
+// declaration emit cannot inline one — a consumer inferring `Options["driver"]`
+// would fail with TS4058.
+type ReduxDevtoolsExtension = {
     connect(options: { name: string }): ReduxDevtoolsConnection;
-}
+};
 
-interface ReduxDevtoolsConnection {
+type ReduxDevtoolsConnection = {
     init(state: any): void;
     send(action: any, state: any): void;
-}
+};
 
 /**
  * Стратегия батчинга обновлений:

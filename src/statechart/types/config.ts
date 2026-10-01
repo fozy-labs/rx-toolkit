@@ -1,7 +1,24 @@
 import type { Actions } from "./actions";
-import type { DoNotInfer, MachineContext, MetaObject, NonReducibleUnknown, SingleOrArray } from "./common";
+import type { MachineContext, MetaObject } from "./common";
 import type { DoneStateEvent, EventDescriptor, EventObject, ExtractEvent } from "./events";
 import type { Guard } from "./guards";
+
+// Inference helpers are module-local in every file that uses them: a consumer's
+// declaration inlines them, while an exported helper the root leaves out gets a
+// non-portable file-path reference (TS2742) — see `types/index.ts`.
+
+/**
+ * Blocks inference without wrapping the type (the native `NoInfer` survives
+ * instantiation as a wrapper and breaks distributive conditionals and discriminated
+ * object-literal checks in this module).
+ */
+type DoNotInfer<T> = [T][T extends any ? 0 : any];
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
+
+type SingleOrArray<T> = readonly T[] | T;
 
 export type StateNodeType = "atomic" | "compound" | "parallel" | "final" | "history";
 

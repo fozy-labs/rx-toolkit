@@ -1,6 +1,14 @@
 import { BUILTIN } from "./brand";
-import type { MachineContext, NonReducibleUnknown, SingleOrArray } from "./common";
+import type { MachineContext } from "./common";
 import type { EventObject } from "./events";
+
+// Module-local inference helpers, so a consumer's declaration inlines them (see `types/index.ts`).
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
+
+type SingleOrArray<T> = readonly T[] | T;
 
 /** The argument object passed to every action, guard, delay and output function. */
 export interface ActionArgs<TContext extends MachineContext, TExpressionEvent extends EventObject> {

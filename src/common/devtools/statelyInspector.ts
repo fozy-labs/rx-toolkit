@@ -30,7 +30,9 @@ export const STATELY_DISCONNECTED_MESSAGE_TYPE = "@statelyai.disconnected";
 
 const DEFAULT_MAX_DEFERRED_EVENTS = 200;
 
-interface StatelyInspectionEventBase {
+// A type alias, not an interface: an interface has no name a consumer's declaration
+// could use, and declaration emit cannot inline one (see reduxDevtools.ts).
+type StatelyInspectionEventBase = {
     readonly _version: string;
     readonly sessionId: string;
     /** `Date.now().toString()` */
@@ -38,7 +40,7 @@ interface StatelyInspectionEventBase {
     readonly id: null;
     /** Session id of the root actor; every `Statechart` is its own root. */
     readonly rootId: string;
-}
+};
 
 export interface StatelyActorEvent extends StatelyInspectionEventBase {
     readonly type: "@xstate.actor";
