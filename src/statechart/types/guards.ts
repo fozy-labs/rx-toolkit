@@ -1,8 +1,12 @@
 import type { ActionArgs, BuiltinCallable, DynamicParams } from "./actions";
 import { BUILTIN } from "./brand";
-import type { MachineContext, NonReducibleUnknown } from "./common";
+import type { MachineContext } from "./common";
 import type { EventObject } from "./events";
 import type { StateValue } from "./stateValue";
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
 
 /** Guards receive the same `{ context, event }` object as actions. */
 export type GuardArgs<TContext extends MachineContext, TExpressionEvent extends EventObject> = ActionArgs<

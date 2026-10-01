@@ -40,7 +40,9 @@ import { isPlainObject } from "../core/utils";
 import { getMachineModel, type MachineDefinition } from "../MachineDefinition";
 import type { EventObject, MachineContext, StateValue } from "../types";
 import { BUILTIN } from "../types/brand";
-import type { SingleOrArray } from "../types/common";
+
+/** Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
+type SingleOrArray<T> = readonly T[] | T;
 
 export interface ToMermaidOptions {
     /** Diagram direction. @default "TB" */

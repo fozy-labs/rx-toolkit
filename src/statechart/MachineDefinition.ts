@@ -12,7 +12,21 @@ import type {
     MachineImplementations,
     ResolvedMachineImplementations,
 } from "./types";
-import type { DeepReadonly } from "./types/common";
+
+/**
+ * Read-only view of a deep-frozen value: plain objects and arrays become read-only
+ * all the way down, functions (including the builtin creators, which are functions)
+ * and primitives are left as they are. Mirrors what `deepFreeze` does at runtime to
+ * `MachineDefinition.config`. Module-local so a consumer's declaration inlines it
+ * (see `types/index.ts`).
+ */
+type DeepReadonly<T> = T extends (...args: never[]) => unknown
+    ? T
+    : T extends readonly (infer U)[]
+      ? readonly DeepReadonly<U>[]
+      : T extends object
+        ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+        : T;
 
 const IMPLEMENTATION_TABLES = ["actions", "guards", "delays"] as const;
 

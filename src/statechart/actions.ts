@@ -14,7 +14,18 @@ import type {
     RaiseActionOptions,
     SendExpr,
 } from "./types";
-import type { DoNotInfer, NonReducibleUnknown } from "./types/common";
+
+/**
+ * Blocks inference without wrapping the type (the native `NoInfer` survives
+ * instantiation as a wrapper and breaks distributive conditionals and discriminated
+ * object-literal checks in this module). Module-local so a consumer's declaration
+ * inlines it (see `types/index.ts`).
+ */
+type DoNotInfer<T> = [T][T extends any ? 0 : any];
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local, as above. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
 
 /**
  * Builtin action creators. Like XState they return frozen *functions* (named

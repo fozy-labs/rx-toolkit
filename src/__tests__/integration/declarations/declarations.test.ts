@@ -24,14 +24,12 @@ const ROOT = resolve(HERE, "../../../..");
 const WORK = join(ROOT, ".tmp/declarations");
 const PACKAGE = join(WORK, "node_modules/@fozy-labs/rx-toolkit");
 const CONSUMER = join(WORK, "consumer");
-const CONSUMERS = ["form", "query", "signals", "common"];
+const CONSUMERS = ["form", "query", "signals", "common", "statechart"];
 /**
  * The modules whose published types are checked for unnamable references (package-relative):
- * the ones the rule of `types/index.ts` was applied to. statechart stays out for now:
- * its machinery aliases are reachable from a consumer declaration (`MachineDefinition.config`
- * infers through them, TS2742), and publishing or restructuring them is a surface decision.
+ * the ones the rule of `types/index.ts` was applied to.
  */
-const NAMED_MODULES = ["dist/form", "dist/query", "dist/signals", "dist/common"];
+const NAMED_MODULES = ["dist/form", "dist/query", "dist/signals", "dist/common", "dist/statechart"];
 const TSC = join(ROOT, "node_modules/typescript/bin/tsc");
 const TSC_ALIAS = join(ROOT, "node_modules/tsc-alias/dist/bin/index.js");
 

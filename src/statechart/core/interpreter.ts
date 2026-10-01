@@ -31,7 +31,10 @@ import type {
     StateValue,
 } from "../types";
 import { BUILTIN } from "../types/brand";
-import type { NonReducibleUnknown } from "../types/common";
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
 
 import {
     areStateNodeCollectionsEqual,
