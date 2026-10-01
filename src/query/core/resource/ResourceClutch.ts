@@ -292,6 +292,20 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
+     * @internal `invalidate` of the tracked entry without the row guard of
+     * {@link invalidate} — the guard speaks for a consumer that keeps the
+     * state on screen; this one is for `useSuspenseResource` throwing a
+     * failure with nothing to show to an Error Boundary. The throw consumes
+     * the failure, and the mark is what keeps it consumed: a marked melting
+     * entry re-validates on its next hold, so the remount after the
+     * boundary's reset re-queries instead of replaying a failure that was
+     * already thrown.
+     */
+    _invalidateEntry = (): void => {
+        this._tracking$.peek()?.current$.peek()?.invalidate();
+    };
+
+    /**
      * Promise resolving once the clutch has something to render, or with
      * `waitForDone` once no query is in flight (see
      * {@link IResourceClutch.whenSettled}).

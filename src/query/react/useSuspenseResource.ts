@@ -1,5 +1,7 @@
 import type { IResource, TArgsOrVoid, TSuspenseResourceState } from "@/query/types";
 
+import { ResourceClutch } from "../core/resource";
+
 import { useResourceClutch, useResourceClutchState } from "./useResourceClutch";
 
 /**
@@ -11,7 +13,10 @@ import { useResourceClutch, useResourceClutchState } from "./useResourceClutch";
  * 1. `hasData` — anything to show (fresh, previous or placeholder data) is
  *    returned, so `data` is guaranteed non-null;
  * 2. `status === "error"` — a failure with nothing to show is thrown → the
- *    nearest Error Boundary catches it;
+ *    nearest Error Boundary catches it. The throw consumes the failure: the
+ *    entry is marked for revalidation, so the remount after the boundary's
+ *    reset re-queries (suspends on the re-query it is owed, step 3) instead
+ *    of replaying a failure that was already thrown;
  * 3. otherwise the query is in flight with nothing to show: a promise is thrown
  *    → the nearest `<Suspense fallback>` is shown until the clutch settles.
  *
@@ -41,8 +46,15 @@ export function useSuspenseResource<TArgs, TData, TError = unknown>(
         return state;
     }
 
-    // 2. Failed with nothing to fall back on → let an Error Boundary handle it.
+    // 2. Failed with nothing to fall back on → let an Error Boundary handle
+    //    it. Mark the entry for revalidation in a microtask: invalidate() of
+    //    a held entry runs user code (queryFn), which must not run in this
+    //    render; of a melting one it only sets the mark — and the entry is
+    //    melting here, the render about to throw holds nothing.
     if (state.status === "error") {
+        if (clutch instanceof ResourceClutch) {
+            queueMicrotask(() => clutch._invalidateEntry());
+        }
         throw state.error;
     }
 

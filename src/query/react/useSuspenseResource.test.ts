@@ -430,6 +430,76 @@ describe("useSuspenseResource — a short retentionTime", () => {
     });
 });
 
+// ==================== A retained failure across an Error Boundary reset ====================
+
+describe("useSuspenseResource — a retained failure across an Error Boundary reset", () => {
+    // The default retention keeps a failure: once the boundary shows, nobody
+    // holds the entry, but its 60 s are far from over at the reset.
+    function setupDefaultRetention(queryFn: (args: TArgs) => Promise<TUser>) {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({ queryFn });
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+        const tree = (attempt: number) =>
+            h(
+                ErrorBoundary,
+                { key: attempt, fallback: h("span", { "data-testid": "boundary" }, "boom") },
+                h(React.Suspense, { fallback: suspenseFallback("fallback") }, h(View)),
+            );
+        return { resource, tree };
+    }
+
+    it("re-queries the retained failure when the boundary remounts, instead of re-throwing it", async () => {
+        let fail = true;
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            if (fail) throw new Error("boom");
+            return { id, name: `user-${id}` };
+        });
+        const { resource, tree } = setupDefaultRetention(queryFn);
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await outsideAct(async () => {
+            const { rerender } = render(tree(0));
+            await sleep(300);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+            expect(resource.getEntry({ id: 1 })!.peek().status).toBe("error");
+
+            fail = false;
+            rerender(tree(1));
+            await sleep(800);
+        });
+
+        expect(screen.getByTestId("name").textContent).toBe("user-1");
+        expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws the fresh failure when the re-query after the reset fails again, without looping", async () => {
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            throw new Error(`boom-${id}`);
+        });
+        const { tree } = setupDefaultRetention(queryFn);
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await outsideAct(async () => {
+            const { rerender } = render(tree(0));
+            await sleep(300);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+
+            rerender(tree(1));
+            await sleep(800);
+            expect(screen.getByTestId("boundary")).toBeTruthy();
+        });
+
+        // One re-query per reset: the fresh failure reaches the boundary, it
+        // is not retried forever behind the fallback.
+        expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+});
+
 // ==================== A pure render ====================
 
 describe("useSuspenseResource — render stays pure", () => {
