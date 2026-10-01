@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock, type MockIn
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { SKIP } from "@/query/constants";
 import { Resource } from "@/query/core/resource/Resource";
+import { ResourceClutch } from "@/query/core/resource/ResourceClutch";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type { IResourceClutch, IResourceConfig, TResourceClutchState } from "@/query/types";
 import { Batcher } from "@/signals/base/Batcher";
@@ -228,8 +229,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    // Always unsubscribe effects BEFORE any resource.reset() to avoid
-    // infinite reactive loop in getEntry$(args, true) re-creation.
     while (_effects.length) _effects.pop()!.unsubscribe();
     warn.mockRestore();
 });
@@ -946,6 +945,74 @@ describe("ResourceClutch.whenSettled", () => {
         await expect(t.clutch.whenSettled()).resolves.toBeUndefined();
     });
 
+    describe("keeps the entry for 5 s after a settle on data", () => {
+        function settledOnEvictingResource(queryFn: (n: number) => Promise<string> = async (n) => `d-${n}`) {
+            const resource = new Resource<number, string>({
+                retentionTime: 0,
+                serializeArgs: stableStringify as (args: number) => string,
+                queryFn,
+            });
+            const clutch = resource.createClutch();
+            clutch.switch(1);
+            clutch.start();
+            return { resource, settled: clutch.whenSettled() };
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("without any hold, the entry is evicted 5 s after the settle", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+
+            await vi.advanceTimersByTimeAsync(4999);
+            expect(resource.getEntry(1)).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(2);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("a hold taken and let go in between does not cut it short", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+            await vi.advanceTimersByTimeAsync(30);
+
+            resource.getEntry(1)!.hold()();
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(resource.getEntry(1)).not.toBeNull();
+
+            await vi.advanceTimersByTimeAsync(4000);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("a hold past the 5 s follows the policy from its release", async () => {
+            const { resource, settled } = settledOnEvictingResource();
+            await settled;
+
+            const release = resource.getEntry(1)!.hold();
+            await vi.advanceTimersByTimeAsync(6000);
+            expect(resource.getEntry(1)).not.toBeNull();
+
+            release();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+
+        it("a failure with nothing to show is not kept: the policy stands", async () => {
+            const { resource, settled } = settledOnEvictingResource(async () => {
+                throw new Error("boom");
+            });
+            await settled;
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(resource.getEntry(1)).toBeNull();
+        });
+    });
+
     it("does not resolve on a retry with nothing to show (row 10)", async () => {
         const t = harness({ placeholder: false });
         await driveTo(t, 10);
@@ -1073,6 +1140,23 @@ describe("ResourceClutch.switch(SKIP)", () => {
         t.clutch.switch(2);
 
         expectRow(t.state(), 2, { args: 2 });
+    });
+
+    it("drops adopted previous data on a clutch that tracks no args yet", async () => {
+        const t = harness();
+        await driveTo(t, 5);
+
+        // The React hooks' sequence: a clutch per args adopts from the committed one.
+        const skipped = t.resource.createClutch();
+        skipped.adoptPrevious(t.clutch);
+        skipped.switch(SKIP, { markPending: true });
+
+        const next = t.resource.createClutch();
+        const nextState = observe(next);
+        next.adoptPrevious(skipped);
+        next.switch(2, { markPending: true });
+
+        expectRow(nextState(), 2, { args: 2 });
     });
 });
 
@@ -1360,6 +1444,71 @@ describe("ResourceClutch — a read inside a batch", () => {
 // holds an entry created for a clutch that is not observed, and an entry that
 // was never held never expires — so the clutch creates it only while its
 // state$ has subscribers.
+
+describe("ResourceClutch — a read before the subscription, on an entry marked while nobody held it", () => {
+    /** An entry of args 5 settled through `ensure` — nobody holds it afterwards. */
+    async function settledEntry(t: Harness, outcome: "ok" | "fail"): Promise<void> {
+        const loaded = t.resource.ensure(5).catch(() => {});
+        if (outcome === "ok") await t.ok("E5");
+        else await t.fail(FAIL_1);
+        await loaded;
+        expect(t.resource.getEntry(5)!.isMelting).toBe(true);
+    }
+
+    function coldClutch(t: Harness): IResourceClutch<number, string> {
+        const clutch = t.resource.createClutch();
+        clutch.switch(5, { markPending: true });
+        return clutch;
+    }
+
+    it("reports the re-query the subscription starts: success → row 6", async () => {
+        const t = harness();
+        await settledEntry(t, "ok");
+        t.resource.invalidate(5);
+
+        const clutch = coldClutch(t);
+        expectRow(clutch.state$.peek(), 6, { args: 5, data: "E5", dataArgs: 5 });
+        // The read itself starts nothing.
+        expect(t.runs()).toBe(1);
+
+        const state = observe(clutch);
+        expect(t.runs()).toBe(2);
+        expectRow(state(), 6, { args: 5, data: "E5", dataArgs: 5 });
+    });
+
+    it("reports the re-query the subscription starts: error → row 2, the failure cleared", async () => {
+        const t = harness();
+        await settledEntry(t, "fail");
+        t.resource.invalidate(5);
+
+        const clutch = coldClutch(t);
+        expectRow(clutch.state$.peek(), 2, { args: 5 });
+        expect(t.runs()).toBe(1);
+
+        const state = observe(clutch);
+        expect(t.runs()).toBe(2);
+        expectRow(state(), 2, { args: 5 });
+    });
+
+    // The server never holds, so it renders the entry as it is; a hydration
+    // render reads this view to match it.
+    it("_serverState$ shows the entry as it is: row 5 / row 7, and starts nothing", async () => {
+        const t = harness();
+        await settledEntry(t, "ok");
+        t.resource.invalidate(5);
+        const ok = coldClutch(t) as ResourceClutch<number, string>;
+        expectRow(ok._serverState$.peek(), 5, { args: 5, data: "E5", dataArgs: 5 });
+
+        const t2 = harness();
+        await settledEntry(t2, "fail");
+        t2.resource.invalidate(5);
+        const failed = coldClutch(t2) as ResourceClutch<number, string>;
+        expectRow(failed._serverState$.peek(), 7, { args: 5, error: FAIL_1 });
+
+        expect(t.runs()).toBe(1);
+        expect(t2.runs()).toBe(1);
+    });
+});
 
 describe("ResourceClutch — creates entries only while observed", () => {
     function expiringResource() {

@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it } from "vitest";
 
 import { stableStringify } from "../stableStringify";
@@ -50,5 +52,101 @@ describe("stableStringify", () => {
 
     it("strips undefined values inside objects (JSON.stringify behavior)", () => {
         expect(stableStringify({ a: 1, b: undefined })).toBe('{"a":1}');
+    });
+
+    it("gives a JSON value exactly its JSON text, keys sorted", () => {
+        const value = { s: 'q"\u2028', n: [0, -0, 1.5, 1e21, -3], b: [true, false], z: null, d: new Date(0), o: {} };
+        const sorted = { b: value.b, d: value.d, n: value.n, o: value.o, s: value.s, z: value.z };
+        expect(stableStringify(value)).toBe(JSON.stringify(sorted));
+    });
+
+    it("orders integer keys first, ascending, as the previous JSON.stringify-based keys did", () => {
+        // Snapshots persisted by earlier versions carry these keys; hydration compares them verbatim.
+        expect(stableStringify({ ids: { "10": 1, "9": 2, b: 3, "01": 4, a: 5 }, page: 1 })).toBe(
+            '{"ids":{"9":2,"10":1,"01":4,"a":5,"b":3},"page":1}',
+        );
+        expect(stableStringify(new Uint8Array(11))).toBe(
+            JSON.stringify(Object.fromEntries(Array.from({ length: 11 }, (_, i) => [String(i), 0]))),
+        );
+    });
+
+    it("calls toJSON once per value, with its key, as JSON.stringify does", () => {
+        const self = {
+            a: 1,
+            toJSON(): unknown {
+                return this;
+            },
+        };
+        expect(stableStringify(self)).toBe('{"a":1}');
+        expect(stableStringify({ toJSON: () => ({ x: 1, toJSON: () => "inner" }) })).toBe('{"x":1}');
+        const keys: unknown[] = [];
+        const probe = { toJSON: (key: unknown) => (keys.push(key), 1) };
+        expect(stableStringify({ p: probe, l: [probe] })).toBe('{"l":[1],"p":1}');
+        expect(stableStringify(probe)).toBe("1");
+        expect(keys).toEqual(["0", "p", ""]);
+    });
+
+    it("calls toJSON on a function too, as JSON.stringify does", () => {
+        const fn = Object.assign(() => 1, { toJSON: () => 5 });
+        expect(stableStringify({ f: fn })).toBe(JSON.stringify({ f: fn }));
+        expect(stableStringify([fn])).toBe("[5]");
+        expect(stableStringify(fn)).toBe("5");
+    });
+
+    it("keeps NaN, Infinity and -Infinity apart from null and from each other", () => {
+        const keys = [null, NaN, Infinity, -Infinity].map((page) => stableStringify({ page }));
+        expect(new Set(keys).size).toBe(4);
+        expect(stableStringify(NaN)).not.toBe(stableStringify("NaN"));
+    });
+
+    it("keeps undefined inside an array apart from null", () => {
+        expect(stableStringify([undefined])).not.toBe(stableStringify([null]));
+        expect(stableStringify([1, , 2])).toBe(stableStringify([1, undefined, 2]));
+    });
+
+    it("serializes a bigint to a key of its own", () => {
+        expect(stableStringify({ id: 1n })).not.toBe(stableStringify({ id: 1 }));
+        expect(stableStringify(1n)).not.toBe(stableStringify("1n"));
+    });
+
+    it("serializes boxed primitives as their primitive (JSON.stringify behavior)", () => {
+        expect(stableStringify({ n: Object(1), s: Object("a"), b: Object(true) })).toBe(
+            stableStringify({ n: 1, s: "a", b: true }),
+        );
+        expect(stableStringify(Object(1n))).toBe(stableStringify(1n));
+    });
+
+    it("tells a boxed primitive by its internal slot, not its prototype or tag", () => {
+        const foreign = runInNewContext("[new Number(1), new String('a'), new Boolean(true), Object(2n)]") as unknown;
+        expect(stableStringify(foreign)).toBe(stableStringify([1, "a", true, 2n]));
+        const impostors = [
+            Object.create(Number.prototype) as object,
+            Object.create(String.prototype) as object,
+            Object.create(Boolean.prototype) as object,
+            Object.create(BigInt.prototype) as object,
+            { [Symbol.toStringTag]: "Number", a: 1 },
+        ];
+        expect(stableStringify(impostors)).toBe(JSON.stringify(impostors));
+    });
+
+    it("always returns a string: a function or symbol counts as undefined", () => {
+        expect(stableStringify(() => 1)).toBe(stableStringify(undefined));
+        expect(stableStringify(Symbol("x"))).toBe(stableStringify(undefined));
+        expect(stableStringify([() => 1])).toBe(stableStringify([undefined]));
+        expect(stableStringify({ a: 1, f: () => 1 })).toBe('{"a":1}');
+    });
+
+    it("keeps an own __proto__ key", () => {
+        const withProto = JSON.parse('{"__proto__":{"a":1},"b":2}') as unknown;
+        expect(stableStringify(withProto)).toBe('{"__proto__":{"a":1},"b":2}');
+        expect(stableStringify(withProto)).not.toBe(stableStringify({ b: 2 }));
+    });
+
+    it("throws a TypeError on a circular structure", () => {
+        const cyclic: Record<string, unknown> = {};
+        cyclic.self = cyclic;
+        expect(() => stableStringify(cyclic)).toThrow(TypeError);
+        const shared = { a: 1 };
+        expect(stableStringify([shared, shared])).toBe('[{"a":1},{"a":1}]');
     });
 });

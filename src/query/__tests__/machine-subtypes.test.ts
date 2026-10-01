@@ -246,7 +246,7 @@ describe("Machine Subtypes", () => {
             expect(m.state.updatedAt).toBe(1000);
         });
 
-        it("rebase() with committed patches replays onto new base", () => {
+        it("rebase() drops committed patches: the new base already holds them", () => {
             const { machine, handle } = makeInvalidating().createPatch((d) => {
                 d.count = 99;
             });
@@ -254,8 +254,8 @@ describe("Machine Subtypes", () => {
             const rebased = machine.rebase(DATA2);
             expect(rebased).toBeInstanceOf(MachineSuccess);
             expect(rebased.status).toBe("success");
-            // Patch replayed: count should be 99 on the new base
-            expect(rebased.state.data.count).toBe(99);
+            expect(rebased.state.data).toEqual(DATA2);
+            expect(rebased.state.patchState).toBeNull();
         });
 
         it("fail() returns MachineInvalidateError", () => {

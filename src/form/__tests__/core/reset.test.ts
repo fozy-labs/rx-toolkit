@@ -107,12 +107,50 @@ describe("reset and initialization", () => {
         expect(form.fields.name.isDirty$()).toBe(false);
     });
 
-    it("keepDirtyValues drops a draft that equals the new base, and with it isModified", () => {
+    it("keepDirtyValues leaves meta and server issues of a field whose base did not change", () => {
+        const form = profile();
+        form.markTouched();
+        addServerIssue(form.fields.email, "Email");
+        addServerIssue(form.fields.name, "Name");
+        // A background refetch: only `name` changed on the server.
+        form.initialize(
+            { state: { name: "Ann 2", email: "ann@x", address: { city: "Oslo" } } },
+            { keepDirtyValues: true },
+        );
+        expect(form.fields.email.state$()).toMatchObject({ value: "ann@x", isTouched: true });
+        expect(form.fields.email.issues$().map((issue) => issue.message)).toEqual(["Email"]);
+        expect(form.fields.address.fields.city.isTouched$()).toBe(true);
+        // The replaced value loses them.
+        expect(form.fields.name.state$()).toMatchObject({ value: "Ann 2", isTouched: false });
+        expect(form.fields.name.issues$()).toEqual([]);
+    });
+
+    it("keepDirtyValues drops a draft that equals the new base, and with it isModified; the value stays, so meta stays", () => {
         const form = profile();
         form.fields.name.set("Bob");
         form.fields.name.blur();
+        addServerIssue(form.fields.name, "Name");
         form.initialize({ state: { name: "Bob" } }, { keepDirtyValues: true });
-        expect(form.fields.name.state$()).toMatchObject({ value: "Bob", isModified: false, isTouched: false });
+        expect(form.fields.name.state$()).toMatchObject({ value: "Bob", isModified: false, isTouched: true });
+        expect(form.fields.name.issues$().map((issue) => issue.message)).toEqual(["Name"]);
+    });
+
+    it("keepDirtyValues: a clean draft keeps meta while the value stays and loses it when the value is replaced", () => {
+        const form = profile();
+        form.fields.name.set("Bob");
+        form.fields.name.set("Ann");
+        form.fields.name.blur();
+        addServerIssue(form.fields.name, "Name");
+        form.initialize({ state: { name: "Ann" } }, { keepDirtyValues: true });
+        expect(form.fields.name.state$()).toMatchObject({ value: "Ann", isTouched: true });
+        expect(form.fields.name.issues$()).toHaveLength(1);
+
+        form.fields.name.set("Bob");
+        form.fields.name.set("Ann");
+        addServerIssue(form.fields.name, "Name");
+        form.initialize({ state: { name: "Ann 2" } }, { keepDirtyValues: true });
+        expect(form.fields.name.state$()).toMatchObject({ value: "Ann 2", isTouched: false });
+        expect(form.fields.name.issues$()).toEqual([]);
     });
 
     it("keepDirtyValues keeps the submitted flag with a kept draft", () => {

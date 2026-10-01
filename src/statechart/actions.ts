@@ -47,8 +47,8 @@ export function assign<
  * Updates the context through an Immer draft: the recipe mutates `context`
  * in place and the produced next context replaces the current one (the
  * previous object is untouched; unchanged subtrees are shared). The recipe's
- * return value is ignored. Plain objects and arrays are drafted; other values
- * (`Map`, `Set`, class instances) are handed over as they are.
+ * return value is ignored. Plain objects, arrays, `Map` and `Set` are
+ * drafted; class instances are handed over as they are.
  *
  * Not an XState builtin: the converter emits it for `@action` bodies, and
  * `toXStateSource()` imports it from this package.

@@ -5,7 +5,8 @@
 > **Нестабильный API.** Точки входа экспортируются с префиксом `unstable_`:
 > `unstable_FormSignal`, `unstable_formsPlugin`, `unstable_formsReactPlugin` — контракт может
 > меняться без мажорной версии. В примерах импорт алиасится:
-> `import { unstable_FormSignal as FormSignal }`.
+> `import { unstable_FormSignal as FormSignal }`. Типы модуля (`FieldNode`, `FormInstance`,
+> `Issue` и др.) экспортируются из корня пакета без префикса, служебные типы вывода — нет.
 
 ## Содержание
 

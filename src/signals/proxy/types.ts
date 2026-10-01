@@ -14,7 +14,8 @@ interface PathCallOptional<T> {
 /**
  * Optional-chaining semantics: a segment is "optional" if any ancestor on the
  * path may be null/undefined/missing. Index access into arrays is always
- * optional (out-of-bounds), regardless of the user's tsconfig.
+ * optional (out-of-bounds), regardless of the user's tsconfig. A key named
+ * `then` is not a path: a node is not a thenable.
  */
 type PathChildren<T, TOptional extends boolean> = T extends Map<any, any> | Set<any>
     ? unknown // Map/Set are atomic leaves for path traversal
@@ -22,7 +23,10 @@ type PathChildren<T, TOptional extends boolean> = T extends Map<any, any> | Set<
       ? { readonly [index: number]: PathNode<E, true> }
       : T extends object
         ? {
-              readonly [K in keyof T]-?: PathNode<T[K], TOptional extends true ? true : IsNullish<T[K]>>;
+              readonly [K in keyof T as K extends "then" ? never : K]-?: PathNode<
+                  T[K],
+                  TOptional extends true ? true : IsNullish<T[K]>
+              >;
           }
         : unknown;
 

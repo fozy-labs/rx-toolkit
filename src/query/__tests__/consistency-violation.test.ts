@@ -1,3 +1,4 @@
+import { Subject } from "rxjs";
 import { describe, expect, it } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -174,4 +175,37 @@ describe("consistency violation on rebase", () => {
         // run 1 (initial) + run 2 (invalidation, discarded) + run 3 (follow-up).
         expect(runs()).toBe(3);
     });
+});
+
+describe("consistency violation on a stream emission", () => {
+    it.each(["cancel", "trail", "join"] as const)(
+        "%s: never publishes a success for the discarded emission",
+        (invalidateInFlight) => {
+            const emissions = new Subject<Items>();
+            const resource = new Resource<void, Items>({
+                retentionTime: false,
+                serializeArgs: stableStringify as (args: void) => string,
+                queryFn: () => emissions.asObservable(),
+                invalidateInFlight,
+                allowStreamPatches: true,
+            });
+            const entry = resource.getEntry(undefined, true);
+            entry.hold();
+            emissions.next({ items: [{ n: 1 }] });
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const seen: TSeen[] = [];
+            const sub = entry.state$.obs.subscribe((state) => seen.push(record(state)));
+            seen.length = 0;
+
+            emissions.next(INCOMPATIBLE);
+            emissions.next({ items: [{ n: 5 }] });
+            sub.unsubscribe();
+
+            expect(seen.filter((s) => s.status === "success" && s.violation)).toEqual([]);
+            expect(seen.at(-1)).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
+        },
+    );
 });

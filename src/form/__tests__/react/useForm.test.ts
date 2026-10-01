@@ -6,6 +6,8 @@ import React from "react";
 import { z } from "zod";
 
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
+import { reduxDevtools } from "@/common/devtools";
+import { SharedOptions } from "@/common/options/SharedOptions";
 import { createApi, reactHooksPlugin, SKIP } from "@/query";
 import { useSignal } from "@/signals";
 
@@ -97,7 +99,7 @@ describe("useForm: the instance", () => {
         expect((forms[0] as FormInstance<typeof EmailForm>).fields.note.value$.peek()).toBe("2");
     });
 
-    it("StrictMode: one request for two instances, and the init sync does not reinitialize", async () => {
+    it("StrictMode: one instance, one request, and the init sync does not reinitialize", async () => {
         const { check, EmailForm } = emailSetup();
         const initialize = spyInitialize();
         const forms = new Set<object>();
@@ -111,8 +113,8 @@ describe("useForm: the instance", () => {
         const view = render(h(React.StrictMode, null, h(Editor)));
         await settle();
 
-        // React keeps one of the two instances of the double initializer call; the other one is
-        // never read, and the double effect run re-subscribes to the same cache entry.
+        // The double render reuses the instance, and the double effect run re-subscribes to the
+        // same cache entry.
         expect(forms.size).toBe(1);
         expect(check.queryFn).toHaveBeenCalledTimes(1);
         expect(check.queryFn).toHaveBeenCalledWith("a@x.com", expect.anything());
@@ -121,6 +123,38 @@ describe("useForm: the instance", () => {
         await settle();
         expect(initialize).not.toHaveBeenCalled();
         expect(check.queryFn).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("useForm: devtools", () => {
+    it("StrictMode: the live instance owns its devtools keys, with no collision warning", () => {
+        const warn = vi.spyOn(console, "warn");
+        const send = vi.fn();
+        const devtools = reduxDevtools({
+            driver: { connect: () => ({ init: () => {}, send }) },
+            batchStrategy: "sync",
+        });
+        const registered: string[] = [];
+        SharedOptions.DEVTOOLS = {
+            state: (name: string, initState: unknown) => {
+                registered.push(name);
+                return devtools.state(name, initState);
+            },
+        };
+        const { EmailForm } = emailSetup();
+        let form = null as unknown as FormInstance<typeof EmailForm>;
+        function Editor() {
+            form = EmailForm.useForm();
+            return null;
+        }
+        render(h(React.StrictMode, null, h(Editor)));
+        // The double render reuses the instance.
+        expect(registered.filter((name) => name === "signup/note/input$")).toHaveLength(1);
+
+        act(() => form.fields.note.set("typed"));
+        const tree = send.mock.calls.at(-1)![1] as { signup: { note: { input$: unknown } } };
+        expect(tree.signup.note.input$).toEqual({ default: "", value: "typed" });
+        expect(warn).not.toHaveBeenCalled();
     });
 });
 

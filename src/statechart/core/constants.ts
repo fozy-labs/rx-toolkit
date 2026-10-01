@@ -10,6 +10,13 @@ export const XSTATE_STOP = "xstate.stop";
 /** Root id when the config declares none (XState default). */
 export const DEFAULT_MACHINE_ID = "(machine)";
 export const DEFAULT_MAX_MICROSTEPS = 10_000;
+/**
+ * Causal depth one burst may reach before it is reported as a
+ * `SignalCycleError`: an event sent by an action, a subscriber or an effect
+ * reacting to the previous one, or a restart they request, is one level
+ * deeper. Matches the signal core's cycle limit.
+ */
+export const MAX_REACTION_DEPTH = 1000;
 
 /**
  * Port of XState `createInitEvent(input)`: the `input` key is always present

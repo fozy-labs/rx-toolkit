@@ -185,7 +185,8 @@ export interface TResourceEntrySuccessState<TArgs, TData> extends TDataSlotCurre
     isInvalidating: false;
 }
 
-interface TEntryErrorBase<TArgs, TError> {
+/** Fields shared by both error entry variants; exported so consumer declarations can name them. */
+export interface TResourceEntryErrorBase<TArgs, TError> {
     status: "error";
     args: TArgs;
     hasError: true;
@@ -200,7 +201,7 @@ interface TEntryErrorBase<TArgs, TError> {
  * Rows 7 / 9 — the query failed. A failed invalidation keeps the entry's data
  * (`dataSource: "current"`); a failed first load has none.
  */
-export type TResourceEntryErrorState<TArgs, TData, TError = unknown> = TEntryErrorBase<TArgs, TError> &
+export type TResourceEntryErrorState<TArgs, TData, TError = unknown> = TResourceEntryErrorBase<TArgs, TError> &
     (TDataSlotNone | TDataSlotCurrent<TArgs, TData>);
 
 export type TResourceEntryState<TArgs, TData, TError = unknown> =
@@ -267,7 +268,9 @@ export interface IResourceClutch<TArgs, TData, TError = unknown> {
      * became available (`hasData` — fresh, previous or placeholder) or the
      * query failed with nothing to show (`status === "error"`). With
      * `waitForDone` — once no query is in flight. Never rejects. Used by the
-     * Suspense hook to wake React after a suspended render.
+     * Suspense hook to wake React after a suspended render. Holds the entry
+     * while waiting; a settle on data then keeps it from eviction for 5 s, so
+     * the render it wakes finds it when it commits and holds.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void>;
     get args(): TArgs | null;

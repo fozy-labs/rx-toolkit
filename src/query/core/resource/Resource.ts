@@ -30,7 +30,7 @@ import { QueryCacheEntry, type TQueryCacheEntryInternals } from "../cache/QueryC
 import { snapshotEntryState } from "../machine/machine-helpers";
 
 import { buildEntryState, IDLE_ENTRY_STATE } from "./entry-state";
-import { instrumentQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
+import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
 import { ResourceClutch } from "./ResourceClutch";
 
 // ==================== Resource ====================
@@ -59,8 +59,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private readonly _beforeQuery?;
     private readonly _allowStreamPatches: boolean;
     private readonly _invalidateInFlight: TInFlightPolicy | undefined;
-    /** Core-only wiring handed to every entry as is (see {@link TQueryCacheEntryInternals}). */
-    private readonly _entryInternals: TQueryCacheEntryInternals;
+    /** Core-only wiring handed to every entry (see {@link TQueryCacheEntryInternals}). */
+    private readonly _entryInternals: TQueryCacheEntryInternals<TData>;
     private _streamPatchWarned = false;
     /**
      * @internal Read by {@link ResourceClutch} to build its placeholder state.
@@ -72,7 +72,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      * @param config - The resource's configuration.
      * @param entryInternals - Core-only wiring for the library's own resources
      *   (the projection resource's in-place revalidation), handed to every
-     *   entry as is. Not part of the public {@link IResourceConfig}.
+     *   entry along with the resource's own lifecycle wiring. Not part of the
+     *   public {@link IResourceConfig}.
      */
     constructor(config: IResourceConfig<TArgs, TData>, entryInternals: TQueryCacheEntryInternals = {}) {
         this._queryFn = config.queryFn;
@@ -86,7 +87,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._beforeQuery = config.beforeQuery;
         this._allowStreamPatches = config.allowStreamPatches ?? false;
         this._invalidateInFlight = config.invalidateInFlight;
-        this._entryInternals = entryInternals;
+        this._entryInternals = { ...entryInternals, onPromiseRunSettled: settleQueryRun };
         this._placeholderData = config.placeholderData;
 
         if (config.snapshot) {
@@ -405,12 +406,16 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         return buildEntryState<TArgs, TData, TError>(entry.keyedArgs.value, entry.peek());
     }
 
-    /** Clear all cache entries. */
+    /**
+     * Clear all cache entries. Each entry is completed and leaves the cache on
+     * its own completion; an entry a reader re-creates meanwhile (e.g. an
+     * effect over `getEntry$(args, true)`) belongs to the fresh cache and stays.
+     */
     reset(): void {
-        for (const entry of this._cache.values()) {
+        // Iterate a snapshot: completing an entry can re-create one in the live map.
+        for (const entry of [...this._cache.values()]) {
             entry.complete();
         }
-        this._cache.clear();
     }
 
     // ==================== Private ====================

@@ -46,6 +46,7 @@ stateDiagram-v2
 
     success --> invalidating : invalidate()
     success --> success : next(data) — эмиссия стрима
+    success --> invalidating : next(data) / finishPatch() — патчи не легли
     success --> invalidate_error : fail(error) — ошибка стрима
     success --> success : createPatch() / finishPatch() / finishAllPatches()
 
@@ -60,13 +61,14 @@ stateDiagram-v2
     invalidate_error --> invalidating : invalidate()
     invalidate_error --> invalidating : retry() — error сохраняется
     invalidate_error --> invalidate_error : createPatch() / finishPatch() / finishAllPatches()
+    invalidate_error --> invalidating : finishPatch() — патчи не легли
 ```
 
 Устаревший снимок гидрируется тем же ребром в `success`, но с меткой `entry.isInvalidated`: машина о метке не знает, перезапрос уходит на первом удержании записи — см. [инвалидацию тающей записи][cache-invalidation].
 
 Подписи на рёбрах — имена **внутренних** переходов: `success`, `fail`, `rebase`, `next`, `finishPatch` и `finishAllPatches` запись выполняет сама, когда запрос завершается, падает или приносит очередную эмиссию стрима. Снаружи доступны три входа — [`entry.invalidate()`, `entry.retry()` и `entry.createPatch()`][api-entry]. `retry()` и `createPatch()` из статуса, откуда диаграмма ребра не рисует, — `console.warn` и no-op. `invalidate()` допустим из любого статуса: из `pending` / `invalidating` ребра нет, потому что статус не меняется — запрос в полёте прерывается или дорабатывает по [правилу в полёте][cache-inflight].
 
-Петля `invalidating → invalidating` — [нарушение консистентности патчей][patching]: переигрывание не удалось, серверные данные отброшены, и запись инвалидирует себя, не публикуя `success` за отброшенный ран: удерживаемая запускает следующий запрос сразу, тающая — при следующем удержании; открытый стрим — по режиму [`inFlight`][cache-inflight] ресурса.
+Рёбра «патчи не легли» — [нарушение консистентности патчей][patching]: переигрывание не удалось (ребейс, эмиссия стрима или завершение патча), серверные данные отброшены, и запись уходит в `invalidating` и инвалидирует себя, не публикуя `success` с отброшенными данными: удерживаемая запускает следующий запрос сразу, тающая — при следующем удержании; открытый стрим — по режиму [`inFlight`][cache-inflight] ресурса.
 
 `retry()` и `invalidate()` из одной и той же ошибки ведут в одно и то же состояние, но по-разному: `invalidate()` — перепроверка с очисткой `error`, `retry()` — повтор после неудачи с сохранённой ошибкой. Патч-операции ошибку не сбрасывают; она очищается, когда загрузка завершается (`rebase` / `success` / `fail`).
 

@@ -394,6 +394,37 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
         expect(hydratedEntry.isInvalidated).toBe(true);
     });
 
+    it("skips an entry whose patches hit a consistency violation until a server answer lands", async () => {
+        type Items = { items: { id: number; name: string }[] };
+        const api = createApi();
+        let calls = 0;
+        const resource = api.createResource<void, Items>({
+            key: "items",
+            queryFn: async () => ({ items: [{ id: 1, name: calls++ === 0 ? "first" : "fresh" }] }),
+        });
+        await resource.ensure();
+        const entry = resource.getEntry()!;
+
+        const pushed = entry.createPatch((draft) => void draft.items.push({ id: 2, name: "added" }))!;
+        const renamed = entry.createPatch((draft) => void (draft.items[1]!.name = "modified"))!;
+        // The rename cannot replay without the pushed item: the data shown is
+        // no server answer any more, so there is no confirmed data to persist.
+        pushed.abort();
+        expect(entry.peek().data!.items).toHaveLength(2);
+        expect(api.getSnapshot().resources["items"]).toBeUndefined();
+
+        renamed.abort();
+        expect(api.getSnapshot().resources["items"]).toBeUndefined();
+
+        // The first hold brings the re-query; its answer is persisted again.
+        entry.hold();
+        await flushMicrotasks();
+        expect(api.getSnapshot().resources["items"]?.entries[stableStringify(undefined)]).toMatchObject({
+            status: "success",
+            data: { items: [{ id: 1, name: "fresh" }] },
+        });
+    });
+
     it("still skips an entry that is `invalidating` with its run in flight", async () => {
         const api = createApi();
         let calls = 0;
@@ -691,5 +722,60 @@ describe("Snapshotter hydration — snapshot version migration", () => {
             .map((entry) => entry.status)
             .sort();
         expect(statuses).toEqual(["invalidate-error", "success"]);
+    });
+});
+
+describe("Snapshotter hydration — consume and resetAll", () => {
+    const now = Date.now();
+
+    function profileSnapshot(): TApiSnapshot {
+        return {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: now,
+            resources: {
+                profile: {
+                    entries: {
+                        [stableStringify({ id: 1 })]: {
+                            status: "success",
+                            args: { id: 1 },
+                            data: { name: "ssr" },
+                            updatedAt: now,
+                        },
+                    },
+                },
+            },
+        };
+    }
+
+    const createProfile = (api: ReturnType<typeof createApi>) =>
+        api.createResource<{ id: number }, { name: string }>({
+            key: "profile",
+            queryFn: async () => ({ name: "fresh" }),
+        });
+
+    it("a hydrated slice is consumed: a second resource with the same key starts empty", () => {
+        const api = createApi({ initialSnapshot: profileSnapshot() });
+
+        expect(createProfile(api).getState({ id: 1 }).data).toEqual({ name: "ssr" });
+        expect(createProfile(api).getState({ id: 1 }).status).toBe("idle");
+    });
+
+    it("consuming a slice leaves the caller's snapshot object intact", () => {
+        const snapshot = profileSnapshot();
+        const api = createApi({ initialSnapshot: snapshot });
+
+        createProfile(api);
+
+        expect(snapshot).toEqual(profileSnapshot());
+        expect(createProfile(createApi({ initialSnapshot: snapshot })).getState({ id: 1 }).status).toBe("success");
+    });
+
+    it("resetAll() clears the stored snapshot: a resource created afterwards is not hydrated", () => {
+        const api = createApi({ initialSnapshot: profileSnapshot() });
+
+        api.resetAll();
+
+        expect(createProfile(api).getState({ id: 1 }).status).toBe("idle");
     });
 });

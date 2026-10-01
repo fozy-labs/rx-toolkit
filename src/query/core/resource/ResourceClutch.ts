@@ -1,4 +1,4 @@
-import { first, firstValueFrom } from "rxjs";
+import { first, firstValueFrom, tap } from "rxjs";
 
 import type {
     IResourceClutch,
@@ -68,6 +68,15 @@ function isRenderable(state: TResourceClutchState<unknown, unknown, unknown>): b
     return state.hasData || state.status === "error";
 }
 
+/**
+ * How long {@link ResourceClutch.whenSettled} keeps the entry after a settle on
+ * data. React commits the render it wakes within a few hundred ms (its
+ * fallback throttle is 300 ms) and gives no sign of a render it discards, so
+ * this bounds both: the committed render holds the entry well within it, and a
+ * discarded one leaves it to the policy once it runs out.
+ */
+const SETTLED_KEEP_MS = 5_000;
+
 /** The `waitForDone` rule: no query is in flight — `idle`, `success` or `error`. */
 function isDone(state: TResourceClutchState<unknown, unknown, unknown>): boolean {
     return !state.isPending;
@@ -93,9 +102,19 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     private readonly _tracking$ = Signal.state<Tracking<TArgs, TData> | null>(null, { isDisabled: true });
 
-    readonly state$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(() => this._deriveState(), {
+    readonly state$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(() => this._deriveState(true), {
         isDisabled: true,
     });
+
+    /**
+     * @internal {@link state$} without the revalidation a hold starts: the
+     * entry as it is. The server renders this — nothing there ever holds —
+     * so a hydration render must render it too, or it would not match.
+     */
+    readonly _serverState$ = Signal.compute<TResourceClutchState<TArgs, TData, TError>>(
+        () => this._deriveState(false),
+        { isDisabled: true },
+    );
 
     /**
      * Subscribers of {@link state$}. Counted through a source the derivation
@@ -165,8 +184,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const tracking = this._tracking$.peek();
 
         if (args === SKIP) {
-            if (!tracking) return;
-
+            // With or without tracked args: a clutch that only adopted previous
+            // data (see `adoptPrevious`) drops it all the same.
             this._previous$ = null;
             this._placeholder = null;
             this._tracking$.set(null);
@@ -273,6 +292,20 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
+     * @internal `invalidate` of the tracked entry without the row guard of
+     * {@link invalidate} — the guard speaks for a consumer that keeps the
+     * state on screen; this one is for `useSuspenseResource` throwing a
+     * failure with nothing to show to an Error Boundary. The throw consumes
+     * the failure, and the mark is what keeps it consumed: a marked melting
+     * entry re-validates on its next hold, so the remount after the
+     * boundary's reset re-queries instead of replaying a failure that was
+     * already thrown.
+     */
+    _invalidateEntry = (): void => {
+        this._tracking$.peek()?.current$.peek()?.invalidate();
+    };
+
+    /**
      * Promise resolving once the clutch has something to render, or with
      * `waitForDone` once no query is in flight (see
      * {@link IResourceClutch.whenSettled}).
@@ -287,6 +320,11 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * renders throw the same promise (a fresh promise every render would loop),
      * and cleared on settle so a later argument change can suspend again. Each
      * mode has its own instance.
+     *
+     * The wait holds the entry, and a settle on data keeps it for 5 s more:
+     * the render it wakes holds only once committed, and a short
+     * `retentionTime` would evict the entry in between. A failure with nothing
+     * to show is not kept — the render it wakes throws and never commits.
      */
     whenSettled(options?: TClutchWhenSettledOptions): Promise<void> {
         const mode = options?.waitForDone ? "done" : "renderable";
@@ -308,7 +346,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const settle = (): void => {
             this._whenSettled[mode] = null;
         };
-        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady))).then(settle, settle);
+        const keep = (state: TResourceClutchState<unknown, unknown, unknown>): void => {
+            if (state.hasData) this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
+        };
+        const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(keep))).then(settle, settle);
 
         this._whenSettled[mode] = promise;
         return promise;
@@ -316,7 +357,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
     // ==================== Private ====================
 
-    private _deriveState(): TResourceClutchState<TArgs, TData, TError> {
+    /** @param onHold - Show what the entry shows once held (see {@link state$}). */
+    private _deriveState(onHold: boolean): TResourceClutchState<TArgs, TData, TError> {
         const tracking = this._tracking$();
         if (!tracking) return this._idleState;
 
@@ -358,7 +400,10 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             return this._idleState;
         }
 
-        return this._deriveNotIdleState(tracking.keyed, entry.state$());
+        // What the entry shows once held: a read ahead of the subscription (a
+        // render) already sees the revalidation that subscription starts.
+        const entryState = entry.state$();
+        return this._deriveNotIdleState(tracking.keyed, onHold ? entry._stateOnHold(entryState) : entryState);
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {

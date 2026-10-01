@@ -1,4 +1,4 @@
-import { Observable, of, Subject } from "rxjs";
+import { config, Observable, of, Subject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -264,6 +264,117 @@ describe("QueryCacheEntry — invalidate() on an active entry", () => {
             expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: 1, error: null });
         },
     );
+});
+
+// ==================== A consumer throwing on a state write ====================
+
+/**
+ * A signal write rethrows what a reacting effect threw. The entry's own writes
+ * must not let that interrupt or redirect a transition: the transition
+ * completes as it would without the consumer, and the consumer's error goes
+ * where errors without a synchronous caller go (`config.onUnhandledError`).
+ */
+describe("QueryCacheEntry — a consumer throwing on a state write", () => {
+    let reported: unknown[];
+    let previousHandler: typeof config.onUnhandledError;
+
+    beforeEach(() => {
+        reported = [];
+        previousHandler = config.onUnhandledError;
+        config.onUnhandledError = (error) => reported.push(error);
+    });
+
+    afterEach(() => {
+        config.onUnhandledError = previousHandler;
+        vi.restoreAllMocks();
+    });
+
+    /** An effect over the entry's state that throws `boom` whenever `when` matches. */
+    function throwWhen<TData>(
+        entry: QueryCacheEntry<void, TData>,
+        when: (state: TQueryEntryState<void, TData>) => boolean,
+        boom: Error,
+    ) {
+        return Signal.effect(() => {
+            if (when(entry.state$())) throw boom;
+        });
+    }
+
+    it("a promise run settling into success stays a success", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { entry, runs } = createControlledEntry();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.status === "success", boom);
+
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+
+        expect(entry.peek()).toMatchObject({ status: "success", data: 1, error: null });
+        expect(warn).not.toHaveBeenCalled();
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("a discarded rebase still re-queries instead of failing", async () => {
+        const runs: ((value: TData) => void)[] = [];
+        const entry = createEntry<void, TData>({
+            queryFn: () => new Promise<TData>((resolve) => runs.push(resolve)),
+        });
+        entry.hold();
+        runs[0]!({ items: [{ n: 1 }] });
+        await flushMicrotasks();
+        entry.invalidate();
+        entry.createPatch((draft) => {
+            draft.items[0]!.n = 99;
+        });
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(
+            entry,
+            (state) => state.status === "invalidating" && !!state.patchState?.isConsistencyViolation,
+            boom,
+        );
+
+        runs[1]!({ items: [] });
+        await flushMicrotasks();
+
+        expect(runs).toHaveLength(3);
+        expect(entry._isInFlight).toBe(true);
+        expect(entry.peek()).toMatchObject({ status: "invalidating", error: null });
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("invalidate() does not throw and leaves the re-query in flight", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.status === "invalidating", boom);
+
+        expect(() => entry.invalidate()).not.toThrow();
+
+        expect(runs).toHaveLength(2);
+        expect(entry._isInFlight).toBe(true);
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
+
+    it("createPatch() does not throw and returns the patch handle", async () => {
+        const { entry, runs } = createControlledEntry();
+        runs[0]!.resolve(1);
+        await flushMicrotasks();
+        const boom = new Error("consumer boom");
+        const effect = throwWhen(entry, (state) => state.data === 2, boom);
+
+        let handle: ReturnType<typeof entry.createPatch> = null;
+        expect(() => {
+            handle = entry.createPatch(() => 2);
+        }).not.toThrow();
+
+        expect(handle).not.toBeNull();
+        expect(reported).toEqual([boom]);
+        effect.unsubscribe();
+    });
 });
 
 describe("QueryCacheEntry — retry()", () => {
@@ -1451,6 +1562,105 @@ describe("QueryCacheEntry — invalidate() with a promise run in flight", () => 
             expect(runs).toHaveLength(3);
             expect(entry.peek().status).toBe("invalidating");
         });
+
+        // The dropped patches' changes stay in `data` until the re-query lands:
+        // they are the base now, and no later patch settle may roll them back.
+
+        it("a dropped patch settling afterwards leaves the data as it is", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            const dropped = entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            })!;
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+
+            dropped.commit();
+
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+        });
+
+        it("a patch made afterwards and aborted rolls back to the data it was made on", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+
+            const next = entry.createPatch((draft) => {
+                draft.items[0]!.n = 100;
+            })!;
+            expect(entry.peek().data).toEqual({ items: [{ n: 100 }] });
+
+            next.abort();
+
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+        });
+
+        // Until a server answer lands, the data is not one: the flag stays up
+        // through later patches and settles — which must not re-query again.
+
+        it("keeps the violation flagged through later patches and settles until the re-query lands", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            const dropped = entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            })!;
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+            expect(runs).toHaveLength(3);
+
+            dropped.commit();
+            const next = entry.createPatch((draft) => {
+                draft.items[0]!.n = 100;
+            })!;
+            expect(entry.peek()).toMatchObject({ patchState: { isConsistencyViolation: true } });
+            next.commit();
+
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 100 }] },
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+            expect(runs).toHaveLength(3);
+            expect(runs[2]!.signal.aborted).toBe(false);
+
+            runs[2]!.resolve({ items: [{ n: 5 }] });
+            await flushMicrotasks();
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] }, patchState: null });
+        });
+
+        it("a later settle that cannot replay re-queries again", async () => {
+            const { entry, runs } = createPatchedInvalidating();
+            await flushMicrotasks();
+            entry.invalidate();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+            runs[1]!.resolve({ items: [] });
+            await flushMicrotasks();
+
+            const pushed = entry.createPatch((draft) => {
+                draft.items.push({ n: 2 });
+            })!;
+            entry.createPatch((draft) => {
+                draft.items[1]!.n = 3;
+            });
+            pushed.abort();
+
+            expect(runs).toHaveLength(4);
+            expect(runs[2]!.signal.aborted).toBe(true);
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                patchState: { isConsistencyViolation: true },
+            });
+        });
     });
 
     describe("the call parameter overrides the entry's default", () => {
@@ -1972,32 +2182,54 @@ describe("QueryCacheEntry — invalidate() with a stream run in flight", () => {
             },
         );
 
-        it("a consistency violation on a stream emission joins: nothing is marked or re-queried", () => {
+        // A violation raised while the stream sits in `success` discards the
+        // data like a failed rebase does: the entry goes `invalidating`, and
+        // under `join` the stream lives on unmarked — its next emission lands
+        // the correction, and a stream that ends without one leaves the entry
+        // owing the run.
+
+        /** Join entry, held, stream 1 open with data and a pending patch on `items[0]`. */
+        function createJoinedPatchedStream() {
             const { stream, state } = trackedStream<TData>();
             const entry = createEntry<void, TData>({ queryFn: () => stream, invalidateInFlight: "join" });
             entry.hold();
             const run1 = state.subscriber!;
             run1.next({ items: [{ n: 1 }] });
+            return { entry, state, run1 };
+        }
 
+        it("a consistency violation on a stream emission joins: the entry goes invalidating, the stream lives on unmarked", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            run1.next({ items: [] });
+
+            expect(state.teardownCount).toBe(0);
+            expect(entry.isInvalidated).toBe(false);
+            expect(entry.peek()).toMatchObject({ status: "invalidating", data: { items: [{ n: 99 }] } });
+
+            run1.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
+        });
+
+        it("a joined violation on a stream emission whose stream ends without another emission re-queries", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
             entry.createPatch((draft) => {
                 draft.items[0]!.n = 99;
             });
             run1.next({ items: [] });
 
-            expect(state.teardownCount).toBe(0);
-            expect(entry.isInvalidated).toBe(false);
-
             run1.complete();
-            expect(state.subscribeCount).toBe(1);
-            expect(entry.isInvalidated).toBe(false);
+
+            expect(state.subscribeCount).toBe(2);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
         });
 
-        it("a consistency violation on a patch settle joins: nothing is marked or re-queried", () => {
-            const { stream, state } = trackedStream<TData>();
-            const entry = createEntry<void, TData>({ queryFn: () => stream, invalidateInFlight: "join" });
-            entry.hold();
-            const run1 = state.subscriber!;
-            run1.next({ items: [{ n: 1 }] });
+        it("a joined violation on a patch settle whose stream ends without another emission re-queries", () => {
+            const { entry, state, run1 } = createJoinedPatchedStream();
 
             // Patch 2 depends on the item patch 1 adds; aborting patch 1 makes
             // patch 2's replay fail on settle — a consistency violation.
@@ -2009,13 +2241,17 @@ describe("QueryCacheEntry — invalidate() with a stream run in flight", () => {
             });
             h1.abort();
 
-            expect(entry.peek()).toMatchObject({ patchState: { isConsistencyViolation: true } });
+            expect(entry.peek()).toMatchObject({
+                status: "invalidating",
+                patchState: { isConsistencyViolation: true },
+            });
             expect(state.teardownCount).toBe(0);
             expect(entry.isInvalidated).toBe(false);
 
             run1.complete();
-            expect(state.subscribeCount).toBe(1);
-            expect(entry.isInvalidated).toBe(false);
+            expect(state.subscribeCount).toBe(2);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+            expect(entry.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
         });
     });
 });

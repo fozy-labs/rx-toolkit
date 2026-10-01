@@ -43,6 +43,8 @@ export class Retainer<T> {
     private _holds = 0;
     private _timer: ReturnType<typeof setTimeout> | null = null;
     private _isDisposed = false;
+    /** The `Date.now()` before which the timer does not evict (see {@link keepFor}). */
+    private _keepUntil = 0;
 
     /** The source, held for as long as the subscription lives. */
     readonly obs: Observable<T>;
@@ -105,6 +107,19 @@ export class Retainer<T> {
         return release;
     }
 
+    /**
+     * Do not evict within `ms` from now, whoever holds and lets go meanwhile:
+     * a retention timer due earlier waits until then. Neither a hold nor a
+     * timer of its own — the entry stays `melting` without holds, and one
+     * never held still never expires. For a consumer that lets go before the
+     * code it wakes holds, and cannot tell when that code comes, if ever — a
+     * suspended render retried and committed by React, or discarded. A
+     * shorter call does not cut a standing one short.
+     */
+    keepFor(ms: number): void {
+        this._keepUntil = Math.max(this._keepUntil, Date.now() + ms);
+    }
+
     /** Stop the timer for good; every later hold / release is a no-op. */
     dispose(): void {
         this._isDisposed = true;
@@ -127,8 +142,18 @@ export class Retainer<T> {
 
         if (delay === null) return;
 
+        this._schedule(delay);
+    }
+
+    /** Evict after `delay`, or once {@link keepFor} allows it if later. */
+    private _schedule(delay: number): void {
         this._timer = setTimeout(() => {
             this._timer = null;
+            const kept = this._keepUntil - Date.now();
+            if (kept > 0) {
+                this._schedule(kept);
+                return;
+            }
             this._opts.onExpire();
         }, delay);
     }

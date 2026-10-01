@@ -126,6 +126,10 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
     >;
     initialSnapshot?: TApiSnapshot | null;
     snapshotValidTime?: number | false;
+    /**
+     * Default of {@link TResourceOptions.sync}. Commands never sync, so
+     * `"all"` is the same as `"resources"`.
+     */
     defaultSync?: "none" | "resources" | "all";
     syncDriver?: ISyncDriver;
     /**

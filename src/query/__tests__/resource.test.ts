@@ -518,10 +518,11 @@ describe("Resource.invalidate — lazy on an entry nobody holds", () => {
         h1.abort();
         await flushMicrotasks();
 
-        // Nobody holds the entry: marked, not re-queried.
+        // Nobody holds the entry: marked, not re-queried. The data is no
+        // longer a server answer, so the entry waits for the load it owes.
         expect(fetchCount).toBe(1);
         expect(entry.isInvalidated).toBe(true);
-        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         entry.hold();
         expect(fetchCount).toBe(2);
@@ -1939,6 +1940,41 @@ describe("Resource.reset", () => {
         expect(entry).not.toBeNull();
         expect(entry!.state$.peek().data).toBe("data-2");
     });
+
+    it("an effect re-creating its entry during reset gets one fresh entry, and reset returns", async () => {
+        let calls = 0;
+        const resource = createResource<number, number>({
+            queryFn: async (n) => {
+                calls++;
+                return n;
+            },
+        });
+
+        let runs = 0;
+        const eff = Signal.effect(() => {
+            runs++;
+            // Guard against the old runaway loop so a failure reports instead of hanging.
+            if (runs > 20) return;
+            resource.getEntry$(1, true)().state$();
+        });
+        await flushMicrotasks();
+        const first = resource.getEntry(1);
+        expect(calls).toBe(1);
+        const runsBefore = runs;
+
+        resource.reset();
+        await flushMicrotasks();
+
+        const entries = [...resource.getEntries()];
+        // Re-created (pending), then loaded.
+        expect(runs - runsBefore).toBeLessThanOrEqual(3);
+        expect(calls).toBe(2);
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).not.toBe(first);
+        expect(entries[0].peek()).toMatchObject({ status: "success", data: 1 });
+
+        eff.unsubscribe();
+    });
 });
 
 // ==================== createClutch ====================
@@ -2302,7 +2338,7 @@ describe("onQueryStarted lifecycle", () => {
         });
 
         resource.getEntry(1, true);
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(fulfilledData).toEqual({ data: "result" });
     });
@@ -3163,7 +3199,7 @@ describe("Lifecycle hooks error paths", () => {
         });
 
         resource.getEntry(1, true);
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(rejection).toBeInstanceOf(Error);
         expect((rejection as Error).message).toBe("boom");
@@ -3290,7 +3326,7 @@ describe("Lifecycle hooks error paths", () => {
         // Held, as an entry with a mounted consumer is: invalidate() re-runs at once.
         holdEntry(resource, 1);
         resource.invalidate(1);
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(fulfillments).toEqual([{ data: "v1" }, { data: "v2" }]);
     });
@@ -4889,7 +4925,7 @@ describe("Resource — synchronous throw from queryFn", () => {
         });
 
         resource.getEntry(1, true);
-        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(seen).toEqual([error]);
     });
@@ -4962,4 +4998,132 @@ describe("Resource — deprecated aliases", () => {
         await flushMicrotasks();
         expect(entry.state$.peek().data).toBe("data-2");
     });
+});
+
+// ==================== onQueryStarted — a promise run as the entry records it ====================
+
+describe("onQueryStarted — a promise run's milestones follow the entry", () => {
+    type TCtx = Parameters<NonNullable<IResourceConfig<number, number>["onQueryStarted"]>>[1];
+
+    function defer<T>() {
+        let resolve!: (value: T) => void;
+        const promise = new Promise<T>((res) => {
+            resolve = res;
+        });
+        return { promise, resolve };
+    }
+
+    const milestoneOf = (ctx: TCtx, milestone: "queryFulfilled" | "firstReceived" | "allReceived") =>
+        milestone === "queryFulfilled" ? ctx.$queryFulfilled : ctx.$queryStream[milestone];
+
+    function outcomes(ctx: TCtx) {
+        const settled: Record<string, string> = {};
+        for (const milestone of ["queryFulfilled", "firstReceived", "allReceived"] as const) {
+            milestoneOf(ctx, milestone).then(
+                () => (settled[milestone] = "fulfilled"),
+                (reason: unknown) => (settled[milestone] = `rejected:${(reason as Error).name}`),
+            );
+        }
+        return settled;
+    }
+
+    /** A resource whose queryFn ignores its AbortSignal; each run's response is settled by the test. */
+    function setup() {
+        const responses: Array<ReturnType<typeof defer<number>>> = [];
+        const contexts: TCtx[] = [];
+        const resource = createResource<number, number>({
+            queryFn: () => {
+                const response = defer<number>();
+                responses.push(response);
+                return response.promise;
+            },
+            onQueryStarted: (_args, ctx) => {
+                contexts.push(ctx);
+            },
+        });
+        return { resource, responses, contexts };
+    }
+
+    const allAborted = {
+        queryFulfilled: "rejected:AbortError",
+        firstReceived: "rejected:AbortError",
+        allReceived: "rejected:AbortError",
+    };
+
+    it("a run cancelled by invalidate() rejects its milestones with the abort reason, even if its promise resolves", async () => {
+        const { resource, responses, contexts } = setup();
+        holdEntry(resource, 1);
+        const settled = outcomes(contexts[0]!);
+
+        resource.invalidate(1, { inFlight: "cancel" });
+        responses[0]!.resolve(-1);
+        responses[1]!.resolve(2);
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(resource.getEntry(1)!.peek().data).toBe(2);
+        expect(settled).toEqual(allAborted);
+    });
+
+    it("a run whose entry is removed mid-flight rejects its milestones with the abort reason", async () => {
+        const { resource, responses, contexts } = setup();
+        resource.getEntry(1, true);
+        const settled = outcomes(contexts[0]!);
+
+        resource.reset();
+        responses[0]!.resolve(-1);
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        expect(settled).toEqual(allAborted);
+    });
+
+    for (const milestone of ["queryFulfilled", "firstReceived", "allReceived"] as const) {
+        it(`${milestone}: once it resolves, the entry already shows that data (re-run included)`, async () => {
+            const seen: unknown[] = [];
+            let calls = 0;
+            const resource = createResource<number, number>({
+                queryFn: async () => ++calls,
+                onQueryStarted: async (_args, ctx) => {
+                    await milestoneOf(ctx, milestone);
+                    const state = ctx.entry.peek();
+                    seen.push([state.status, state.data]);
+                },
+            });
+            holdEntry(resource, 1);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            resource.invalidate(1);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(seen).toEqual([
+                ["success", 1],
+                ["success", 2],
+            ]);
+        });
+
+        it(`${milestone}: once it rejects, the entry already shows the failure — a hook can retry it`, async () => {
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            let calls = 0;
+            const resource = createResource<number, number>({
+                queryFn: async () => {
+                    if (++calls === 1) throw new Error("boom");
+                    return calls;
+                },
+                onQueryStarted: async (_args, ctx) => {
+                    try {
+                        await milestoneOf(ctx, milestone);
+                    } catch {
+                        ctx.entry.retry();
+                    }
+                },
+            });
+            holdEntry(resource, 1);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(calls).toBe(2);
+            expect(resource.getEntry(1)!.peek()).toMatchObject({ status: "success", data: 2 });
+            expect(warn).not.toHaveBeenCalled();
+            warn.mockRestore();
+        });
+    }
 });

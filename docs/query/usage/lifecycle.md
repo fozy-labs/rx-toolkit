@@ -48,7 +48,7 @@ const messagesResource = api.createResource({
 | Свойство ctx | Тип                                 | Описание                                                             |
 |---|-------------------------------------|----------------------------------------------------------------------|
 | `entry` | `CacheEntry` (ресурса или команды) | Текущая кэш-запись.                                                  |
-| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте. Для [стримового][stream-query] запроса — первая эмиссия. |
+| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте — даже если `queryFn` игнорирует `AbortSignal`. Оседает, когда запись уже зафиксировала исход: после `await` `entry` показывает его. Для [стримового][stream-query] запроса — первая эмиссия. |
 | `$queryStream` | `{ firstReceived: Promise<TData>; allReceived: Promise<TData> }` | Вехи [стримового][stream-query] запуска: `firstReceived` — первая эмиссия (≙ `$queryFulfilled`), `allReceived` — последняя эмиссия после завершения стрима. Для промис-`queryFn` оба совпадают с результатом запроса. Ошибки — сырые, до `mapError`. |
 
 ```typescript
@@ -110,27 +110,30 @@ const userResource = api.createResource({
 При необходимости (например, для предотвращения утечек памяти) оборачивайте `$queryFulfilled` и  `$cacheDataLoaded` в `try/catch`:
 
 ```typescript
-onCacheEntryAdded: async (id, { $cacheDataLoaded, entry }) => {
-    try {
+const userResource = api.createResource({
+    queryFn: (id: number): Promise<User> => fetch(`/api/users/${id}`).then(r => r.json()),
+    onCacheEntryAdded: async (id, { entry, $cacheDataLoaded, $cacheEntryRemoved }) => {
         const connection = createUserConnection(id);
-        const { data } = await $cacheDataLoaded;
-    } catch {
-        connection.close('unused');
-        return;
-    }
 
-    connection.onUserUpdated((partialUser) => {
-        const patch = entry.patch((draft) => {
-            Object.assign(draft, partialUser);
+        try {
+            await $cacheDataLoaded;
+        } catch {
+            // Запись удалена раньше, чем пришли данные
+            connection.close('unused');
+            return;
+        }
+
+        connection.onUserUpdated((partialUser) => {
+            entry.createPatch((draft) => {
+                Object.assign(draft, partialUser);
+            })?.commit();
         });
 
-        path.commit();
-    });
+        await $cacheEntryRemoved;
 
-    await $cacheEntryRemoved;
-
-    connection.close('disposed');
-},
+        connection.close('disposed');
+    },
+});
 ```
 
 

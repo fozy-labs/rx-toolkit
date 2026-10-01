@@ -1,7 +1,6 @@
 import type { IResource, TArgsOrVoidOrSkip, TResourceClutchState } from "@/query/types";
-import { useSignal } from "@/signals/react";
 
-import { useResourceClutch } from "./useResourceClutch";
+import { useResourceClutch, useResourceClutchState } from "./useResourceClutch";
 
 /**
  * Observe a resource for the given args and re-render on every state change.
@@ -26,5 +25,5 @@ export function useResource<TArgs, TData, TError = unknown>(
 ): TResourceClutchState<TArgs, TData, TError> {
     const clutch = useResourceClutch(resource, args);
 
-    return useSignal(clutch.state$);
+    return useResourceClutchState(clutch);
 }

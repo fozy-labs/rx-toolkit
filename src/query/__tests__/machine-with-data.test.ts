@@ -14,6 +14,10 @@ class TestMachine<TArgs, TData> extends MachineWithData<TArgs, TData> {
     protected withState(state: TDataState<TArgs, TData>): this {
         return new TestMachine(state) as this;
     }
+
+    protected withViolation(state: TDataState<TArgs, TData>): this {
+        return new TestMachine(state) as this;
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

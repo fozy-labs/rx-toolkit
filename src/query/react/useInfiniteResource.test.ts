@@ -288,6 +288,68 @@ describe("useInfiniteResource", () => {
         expect(c.state.data?.map((user) => user.id)).toEqual([10, 11]);
     });
 
+    it("a fetchNext kept past unmount sends no query and leaves no cache entry", async () => {
+        const { projection, queryFn } = createProjectionSetup();
+
+        let state!: TInfiniteResourceState<number[], TUser[], unknown>;
+        function Feed() {
+            state = projection.useInfiniteResource([1, 2]);
+            return null;
+        }
+        const view = render(h(Feed));
+        await settle();
+
+        // e.g. the paginator's response lands after the feed is gone
+        const { fetchNext } = state;
+        view.unmount();
+        act(() => fetchNext([3, 4]));
+        await settle();
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(projection.getEntry([3, 4])).toBeNull();
+    });
+
+    it("a fetchNext of the feed replaced by new initialArgs sends no query and leaves no cache entry", async () => {
+        const { projection, queryFn } = createProjectionSetup();
+
+        const c = setup(projection.useInfiniteResource, [1, 2]);
+        await settle();
+        const { fetchNext } = c.state;
+
+        c.rerender([10, 11]);
+        await settle();
+        act(() => fetchNext([3, 4]));
+        await settle();
+
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(projection.getEntry([3, 4])).toBeNull();
+        expect(c.state.data?.map((user) => user.id)).toEqual([10, 11]);
+    });
+
+    it("a page requested under a hidden <Activity> loads once the feed is shown", async () => {
+        const { projection, queryFn } = createProjectionSetup();
+
+        let state!: TInfiniteResourceState<number[], TUser[], unknown>;
+        function Feed() {
+            state = projection.useInfiniteResource([1, 2]);
+            return null;
+        }
+        const app = (mode: "visible" | "hidden") => h(React.Activity, { mode, children: h(Feed) });
+
+        const view = render(app("visible"));
+        await settle();
+
+        view.rerender(app("hidden"));
+        act(() => state.fetchNext([3, 4]));
+        await settle();
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        view.rerender(app("visible"));
+        await settle();
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        expect(state.data?.map((user) => user.id)).toEqual([1, 2, 3, 4]);
+    });
+
     it("keeps the data array identity across a success -> invalidating flip (page data refs unchanged)", async () => {
         const { projection, calls } = createDeferredSetup();
 

@@ -32,17 +32,16 @@ const addTodoCommand = api.createCommand({
 | `generateRequestId` | `(args: TArgs) => string \| Promise<string>` | `crypto.randomUUID` | Генерирует request id. Вызывается один раз на кэш-запись (результат переиспользуется при ретраях). См. [queryFn][query-fn]. |
 | `key`                | `string`                                     | —                | Префикс для ключей кэша и devtools.                                          |
 | `links`              | `(link) => void`                             | —                | Колбэк для описания связей с ресурсами. См. [links][usage-links].                        |
-| `retentionTime`      | `number \| false \| ((args, state) => number \| false)` | `0`   | Время (мс) удержания кэш-записи после потери подписчиков. `false` — не удалять. Функция вычисляется на каждом переходе записи в удержание; `state` — состояние записи команды (`TCommandEntryState` — [состояние сцепления][clutch-state] без `retry()`) без варианта `idle`. Первое вычисление всегда застаёт запись завершённой (`success` или `error`): `execute()` удерживает её до конца мутации. У повтора через `retry()` такого удержания нет — если последний подписчик уходит, пока повтор в полёте, функция получит строку `pending` с `hasError: true`. См. [время удержания записи][cache-retention]. Переопределяет `commandRetentionTime` из [API][api-readme]. |
+| `retentionTime`      | `number \| false \| ((args, state) => number \| false)` | `0`   | Время (мс) удержания кэш-записи после потери подписчиков. `false` — не удалять. Функция вычисляется на каждом переходе записи в удержание; `state` — состояние записи команды (`TCommandEntryState` — [состояние сцепления][clutch-state] без `retry()`) без варианта `idle`. Вычисление всегда застаёт запись завершённой (`success` или `error`): `execute()` и каждый `retry()` удерживают её до конца своего запуска. См. [время удержания записи][cache-retention]. Переопределяет `commandRetentionTime` из [API][api-readme]. |
 | `onCacheEntryAdded`  | `TLifecycleHookOption<(args, ctx) => void>`  | —                | Вызывается при создании кэш-записи. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
 | `onQueryStarted`     | `TLifecycleHookOption<(args, ctx) => void \| Promise<void>>` | —                | Вызывается при каждом запуске `queryFn`. Принимает один хук или их массив. См. [lifecycle hooks][usage-lifecycle]. |
-| `sync`               | `boolean`                                    | `false`          | Включить/отключить [кросс-табовую синхронизацию][usage-broadcast]. По умолчанию выключена (`defaultSync: 'none'`). Для включения укажите `sync: true` на команде или `defaultSync: 'all'` на уровне API. Игнорируется, если `syncDriver` не задан в API. |
 
 
 ## Методы
 
 | Метод         | Параметры           | Возвращаемое значение   | Описание                                                                     |
 |---------------|---------------------|-------------------------|------------------------------------------------------------------------------|
-| `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`). |
+| `execute`     | `args: TArgsOrKeyed<TArgs>, entryKey?: string` | `Promise<TData>`    | Императивный запуск мутации. Необязательный `entryKey` идентифицирует кэш-запись. Сырой промис: при ошибке реджектится (в отличие от [конверта][clutch-api-trigger] на уровне сцепления/хука). Все реджекты нормализуются через `mapError`, включая `CacheEntryRemovedError` при удалении записи до завершения (повторный `execute` с тем же ключом, `reset()`); такая мутация [связи не применяет][links-timing]. |
 | `createClutch` | `entryKey?: string` | `ICommandClutch<TArgs, TData, TError>` | Создаёт реактивное [сцепление][clutch] — наблюдатель за командой. Необязательный ключ записи привязывает к кэш-записи. |
 | `getEntry`    | `key: string`       | `QueryCacheEntry \| null`    | Синхронно возвращает кэш-запись.                                             |
 | `getEntry$`   | `key: string`       | `QueryCacheEntry \| null`    | Реактивный аналог `getEntry` — для использования в реактивном контексте.     |
@@ -101,6 +100,7 @@ function run(bound: TBound<unknown, unknown>) {
 [usage]: ../usage/command.md
 [query-fn]: ../usage/query-fn.md
 [usage-links]: ../usage/links.md
+[links-timing]: ../usage/links.md#тайминг-выполнения
 [usage-lifecycle]: ../usage/lifecycle.md
 [resource-api]: ./resource.md
 [entry-state]: ../concepts/query-entry-state.md
@@ -110,4 +110,3 @@ function run(bound: TBound<unknown, unknown>) {
 [clutch-state]: ./command-clutch.md#состояние-tcommandclutchstate
 [cache-retention]: ../concepts/cache.md#время-удержания-записи
 [api-readme]: ./README.md
-[usage-broadcast]: ../usage/broadcast.md

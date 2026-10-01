@@ -259,6 +259,43 @@ describe("toMermaid", () => {
             expect(toMermaid(definition, { includeActions: false })).toContain("        u_b --> [*]: X\n");
         });
 
+        it("keeps an id for a `$final` with transitions of its own, a self-loop included", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        initial: "a",
+                        states: {
+                            a: { on: { FINISH: "$final" } },
+                            $final: { type: "final", on: { REOPEN: "a", OUT: "#m.q" }, after: { 500: "a" } },
+                        },
+                    },
+                    q: { on: { STAY: "$final" } },
+                    $final: { type: "final", on: { AGAIN: "$final" } },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        [*] --> a",
+                    "        a --> _final: FINISH",
+                    "        _final --> a: REOPEN",
+                    "        _final --> a: after 500",
+                    "        _final --> [*]",
+                    "    }",
+                    "    q --> _final_2: STAY",
+                    "    _final_2 --> _final_2: AGAIN",
+                    "    _final_2 --> [*]",
+                    "    _final --> q: OUT",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("keeps an unreachable `$final` visible", () => {
             expect(
                 toMermaid(createMachine({ id: "m", initial: "a", states: { a: {}, $final: { type: "final" } } })),
@@ -322,6 +359,45 @@ describe("toMermaid", () => {
             );
         });
 
+        it("hoists transitions between regions: a section never mentions another region", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        type: "parallel",
+                        states: {
+                            r1: { initial: "a", states: { a: {} }, on: { TO2: "r2" } },
+                            r2: { initial: "b", states: { b: {} }, on: { TO1: "r1" } },
+                            flag: { on: { POKE: "r1" } },
+                        },
+                    },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        state r1 {",
+                    "            [*] --> a",
+                    "        }",
+                    "        --",
+                    "        state r2 {",
+                    "            [*] --> b",
+                    "        }",
+                    "        --",
+                    "        flag",
+                    "    }",
+                    "    r1 --> r2: TO2",
+                    "    r2 --> r1: TO1",
+                    "    flag --> r1: POKE",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("wraps the root in a block when it owns transitions or entry/exit actions", () => {
             const definition = createMachine({
                 id: "m",
@@ -344,6 +420,26 @@ describe("toMermaid", () => {
                     "    note right of m",
                     "        entry / boot",
                     "    end note",
+                    "",
+                ].join("\n"),
+            );
+        });
+
+        it("wraps the root in a block when a transition targets it", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "a",
+                states: { a: { on: { RESET: { target: "#m", reenter: true }, GO: "b" } }, b: {} },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    state m {",
+                    "        [*] --> a",
+                    "        a --> b: GO",
+                    "    }",
+                    "    a --> m: RESET",
                     "",
                 ].join("\n"),
             );
@@ -421,6 +517,32 @@ describe("toMermaid", () => {
             );
         });
 
+        it("never uses a mermaid or converter keyword as an id (any case): such a key falls back like a taken one", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "note",
+                states: {
+                    note: { on: { GO: "Default" } },
+                    Default: { on: { GO: "direction" } },
+                    direction: { initial: "state", states: { state: { on: { GO: "as" } }, as: {} } },
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> note_2",
+                    "    note_2 --> Default_2: GO",
+                    "    Default_2 --> direction_2: GO",
+                    "    state direction_2 {",
+                    "        [*] --> direction_state",
+                    "        direction_state --> direction_as: GO",
+                    "    }",
+                    "",
+                ].join("\n"),
+            );
+        });
+
         it("hoists transitions that cross scopes to the top level and declares otherwise unmentioned states by id", () => {
             const definition = createMachine({
                 id: "m",
@@ -454,6 +576,48 @@ describe("toMermaid", () => {
                     "    a --> off: OUT",
                     "    a --> c: IN",
                     "    c --> a: BACK",
+                    "",
+                ].join("\n"),
+            );
+        });
+
+        it("hoists every candidate of a trigger when one of them crosses scopes, keeping the candidate order", () => {
+            const definition = createMachine({
+                id: "m",
+                initial: "p",
+                states: {
+                    p: {
+                        initial: "a",
+                        states: {
+                            a: {
+                                on: { E: [{ target: "#m.out", guard: "g" }, { target: "b" }], F: "b" },
+                                after: { 100: [{ target: "#m.out", guard: "g" }, { target: "b" }] },
+                                always: [{ target: "#m.out", guard: "g" }, { target: "$final" }],
+                            },
+                            b: {},
+                            $final: { type: "final" },
+                        },
+                    },
+                    out: {},
+                },
+            });
+            expect(toMermaid(definition)).toBe(
+                [
+                    "stateDiagram-v2",
+                    "    %% @machine m",
+                    "    [*] --> p",
+                    "    state p {",
+                    "        [*] --> a",
+                    "        a --> b: F",
+                    "        _final --> [*]",
+                    "    }",
+                    "    out",
+                    "    a --> out: E [g]",
+                    "    a --> b: E",
+                    "    a --> out: after 100 [g]",
+                    "    a --> b: after 100",
+                    "    a --> out: [g]",
+                    "    a --> _final",
                     "",
                 ].join("\n"),
             );

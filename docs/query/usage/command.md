@@ -254,7 +254,7 @@ clutch.setEntryKey('my-mutation-3');
 - [Состояние записи запроса][entry-state] — детали переходов между статусами
 - [Система кэширования][cache] — жизненный цикл записей кэша
 - [Сцепление][clutch] — реактивный наблюдатель, транслирующий состояние в UI
-- [Broadcast][broadcast] — синхронизация между вкладками; команды поддерживают опцию `sync: true`
+- [Broadcast][broadcast] — синхронизация между вкладками; команды в ней не участвуют
 
 [resource]: ./resource.md
 [entry-state]: ../concepts/query-entry-state.md

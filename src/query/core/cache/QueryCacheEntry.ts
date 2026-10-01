@@ -1,5 +1,7 @@
 import { isObservable, type Observable, type Subscription } from "rxjs";
 
+import { SharedOptions } from "@/common/options/SharedOptions";
+import { reportUnhandledError } from "@/common/utils";
 import type {
     IPatchHandle,
     IQueryCacheEntry,
@@ -56,6 +58,15 @@ export interface TQueryCacheEntryInternals<TData = never> {
      * and whatever it falls through to, `join` takes its outcome.
      */
     coldLoad?: () => Promise<{ data: TData } | null>;
+    /**
+     * Told that a promise run has settled into the entry: called right after
+     * the entry recorded the outcome, so whoever it wakes finds the entry
+     * already showing it. `signal` identifies the run (the one its queryFn
+     * received); `outcome` carries the data or the raw failure, before
+     * `mapError`. An aborted run is never reported — its signal already says
+     * how it ended.
+     */
+    onPromiseRunSettled?: (signal: AbortSignal, outcome: PromiseSettledResult<TData>) => void;
 }
 
 /** Outcome of matching an entry state in {@link QueryCacheEntry._awaitState}. */
@@ -98,6 +109,7 @@ export class QueryCacheEntry<TArgs, TData>
     private readonly _onStreamPatch: (() => void) | undefined;
     private readonly _invalidateInFlight: TInFlightPolicy;
     private readonly _revalidateInRun: TRevalidateInRun | undefined;
+    private readonly _onPromiseRunSettled: TQueryCacheEntryInternals<TData>["onPromiseRunSettled"];
 
     /** See {@link TQueryCacheEntryInternals.coldLoad}; consumed by the first run. */
     private _coldLoad: (() => Promise<{ data: TData } | null>) | undefined;
@@ -152,6 +164,7 @@ export class QueryCacheEntry<TArgs, TData>
         this._onStreamPatch = options.onStreamPatch;
         this._invalidateInFlight = options.invalidateInFlight ?? "cancel";
         this._revalidateInRun = internals.revalidateInRun;
+        this._onPromiseRunSettled = internals.onPromiseRunSettled;
 
         // The raw stream replays the current state, so hydrated entries settle
         // immediately. Suppress "nobody awaited" rejections (may never be read).
@@ -195,6 +208,23 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
+     * @internal `state` as the entry shows it once held. A hold starts the
+     * revalidation the entry owes before its holder's first snapshot (see
+     * {@link onActive}), so a consumer that reads before it holds — a clutch
+     * read during render, ahead of its subscription — gets that in-flight
+     * state at once: `success` / `invalidate-error` → `invalidating`, `error`
+     * → `pending` with the failure cleared. Without an owed revalidation, or
+     * with a trailed run in the way, `state` comes back as it is.
+     */
+    _stateOnHold(state: TQueryEntryState<TArgs, TData>): TQueryEntryState<TArgs, TData> {
+        if (!this._isRevalidationDue) return state;
+
+        const machine = Machine.of(state);
+        if (machine.status === "pending" || machine.status === "invalidating") return state;
+        return machine.invalidate().state;
+    }
+
+    /**
      * @internal The in-flight policy of the invalidation the current run
      * answers, or `null` when it answers none. Set when a run is started by
      * `invalidate()` — at once, or as a mark honoured later — and when a run
@@ -227,7 +257,9 @@ export class QueryCacheEntry<TArgs, TData>
      * three: it is never aborted or joined here — the mark carries the policy
      * and turns into an in-place revalidation under the same lazy rule, at
      * once when held, on the first hold when melting. Either way this never
-     * throws: a failed re-fetch lands in `invalidate-error` like any other. A
+     * throws: a failed re-fetch lands in `invalidate-error` like any other,
+     * and a consumer's throw on the state write is reported (see
+     * {@link _setMachine}). A
      * consistency violation (a patch that could not be replayed) re-queries
      * through this same call, under the entry's `invalidateInFlight`.
      *
@@ -311,10 +343,7 @@ export class QueryCacheEntry<TArgs, TData>
             ) {
                 const finished = current.finishPatch();
                 this._setMachine(finished, "patch-settled");
-
-                if (finished.patchState?.isConsistencyViolation) {
-                    this.invalidate();
-                }
+                this._rerunOnDiscardedData(finished);
             }
         };
 
@@ -483,9 +512,23 @@ export class QueryCacheEntry<TArgs, TData>
         return Machine.of(this.peek());
     }
 
-    /** @internal Store the outcome of a transition (see {@link QueryCacheEntry._machine}). */
+    /**
+     * @internal Store the outcome of a transition (see {@link QueryCacheEntry._machine}).
+     *
+     * Never throws. A signal write rethrows what a reacting consumer (an
+     * effect) threw — once the value is stored and every other reaction has
+     * run. That error is the consumer's: it must neither cut short the
+     * transition in progress, leaving the entry half-way (a re-query never
+     * started, a patch handle never returned), nor pass for the entry's own
+     * outcome (a settle taken for a query failure). It goes where errors
+     * without a synchronous caller go — `config.onUnhandledError` of RxJS.
+     */
     _setMachine(machine: MachineBase<TArgs, TData>, actionName?: string): void {
-        this.set(machine.state, actionName);
+        try {
+            this.set(machine.state, actionName);
+        } catch (error) {
+            reportUnhandledError(error);
+        }
     }
 
     // ==================== Protected ====================
@@ -504,24 +547,30 @@ export class QueryCacheEntry<TArgs, TData>
     // ==================== Private ====================
 
     /**
-     * The one rule behind lazy invalidation: the entry revalidates when it is
-     * held, nothing is in flight and it owes a revalidation. Checked wherever
-     * one of the three can change — `invalidate()` itself, the settle of any
-     * run, and the first hold. A completed entry cannot be held, but the guard
-     * keeps that explicit.
+     * Whether the entry owes a revalidation that nothing in flight stands in
+     * the way of — so a hold starts it. A completed entry cannot be held, but
+     * the guard keeps that explicit.
      *
-     * A run that revalidates in place does not count as in flight here: the
-     * revalidation is handed to it (see {@link _revalidateInPlace}); should
-     * the run turn it down, it is restarted instead.
+     * A run that revalidates in place does not stand in the way: the
+     * revalidation is handed to it (see {@link _revalidateInPlace}). Any other
+     * run in flight here is a trailed one: its settle takes over.
+     */
+    private get _isRevalidationDue(): boolean {
+        return !this.isCompleted && this._isInvalidated && (!this._isInFlight || this._revalidateInRun !== undefined);
+    }
+
+    /**
+     * The one rule behind lazy invalidation: the entry revalidates when it is
+     * held and the revalidation it owes is due. Checked wherever either can
+     * change — `invalidate()` itself, the settle of any run, and the first
+     * hold. A run that revalidates in place and turns the revalidation down
+     * is restarted instead.
      */
     private _maybeRevalidate(actionName: "invalidate" | "revalidate" = "revalidate"): void {
-        if (this.isCompleted || this.isMelting || !this._isInvalidated) return;
+        if (this.isMelting || !this._isRevalidationDue) return;
 
         const policy = this._markPolicy ?? this._invalidateInFlight;
         if (this._isInFlight) {
-            // Without in-place revalidation, a run in flight here is a
-            // trailed one: its settle takes over.
-            if (!this._revalidateInRun) return;
             if (this._revalidateInPlace(actionName, policy)) return;
             this._abortRun();
         }
@@ -704,10 +753,15 @@ export class QueryCacheEntry<TArgs, TData>
      * `mapError` at an upstream entry's boundary (a projection run re-surfacing its
      * wrapped resource's rejection) — it is unwrapped instead of being mapped
      * a second time.
+     *
+     * A failure is reported to the global `onQueryError` here too, once, as it
+     * enters the state — the pre-mapped one was reported at the entry it came from.
      */
     private _normalizeError(error: unknown): unknown {
         if (error instanceof PreMappedError) return error.error;
-        return this._mapError(error, this._errorContext());
+        const mapped = this._mapError(error, this._errorContext());
+        reportQueryError(mapped);
+        return mapped;
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
@@ -827,8 +881,10 @@ export class QueryCacheEntry<TArgs, TData>
             return;
         }
 
-        result
-            .then((data) => {
+        // Two handlers, not `.then().catch()`: a throw while settling is not a
+        // failure of this run.
+        result.then(
+            (data) => {
                 if (controller.signal.aborted) return;
                 this._settleRun(controller);
 
@@ -841,18 +897,19 @@ export class QueryCacheEntry<TArgs, TData>
                     case "invalidating": {
                         const rebased = machine.rebase(data);
                         this._setMachine(rebased, "rebase");
-                        this._rerunOnDiscardedRebase(rebased);
+                        this._rerunOnDiscardedData(rebased);
                         break;
                     }
                     default:
                         console.warn(`[QueryCacheEntry] received data in unexpected state: ${machine.status}`);
                 }
+                this._onPromiseRunSettled?.(controller.signal, { status: "fulfilled", value: data });
 
                 // Settled with nothing in flight: a mark set while this run was
                 // trailing turns into the re-fetch now (if the entry is held).
                 this._onRunLeftFlight();
-            })
-            .catch((error) => {
+            },
+            (error: unknown) => {
                 if (controller.signal.aborted) return;
                 this._settleRun(controller);
 
@@ -860,6 +917,7 @@ export class QueryCacheEntry<TArgs, TData>
 
                 if (machine.status !== "pending" && machine.status !== "invalidating") {
                     console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
+                    this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
                     this._onRunLeftFlight();
                     return;
                 }
@@ -870,8 +928,8 @@ export class QueryCacheEntry<TArgs, TData>
                 // imperative-fetch rejections, the command result envelope, the
                 // Suspense throw — observes the same mapped instance. Deliberately
                 // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
-                // fed from the raw queryFn promise and see the raw error. Aborted
-                // runs returned above and are never mapped.
+                // told the raw error (see onPromiseRunSettled). Aborted runs
+                // returned above and are never mapped.
                 const mappedError = this._normalizeError(error);
 
                 // Name the failure by the state it lands in: a failed background invalidation
@@ -879,8 +937,10 @@ export class QueryCacheEntry<TArgs, TData>
                 const failedAction = machine.status === "invalidating" ? "invalidate-error" : "error";
 
                 this._setMachine(machine.fail(mappedError), failedAction);
+                this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
                 this._onRunLeftFlight();
-            });
+            },
+        );
     }
 
     /**
@@ -971,22 +1031,25 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Re-query when a rebase discarded its own result — a consistency
-     * violation, handled like the one a patch settle raises: through
-     * {@link invalidate}, so the lazy rule and the entry's in-flight policy
-     * apply as they are. The entry is still `invalidating` (the run settled
-     * nothing): a promise run has already left flight, so a held entry re-runs
-     * at once and a melting one is marked; a stream run is still open, so
-     * under `cancel` it is torn down and reopened, under `trail` it is marked
-     * and lives on, under `join` it lives on unmarked — its next emission
-     * rebases over the now empty patch list and lands in a clean `success`,
-     * and so does the next run's first result. A joined stream that ends
-     * without that emission leaves the entry owing the run (see
-     * {@link _onRunLeftFlight}).
+     * Re-query after a consistency violation — a rebase or a stream emission
+     * that discarded the server data, a patch settle that could not replay
+     * the stack: through {@link invalidate}, so the lazy rule and the entry's
+     * in-flight policy apply as they are. The violation left the entry
+     * `invalidating` (nothing settled): a promise run has already left
+     * flight, so a held entry re-runs at once and a melting one is marked; a
+     * stream run is still open, so under `cancel` it is torn down and
+     * reopened, under `trail` it is marked and lives on, under `join` it lives
+     * on unmarked — its next emission rebases over the now empty patch list
+     * and lands in a clean `success`, and so does the next run's first
+     * result. A joined stream that ends without that emission leaves the
+     * entry owing the run (see {@link _onRunLeftFlight}).
+     *
+     * Only the transition that hit the violation re-queries: the flag in the
+     * state stays up until a server answer lands, and a later patch or settle
+     * that replays fine must not invalidate the entry again.
      */
-    private _rerunOnDiscardedRebase(rebased: Machine<TArgs, TData>): void {
-        if (rebased.status !== "invalidating") return;
-        if (!rebased.state.patchState?.isConsistencyViolation) return;
+    private _rerunOnDiscardedData(machine: MachineBase<TArgs, TData>): void {
+        if (!machine.violated) return;
 
         this.invalidate();
     }
@@ -1002,16 +1065,13 @@ export class QueryCacheEntry<TArgs, TData>
             case "invalidating": {
                 const rebased = machine.rebase(data);
                 this._setMachine(rebased, "rebase");
-                this._rerunOnDiscardedRebase(rebased);
+                this._rerunOnDiscardedData(rebased);
                 break;
             }
             case "success": {
                 const next = machine.next(data);
                 this._setMachine(next, "stream-next");
-
-                if (next.patchState?.isConsistencyViolation) {
-                    this.invalidate();
-                }
+                this._rerunOnDiscardedData(next);
                 break;
             }
             default:
@@ -1038,6 +1098,21 @@ export class QueryCacheEntry<TArgs, TData>
 }
 
 // ==================== Helpers ====================
+
+/**
+ * Hand a failure to the global `onQueryError` handler. A throwing handler is a
+ * bug in the consumer's reporting code: it is logged, never allowed to break
+ * the entry's transition.
+ */
+function reportQueryError(error: unknown): void {
+    const onQueryError = SharedOptions.onQueryError;
+    if (!onQueryError) return;
+    try {
+        untracked(() => onQueryError(error));
+    } catch (handlerError) {
+        console.error("[rx-toolkit] onQueryError threw while reporting a query error.", handlerError);
+    }
+}
 
 /** How far each policy goes in distrusting a run in flight. */
 const POLICY_STRENGTH: Record<TInFlightPolicy, number> = { join: 0, trail: 1, cancel: 2 };

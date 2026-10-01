@@ -335,8 +335,10 @@ export class ListCore implements ParentCore {
      * `_commit()`: the sent key order becomes the structure base, and each sent row takes its base
      * by key. A structural draft stays only if it differs from what was sent, so rows added
      * during the flight stay a draft; rows removed during it are in the base again, detached.
+     * Reinit data deferred before is older than this base and is dropped.
      */
     commit(snapshot: ListSnapshot): void {
+        this._deferred = NOTHING;
         for (const [itemKey, item] of snapshot.items) {
             if (!this._registry.has(itemKey)) this._registry.set(itemKey, item.core);
         }

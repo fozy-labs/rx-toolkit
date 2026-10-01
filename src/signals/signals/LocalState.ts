@@ -1,9 +1,10 @@
-import { type StandardSchemaV1 } from "@/common/standard-schema";
+import { type StandardSchemaV1, type StandardSchemaV1Result } from "@/common/standard-schema";
 import { type SignalOptionsOrKey } from "@/signals/types";
 
 import { Computed } from "./Computed";
 import {
     GC_OPTIONS,
+    isPlainRecord,
     KEY_PREFIX,
     LOCAL_STATE_GC_DEFAULTS,
     LocalStateStorage,
@@ -18,7 +19,9 @@ export type LocalStateGcOptions = {
     enabled?: boolean;
     /**
      * Milliseconds a slot may stay unread/unwritten before the GC sweep
-     * removes it. @default LOCAL_STATE_GC_DEFAULTS.maxUnreadTime (60 days)
+     * removes it; must be positive (`Infinity` = exempt), anything else is
+     * reported and the default applies.
+     * @default LOCAL_STATE_GC_DEFAULTS.maxUnreadTime (60 days)
      */
     maxUnreadTime?: number;
 };
@@ -27,8 +30,16 @@ export type LocalStateOptions<T> = {
     /**
      * Validates the stored value on load — any Standard Schema implementation
      * (zod, valibot, arktype, ...). The schema output becomes the value;
-     * a failure drops the slot and falls back to `defaultValue`. Must be
+     * a failure (issues or a throw) drops the slot and falls back to `defaultValue`. Must be
      * synchronous: an async schema is reported and the stored value ignored.
+     *
+     * Values written by `set()` are stored as the ready value (the schema's
+     * output) and trusted on load — validation covers only data not written
+     * by this code, so a transforming schema (`transform`, `z.date()`,
+     * coercion) does not reject the signal's own writes. Dates survive
+     * storage (nested included); other values must be JSON-serializable.
+     * When changing the schema incompatibly, change `key`: trusted
+     * self-writes are not re-checked against the new schema.
      */
     schema?: StandardSchemaV1<unknown, T>;
     key: string;
@@ -63,18 +74,87 @@ function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
     return typeof (value as { then?: unknown } | null)?.then === "function";
 }
 
+const DATE_TAG = "__LSDate__";
+
+function isDateTag(value: Record<string, unknown>): value is { [DATE_TAG]: string } {
+    return typeof value[DATE_TAG] === "string" && Object.keys(value).length === 1;
+}
+
+/**
+ * Folds `Date` instances (nested included) into tagged plain objects so a
+ * schema-written value survives JSON storage; undone by `decodeDates` on the
+ * trusted load path. Returns a fresh structure — the stored representation
+ * never aliases the in-memory value.
+ */
+function encodeDates(value: unknown): unknown {
+    if (value instanceof Date) return { [DATE_TAG]: value.toJSON() };
+
+    if (Array.isArray(value)) return value.map(encodeDates);
+
+    if (isPlainRecord(value)) {
+        const result: Record<string, unknown> = {};
+
+        for (const [key, entry] of Object.entries(value)) {
+            result[key] = encodeDates(entry);
+        }
+
+        return result;
+    }
+
+    return value;
+}
+
+/** Undoes `encodeDates`; a malformed tag is left as data, not revived. */
+function decodeDates(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(decodeDates);
+
+    if (isPlainRecord(value)) {
+        if (isDateTag(value)) {
+            const time = Date.parse(value[DATE_TAG]);
+            if (!Number.isNaN(time)) return new Date(time);
+        }
+
+        const result: Record<string, unknown> = {};
+
+        for (const [key, entry] of Object.entries(value)) {
+            result[key] = decodeDates(entry);
+        }
+
+        return result;
+    }
+
+    return value;
+}
+
 /**
  * Collapses the `gc` option into the envelope `ttl` field:
  * `null` = exempt, number = explicit maxUnreadTime, `undefined` = default
  * policy (not persisted, so default changes reach already stored slots).
+ * `maxUnreadTime: Infinity` never expires, so it is exempt: JSON stores
+ * `Infinity` as `null` anyway, and the policy must equal its stored form.
+ * Anything but a positive number (0, negative, NaN) is not a lifetime: it
+ * would drive a zero re-touch cadence, so it is reported and the default
+ * policy applies.
  */
-function resolveSlotTtl(gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
+function resolveSlotTtl(key: string, gc: boolean | LocalStateGcOptions | undefined): SlotTtl {
     if (gc === false) return null;
     if (gc === true || gc === undefined) return undefined;
     if (gc.enabled === false) return null;
-    if (gc.maxUnreadTime === undefined) return undefined;
-    if (gc.maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
-    return gc.maxUnreadTime;
+
+    const { maxUnreadTime } = gc;
+
+    if (maxUnreadTime === undefined) return undefined;
+
+    if (!(maxUnreadTime > 0)) {
+        console.warn(
+            `[LocalSignal]: gc.maxUnreadTime of "${key}" must be a positive number of ms, got ${maxUnreadTime}; the default policy applies`,
+        );
+        return undefined;
+    }
+
+    if (maxUnreadTime === LOCAL_STATE_GC_DEFAULTS.maxUnreadTime) return undefined;
+    if (maxUnreadTime === Infinity) return null;
+    return maxUnreadTime;
 }
 
 export class LocalState<T = string | null | number | undefined> {
@@ -100,10 +180,10 @@ export class LocalState<T = string | null | number | undefined> {
         this._options = options;
         this._storage = LocalStateStorage.forDriver(this._driver);
         this._storageKey = slotStorageKey(options.key, options.userId);
-        this._slotTtl = resolveSlotTtl(options.gc);
+        this._slotTtl = resolveSlotTtl(options.key, options.gc);
 
-        // Live registration: the GC re-touches this slot instead of expiring
-        // it, so a value held by a running app never hits its maxUnreadTime.
+        // Live registration: this slot is re-touched periodically instead of
+        // expiring, so a value held by a running app never hits its maxUnreadTime.
         this._storage.registerSlot(this._storageKey, this._slotTtl);
 
         let initialValue = this._getStorageValue(options);
@@ -128,7 +208,15 @@ export class LocalState<T = string | null | number | undefined> {
     }
 
     set(value: T, actionName?: string) {
-        this._storage.writeSlot(this._storageKey, value, this._slotTtl);
+        // With a schema, storage keeps the ready value (the schema's output
+        // domain), marked as such: revalidating it on load as schema INPUT
+        // would reject the signal's own writes under a transforming schema.
+        if (this._options.schema) {
+            this._storage.writeSlot(this._storageKey, encodeDates(value), this._slotTtl, true);
+        } else {
+            this._storage.writeSlot(this._storageKey, value, this._slotTtl);
+        }
+
         this._state$.set(value, actionName);
     }
 
@@ -154,9 +242,25 @@ export class LocalState<T = string | null | number | undefined> {
 
         if (!slot.found) return NONE;
 
+        // Written by set() of this format: already the ready value (the
+        // schema's output domain) — serve it without revalidation. Only data
+        // NOT written by this code (older versions, foreign writers) goes
+        // through the schema below.
+        if (slot.out) return decodeDates(slot.data) as T;
+
         if (!options.schema) return slot.data as T;
 
-        const result = options.schema["~standard"].validate(slot.data);
+        let result: StandardSchemaV1Result<T> | PromiseLike<StandardSchemaV1Result<T>>;
+
+        try {
+            result = options.schema["~standard"].validate(slot.data);
+        } catch (error) {
+            // A throw means the schema could not handle the stored data: treat it
+            // as a failed validation, or the slot would crash every later load.
+            console.error(`[LocalSignal]: the schema for key "${options.key}" threw on the stored value`, error);
+            this._storage.healSlot(this._storageKey);
+            return NONE;
+        }
 
         if (isPromiseLike(result)) {
             // The initial value is needed synchronously, so an async schema is

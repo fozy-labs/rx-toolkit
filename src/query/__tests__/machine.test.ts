@@ -371,7 +371,7 @@ describe("Machine", () => {
             expect(m.state.updatedAt).toBe(1000);
         });
 
-        it("invalidating → success (with patches): replays patches on new base", () => {
+        it("invalidating → success (with patches): committed patches dissolve in the new base", () => {
             // success → patch → invalidate → rebase
             const { machine: patched, handle } = makeSuccess().createPatch((d) => {
                 d.count = 99;
@@ -380,8 +380,8 @@ describe("Machine", () => {
             const invalidated = patched.invalidate();
             const rebased = invalidated.rebase({ name: "Server", count: 50 });
             expect(rebased.state.status).toBe("success");
-            // Committed patches are applied on new base: count becomes 99
-            expect(rebased.state.data).toEqual({ name: "Server", count: 99 });
+            // The server confirmed the change: its data is the truth, the patch is not replayed.
+            expect(rebased.state.data).toEqual({ name: "Server", count: 50 });
         });
 
         it("replays pending patches on new base and keeps patchState", () => {
@@ -816,16 +816,20 @@ describe("Machine", () => {
             expect(finished.state.data).toEqual(DATA);
         });
 
-        it("scenario 4: rebase with active patches replays via rebasePatches", () => {
-            const { machine: patched, handle } = makeSuccess().createPatch((d) => {
+        it("scenario 4: rebase replays the pending patches and drops the committed ones", () => {
+            const { machine: m1, handle } = makeSuccess().createPatch((d) => {
                 d.count = 77;
+            });
+            const { machine: patched } = m1.createPatch((d) => {
+                d.name = "Pending";
             });
             handle.commit();
             const invalidated = patched.invalidate();
             const serverData: TestData = { name: "ServerName", count: 200 };
             const rebased = invalidated.rebase(serverData);
-            // Committed patch sets count=77, replayed on new base
-            expect(rebased.state.data).toEqual({ name: "ServerName", count: 77 });
+            // The committed count=77 is the server's to report; the pending name is replayed.
+            expect(rebased.state.data).toEqual({ name: "Pending", count: 200 });
+            expect(rebased.state.status === "success" && rebased.state.patchState?.patches).toHaveLength(1);
         });
 
         it("scenario 5: replay failure → isConsistencyViolation = true", () => {
@@ -902,6 +906,46 @@ describe("Machine", () => {
             expect(settled.status).toBe("success");
             expect(settled.state).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
             expect(settled.state.patchState).toBeNull();
+        });
+
+        it("scenario 8: a discarded stream emission leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            const { machine: patched } = base.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const next = patched.next({ items: [] });
+
+            expect(next).toBeInstanceOf(MachineInvalidating);
+            expect(next.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 99 }] },
+                updatedAt: base.state.updatedAt,
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+        });
+
+        it("scenario 9: a patch settle that cannot replay the stack leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            // Patch 2 edits the item patch 1 adds: once patch 1 is aborted, patch 2 cannot replay.
+            const { machine: m1, handle: h1 } = base.createPatch((draft) => {
+                draft.items.push({ n: 2 });
+            });
+            const { machine: m2 } = m1.createPatch((draft) => {
+                draft.items[1]!.n = 3;
+            });
+            h1.abort();
+
+            const finished = m2.finishPatch();
+
+            expect(finished).toBeInstanceOf(MachineInvalidating);
+            expect(finished.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 1 }, { n: 3 }] },
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
         });
     });
 
