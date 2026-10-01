@@ -2,6 +2,7 @@ import { createActor, createMachine as createXStateMachine } from "xstate";
 
 import type { MachineDevtoolsActor, MachineDevtoolsLike, MachineDevtoolsSnapshot } from "@/common/devtools/types";
 import { SharedOptions } from "@/common/options/SharedOptions";
+import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
 import { SignalCycleError } from "@/signals/base/SignalCycleError";
 import { Signal } from "@/signals/signals/Signal";
@@ -1721,7 +1722,7 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         engine.dispose();
     });
 
-    it("a restart from onError counts toward the depth: an effect re-sending the failing event throws SignalCycleError", () => {
+    it("an effect re-sending the failing event on every active snapshot throws SignalCycleError (bounded by the core's cycle limit)", () => {
         const definition = createMachine(
             { id: "m", initial: "a", states: { a: { on: { GO: { actions: "explode" } } } } },
             {
@@ -1739,16 +1740,21 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
                 if (looping && ++restarts < 5000) engine.start();
             },
         });
-        const effect = Signal.effect(() => {
-            if (engine.state().status === "active" && looping) engine.send({ type: "GO" });
-        });
-        expect(() => engine.send({ type: "GO" })).toThrow(SignalCycleError);
+        // The loop runs through effect scheduling — each `send()` opens a fresh burst —
+        // so the signal core's cycle limit reports it, out of `Signal.effect` like any
+        // first-run loop; a first run that throws releases the effect (no handle to unsubscribe).
+        expect(() =>
+            Signal.effect(() => {
+                if (engine.state().status === "active" && looping) engine.send({ type: "GO" });
+            }),
+        ).toThrow(SignalCycleError);
         expect(restarts).toBeLessThan(5000);
 
+        // The loop is dropped: the engine starts and keeps working.
         looping = false;
         engine.start();
         expect(engine.status).toBe("running");
-        effect.unsubscribe();
+        expect(engine.state.peek().value).toBe("a");
         engine.dispose();
     });
 
@@ -1826,6 +1832,62 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         expect(engine.status).toBe("disposed");
         restart.unsubscribe();
         dispose.unsubscribe();
+    });
+
+    // docs/statechart/README.md ("Жизненный цикл"): events sent from a `Signal.effect`
+    // reacting to a new snapshot are processed until the queue is empty, so effects
+    // see every snapshot — also when the first event came from another reaction.
+    describe("an effect auto-advancing the machine with send()", () => {
+        const wizard = () =>
+            createMachine({
+                id: "wizard",
+                initial: "a",
+                states: {
+                    a: { on: { NEXT: "b" } },
+                    b: { on: { NEXT: "c" } }, // "b" and "c" are transient: an effect advances them
+                    c: { on: { NEXT: "done" } },
+                    done: {},
+                },
+            });
+
+        const autoAdvance = (engine: Statechart<MachineContext, AnyEventObject>) => {
+            const seen: unknown[] = [];
+            const effect = Signal.effect(() => {
+                const value = engine.state().value;
+                seen.push(value);
+                if (value === "b" || value === "c") engine.send({ type: "NEXT" });
+            });
+            return { seen, effect };
+        };
+
+        it("the first event sent from an effect (e.g. one watching a query): the chain completes", () => {
+            const engine = new Statechart(wizard());
+            const { seen, effect } = autoAdvance(engine);
+            const loaded = Signal.state(false);
+            const onLoaded = Signal.effect(() => {
+                if (loaded()) engine.send({ type: "NEXT" });
+            });
+
+            loaded.set(true);
+
+            expect(engine.state.peek().value).toBe("done");
+            expect(seen).toEqual(["a", "b", "c", "done"]);
+            onLoaded.unsubscribe();
+            effect.unsubscribe();
+            engine.dispose();
+        });
+
+        it("the first event sent inside Batcher.run: the chain completes", () => {
+            const engine = new Statechart(wizard());
+            const { seen, effect } = autoAdvance(engine);
+
+            Batcher.run(() => engine.send({ type: "NEXT" }));
+
+            expect(engine.state.peek().value).toBe("done");
+            expect(seen).toEqual(["a", "b", "c", "done"]);
+            effect.unsubscribe();
+            engine.dispose();
+        });
     });
 });
 

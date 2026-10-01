@@ -8,4 +8,4 @@
  * of a subscription (a query run, a retention hook), where those reads belong
  * to nobody.
  */
-export { untracked } from "./core";
+export { untracked, untrackedWrites } from "./core";

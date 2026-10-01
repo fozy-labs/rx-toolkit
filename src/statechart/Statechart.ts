@@ -3,7 +3,7 @@ import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
 import { SignalCycleError } from "@/signals/base/SignalCycleError";
-import { untracked } from "@/signals/base/untracked";
+import { untracked, untrackedWrites } from "@/signals/base/untracked";
 import { State } from "@/signals/signals/State";
 import type { ReadonlySignal } from "@/signals/types";
 
@@ -571,9 +571,15 @@ export class unstable_Statechart<
      * inspector. `State.set` dedupes by identity, so an unchanged macrostep
      * (and the initial commit of `start()`) costs no emission; the inspector
      * is told about every macrostep regardless.
+     *
+     * The write belongs to the machine, not to whatever reaction called
+     * `send()` / `start()` / `stop()`: without `untrackedWrites` an effect
+     * that sent the event would take the snapshot it produced as its own
+     * write (suppressed, see `notifyTargets`), never re-run on it, and an
+     * effect → `send()` chain would stall one step later.
      */
     private _commit(event: EventObject): void {
-        this._state$.set(this._snapshot, event.type);
+        untrackedWrites(() => this._state$.set(this._snapshot, event.type));
         this._notifyInspector((handle) => handle.snapshot(this._snapshot, event));
     }
 
