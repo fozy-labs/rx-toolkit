@@ -1,6 +1,7 @@
 import { config, map, Observable, Subject, Subscriber, tap } from "rxjs";
 
 import { Batcher, Signal, SignalCycleError, SourceSignal, unstable_KeyedSignal } from "@/index";
+import type { DisposableSignal } from "@/signals/types";
 
 /** A raw subscriber: unlike `subscribe(fn)`, RxJS does not catch what its `next` throws. */
 class ThrowingSubscriber extends Subscriber<number> {
@@ -955,6 +956,150 @@ describe("engine robustness", () => {
             expect(values).toEqual([1, 11]);
             keep.unsubscribe();
             effect.unsubscribe();
+        });
+    });
+});
+
+describe("engine guards", () => {
+    it("a throwing State hook vetoes the write, top-level and inside a batch; the engine recovers", () => {
+        let fail = true;
+        const s = Signal.state(0, {
+            hooks: [
+                {
+                    onChange: () => {
+                        if (fail) throw new Error("hook boom");
+                    },
+                },
+            ],
+        });
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            seen.push(s());
+        });
+
+        // Top-level: the hook's error reaches the caller, the value stands.
+        expect(() => s.set(1)).toThrow("hook boom");
+        expect(s.peek()).toBe(0);
+
+        // Inside a batch: the same veto, the batch rethrows after its reactions.
+        expect(() =>
+            Batcher.run(() => {
+                s.set(1);
+            }),
+        ).toThrow("hook boom");
+        expect(s.peek()).toBe(0);
+        expect(seen).toEqual([0]);
+
+        // Nothing is wedged: once the hook stops throwing, writes go through.
+        fail = false;
+        s.set(2);
+        expect(s.peek()).toBe(2);
+        expect(seen).toEqual([0, 2]);
+        effect.unsubscribe();
+    });
+
+    it("a disposed computed stays cold for a new observer: it computes for the read but is never woken", () => {
+        const s = Signal.state(1);
+        const c = Signal.compute(() => s() * 2);
+        c.dispose();
+
+        const seen: number[] = [];
+        const effect = Signal.effect(() => {
+            seen.push(c());
+        });
+        expect(seen).toEqual([2]);
+
+        // Never woken through the disposed computed, while a direct read still computes, cold.
+        s.set(5);
+        expect(seen).toEqual([2]);
+        expect(c.peek()).toBe(10);
+        effect.unsubscribe();
+    });
+
+    it("a second dispose() of a computed is a no-op", () => {
+        const s = Signal.state(1);
+        const c = Signal.compute(() => s() * 2);
+        const seen: number[] = [];
+        const sub = c.obs.subscribe((v) => seen.push(v));
+
+        c.dispose();
+        expect(() => c.dispose()).not.toThrow();
+        expect(seen).toEqual([2]);
+        sub.unsubscribe();
+    });
+
+    describe("a computed read inside a batch", () => {
+        it("observed: recomputes for the read and rethrows its error, without settling the node", () => {
+            const s = Signal.state(0);
+            const c = Signal.compute(() => {
+                const v = s();
+                if (v > 0) throw new Error(`bad ${v}`);
+                return v;
+            });
+            const seen: Array<number | string> = [];
+            const effect = Signal.effect(() => {
+                try {
+                    seen.push(c());
+                } catch (error) {
+                    seen.push((error as Error).message);
+                }
+            });
+            expect(seen).toEqual([0]);
+
+            Batcher.run(() => {
+                s.set(1);
+                expect(() => c.peek()).toThrow("bad 1");
+                // The error is of the read only: the observed node is not settled by it.
+                expect(seen).toEqual([0]);
+            });
+
+            // The flush after the batch recomputes the observed node for real.
+            expect(seen).toEqual([0, "bad 1"]);
+            effect.unsubscribe();
+        });
+
+        it("cold: recomputes for the read and rethrows its error", () => {
+            const s = Signal.state(0);
+            const c = Signal.compute(() => {
+                const v = s();
+                if (v > 0) throw new Error(`bad ${v}`);
+                return v;
+            });
+            expect(c.peek()).toBe(0);
+
+            Batcher.run(() => {
+                s.set(1);
+                expect(() => c.peek()).toThrow("bad 1");
+            });
+
+            // Nothing kept from the in-batch read: the next one computes again.
+            expect(() => c.peek()).toThrow("bad 1");
+            s.set(0);
+            expect(c.peek()).toBe(0);
+        });
+
+        it("a cycle found by the read is not kept: the next read of the same batch computes again", () => {
+            let runsA = 0;
+            const a: DisposableSignal<number> = Signal.compute(() => {
+                runsA++;
+                try {
+                    return b() + 1;
+                } catch {
+                    return -1;
+                }
+            });
+            const b: DisposableSignal<number> = Signal.compute(() => a() + 1);
+
+            let first: number | undefined;
+            let second: number | undefined;
+            Batcher.run(() => {
+                first = a.peek();
+                second = a.peek();
+            });
+
+            expect(first).toBe(-1);
+            expect(second).toBe(-1);
+            expect(runsA).toBe(2);
         });
     });
 });

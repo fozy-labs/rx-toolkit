@@ -1227,6 +1227,28 @@ describe("ResourceClutch.adoptPrevious", () => {
 
         expectRow(nextState(), 4, { args: 2, data: "A1", dataArgs: 1 });
     });
+
+    it("ignores a source that is not a ResourceClutch", () => {
+        const t = harness();
+        const next = t.resource.createClutch();
+        const nextState = observe(next);
+
+        next.adoptPrevious({} as IResourceClutch<number, string>);
+
+        expectRow(nextState(), 1);
+    });
+});
+
+describe("ResourceClutch.args", () => {
+    it("the args of the last switch, null before it and after SKIP", () => {
+        const t = harness();
+
+        expect(t.clutch.args).toBeNull();
+        t.clutch.switch(1);
+        expect(t.clutch.args).toBe(1);
+        t.clutch.switch(SKIP);
+        expect(t.clutch.args).toBeNull();
+    });
 });
 
 // ==================== dispose / reset ====================

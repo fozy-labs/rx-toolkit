@@ -143,6 +143,15 @@ describe("Signal.from", () => {
 
             expect(() => signal()).toThrow(SignalCycleError);
         });
+
+        it("a source that peeks the signal while it subscribes throws SignalCycleError to the reader", () => {
+            const signal: DisposableSignal<number> = Signal.from(
+                defer(() => of(signal.peek() + 1)),
+                { keepAlive: "none", default: 0 },
+            );
+
+            expect(() => signal.peek()).toThrow(SignalCycleError);
+        });
     });
 
     describe('keepAlive: "task"', () => {
@@ -839,6 +848,98 @@ describe("Signal.from", () => {
 
             expect(signal()).toBe(7);
             signal.dispose();
+        });
+    });
+
+    describe("connect guards", () => {
+        it("a computed revalidated while its receiver reconnects reads it as still connecting", () => {
+            const subject = new Subject<number>();
+            const w = Signal.state(0);
+            let connects = 0;
+            let midConnect: unknown;
+            const signal: DisposableSignal<number> = Signal.from(
+                new Observable<number>((subscriber) => {
+                    connects++;
+                    if (connects === 2) {
+                        // A write of another source marks the dependent; reading
+                        // it now revalidates against a receiver still connecting.
+                        w.set(1);
+                        try {
+                            dependent();
+                        } catch (error) {
+                            midConnect = error;
+                        }
+                        subscriber.next(10);
+                        subscriber.complete();
+                        return;
+                    }
+                    const sub = subject.subscribe(subscriber);
+                    return () => sub.unsubscribe();
+                }),
+                { default: 0 },
+            );
+            const driver = Signal.compute(() => signal());
+            // w is read on the error path too, so it stays a dependency — the
+            // write of it inside the second connect marks this computed.
+            const dependent: DisposableSignal<number> = Signal.compute(() => {
+                try {
+                    return signal() + w();
+                } catch (error) {
+                    w();
+                    throw error;
+                }
+            });
+            const readout = (read: () => number): number | string => {
+                try {
+                    return read();
+                } catch (error) {
+                    return error instanceof SignalCycleError ? "cycle" : (error as Error).message;
+                }
+            };
+            const seen: Array<[number | string, number | string]> = [];
+            const effect = Signal.effect(() => {
+                seen.push([readout(driver), readout(dependent)]);
+            });
+            subject.next(5);
+            subject.error(new Error("down"));
+            expect(seen).toEqual([
+                [0, 0],
+                [5, 5],
+                ["down", "down"],
+            ]);
+
+            // A read after the failure retries the upstream: the second connect.
+            expect(signal()).toBe(10);
+
+            expect(midConnect).toBeInstanceOf(SignalCycleError);
+            // The dependent that read the receiver mid-connect keeps the cycle
+            // error until an external change re-triggers it.
+            expect(seen[3]).toEqual([10, "cycle"]);
+            w.set(2);
+            expect(seen[4]).toEqual([10, 12]);
+            effect.unsubscribe();
+        });
+
+        it("a read after dispose serves the frozen value, and observing the signal does not reconnect the upstream", () => {
+            const inner$ = new Subject<number>();
+            const { source, counter } = counting(inner$);
+            const signal = Signal.from(source, { default: 0 });
+
+            signal();
+            inner$.next(5);
+            expect(signal()).toBe(5);
+            signal.dispose();
+            expect(counter.subscriptions).toBe(1);
+
+            const seen: number[] = [];
+            const effect = Signal.effect(() => {
+                seen.push(signal());
+            });
+            expect(seen).toEqual([5]);
+            expect(counter.subscriptions).toBe(1);
+            inner$.next(10);
+            expect(seen).toEqual([5]);
+            effect.unsubscribe();
         });
     });
 });

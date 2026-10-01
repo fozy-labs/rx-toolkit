@@ -973,6 +973,111 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it("a meta cleared while the due timer was pending stops the round: no claim, no sweep", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE - 1000),
+                [storageKey("old")]: envelope(1, BASE - 61 * DAY),
+            });
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // "Another tab" clears the namespace before the armed timer fires.
+            driver.removeItem(KEY_PREFIX);
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            expect(driver.getItem(KEY_PREFIX)).toBeNull();
+            expect(driver.getItem(storageKey("old"))).not.toBeNull();
+        });
+
+        it("a meta gone when the round re-schedules pauses GC until a slot write re-marks it", () => {
+            // The due check and the re-schedule read the meta separately; the
+            // second read finds it gone (cleared by "another tab" between them).
+            let metaReads = 0;
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + 5 * DAY)],
+                [storageKey("old"), envelope(1, BASE - 61 * DAY)],
+            ]);
+            const driver = {
+                getItem: (k: string) => {
+                    if (k === KEY_PREFIX && ++metaReads === 4) return null;
+                    return map.has(k) ? map.get(k)! : null;
+                },
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            };
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // "Another tab" moves the deadline: our timer fires before it and the
+            // round is a re-schedule, not a claim-and-sweep.
+            const moved = meta(1, BASE + 10 * DAY);
+            driver.setItem(KEY_PREFIX, moved);
+            vi.advanceTimersByTime(5 * DAY + HOUR);
+
+            // No claim: the stored meta is exactly what the other tab wrote.
+            expect(map.get(KEY_PREFIX)).toBe(moved);
+            // GC paused: past the moved deadline still nothing was swept.
+            vi.advanceTimersByTime(6 * DAY);
+            expect(map.has(storageKey("old"))).toBe(true);
+            expect(map.get(KEY_PREFIX)).toBe(moved);
+        });
+
+        it("a sweep with key enumeration gone does not run, after the claim landed", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE - 1000)],
+                [storageKey("old"), envelope(1, BASE - 61 * DAY)],
+            ]);
+            const driver = {
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            };
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // Enumeration goes away before the armed timer fires.
+            delete (driver as { keys?: () => string[] }).keys;
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            // The claim landed before the sweep bailed out; nothing was removed.
+            expect(JSON.parse(map.get(KEY_PREFIX)!).nextGcAt).toBe(BASE + 30 * MINUTE + WEEK);
+            expect(map.has(storageKey("old"))).toBe(true);
+        });
+
+        it("a key removed by another tab mid-sweep is skipped, the rest is swept", () => {
+            const entries: Record<string, string> = { [KEY_PREFIX]: meta(1, BASE - 1000) };
+            for (let i = 0; i < 25; i++) {
+                entries[storageKey(`expired-${i}`)] = envelope(i, BASE - 61 * DAY);
+            }
+            const driver = createMockDriver(entries);
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // First synchronous slice of 20; five keys wait for the continuation.
+            vi.advanceTimersToNextTimer();
+            driver.removeItem(storageKey("expired-24"));
+            vi.advanceTimersToNextTimer();
+
+            expect(driver.keys().filter((k) => k.includes("expired-"))).toEqual([]);
+        });
+
+        it("a live-touch round under a newer format owner does not touch the slots", () => {
+            const driver = createMarkedDriver({}, BASE + WEEK);
+            const s = LocalSignal.state({ key: "live", defaultValue: 1, driver });
+            const sub = activate(s);
+            s.set(2);
+            expect(JSON.parse(driver.getItem(storageKey("live"))!).at).toBe(BASE);
+
+            // Another tab upgrades the namespace before the weekly live-touch round.
+            driver.setItem(KEY_PREFIX, meta(2, BASE + 4 * WEEK));
+            vi.advanceTimersByTime(WEEK);
+
+            expect(JSON.parse(driver.getItem(storageKey("live"))!).at).toBe(BASE);
+            sub.unsubscribe();
+        });
+
         it("slots alive in this session are re-touched instead of expiring", () => {
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(1, BASE + WEEK),

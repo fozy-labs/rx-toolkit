@@ -320,6 +320,44 @@ describe("list node", () => {
         expect(list.issues$().map((issue) => issue.path)).toEqual([["rows"]]);
     });
 
+    it("visibleWarnings$: the own warnings plus the items' visible ones, under the showErrors policy", () => {
+        const def = g({
+            showErrors: "always",
+            fields: {
+                rows: l({
+                    item: f({
+                        schema: z.string(),
+                        defaultValue: "",
+                        validate: ({ value$, warn }) => {
+                            if (value$() === "bad") warn("Bad row");
+                        },
+                    }),
+                    validate: ({ items$, warn }) => void (items$().length > 1 && warn("Two")),
+                }),
+            },
+        });
+        const list = FormSignal.state(def, { state: { rows: ["bad", "x"] } }).fields.rows;
+        expect(list.visibleWarnings$().map((issue) => [issue.message, issue.path])).toEqual([
+            ["Two", ["rows"]],
+            ["Bad row", ["rows", 0]],
+        ]);
+    });
+
+    it("an item is disabled only through the list's own inherited flag", () => {
+        const def = (on: boolean) =>
+            g({
+                fields: {
+                    company: f({ schema: z.boolean(), defaultValue: on }),
+                    tags: l({ item: text() }),
+                },
+                disabled: { tags: ({ fields }) => fields.company.value$() },
+            });
+        const off = FormSignal.state(def(false), { state: { tags: ["a"] } });
+        expect([off.fields.tags.isDisabled$(), off.fields.tags.items$()[0].isDisabled$()]).toEqual([false, false]);
+        const on = FormSignal.state(def(true), { state: { tags: ["a"] } });
+        expect([on.fields.tags.isDisabled$(), on.fields.tags.items$()[0].isDisabled$()]).toEqual([true, true]);
+    });
+
     it("nodes are frozen; the item node is the item's field or group node with its key", () => {
         const { list } = phones([{ number: "1" }]);
         const item = list.items$()[0];

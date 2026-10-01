@@ -224,6 +224,30 @@ describe("initialize and lists", () => {
         expect(a.value$()).toEqual({ kind: "home", number: "x" });
     });
 
+    it("initialize() without state: a list nested in the items re-derives its defaults", () => {
+        const def = g({
+            fields: {
+                rows: l({
+                    item: g({ fields: { name: text("row"), tags: l({ item: text("tag"), defaultValue: ["t1"] }) } }),
+                    defaultValue: [
+                        { name: "r1", tags: ["x", "y"] },
+                        { name: "r2", tags: ["z"] },
+                    ],
+                }),
+            },
+        });
+        const form = FormSignal.state(def);
+        const list = form.fields.rows;
+        list.items$()[0].fields.tags.items$()[0].set("changed");
+        list.push({ name: "new", tags: [] });
+        form.initialize();
+        expect(list.value$()).toEqual([
+            { name: "r1", tags: ["x", "y"] },
+            { name: "r2", tags: ["z"] },
+        ]);
+        expect([list.isModified$(), list.isDirty$()]).toEqual([false, false]);
+    });
+
     it("initialize({ context }) leaves the structure, the items and their meta", () => {
         const { form, list } = phones("A", "B");
         list.swap(0, 1);

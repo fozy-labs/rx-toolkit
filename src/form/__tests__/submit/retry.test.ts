@@ -78,6 +78,23 @@ describe("retry", () => {
         sub.unsubscribe();
     });
 
+    it("a retry that fails again settles the attempt in error with the new failure", async () => {
+        const { form, runs } = profile();
+        const sub = form.submission$.obs.subscribe();
+        await settle(form, () => runs[0].reject(new Error("Timeout")));
+        expect(form.submission$()).toMatchObject({ status: "error" });
+
+        const result = form.submit();
+        await flush();
+        expect(runs).toHaveLength(2);
+        expect(runs[1].requestId).toBe(runs[0].requestId);
+        runs[1].reject(new Error("Offline"));
+        expect(await result).toBe(false);
+        expect(form.submission$()).toMatchObject({ status: "error", error: { message: "Offline" } });
+        expect(form.submitCount$()).toBe(2);
+        sub.unsubscribe();
+    });
+
     it("force: trigger() even when the request matches", async () => {
         const { form, runs } = profile();
         const sub = form.submission$.obs.subscribe();

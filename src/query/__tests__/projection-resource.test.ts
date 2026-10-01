@@ -202,6 +202,57 @@ describe("ProjectionResource", () => {
         });
     });
 
+    // ==================== Item-cache write guard ====================
+
+    describe("item-cache write guard", () => {
+        it("does not cache an unsolicited id the response carried beyond the requested ones", async () => {
+            const api = createApi();
+            const queryFn = vi.fn(async (args: TBatchQueryArgs): Promise<TUser[]> => [
+                ...args.userIds.map((id) => ({ id, name: `user-${id}` })),
+                { id: 999, name: "unsolicited" },
+            ]);
+            const userResource = api.createResource({ queryFn });
+            const projection = api.unstable_createProjectionResource({
+                resource: userResource,
+                parseData: (data) => data.map((item) => ({ id: item.id, item })),
+                makeArgs: (ids) => ({ userIds: ids }),
+                retentionTime: false,
+            });
+
+            const data = await projection.fetch([1, 2]);
+            expect(data.map((user) => user.id)).toEqual([1, 2]);
+
+            // The extra id was never cached: asking for it reaches the network.
+            const extra = await projection.fetch([999]);
+            expect(queryFn).toHaveBeenCalledTimes(2);
+            expect(queryFn.mock.calls[1][0]).toEqual({ userIds: [999] });
+            expect(extra[0]).toEqual({ id: 999, name: "unsolicited" });
+        });
+
+        it("does not cache a response that lands after its requesting entry was removed", async () => {
+            const { projection, requests } = setupControlled();
+
+            const entry = projection.getEntry([1, 2], true)!;
+            await settle();
+            expect(requests).toHaveLength(1);
+
+            // The entry goes away mid-flight: no live entry references its ids
+            // when the response lands.
+            entry.complete();
+            requests[0].resolve();
+            await settle();
+            expect(requests).toHaveLength(1);
+
+            // The late response was not cached: the next load requests the ids again.
+            const reloaded = projection.fetch([1, 2]);
+            await settle();
+            expect(requests).toHaveLength(2);
+            expect(requests[1].args).toEqual({ userIds: [1, 2] });
+            requests[1].resolve();
+            expect((await reloaded).map((user) => user.name)).toEqual(["user-1-v1", "user-2-v1"]);
+        });
+    });
+
     // ==================== Errors ====================
 
     describe("errors", () => {

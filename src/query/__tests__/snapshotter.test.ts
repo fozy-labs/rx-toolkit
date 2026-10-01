@@ -474,6 +474,42 @@ describe("Snapshotter.getSnapshot with optimistic patches", () => {
     });
 });
 
+describe("Snapshotter hydration — resource-level snapshotValidTime", () => {
+    const UPDATED_AT = Date.now() - 10_000; // 10 s old
+
+    function snapshot(): TApiSnapshot {
+        return {
+            version: CURRENT_SNAPSHOT_VERSION,
+            keyPrefix: null,
+            timestamp: UPDATED_AT,
+            resources: {
+                items: {
+                    entries: {
+                        [stableStringify("a")]: { status: "success", args: "a", data: "a-data", updatedAt: UPDATED_AT },
+                    },
+                },
+            },
+        };
+    }
+
+    it("overrides the api-level value in both directions", () => {
+        // api: fresh for an hour; the resource: stale after 5 s.
+        const strict = createApi({ initialSnapshot: snapshot(), snapshotValidTime: 3_600_000 }).createResource<
+            string,
+            string
+        >({ key: "items", queryFn: async () => "fresh", snapshotValidTime: 5_000 });
+        expect(strict.getEntry("a")!.isInvalidated).toBe(true);
+
+        // api: stale after 5 s; the resource: fresh for an hour.
+        const lenient = createApi({ initialSnapshot: snapshot(), snapshotValidTime: 5_000 }).createResource<
+            string,
+            string
+        >({ key: "items", queryFn: async () => "fresh", snapshotValidTime: 3_600_000 });
+        expect(lenient.getEntry("a")!.isInvalidated).toBe(false);
+        expect(lenient.getEntry("a")!.state$.peek().data).toBe("a-data");
+    });
+});
+
 describe("Snapshotter hydration — invalidate-error entries", () => {
     it("round-trips an invalidate-error entry: persisted last-known-good data hydrates marked for revalidation", async () => {
         let call = 0;

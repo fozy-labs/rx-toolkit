@@ -1325,6 +1325,27 @@ describe("onCacheEntryAdded lifecycle", () => {
 
         expect(command.getEntry("k1")).not.toBeNull();
     });
+
+    it("a rejection of an async onCacheEntryAdded is suppressed", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const command = createCommand<string, string>({
+                queryFn: async () => "data",
+                onCacheEntryAdded: async () => {
+                    throw new Error("async callback error");
+                },
+            });
+
+            command.execute("x", "k1");
+            await flushUnhandledRejections();
+
+            expect(command.getEntry("k1")!.state$.peek().data).toBe("data");
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
 });
 
 // ==================== Lifecycle: onQueryStarted ====================
@@ -1419,6 +1440,27 @@ describe("onQueryStarted lifecycle", () => {
         await flushMicrotasks();
 
         expect(command.getEntry("k1")!.state$.peek().data).toBe("data");
+    });
+
+    it("a rejection of an async onQueryStarted is suppressed", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const command = createCommand<string, string>({
+                queryFn: async () => "data",
+                onQueryStarted: async () => {
+                    throw new Error("async callback error");
+                },
+            });
+
+            command.execute("x", "k1");
+            await flushUnhandledRejections();
+
+            expect(command.getEntry("k1")!.state$.peek().data).toBe("data");
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
     });
 
     it("fires for initial trigger (deferred after QCE constructor)", async () => {

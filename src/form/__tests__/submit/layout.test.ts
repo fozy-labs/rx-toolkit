@@ -148,6 +148,15 @@ describe("mapSubmitError", () => {
         expect(errors).toHaveBeenCalledTimes(2);
         expect(String(errors.mock.calls[0][0])).toContain("mapSubmitError threw");
     });
+
+    it("a result that is not an array at all: console.error and the built-in mapper", async () => {
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        const setup = registration(() => "not an array" as never);
+        await failWith(setup, new Error("Down"));
+        expect(messages(setup.form.ownIssues$())).toEqual(["Down"]);
+        expect(errors).toHaveBeenCalledOnce();
+        expect(String(errors.mock.calls[0][0])).toContain("mapSubmitError threw");
+    });
 });
 
 describe("layout by the attempt snapshot", () => {
@@ -191,6 +200,31 @@ describe("layout by the attempt snapshot", () => {
         expect(messages(form.fields.phones.ownIssues$())).toEqual(["Row 7"]);
         expect(messages(form.fields.name.issues$())).toEqual(["Too deep"]);
         expect(messages(form.ownIssues$())).toEqual(["Nowhere"]);
+    });
+
+    it("several issues landing on one node all reach it, in order", async () => {
+        const setup = registration();
+        await failWith(setup, {
+            issues: [
+                { message: "First", path: ["address", "zip"] },
+                { message: "Second", path: ["address", "zip"] },
+            ],
+        });
+        expect(messages(setup.form.fields.address.ownIssues$())).toEqual(["First", "Second"]);
+    });
+
+    it("a string list index resolves to the row; a non-integer one lands on the list", async () => {
+        const setup = registration();
+        await failWith(setup, {
+            issues: [
+                { message: "String index", path: ["phones", "1", "number"] },
+                { message: "Not a number", path: ["phones", "x", "number"] },
+                { message: "Not an integer", path: ["phones", 1.5, "number"] },
+            ],
+        });
+        const { phones } = setup.form.fields;
+        expect(messages(phones.items$()[1].fields.number.issues$())).toEqual(["String index"]);
+        expect(messages(phones.ownIssues$())).toEqual(["Not a number", "Not an integer"]);
     });
 
     it("a disabled child was not sent: its issue lands on the group", async () => {

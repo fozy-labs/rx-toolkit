@@ -3308,6 +3308,27 @@ describe("Lifecycle hooks error paths", () => {
         }
     });
 
+    it("a rejection of an async onQueryStarted is suppressed", async () => {
+        const tracker = await trackUnhandledRejections();
+
+        try {
+            const resource = createResource<number, string>({
+                queryFn: async () => "data",
+                onQueryStarted: async () => {
+                    throw new Error("async callback error");
+                },
+            });
+
+            resource.getEntry(1, true);
+            await flushUnhandledRejections();
+
+            expect(resource.getEntry(1)!.state$.peek().data).toBe("data");
+            expect(tracker.unhandled).toEqual([]);
+        } finally {
+            tracker.stop();
+        }
+    });
+
     it("onQueryStarted receives updated context on an invalidation", async () => {
         const fulfillments: Array<{ data: string }> = [];
         let callCount = 0;
@@ -4229,6 +4250,18 @@ describe("ensure/fetch abort semantics", () => {
         expect(resource.getEntry(1)).toBeNull();
     });
 
+    it("fetch rejects immediately without starting a query when the signal is already aborted", async () => {
+        const queryFn = vi.fn(async () => "data");
+        const resource = createResource<number, string>({ queryFn });
+
+        const ac = new AbortController();
+        ac.abort(new Error("navigation cancelled"));
+
+        await expect(resource.fetch(1, { signal: ac.signal })).rejects.toThrow("navigation cancelled");
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(resource.getEntry(1)).toBeNull();
+    });
+
     it("rejects with the signal's reason when aborted mid-flight", async () => {
         const resource = createResource<number, string>({
             queryFn: () => new Promise<string>(() => {}),
@@ -4321,6 +4354,26 @@ describe("QueryCacheEntry.whenLoaded / whenFetched", () => {
         await flushMicrotasks();
 
         expect(await resource.getEntry(1)!.whenLoaded()).toBe("data");
+    });
+
+    it("whenLoaded / whenFetched reject immediately when the signal is already aborted", async () => {
+        const resource = createResource<number, string>({
+            queryFn: () => new Promise<string>(() => {}),
+        });
+
+        resource.getEntry(1, true);
+        const entry = resource.getEntry(1)!;
+
+        const loaded = new AbortController();
+        loaded.abort();
+        await expect(entry.whenLoaded(loaded.signal)).rejects.toHaveProperty("name", "AbortError");
+
+        const fetched = new AbortController();
+        fetched.abort(new Error("navigation cancelled"));
+        await expect(entry.whenFetched(fetched.signal)).rejects.toThrow("navigation cancelled");
+
+        // The waiters never engaged: the run goes on untouched.
+        expect(entry.state$.peek().status).toBe("pending");
     });
 
     it("whenLoaded rejects with CacheEntryRemovedError when the entry is removed before settling", async () => {
