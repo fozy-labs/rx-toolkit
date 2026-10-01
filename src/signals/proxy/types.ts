@@ -2,14 +2,15 @@ import type { StateSignal } from "@/signals/types";
 
 type IsNullish<T> = Extract<T, null | undefined> extends never ? false : true;
 
-interface PathCallRequired<T> {
-    (): T;
-}
+// The call shapes of a path node stay module-local type aliases (not interfaces): an
+// interface has no name a consumer's declaration could use, and declaration emit cannot
+// inline one — expanding `PathNode` would fail with TS4023 (see `types/index.ts` of form).
+type PathCallRequired<T> = () => T;
 
-interface PathCallOptional<T> {
+type PathCallOptional<T> = {
     (): T | undefined;
     <I>(initialValue: I): Exclude<T, undefined> | I;
-}
+};
 
 /**
  * Optional-chaining semantics: a segment is "optional" if any ancestor on the
