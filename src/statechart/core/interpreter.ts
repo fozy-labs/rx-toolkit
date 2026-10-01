@@ -32,10 +32,6 @@ import type {
 } from "../types";
 import { BUILTIN } from "../types/brand";
 
-/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
-type NonReducibleUnknown = {} | null | undefined;
-
 import {
     areStateNodeCollectionsEqual,
     getHistoryNodes,
@@ -72,6 +68,10 @@ import {
     removeConflictingTransitions,
     type HistoryValue,
 } from "./transitions";
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
 
 /**
  * Immer instance of the `mutate` builtin. Auto-freeze is off: the produced

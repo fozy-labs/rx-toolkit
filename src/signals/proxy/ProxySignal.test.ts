@@ -738,7 +738,8 @@ describe("unstable_ProxySignal", () => {
                 hooks: [
                     {
                         onChange: (value: Shape) => {
-                            if (value.user.name === "outer") write(s$, { ...makeShape(), user: { name: nested, age: 40 } });
+                            if (value.user.name === "outer")
+                                write(s$, { ...makeShape(), user: { name: nested, age: 40 } });
                         },
                     },
                 ],
