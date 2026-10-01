@@ -222,9 +222,3 @@ export type TSuccessState<TArgs, TData> = TQueryEntrySuccessState<TArgs, TData>;
 
 /** @deprecated Renamed to {@link TQueryEntryErrorState}. Will be removed in 0.14.0. */
 export type TErrorState<TArgs> = TQueryEntryErrorState<TArgs>;
-
-/** @deprecated Renamed to {@link TQueryEntryInvalidatingState}. Will be removed in 0.14.0. */
-export type TInvalidatingState<TArgs, TData> = TQueryEntryInvalidatingState<TArgs, TData>;
-
-/** @deprecated Renamed to {@link TQueryEntryInvalidateErrorState}. Will be removed in 0.14.0. */
-export type TInvalidateErrorState<TArgs, TData> = TQueryEntryInvalidateErrorState<TArgs, TData>;

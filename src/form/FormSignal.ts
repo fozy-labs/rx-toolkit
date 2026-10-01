@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@/common/standard-schema";
+import type { TBoundCommand } from "@/query/types";
 
 import { createInstance } from "./core/createInstance";
 import { createFieldDef } from "./core/definition/createFieldDef";
@@ -24,9 +25,11 @@ import type {
     PendingQueries,
     SchemaInput,
     SchemaOutput,
-    SubmitErrorOf,
     SubmitResult,
 } from "./types";
+
+/** The error `mapSubmitError` of `group()` receives: the error of the bound command `submit` returns. */
+type SubmitErrorOf<Submit> = Submit extends TBoundCommand<any, any, infer E> ? E : unknown;
 
 /**
  * The form primitives: the definition builders `field` / `group` / `list`, the context

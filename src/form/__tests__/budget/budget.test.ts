@@ -85,13 +85,13 @@ const FEATURES: Feature[] = [
     {
         name: "name and root-only checks",
         stubs: [
-            { file: "types/common.ts", name: "InvalidName", body: "never" },
+            { file: "types/definition.ts", name: "InvalidName", body: "never" },
             { file: "types/definition.ts", name: "FieldsCheck", body: "unknown" },
         ],
     },
     {
         name: "query key checks (result, one resource)",
-        stubs: [{ file: "types/query.ts", name: "QueryKeyCheck", body: "unknown" }],
+        stubs: [{ file: "types/definition.ts", name: "QueryKeyCheck", body: "unknown" }],
     },
 ];
 

@@ -83,11 +83,14 @@ export interface FieldNode<Input, Output = unknown, Q = unknown> extends NodeBas
     readonly blur: () => void;
 }
 
-/** The children of a group node and the `<name>$` aliases of their `state$`. */
-export type NodeFields<N extends NodeRecord> = N & { readonly [K in keyof N as `${K & string}$`]: N[K]["state$"] };
+/**
+ * The children of a group node and the `<name>$` aliases of their `state$`. Module-local, so a
+ * consumer's declaration inlines it (see `types/index.ts`).
+ */
+type NodeFields<N extends NodeRecord> = N & { readonly [K in keyof N as `${K & string}$`]: N[K]["state$"] };
 
 /** Children of a group node: names to nodes. */
-export type NodeRecord = Record<string, AnyNode>;
+type NodeRecord = Record<string, AnyNode>;
 
 /** `computed` of a node: `<k>$` signals, `undefined` until the first successful run. */
 export type ComputedSignals<C> = {
