@@ -774,6 +774,7 @@ export class SourceNode<T> extends Producer {
         this._version++;
         globalVersion++;
         try {
+            this._afterAssign(value);
             notifyTargets(this);
             if (this._recs !== null) this._deliverRecs(value);
         } catch (error) {
@@ -782,6 +783,14 @@ export class SourceNode<T> extends Producer {
         }
         endBatch();
     }
+
+    /**
+     * Runs after the value is assigned, before its dependents are notified and
+     * `.obs` delivers. An owner of per-part sources (a proxy state's paths)
+     * updates them here: no user code runs between the assignment and this
+     * call, so the parts and the value stay consistent for every notification.
+     */
+    _afterAssign(_value: T): void {}
 
     /**
      * Delivers a write to `.obs` subscribers: to bridges at once, then to the

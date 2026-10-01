@@ -5,7 +5,7 @@ import { isTracking } from "../base/core";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 import { LiveSourceNode } from "../base/LiveSourceNode";
 import { Computed } from "../signals/Computed";
-import { State } from "../signals/State";
+import { StateNode } from "../signals/State";
 
 import { isDraftable, produce } from "./produce";
 import type { PathNode, ProxyStateSignal } from "./types";
@@ -73,8 +73,27 @@ interface TrieNode {
     proxy: unknown | null;
 }
 
+/**
+ * The root state node of a ProxySignal. The path walk rides inside the root
+ * write: `_afterAssign` runs after the value is assigned, before dependents
+ * are notified and `.obs` delivers, and no user code can interpose between the
+ * two (lifecycle hooks run before the assignment; `.obs` subscribers, after
+ * the walk). A nested commit — from a hook or a subscriber — is a full
+ * assign-then-walk of its own, so writes are totally ordered and the last
+ * write's walk is the last walk: the path nodes always settle on the value
+ * the root keeps.
+ */
+class ProxyRootNode<T> extends StateNode<T> {
+    /** Called with the just-assigned value; the core walks the path trie with it. */
+    onAssigned: ((value: T) => void) | null = null;
+
+    override _afterAssign(value: T): void {
+        this.onAssigned?.(value);
+    }
+}
+
 class ProxySignalCore<T extends object> {
-    private readonly _root: State<T>;
+    private readonly _root: ProxyRootNode<T>;
     private readonly _trie: TrieNode = {
         segments: [],
         parent: null,
@@ -83,11 +102,18 @@ class ProxySignalCore<T extends object> {
         keys: null,
         proxy: null,
     };
+    /** The value the path nodes reflect; the walk diffs it against an assigned root. */
+    private _pathsAt: T;
     /** Nodes to reap at the end of the tick; null while no reap is scheduled. */
     private _reapQueue: Set<TrieNode> | null = null;
 
     constructor(initialValue: T, options?: SignalOptionsOrKey<T>) {
-        this._root = new State(initialValue, options);
+        this._root = new ProxyRootNode(initialValue, options);
+        this._pathsAt = initialValue;
+        this._root.onAssigned = (value) => {
+            this._walk(this._trie, this._pathsAt, value);
+            this._pathsAt = value;
+        };
     }
 
     get() {
@@ -282,19 +308,21 @@ class ProxySignalCore<T extends object> {
      * read. Inside changed regions, nodes nobody observes are pruned (their
      * links stay valid thanks to PathState's live validation).
      *
-     * The walk runs BEFORE the root write: `State.set` delivers to `obs`
-     * subscribers synchronously, and a path node written after that delivery
-     * would read stale in it (an observed computed still trusts its cache) or
-     * swallow the notification (a cold computed's live validation pulls the
-     * new value silently, so the walk's `Object.is` dedupe skips the notify).
-     * Between the walk and the root write no user code runs — path writes
-     * inside a batch only mark their dependents — so the window in which a
+     * The walk runs INSIDE the root write, after the value is assigned and
+     * before dependents are notified and `.obs` delivers (see ProxyRootNode):
+     * a delivery always meets fresh path nodes (a computed read in a
+     * subscriber recomputes from them instead of trusting its stale cache,
+     * and no subscriber can pull a path value ahead of the walk, which the
+     * walk's `Object.is` dedupe would then swallow). Riding the write also
+     * keeps the paths glued to the root under re-entrancy: walking before the
+     * write would let a nested commit from a lifecycle hook run between the
+     * walk and the assignment and leave the paths at a value the root never
+     * keeps; walking after the write would deliver stale paths. Between the
+     * assignment and the walk no user code runs, so the window in which a
      * PathState's live validation still sees the old root is unreachable.
      */
     private _commit(value: T, actionName?: string) {
-        const previous = this._root.peek();
         Batcher.run(() => {
-            this._walk(this._trie, previous, value);
             this._root.set(value, actionName);
         });
     }
