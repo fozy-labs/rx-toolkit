@@ -479,6 +479,24 @@ export function untracked<T>(fn: () => T): T {
     }
 }
 
+/**
+ * Runs `fn` so that signals it writes are nobody's own write: an effect that
+ * read them is notified normally, as if the write came from another reaction.
+ * For engine code writing on behalf of a library, not of the caller — the
+ * same scope an `.obs` delivery gets (see `deliverTo`). `untracked()` keeps
+ * the running effect on purpose (f485ba5): a user body's write must stay its
+ * own.
+ */
+export function untrackedWrites<T>(fn: () => T): T {
+    const prev = runningEffect;
+    runningEffect = undefined;
+    try {
+        return fn();
+    } finally {
+        runningEffect = prev;
+    }
+}
+
 // ==================== Batches ====================
 
 /** Ends a batch; the outermost one flushes and rethrows the first error of the batch. */
