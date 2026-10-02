@@ -3,6 +3,12 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { outsideAct, sleep, Slow, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
+import {
+    COMMIT_TIMEOUT,
+    createRenderStream,
+    disableActEnvironment,
+    expectNoMoreRenders,
+} from "@/__tests__/helpers/render-stream";
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TSuspenseResourceState } from "@/query/types";
@@ -432,6 +438,10 @@ describe("useSuspenseResource — a short retentionTime", () => {
 
 // ==================== A retained failure across an Error Boundary reset ====================
 
+// These tests synchronize on React's commits, not the clock: React 19 throttles
+// a commit replacing a freshly shown Suspense fallback to ~300 ms after it, so
+// a fixed `sleep(300)` raced it. `takeRender()` waits for the commit itself and
+// each assertion runs against that commit's frozen DOM snapshot.
 describe("useSuspenseResource — a retained failure across an Error Boundary reset", () => {
     // The default retention keeps a failure: once the boundary shows, nobody
     // holds the entry, but its 60 s are far from over at the reset.
@@ -461,42 +471,233 @@ describe("useSuspenseResource — a retained failure across an Error Boundary re
         const { resource, tree } = setupDefaultRetention(queryFn);
 
         vi.spyOn(console, "error").mockImplementation(() => {});
-        await outsideAct(async () => {
-            const { rerender } = render(tree(0));
-            await sleep(300);
-            expect(screen.getByTestId("boundary")).toBeTruthy();
-            expect(resource.getEntry({ id: 1 })!.peek().status).toBe("error");
+        const actEnv = disableActEnvironment();
+        try {
+            const stream = createRenderStream({ snapshotDOM: true });
+            const utils = await stream.render(tree(0));
+
+            // The initial load suspends; its query starts in the microtask
+            // right after the suspending render.
+            const initial = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(initial.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(initial.withinDOM().queryByTestId("boundary")).toBeNull();
+            expect(initial.withinDOM().queryByTestId("name")).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(1);
+
+            // The retry render throws the failure: the boundary fallback
+            // commits (this is the ~300 ms-throttled commit — takeRender
+            // simply waits it out).
+            const caught = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(caught.withinDOM().queryByTestId("boundary")).not.toBeNull();
+            expect(caught.withinDOM().queryByTestId("fallback")).toBeNull();
+
+            // The thrown failure is consumed: the entry is marked for the
+            // re-query the remount will owe.
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.peek().status).toBe("error");
+            expect(entry.isInvalidated).toBe(true);
 
             fail = false;
-            rerender(tree(1));
-            await sleep(800);
-        });
+            await utils.rerender(tree(1));
 
-        expect(screen.getByTestId("name").textContent).toBe("user-1");
-        expect(queryFn).toHaveBeenCalledTimes(2);
+            // The remount suspends on the owed re-query instead of re-throwing
+            // the retained failure: exactly one re-query, started by the
+            // remount's hold.
+            const requerying = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(requerying.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(requerying.withinDOM().queryByTestId("boundary")).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(2);
+
+            const loaded = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(loaded.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+            expect(loaded.withinDOM().queryByTestId("fallback")).toBeNull();
+
+            // A mount that shows data commits twice: the first subscription
+            // re-derives the clutch state once (the derivation tracks its
+            // subscribers), so one same-DOM update follows. Pinned, not
+            // load-bearing.
+            const echo = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(echo.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+
+            expect(stream.totalRenderCount()).toBe(5);
+            await expectNoMoreRenders(stream);
+            // Re-checked after the quiet window: no late-starting re-query.
+            expect(queryFn).toHaveBeenCalledTimes(2);
+        } finally {
+            actEnv.cleanup();
+        }
     });
 
     it("throws the fresh failure when the re-query after the reset fails again, without looping", async () => {
+        let call = 0;
         const queryFn = vi.fn(async ({ id }: TArgs) => {
             await sleep(5);
-            throw new Error(`boom-${id}`);
+            throw new Error(`boom-${++call}`);
         });
-        const { tree } = setupDefaultRetention(queryFn);
+        const { resource, tree } = setupDefaultRetention(queryFn);
 
         vi.spyOn(console, "error").mockImplementation(() => {});
-        await outsideAct(async () => {
-            const { rerender } = render(tree(0));
-            await sleep(300);
-            expect(screen.getByTestId("boundary")).toBeTruthy();
+        const actEnv = disableActEnvironment();
+        try {
+            const stream = createRenderStream({ snapshotDOM: true });
+            const utils = await stream.render(tree(0));
 
-            rerender(tree(1));
-            await sleep(800);
-            expect(screen.getByTestId("boundary")).toBeTruthy();
+            const initial = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(initial.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(initial.withinDOM().queryByTestId("boundary")).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(1);
+
+            // The first failure reaches the boundary and is consumed.
+            const caught = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(caught.withinDOM().queryByTestId("boundary")).not.toBeNull();
+            expect(caught.withinDOM().queryByTestId("fallback")).toBeNull();
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.peek().status).toBe("error");
+            expect((entry.peek().error as Error).message).toBe("boom-1");
+            expect(entry.isInvalidated).toBe(true);
+
+            await utils.rerender(tree(1));
+
+            // The remount suspends on the re-query the consumed failure owes —
+            // it does not re-throw the retained one.
+            const requerying = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(requerying.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(requerying.withinDOM().queryByTestId("boundary")).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(2);
+
+            // The fresh failure reaches the boundary and is consumed too,
+            // which is what stops the cycle.
+            const caughtAgain = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(caughtAgain.withinDOM().queryByTestId("boundary")).not.toBeNull();
+            expect(caughtAgain.withinDOM().queryByTestId("fallback")).toBeNull();
+            expect(entry.peek().status).toBe("error");
+            expect((entry.peek().error as Error).message).toBe("boom-2");
+            expect(entry.isInvalidated).toBe(true);
+
+            // One re-query per reset: no fifth commit within a full throttle
+            // window after the last expected commit, and no third query even
+            // after it.
+            expect(stream.totalRenderCount()).toBe(4);
+            await expectNoMoreRenders(stream);
+            expect(queryFn).toHaveBeenCalledTimes(2);
+        } finally {
+            actEnv.cleanup();
+        }
+    });
+
+    it("a reset that lands while the re-query is already in flight joins it instead of starting a second one", async () => {
+        const requery = defer<TUser>();
+        let call = 0;
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            call++;
+            if (call === 1) {
+                await sleep(5);
+                throw new Error("boom-1");
+            }
+            // The re-query settles when the test says so.
+            return requery.promise;
         });
+        const { resource, tree } = setupDefaultRetention(queryFn);
 
-        // One re-query per reset: the fresh failure reaches the boundary, it
-        // is not retried forever behind the fallback.
-        expect(queryFn).toHaveBeenCalledTimes(2);
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const actEnv = disableActEnvironment();
+        try {
+            const stream = createRenderStream({ snapshotDOM: true });
+            const utils = await stream.render(tree(0));
+
+            const initial = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(initial.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(1);
+
+            const caught = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(caught.withinDOM().queryByTestId("boundary")).not.toBeNull();
+
+            // The consumed failure owes exactly one re-query; an outside hold
+            // starts it while the boundary is still showing.
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.isInvalidated).toBe(true);
+            const release = entry.hold();
+            expect(queryFn).toHaveBeenCalledTimes(2);
+
+            // The reset lands with that re-query already in flight: the
+            // remount suspends on the same run instead of starting another.
+            await utils.rerender(tree(1));
+            const requerying = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(requerying.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(requerying.withinDOM().queryByTestId("boundary")).toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(2);
+
+            requery.resolve({ id: 1, name: "user-1" });
+            const loaded = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(loaded.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+
+            // Same-DOM echo of the data mount (the first subscription
+            // re-derives the clutch state once) — not a second run.
+            const echo = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(echo.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+
+            expect(stream.totalRenderCount()).toBe(5);
+            await expectNoMoreRenders(stream);
+            // Re-checked after the quiet window: the joined run stayed the only one.
+            expect(queryFn).toHaveBeenCalledTimes(2);
+            release();
+        } finally {
+            actEnv.cleanup();
+        }
+    });
+
+    it("the consumed failure leaves no residue: a remount after a successful re-query shows its data without a fallback commit or a new query", async () => {
+        let fail = true;
+        const queryFn = vi.fn(async ({ id }: TArgs) => {
+            await sleep(5);
+            if (fail) throw new Error("boom");
+            return { id, name: `user-${id}` };
+        });
+        const { resource, tree } = setupDefaultRetention(queryFn);
+
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const actEnv = disableActEnvironment();
+        try {
+            const stream = createRenderStream({ snapshotDOM: true });
+            const utils = await stream.render(tree(0));
+
+            const initial = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(initial.withinDOM().queryByTestId("fallback")).not.toBeNull();
+            expect(queryFn).toHaveBeenCalledTimes(1);
+
+            const caught = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(caught.withinDOM().queryByTestId("boundary")).not.toBeNull();
+            expect(resource.getEntry({ id: 1 })!.isInvalidated).toBe(true);
+
+            // The re-query runs and succeeds before the reset: nothing is
+            // mounted, so it commits nothing.
+            fail = false;
+            await resource.ensure({ id: 1 });
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.peek().status).toBe("success");
+            expect(entry.isInvalidated).toBe(false);
+            expect(stream.totalRenderCount()).toBe(2);
+
+            // The remount shows the data in its first commit: no fallback
+            // commit in between, no re-throw, no new query — the success
+            // cleared the mark the boundary throw had left.
+            await utils.rerender(tree(1));
+            const loaded = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(loaded.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+            expect(loaded.withinDOM().queryByTestId("fallback")).toBeNull();
+            expect(loaded.withinDOM().queryByTestId("boundary")).toBeNull();
+
+            // Same-DOM echo of the data mount (the first subscription
+            // re-derives the clutch state once).
+            const echo = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(echo.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+
+            expect(queryFn).toHaveBeenCalledTimes(2);
+            expect(stream.totalRenderCount()).toBe(4);
+            await expectNoMoreRenders(stream);
+        } finally {
+            actEnv.cleanup();
+        }
     });
 });
 
@@ -688,6 +889,73 @@ describe("useSuspenseResource — matrix order (hasData → error → suspend)",
 
         await settleCall(calls, 2, { id: 1, name: "Grace" });
         expect(screen.getByTestId("name").textContent).toBe("Grace:current");
+    });
+
+    // The commit-level companion of rows 6 and 9 above: `act()` flushes
+    // intermediate commits, so a transient fallback from a reordered
+    // hasData/error/suspend sequence would be invisible there — here every
+    // commit is observed.
+    it("a background invalidation that fails commits the error over the data — no fallback or boundary commit ever", async () => {
+        const requery = defer<TUser>();
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => {
+                call++;
+                if (call === 1) {
+                    await sleep(5);
+                    return { id, name: `user-${id}` };
+                }
+                // The re-query settles when the test says so.
+                return requery.promise;
+            },
+        });
+
+        function View() {
+            const { data } = resource.useSuspenseResource({ id: 1 });
+            return h("span", { "data-testid": "name" }, data.name);
+        }
+
+        const actEnv = disableActEnvironment();
+        try {
+            const stream = createRenderStream({ snapshotDOM: true });
+            await stream.render(shell(h(View)));
+
+            const initial = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(initial.withinDOM().queryByTestId("fallback")).not.toBeNull();
+
+            const loaded = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(loaded.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+            expect(call).toBe(1);
+
+            // Same-DOM echo of the data mount (the first subscription
+            // re-derives the clutch state once); taken before the
+            // invalidation so the commits below are exactly row 6 and row 9.
+            const echo = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(echo.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+
+            // The invalidation re-queries behind the shown data...
+            resource.invalidate({ id: 1 });
+            const invalidating = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(invalidating.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+            expect(invalidating.withinDOM().queryByTestId("fallback")).toBeNull();
+            expect(call).toBe(2);
+
+            // ...and its failure lands the same way: the data never leaves
+            // the screen, no fallback or boundary commit flashes in between.
+            requery.reject(new Error("stale"));
+            const failed = await stream.takeRender({ timeout: COMMIT_TIMEOUT });
+            expect(failed.withinDOM().queryByTestId("name")?.textContent).toBe("user-1");
+            expect(failed.withinDOM().queryByTestId("fallback")).toBeNull();
+            expect(failed.withinDOM().queryByTestId("boundary")).toBeNull();
+
+            expect(stream.totalRenderCount()).toBe(5);
+            await expectNoMoreRenders(stream);
+            // Re-checked after the quiet window: no late re-query.
+            expect(call).toBe(2);
+        } finally {
+            actEnv.cleanup();
+        }
     });
 
     it("rows 4 and 8: previous data keeps rendering, and its error is returned rather than thrown", async () => {
