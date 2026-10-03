@@ -1,4 +1,21 @@
+import { Signal } from "../signals/Signal";
+
 import { Batcher } from "./Batcher";
+
+/** An effect over `source` that records its runs and optionally throws. */
+function reaction(source: () => number, body: (value: number) => void = () => {}) {
+    const runs: number[] = [];
+    const effect = Signal.effect(() => {
+        const value = source();
+        if (runs.length === 0) {
+            runs.push(value);
+            return;
+        }
+        runs.push(value);
+        body(value);
+    });
+    return { runs, effect };
+}
 
 describe("Batcher", () => {
     describe("run(fn)", () => {
@@ -7,59 +24,43 @@ describe("Batcher", () => {
             expect(result).toBe(42);
         });
 
-        it("schedules and executes Scheduled tasks during batch", () => {
+        it("runs the reactions of the batch after fn, before run() returns", () => {
             const order: string[] = [];
-            const s = Batcher.scheduler(0);
+            const s = Signal.state(0);
+            const { effect } = reaction(s, () => order.push("reaction"));
 
             Batcher.run(() => {
-                // Inside run, isLocked is true, so schedule defers
-                s.schedule(() => order.push("scheduled"));
+                s.set(1);
                 order.push("fn");
             });
 
-            // fn runs first, then scheduled tasks run before run() returns
-            expect(order).toEqual(["fn", "scheduled"]);
+            expect(order).toEqual(["fn", "reaction"]);
+            effect.unsubscribe();
         });
 
-        it("nested run() executes fn directly without re-batching", () => {
+        it("nested run() executes fn directly; the outer run flushes", () => {
             const order: string[] = [];
-            const s = Batcher.scheduler(0);
+            const s = Signal.state(0);
+            const { effect } = reaction(s, () => order.push("reaction"));
 
             Batcher.run(() => {
                 order.push("outer-start");
-                // Nested run — isLocked already true, so fn executes directly
                 const innerResult = Batcher.run(() => {
                     order.push("inner");
+                    s.set(1);
                     return "inner-val";
                 });
                 expect(innerResult).toBe("inner-val");
-                s.schedule(() => order.push("scheduled"));
                 order.push("outer-end");
             });
 
-            expect(order).toEqual(["outer-start", "inner", "outer-end", "scheduled"]);
+            expect(order).toEqual(["outer-start", "inner", "outer-end", "reaction"]);
+            effect.unsubscribe();
         });
 
-        it("handles empty batch (no scheduled tasks)", () => {
+        it("handles an empty batch", () => {
             const result = Batcher.run(() => "ok");
             expect(result).toBe("ok");
-        });
-
-        it("resets isLocked after fn throws (try/finally fix)", () => {
-            expect(() =>
-                Batcher.run(() => {
-                    throw new Error("boom");
-                }),
-            ).toThrow("boom");
-
-            // If isLocked was not reset, this would execute fn directly (nested path)
-            // and never schedule tasks. Verify scheduling works:
-            const scheduled = vi.fn();
-            const s = Batcher.scheduler(0);
-            Batcher.run(() => {
-                s.schedule(scheduled);
-            });
-            expect(scheduled).toHaveBeenCalled();
         });
 
         it("propagates error from fn upward", () => {
@@ -70,7 +71,7 @@ describe("Batcher", () => {
             ).toThrow("test-error");
         });
 
-        it("continues working after error", () => {
+        it("keeps batching after fn threw", () => {
             expect(() =>
                 Batcher.run(() => {
                     throw new Error("fail");
@@ -78,175 +79,122 @@ describe("Batcher", () => {
             ).toThrow();
 
             const order: string[] = [];
-            const s = Batcher.scheduler(0);
+            const s = Signal.state(0);
+            const { effect } = reaction(s, () => order.push("after-error-reaction"));
             Batcher.run(() => {
-                s.schedule(() => order.push("after-error-scheduled"));
+                s.set(1);
                 order.push("after-error-fn");
             });
-            expect(order).toEqual(["after-error-fn", "after-error-scheduled"]);
+            expect(order).toEqual(["after-error-fn", "after-error-reaction"]);
+            effect.unsubscribe();
         });
 
-        it("drops tasks scheduled before fn throws (does not leak into next batch)", () => {
-            const leaked = vi.fn();
-            const s = Batcher.scheduler(0);
+        it("runs the reactions of writes made before fn threw, then rethrows fn's error", () => {
+            const s = Signal.state(0);
+            const { runs, effect } = reaction(s);
 
-            // Case A: fn queues a task, then throws before Scheduled.run() flushes.
+            // fn already wrote state: its reactions run in this batch, not dropped or leaked into the next one.
             expect(() =>
                 Batcher.run(() => {
-                    s.schedule(leaked);
+                    s.set(1);
                     throw new Error("boom");
                 }),
             ).toThrow("boom");
+            expect(runs).toEqual([0, 1]);
 
-            // Next unrelated batch must not flush the stale task.
-            const nextBatch = vi.fn();
-            const s2 = Batcher.scheduler(0);
-            Batcher.run(() => {
-                s2.schedule(nextBatch);
-            });
-
-            expect(leaked).not.toHaveBeenCalled();
-            expect(nextBatch).toHaveBeenCalledOnce();
+            Batcher.run(() => s.set(2));
+            expect(runs).toEqual([0, 1, 2]);
+            effect.unsubscribe();
         });
 
-        it("drops higher-rang tasks when a scheduled task throws during flush", () => {
-            const higherRang = vi.fn();
-            const s0 = Batcher.scheduler(0);
-            const s1 = Batcher.scheduler(1);
+        it("runs every remaining reaction when one throws, then rethrows its error", () => {
+            const s = Signal.state(0);
+            const first = reaction(s, () => {
+                throw new Error("flush-boom");
+            });
+            const second = reaction(s);
 
-            // Case B: a rang-0 task throws mid-flush; a rang-1 task is still queued.
+            expect(() => Batcher.run(() => s.set(1))).toThrow("flush-boom");
+            expect(first.runs).toEqual([0, 1]);
+            expect(second.runs).toEqual([0, 1]);
+
+            // Nothing is left queued: the next batch runs each reaction once.
+            expect(() => Batcher.run(() => s.set(2))).toThrow("flush-boom");
+            expect(second.runs).toEqual([0, 1, 2]);
+            first.effect.unsubscribe();
+            second.effect.unsubscribe();
+        });
+
+        it("rethrows the first error when several reactions throw", () => {
+            const s = Signal.state(0);
+            const firstError = new Error("first");
+            const first = reaction(s, () => {
+                throw firstError;
+            });
+            const second = reaction(s, () => {
+                throw new Error("second");
+            });
+
+            let caught: unknown;
+            try {
+                Batcher.run(() => s.set(1));
+            } catch (error) {
+                caught = error;
+            }
+
+            expect(caught).toBe(firstError);
+            first.effect.unsubscribe();
+            second.effect.unsubscribe();
+        });
+
+        it("rethrows fn's error even when a reaction throws too", () => {
+            const s = Signal.state(0);
+            const failing = reaction(s, () => {
+                throw new Error("reaction-error");
+            });
+
             expect(() =>
                 Batcher.run(() => {
-                    s1.schedule(higherRang);
-                    s0.schedule(() => {
-                        throw new Error("flush-boom");
-                    });
+                    s.set(1);
+                    throw new Error("fn-error");
                 }),
-            ).toThrow("flush-boom");
-
-            // The un-run higher-rang task must not leak into the next unrelated batch.
-            const nextBatch = vi.fn();
-            const s = Batcher.scheduler(0);
-            Batcher.run(() => {
-                s.schedule(nextBatch);
-            });
-
-            expect(higherRang).not.toHaveBeenCalled();
-            expect(nextBatch).toHaveBeenCalledOnce();
+            ).toThrow("fn-error");
+            expect(failing.runs).toEqual([0, 1]);
+            failing.effect.unsubscribe();
         });
 
-        it("runs finite-rang tasks scheduled by an Infinity task mid-flush", () => {
-            // The Infinity terminal path must re-check the queue, mirroring the
-            // normal loop: work scheduled while flushing Infinity tasks (e.g. a
-            // devtools flush that mutates a signal) must not be dropped.
+        it("keeps a reaction error for the outermost run: a nested run does not flush", () => {
+            const s = Signal.state(0);
+            const failing = reaction(s, () => {
+                throw new Error("reaction-error");
+            });
+            const after = vi.fn();
+
+            expect(() =>
+                Batcher.run(() => {
+                    Batcher.run(() => s.set(1));
+                    after();
+                }),
+            ).toThrow("reaction-error");
+            expect(after).toHaveBeenCalledOnce();
+            failing.effect.unsubscribe();
+        });
+
+        it("runs reactions scheduled by a reaction in the same flush", () => {
+            const a = Signal.state(0);
+            const b = Signal.state(0);
             const order: string[] = [];
-            const sInf = Batcher.scheduler(Infinity);
-            const s0 = Batcher.scheduler(0);
-
-            Batcher.run(() => {
-                sInf.schedule(() => {
-                    order.push("inf");
-                    s0.schedule(() => order.push("rescheduled-finite"));
-                });
+            const forward = reaction(a, (v) => {
+                order.push("a");
+                b.set(v);
             });
+            const tail = reaction(b, () => order.push("b"));
 
-            expect(order).toEqual(["inf", "rescheduled-finite"]);
-        });
+            Batcher.run(() => a.set(1));
 
-        it("runs an Infinity task rescheduled during the Infinity flush", () => {
-            const order: string[] = [];
-            const sInf = Batcher.scheduler(Infinity);
-            let rescheduled = false;
-
-            Batcher.run(() => {
-                sInf.schedule(() => {
-                    order.push("inf");
-                    if (!rescheduled) {
-                        rescheduled = true;
-                        sInf.schedule(() => order.push("inf-2"));
-                    }
-                });
-            });
-
-            expect(order).toEqual(["inf", "inf-2"]);
-        });
-
-        it("does not leak mid-flush Infinity-scheduled tasks into the next batch", () => {
-            const order: string[] = [];
-            const sInf = Batcher.scheduler(Infinity);
-            const s0 = Batcher.scheduler(0);
-
-            Batcher.run(() => {
-                sInf.schedule(() => {
-                    order.push("inf");
-                    s0.schedule(() => order.push("rescheduled-finite"));
-                });
-            });
-
-            // Second unrelated batch: the flushed queue must be fully reset.
-            const nextBatch = vi.fn();
-            const s = Batcher.scheduler(0);
-            Batcher.run(() => {
-                s.schedule(nextBatch);
-            });
-
-            expect(order).toEqual(["inf", "rescheduled-finite"]);
-            expect(nextBatch).toHaveBeenCalledOnce();
-        });
-    });
-
-    describe("scheduler(rang)", () => {
-        it("returns an object with schedule method", () => {
-            const s = Batcher.scheduler(0);
-            expect(s).toHaveProperty("schedule");
-            expect(typeof s.schedule).toBe("function");
-        });
-
-        it("schedule(fn) when not locked executes fn immediately", () => {
-            const fn = vi.fn();
-            const s = Batcher.scheduler(0);
-            s.schedule(fn);
-            expect(fn).toHaveBeenCalledOnce();
-        });
-
-        it("schedule(fn) when locked defers fn to Scheduled", () => {
-            const order: string[] = [];
-            const s = Batcher.scheduler(0);
-
-            Batcher.run(() => {
-                s.schedule(() => order.push("deferred"));
-                order.push("during-run");
-            });
-
-            expect(order).toEqual(["during-run", "deferred"]);
-        });
-
-        it("rang=0 executes before rang=1", () => {
-            const order: number[] = [];
-            const s0 = Batcher.scheduler(0);
-            const s1 = Batcher.scheduler(1);
-
-            Batcher.run(() => {
-                s1.schedule(() => order.push(1));
-                s0.schedule(() => order.push(0));
-            });
-
-            expect(order).toEqual([0, 1]);
-        });
-
-        it("rang=Infinity executes last", () => {
-            const order: string[] = [];
-            const sInf = Batcher.scheduler(Infinity);
-            const s0 = Batcher.scheduler(0);
-            const s1 = Batcher.scheduler(1);
-
-            Batcher.run(() => {
-                sInf.schedule(() => order.push("inf"));
-                s1.schedule(() => order.push("1"));
-                s0.schedule(() => order.push("0"));
-            });
-
-            expect(order).toEqual(["0", "1", "inf"]);
+            expect(order).toEqual(["a", "b"]);
+            forward.effect.unsubscribe();
+            tail.effect.unsubscribe();
         });
     });
 });

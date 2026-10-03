@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Tab, Tabs } from '@heroui/react';
 import React from 'react';
 import { map, take, timer } from 'rxjs';
@@ -84,7 +85,7 @@ export function Base() {
                     <Button
                         size="sm"
                         variant="flat"
-                        onPress={() => priceFeed.refresh({ symbol })}
+                        onPress={() => priceFeed.invalidate({ symbol })}
                     >
                         🔄 Переподключить
                     </Button>
@@ -92,9 +93,9 @@ export function Base() {
 
                 <p className="text-xs text-default-400">
                     queryFn возвращает Observable: цена обновляется с каждой эмиссией
-                    без перезапросов. Переключение символа — отдельная запись кэша со
+                    без инвалидаций. Переключение символа — отдельная запись кэша со
                     своим стримом (SWR показывает старые данные, пока подключается новый).
-                    «Переподключить» = refresh: отписка и новая подписка на стрим.
+                    «Переподключить» = invalidate: отписка и новая подписка на стрим.
                 </p>
             </CardBody>
         </Card>

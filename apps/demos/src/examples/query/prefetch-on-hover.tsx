@@ -1,5 +1,6 @@
 import React from 'react';
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Chip, cn, Divider, Spinner } from '@heroui/react';
 import { fetches } from '../../utils/fetches';
 
@@ -47,10 +48,10 @@ function UserDetail({ id }: { id: number }) {
     const [elapsedMs, setElapsedMs] = React.useState<number | null>(null);
 
     React.useEffect(() => {
-        if (state.isSuccess && elapsedMs === null) {
+        if (state.hasData && elapsedMs === null) {
             setElapsedMs(Math.round(performance.now() - startRef.current));
         }
-    }, [state.isSuccess, elapsedMs]);
+    }, [state.hasData, elapsedMs]);
 
     if (state.isInitialLoading) {
         return (

@@ -1,3 +1,5 @@
+allowBuilds:
+  '@parcel/watcher': false
 # Single-package project (not a monorepo workspace); this file only carries
 # pnpm settings.
 

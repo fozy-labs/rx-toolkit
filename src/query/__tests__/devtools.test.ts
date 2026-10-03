@@ -120,7 +120,7 @@ describe("query devtools — action names", () => {
         expect(devtools.actions()).toEqual(["error", "retry", "success"]);
     });
 
-    it('labels refresh as "refresh" and the refreshed result as "rebase"', async () => {
+    it('labels invalidate as "invalidate" and the invalidated result as "rebase"', async () => {
         const devtools = installDevtools();
         let attempt = 0;
         const resource = createResource<number, string>({
@@ -131,13 +131,14 @@ describe("query devtools — action names", () => {
             },
         });
 
-        resource.getEntry(1, true);
+        // Held: an active entry re-runs at once on invalidate.
+        resource.getEntry(1, true).hold();
         await flushMicrotasks();
 
-        resource.refresh(1);
+        resource.invalidate(1);
         await flushMicrotasks();
 
-        expect(devtools.actions()).toEqual(["success", "refresh", "rebase"]);
+        expect(devtools.actions()).toEqual(["success", "invalidate", "rebase"]);
     });
 
     it('labels optimistic patches as "patch" and their settle as "patch-settled"', async () => {
@@ -158,7 +159,7 @@ describe("query devtools — action names", () => {
         expect(devtools.actions()).toEqual(["success", "patch", "patch-settled"]);
     });
 
-    it('labels a failed background refresh as "refresh-error", not "error"', async () => {
+    it('labels a failed background invalidation as "invalidate-error", not "error"', async () => {
         const devtools = installDevtools();
         let attempt = 0;
         const resource = createResource<number, string>({
@@ -170,13 +171,37 @@ describe("query devtools — action names", () => {
             },
         });
 
+        resource.getEntry(1, true).hold();
+        await flushMicrotasks();
+
+        resource.invalidate(1);
+        await flushMicrotasks();
+
+        expect(devtools.actions()).toEqual(["success", "invalidate", "invalidate-error"]);
+    });
+
+    it('labels a deferred revalidation as "revalidate" when the marked entry is first held', async () => {
+        const devtools = installDevtools();
+        let attempt = 0;
+        const resource = createResource<number, string>({
+            key: "user",
+            queryFn: async () => {
+                attempt += 1;
+                return `data-${attempt}`;
+            },
+        });
+
         resource.getEntry(1, true);
         await flushMicrotasks();
 
-        resource.refresh(1);
+        // Nobody holds the entry: the invalidation is only recorded.
+        resource.invalidate(1);
+        expect(devtools.actions()).toEqual(["success"]);
+
+        resource.getEntry(1, true).hold();
         await flushMicrotasks();
 
-        expect(devtools.actions()).toEqual(["success", "refresh", "refresh-error"]);
+        expect(devtools.actions()).toEqual(["success", "revalidate", "rebase"]);
     });
 
     it('labels an aborted patch as "patch-settled" too', async () => {
@@ -239,8 +264,8 @@ describe("query devtools — beforeDevtoolsPush", () => {
         const entry = createEntry<number, string>({
             queryFn: async () => "data",
             keyedArgs: toKeyed(1),
-            beforeDevtoolsPush: (machine, push, actionName) => {
-                push(machine, actionName === undefined ? undefined : `wrapped:${actionName}`);
+            beforeDevtoolsPush: (state, push, actionName) => {
+                push(state, actionName === undefined ? undefined : `wrapped:${actionName}`);
             },
         });
 
@@ -256,8 +281,8 @@ describe("query devtools — beforeDevtoolsPush", () => {
         const entry = createEntry<number, string>({
             queryFn: async () => "data",
             keyedArgs: toKeyed(1),
-            beforeDevtoolsPush: (machine, push) => {
-                if (machine.state.status !== "pending") push(machine);
+            beforeDevtoolsPush: (state, push) => {
+                if (state.status !== "pending") push(state);
             },
         });
 

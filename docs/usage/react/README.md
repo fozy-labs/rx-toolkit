@@ -9,7 +9,8 @@ RxToolkit предоставляет набор React хуков для эффе
 Подписывается на изменения сигнала и возвращает текущее значение.
 
 ```tsx
-import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 
 const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
@@ -33,17 +34,19 @@ function Counter() {
 **Особенности:**
 - Автоматическая подписка и отписка при размонтировании
 - Не вызывает ре-рендер, если значение не изменилось
+- Сигнал в состоянии ошибки (например, упавший `Computed`) бросает её при чтении в ближайший `ErrorBoundary`; после сброса boundary компонент работает как обычно
 
 ---
 
-## RxQuery хуки
+## Query хуки
 
 ### useResource
 
 Подписывается на состояние ресурса и автоматически инициирует запрос при монтировании или изменении аргументов.
 
 ```tsx
-import { useResource, SKIP } from '@fozy-labs/rx-toolkit';
+import { SKIP } from '@fozy-labs/rx-toolkit';
+import { useResource } from '@fozy-labs/rx-toolkit/react';
 import { userResource } from '../api/userResource';
 
 function UserProfile({ userId }: { userId: string | null }) {
@@ -52,16 +55,14 @@ function UserProfile({ userId }: { userId: string | null }) {
         userId ? { id: userId } : SKIP
     );
 
-    if (userQuery.isInitialLoading) {
-        return <div>Загрузка...</div>;
+    if (!userQuery.hasData) {
+        return userQuery.hasError
+            ? <div>Ошибка: {String(userQuery.error)}</div>
+            : <div>Загрузка...</div>;
     }
-    
-    if (userQuery.isError) {
-        return <div>Ошибка: {String(userQuery.error)}</div>;
-    }
-    
-    if (userQuery.isRefreshing) {
-        // Показываем данные + индикатор перезагрузки
+
+    if (userQuery.isInvalidating) {
+        // Показываем данные + индикатор инвалидации
     }
     
     return (
@@ -73,39 +74,43 @@ function UserProfile({ userId }: { userId: string | null }) {
 }
 ```
 
-**Возвращаемое значение (TResourceAgentState):**
+**Возвращаемое значение (TResourceClutchState):**
 
 | Поле               | Тип              | Описание                              |
 |--------------------|------------------|---------------------------------------|
-| `status`           | `TAgentStatus`   | Текущий статус агента                 |
+| `status`           | `TClutchStatus`  | `'idle'` · `'pending'` · `'success'` · `'error'` |
+| `dataSource`       | `'none' \| 'placeholder' \| 'previous' \| 'current'` | Что сейчас в `data` |
 | `data`             | `TData \| null`  | Данные ресурса                        |
-| `error`            | `unknown`        | Объект ошибки                         |
-| `args`             | `TArgs \| null`  | Аргументы последнего запроса          |
+| `error`            | `unknown`        | Ошибка последнего завершившегося запроса; живёт до следующего |
+| `args`             | `TArgs \| null`  | Аргументы текущего наблюдения         |
 | `dataArgs`         | `TArgs \| null`  | Аргументы, для которых загружены `data` |
-| `isLoading`        | `boolean`        | Любая загрузка (первая или повторная) |
-| `isInitialLoading` | `boolean`        | Первая загрузка (данных еще нет)      |
-| `isRefreshing`     | `boolean`        | Перезагрузка (данные уже есть)        |
-| `isSwitching`      | `boolean`        | Загрузка новых аргументов поверх данных от предыдущих (SWR) |
-| `isRetrying`       | `boolean`        | Загрузка запущена через `retry()`; `error` хранит повторяемую ошибку |
-| `isRefreshError`   | `boolean`        | Ошибка при перезагрузке               |
-| `isSuccess`        | `boolean`        | Успешно ли завершен последний запрос  |
-| `isError`          | `boolean`        | Произошла ли ошибка                   |
-| `retry()`          | `() => void`     | Повторить запрос после `error` / `refresh-error` |
-| `refresh()`        | `() => void`     | Принудительно обновить данные         |
+| `hasData`          | `boolean`        | Есть что показать                     |
+| `hasError`         | `boolean`        | Есть ошибка                           |
+| `isPending`        | `boolean`        | Запрос в полёте                       |
+| `isInitialLoading` | `boolean`        | Запрос в полёте: показать нечего либо только плейсхолдер |
+| `isSwitching`      | `boolean`        | Запрос в полёте, на экране данные предыдущих аргументов (SWR) |
+| `isInvalidating`   | `boolean`        | Запрос в полёте поверх данных текущих аргументов |
+| `retry()`          | `() => void`     | Повторить упавший запрос, оставив ошибку на экране |
+| `invalidate()`     | `(options?: { inFlight?: 'cancel' \| 'trail' \| 'join' }) => void` | Перезапросить показанное, сняв ошибку; `inFlight` — что делать с запросом в полёте, см. [инвалидацию в полёте](../../query/concepts/cache.md#инвалидация-в-полёте) |
+
+Полная таблица вариантов состояния — в [API сцепления ресурса](../../query/api/resource-clutch.md#варианты-состояния).
 
 **Особенности:**
 - Автоматическая подписка на состояние ресурса
 - Умная инициация: не повторяет запрос для тех же аргументов
 - Поддержка `SKIP` токена для условного пропуска запроса
 - При смене аргументов показывает предыдущие данные во время загрузки новых
+- Пока идёт повтор упавшего запроса, истинны и `isPending`, и `hasError` — отдельного флага у него нет
 
 ### useSuspenseResource
 
-Suspense-вариант `useResource`. Вместо флагов загрузки/ошибки хук интегрируется с React Suspense и Error Boundary:
+Suspense-вариант `useResource`. Вместо флагов загрузки/ошибки хук интегрируется с React Suspense и Error Boundary. Решение принимается по порядку:
 
-- пока идёт **первичная** загрузка — бросает промис → показывается ближайший `<Suspense fallback>`;
-- если первичный запрос **упал** (и нет данных для отката) — бросает ошибку → её ловит ближайший `ErrorBoundary`;
-- иначе возвращает состояние, в котором `data` **гарантированно не `null`**.
+1. есть что показать (`hasData`) — возвращает состояние, в котором `data` **гарантированно не `null`**;
+2. `status === 'error'` и показать нечего — бросает ошибку → её ловит ближайший `ErrorBoundary`;
+3. иначе приостанавливает рендер → показывается ближайший `<Suspense fallback>`.
+
+Ошибка **за** данными предыдущих аргументов или за плейсхолдером не бросается: она приходит в возвращённом состоянии, потому что на экране есть что оставить.
 
 ```tsx
 import { Suspense } from 'react';
@@ -113,11 +118,11 @@ import { userResource } from '../api/userResource';
 
 function UserProfile({ userId }: { userId: string }) {
     // data типизирована как TData (без | null) — проверки не нужны
-    const { data, isRefreshing } = userResource.useSuspenseResource({ id: userId });
+    const { data, isInvalidating } = userResource.useSuspenseResource({ id: userId });
 
     return (
         <div>
-            <h1>{data.name} {isRefreshing && '🔄'}</h1>
+            <h1>{data.name} {isInvalidating && '🔄'}</h1>
             <p>{data.email}</p>
         </div>
     );
@@ -136,28 +141,29 @@ function Page({ userId }: { userId: string }) {
 
 > Если ресурс подключён через `reactHooksPlugin`, хук доступен как метод: `userResource.useSuspenseResource(args)`. Standalone-форма `useSuspenseResource(resource, args)` тоже экспортируется.
 
-**Возвращаемое значение (`TSuspenseResourceState`):** то же, что у `useResource` (`TResourceAgentState`), но поле `data` имеет тип `TData` вместо `TData | null`.
+**Возвращаемое значение (`TSuspenseResourceState`):** те же варианты, что у `useResource` (`TResourceClutchState`), суженные до `dataSource: 'placeholder' | 'previous' | 'current'` — поэтому `data` имеет тип `TData` вместо `TData | null`.
 
 **Особенности и отличия от `useResource`:**
 
-| Сценарий                          | Поведение                                                                 |
-|-----------------------------------|---------------------------------------------------------------------------|
-| Первичная загрузка                | Бросает промис → `<Suspense fallback>`                                     |
-| Первичная ошибка (нет данных)     | Бросает ошибку → `ErrorBoundary`                                           |
-| Фоновое обновление (SWR)          | **Не** приостанавливается: показывает stale-данные, `isRefreshing = true`  |
-| Ошибка при обновлении (SWR)       | **Не** приостанавливается: stale-данные остаются, `isRefreshError = true`  |
-| Кэш уже прогрет                   | Рендерится синхронно, без fallback                                         |
+| Сценарий                                   | Поведение                                                                    |
+|--------------------------------------------|------------------------------------------------------------------------------|
+| Первичная загрузка, показать нечего        | Приостанавливает рендер → `<Suspense fallback>`                               |
+| Первичная ошибка, показать нечего          | Бросает ошибку → `ErrorBoundary`                                              |
+| Инвалидация                                | **Не** приостанавливается: устаревшие данные на экране, `isInvalidating = true` |
+| Упавшая инвалидация                        | **Не** приостанавливается: `status = 'error'` при `dataSource = 'current'`     |
+| Загрузка / ошибка за данными предыдущих args или плейсхолдером | **Не** приостанавливается и не бросает: состояние возвращается как есть |
+| Кэш уже прогрет                            | Рендерится синхронно, без fallback                                            |
+| Ремонт после сброса `ErrorBoundary`        | Повторный запрос вместо повторного броска закэшированной ошибки: брошенная ошибка считается показанной, и запись ревалидируется при следующем удержании |
 
-- Запрос стартует **во время рендера** (а не в эффекте) — приостановленный рендер не выполняет эффекты, иначе fallback завис бы навсегда.
+- Приостановившийся рендер запускает запрос сразу после себя, а не в эффекте: приостановленный рендер эффекты не выполняет, и fallback завис бы навсегда. Сам рендер запись кэша не создаёт и `queryFn` не вызывает.
 - `SKIP` намеренно **не поддерживается**: компонент, который может приостановиться, всегда должен иметь аргументы. Для условных запросов используйте `useResource`.
-- Хук наследует клиентское ограничение `useSignal` (без `getServerSnapshot`) — для потокового SSR используйте `useResource`.
 
 ### useCommand
 
-Создает агент команды и возвращает кортеж `[trigger, state]`.
+Создаёт сцепление команды и возвращает кортеж `[trigger, state]`.
 
 ```tsx
-import { useCommand } from '@fozy-labs/rx-toolkit';
+import { useCommand } from '@fozy-labs/rx-toolkit/react';
 import { updateUserCommand } from '../api/updateUserCommand';
 
 function EditUserForm({ user }: { user: User }) {
@@ -183,11 +189,11 @@ function EditUserForm({ user }: { user: User }) {
             <input name="name" defaultValue={user.name} />
             <input name="email" defaultValue={user.email} />
             
-            <button type="submit" disabled={updateState.isLoading}>
-                {updateState.isLoading ? 'Сохранение...' : 'Сохранить'}
+            <button type="submit" disabled={updateState.isPending}>
+                {updateState.isPending ? 'Сохранение...' : 'Сохранить'}
             </button>
             
-            {updateState.isError && (
+            {updateState.hasError && (
                 <p className="error">Ошибка: {String(updateState.error)}</p>
             )}
         </form>
@@ -198,8 +204,8 @@ function EditUserForm({ user }: { user: User }) {
 **Возвращаемое значение:**
 ```typescript
 [
-    trigger: (args: Args) => Promise<Data>,  // Функция запуска команды
-    state: TCommandAgentState                // Текущее состояние
+    trigger: (args: TArgsOrKeyed<TArgs>) => TTriggerPromise<TData>,  // Функция запуска команды
+    state: TCommandClutchState                // Текущее состояние
 ]
 ```
 
@@ -214,11 +220,18 @@ function EditUserForm({ user }: { user: User }) {
 |-------------|----------------------------------------------|------------------------|
 | `status`    | `"idle" \| "pending" \| "success" \| "error"` | Текущий статус команды |
 | `data`      | `TData \| null`                              | Результат команды      |
-| `error`     | `unknown`                                    | Объект ошибки          |
+| `error`     | `unknown`                                    | Ошибка мутации; переживает повтор |
 | `args`      | `TArgs \| null`                              | Аргументы запуска      |
-| `isLoading` | `boolean`                                    | Выполняется ли команда |
-| `isSuccess` | `boolean`                                    | Успешно ли завершена   |
-| `isError`   | `boolean`                                    | Произошла ли ошибка    |
+| `isPending` | `boolean`                                    | Выполняется ли команда |
+| `hasData`   | `boolean`                                    | Успешно ли завершена   |
+| `hasError`  | `boolean`                                    | Есть ли ошибка         |
+| `retry()`   | `() => void`                                 | Перезапустить упавшую мутацию |
+
+---
+
+## Формы
+
+`unstable_formsReactPlugin()` добавляет определениям форм `useForm` и `useFormContext`, а инстансам — `<form.Provide>`; узлы формы читаются через `useSignal`. См. [Формы в React](../../form/react.md).
 
 ---
 
@@ -227,7 +240,8 @@ function EditUserForm({ user }: { user: User }) {
 ### Store класс
 
 ```tsx
-import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 
 class CounterStore {
     count$ = Signal.state(0, 'counter');
@@ -278,11 +292,11 @@ function Dashboard() {
     const userQuery = useResource(userResource, { id: currentUserId });
     const settingsQuery = useResource(settingsResource, undefined);
     
-    const isLoading = userQuery.isLoading || settingsQuery.isLoading;
-    const isError = userQuery.isError || settingsQuery.isError;
+    const hasData = userQuery.hasData && settingsQuery.hasData;
+    const hasError = userQuery.hasError || settingsQuery.hasError;
     
-    if (isLoading) return <Loader />;
-    if (isError) return <Error />;
+    if (hasError) return <Error />;
+    if (!hasData) return <Loader />;
     
     return (
         <div>

@@ -16,7 +16,7 @@
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Res as Resource
     participant Cache as Карта кэша
     participant Entry as QueryCacheEntry
@@ -25,30 +25,30 @@ sequenceDiagram
     participant Sync as SyncDriver
 
     UI->>Hook: useResource(args)
-    Hook->>Agent: set(args)
+    Hook->>Clutch: switch(args)
 
-    Note over Agent: Создание Signal.computed
+    Note over Clutch: Создание Signal.computed
 
-    Agent->>Res: getEntry$(keyedArgs, doInitiate=false)
+    Clutch->>Res: getEntry$(keyedArgs, doInitiate=false)
 
     Res->>Cache: get(key)
     Cache-->>Res: null (нет записи)
-    Res-->>Agent: null
-    Agent-->>Hook: pending
+    Res-->>Clutch: null
+    Clutch-->>Hook: pending
     Hook-->>UI: { status: pending }
 
     Note over Hook: useIsomorphicLayoutEffect срабатывает
 
     opt синхронно
-        Hook->>Agent: start()
-        Agent->>Res: getEntry(keyedArgs, doInitiate=true)
-        Res-->>Res: _getOrCreate(keyedArgs, doForce=false)
+        Hook->>Clutch: start()
+        Clutch->>Res: getEntry(keyedArgs, doInitiate=true)
+        Res-->>Res: _getOrCreate(keyedArgs)
         Res->>Cache: get(key)
         Cache-->>Res: null
         Res->>Entry: new Entry(options)
 
         opt beforeQuery настроен (sync: true)
-            Res->>BQ: beforeQuery(key, keyedArgs)
+            Entry->>BQ: beforeQuery(key, keyedArgs) — первый запуск
             BQ->>Sync: REQ { keys, reqId }
             Note over Sync: BroadcastChannel.postMessage
             Sync-->>BQ: RES { data } или таймаут
@@ -56,12 +56,12 @@ sequenceDiagram
             alt данные получены
                 BQ-->>Entry: hydrate(data)
                 Entry->>Entry: → success (без сетевого запроса)
-                Entry-->>Agent: machine$ → success
-                Agent-->>Hook: success
+                Entry-->>Clutch: state$ → success
+                Clutch-->>Hook: success
                 Hook-->>UI: { status: success, data }
             else таймаут
-                BQ-->>Res: null
-                Note over Res: queryFn вызывается далее
+                BQ-->>Entry: null
+                Note over Entry: тот же запуск вызывает queryFn
             end
         end
 
@@ -75,13 +75,13 @@ sequenceDiagram
 
         opt Отработка реактивной зависимости (null → Entry)
             Res -->> Res: lastEntry.set(Entry)
-            Res-->>Agent: $: Entry (pending)
-            Agent-->>Agent: Подписка на machine$ (pending)
-            Note over Agent: return stable(prev, next)
+            Res-->>Clutch: $: Entry (pending)
+            Clutch-->>Clutch: Подписка на state$ (pending)
+            Note over Clutch: return stable(prev, next)
         end
 
-        Res -->> Agent: Entry (pending)
-        Agent-->>Hook: void
+        Res -->> Clutch: Entry (pending)
+        Clutch-->>Hook: void
     end
 
     Note over Query: Ожидание
@@ -89,14 +89,14 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: → success
-        Entry-->>Agent: machine$ → success
-        Agent-->>Hook: success
+        Entry-->>Clutch: state$ → success
+        Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: → error
-        Entry-->>Agent: machine$ → error
-        Agent-->>Hook: error
+        Entry-->>Clutch: state$ → error
+        Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
 ```
@@ -108,19 +108,19 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Res as Resource
     participant Cache as Карта кэша
 
     UI->>Hook: useResource(args)
-    Hook->>Agent: set(args)
-    Note over Agent: Создание Signal.computed
-    Agent->>Res: getEntry$(keyedArgs, doInitiate=false)
+    Hook->>Clutch: switch(args)
+    Note over Clutch: Создание Signal.computed
+    Clutch->>Res: getEntry$(keyedArgs, doInitiate=false)
     Res->>Cache: get(key)
     Cache-->>Res: Entry
-    Res-->>Agent: Entry
-    Agent-->>Agent: Подписка на machine$
-    Agent-->>Hook: state
+    Res-->>Clutch: Entry
+    Clutch-->>Clutch: Подписка на state$
+    Clutch-->>Hook: state
     Hook-->>UI: state
 ```
 
@@ -131,61 +131,107 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Res as Resource
 
     UI->>Hook: useResource(SKIP)
-    Hook->>Agent: set(SKIP)
-    Note over Agent: → idle (запись не создаётся)
-    Agent-->>Hook: idle
+    Hook->>Clutch: switch(SKIP)
+    Note over Clutch: → idle (запись не создаётся)
+    Clutch-->>Hook: idle
     Hook-->>UI: { status: idle }
 
     Note over UI: зависимые данные готовы
 
     UI->>Hook: useResource(args)
-    Hook->>Agent: set(args)
-    Agent->>Res: getEntry$(keyedArgs, doInitiate=false)
+    Hook->>Clutch: switch(args)
+    Clutch->>Res: getEntry$(keyedArgs, doInitiate=false)
 
-    Res-->>Agent: Entry или null
+    Res-->>Clutch: Entry или null
 
-    Note over Agent: → поток «Cache miss» или «Cache hit»
+    Note over Clutch: → поток «Cache miss» или «Cache hit»
 ```
 
-### Refresh / фоновое обновление
+### Инвалидация / фоновый перезапрос
 
 ```mermaid
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Entry as QueryCacheEntry
     participant Query as queryFn
 
-    Note over Entry: machine: success (data v1)
+    Note over Entry: состояние: success (data v1)
 
-    UI->>Hook: refresh()
-    Hook->>Agent: refresh()
-    Agent->>Entry: refresh()
-    Entry->>Entry: success → refreshing
-    Entry-->>Agent: machine$ → refreshing
-    Agent-->>Hook: refreshing
-    Hook-->>UI: { status: refreshing, data: v1 }
+    UI->>Hook: invalidate()
+    Hook->>Clutch: invalidate()
+    Clutch->>Entry: invalidate()
+    Entry->>Entry: success → invalidating
+    Entry-->>Clutch: state$ → invalidating
+    Clutch-->>Hook: строка 6
+    Hook-->>UI: { status: pending, dataSource: current, data: v1 }
 
     Entry->>Query: queryFn(args, abortSignal)
 
     alt ответ OK
         Query-->>Entry: data v2
-        Entry->>Entry: refreshing → success (rebase)
-        Entry-->>Agent: machine$ → success
-        Agent-->>Hook: success
-        Hook-->>UI: { status: success, data: v2 }
+        Entry->>Entry: invalidating → success (rebase)
+        Entry-->>Clutch: state$ → success
+        Clutch-->>Hook: строка 5
+        Hook-->>UI: { status: success, dataSource: current, data: v2 }
     else ошибка
         Query-->>Entry: error
-        Entry->>Entry: refreshing → refresh-error (fail)
-        Entry-->>Agent: machine$ → refresh-error
-        Agent-->>Hook: refresh-error
-        Hook-->>UI: { status: refresh-error, data: v1, error }
+        Entry->>Entry: invalidating → invalidate-error (fail)
+        Entry-->>Clutch: state$ → invalidate-error
+        Clutch-->>Hook: строка 9
+        Hook-->>UI: { status: error, dataSource: current, data: v1, error }
     end
+```
+
+### Инвалидация тающей записи → подписка
+
+Запись без удержаний `invalidate()` только помечает; перезапрос уходит на первом удержании — до того, как подписчик получит первый снимок. Правило — в [кэше][cache-invalidation].
+
+```mermaid
+sequenceDiagram
+    participant Lnk as Link / Resource.invalidate
+    participant Entry as QueryCacheEntry
+    participant Ret as Retainer (удержание)
+    participant Clutch as Clutch (useSignal)
+    participant Query as queryFn
+
+    Note over Entry: состояние: success (data v1), удержаний нет
+
+    Lnk->>Entry: invalidate()
+    Entry->>Ret: isMelting?
+    Ret-->>Entry: true
+    Entry->>Entry: isInvalidated = true, запроса нет
+    Entry-->>Lnk: void
+
+    Note over Clutch: компонент монтируется позже
+
+    Clutch->>Ret: obs.subscribe
+    Ret->>Ret: holds 0 → 1, таймер снят
+    Ret->>Entry: onActive()
+    Entry->>Entry: isInvalidated = false, success → invalidating
+    Entry->>Query: queryFn(args, abortSignal)
+    Query-->>Entry: Promise (pending)
+    Entry-->>Ret: void
+    Ret-->>Clutch: первый снимок — invalidating (data v1)
+
+    alt ответ OK
+        Query-->>Entry: data v2
+        Entry->>Entry: invalidating → success (rebase)
+        Entry-->>Clutch: state$ → success (data v2)
+    else ошибка
+        Query-->>Entry: error
+        Entry->>Entry: invalidating → invalidate-error (fail)
+        Entry-->>Clutch: state$ → invalidate-error (data v1)
+    end
+
+    Clutch->>Ret: unsubscribe
+    Ret->>Ret: holds 1 → 0, таймер по retentionTime(state)
+    Ret-->>Clutch: void
 ```
 
 ### SWR-fallback при смене аргументов
@@ -195,40 +241,40 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Res as Resource
     participant Entry2 as QueryCacheEntry (user/2)
 
-    Note over Agent: current = Entry1 (success, data/1)
+    Note over Clutch: current = Entry1 (success, data/1)
 
     UI->>Hook: useResource({ id: 2 })
-    Hook->>Agent: set({ id: 2 })
-    Agent->>Agent: prev = Entry1, current = null
+    Hook->>Clutch: switch({ id: 2 })
+    Clutch->>Clutch: prev = Entry1, current = null
 
-    Agent->>Res: getEntry$(keyedArgs, doInitiate=false)
-    Res-->>Agent: null
+    Clutch->>Res: getEntry$(keyedArgs, doInitiate=false)
+    Res-->>Clutch: null
 
-    Note over Agent,Entry2: → поток «Cache miss» для { id: 2 }
+    Note over Clutch,Entry2: → поток «Cache miss» для { id: 2 }
 
-    Note over Agent: Реактивная зависимость: Entry2 (pending)
-    Agent-->>Agent: Подписка на machine$ (pending)
+    Note over Clutch: Реактивная зависимость: Entry2 (pending)
+    Clutch-->>Clutch: Подписка на state$ (pending)
 
-    Note over Agent: pending + prev → refreshing (SWR)
-    Agent-->>Hook: refreshing
-    Hook-->>UI: { status: refreshing, data: data/1 }
+    Note over Clutch: pending + prev → dataSource previous (SWR)
+    Clutch-->>Hook: строка 4
+    Hook-->>UI: { status: pending, dataSource: previous, isSwitching, data: data/1 }
 
     alt ответ OK
         Entry2->>Entry2: → success
-        Entry2-->>Agent: machine$ → success
-        Agent->>Agent: prev = null
-        Agent-->>Hook: success
-        Hook-->>UI: { status: success, data: data/2 }
+        Entry2-->>Clutch: state$ → success
+        Clutch->>Clutch: prev = null
+        Clutch-->>Hook: строка 5
+        Hook-->>UI: { status: success, dataSource: current, data: data/2 }
     else ошибка
         Entry2->>Entry2: → error
-        Entry2-->>Agent: machine$ → error
-        Note over Agent: error не маскируется, prev (Entry1) сохраняется
-        Agent-->>Hook: error
-        Hook-->>UI: { status: error, data: data/1, error }
+        Entry2-->>Clutch: state$ → error
+        Note over Clutch: error не маскируется, prev (Entry1) сохраняется
+        Clutch-->>Hook: строка 8
+        Hook-->>UI: { status: error, dataSource: previous, data: data/1, error }
     end
 ```
 
@@ -237,16 +283,16 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Потребитель B (например Agent)
+    participant Clutch as Потребитель B (например Clutch)
     participant Res as Resource
     participant Cache as Карта кэша
 
     Note over Res: Потребитель A уже прошёл «Cache miss»<br/>(см. одноимённый раздел выше)
 
-    Agent->>Res: getEntry(keyedArgs, doInitiate=true)
+    Clutch->>Res: getEntry(keyedArgs, doInitiate=true)
     Res->>Cache: get(key)
     Cache-->>Res: existing Entry (pending)
-    Res-->>Agent: existing Entry
+    Res-->>Clutch: existing Entry
 ```
 
 ## Потоки команды (Command)
@@ -258,7 +304,7 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useCommand
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Cmd as Command
     participant Cache as Карта кэша
     participant Entry as QueryCacheEntry
@@ -269,8 +315,8 @@ sequenceDiagram
     Hook-->>UI: { status: idle }
 
     UI->>Hook: trigger(args)
-    Hook->>Agent: trigger(args)
-    Agent->>Cmd: execute(keyedArgs)
+    Hook->>Clutch: trigger(args)
+    Clutch->>Cmd: execute(keyedArgs)
     Cmd->>Cache: get(key)
     Cache-->>Cmd: null
     Cmd->>Entry: new Entry(options)
@@ -280,21 +326,21 @@ sequenceDiagram
     Cmd->>Cache: set(key, entry)
     Cache-->>Cmd: void
     Cmd-->>Cmd: lastEntry.set(Entry)
-    Cmd-->>Agent: Entry (pending)
-    Agent-->>Hook: pending
+    Cmd-->>Clutch: Entry (pending)
+    Clutch-->>Hook: pending
     Hook-->>UI: { status: pending }
 
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: pending → success
-        Entry-->>Agent: machine$ → success
-        Agent-->>Hook: success
+        Entry-->>Clutch: state$ → success
+        Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: pending → error
-        Entry-->>Agent: machine$ → error
-        Agent-->>Hook: error
+        Entry-->>Clutch: state$ → error
+        Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
 ```
@@ -315,7 +361,7 @@ sequenceDiagram
     
     Note over Lnk: invalidate: true
 
-    Note over Entry: machine: success (data v1)
+    Note over Entry: состояние: success (data v1)
 
     Note over Cmd: Мутация (UI → Hook → Cmd) — см. «Мутация — базовый поток»
     Note over Cmd: queryFn(args) завершился успешно
@@ -323,26 +369,32 @@ sequenceDiagram
 
     Cmd->>Lnk: Вызов onQueryStarted ($queryFulfilled) хука
     Lnk->>Lnk: forwardArgs(args) → args
-    Lnk->>Res: refresh(args)
+    Lnk->>Res: invalidate(args)
     Res->>Cache: get(key)
     Cache-->>Res: Entry
-    Res->>Entry: refresh()
-    Entry->>Entry: success → refreshing
+    Res->>Entry: invalidate()
 
-    Note over Entry: подписчики записи ресурса получат refreshing
+    alt запись удерживается (isMelting = false)
+        Entry->>Entry: success → invalidating
 
-    Entry->>Query: queryFn(args, abortSignal)
+        Note over Entry: подписчики записи ресурса получат invalidating
 
-    alt ответ OK
-        Query-->>Entry: fresh data
-        Entry->>Entry: refreshing → success (rebase)
-        Note over Entry: подписчики записи ресурса получат success
-    else ошибка
-        Query-->>Entry: error
-        Entry->>Entry: refreshing → refresh-error (fail)
-        Note over Entry: подписчики записи ресурса получат refresh-error
+        Entry->>Query: queryFn(args, abortSignal)
+
+        alt ответ OK
+            Query-->>Entry: fresh data
+            Entry->>Entry: invalidating → success (rebase)
+            Note over Entry: подписчики записи ресурса получат success
+        else ошибка
+            Query-->>Entry: error
+            Entry->>Entry: invalidating → invalidate-error (fail)
+            Note over Entry: подписчики записи ресурса получат invalidate-error
+        end
+    else запись тает (isMelting = true)
+        Entry->>Entry: isInvalidated = true, запроса нет
+        Note over Entry: перезапрос — на первом удержании,<br/>см. «Инвалидация тающей записи → подписка»
     end
-    
+
     Entry-->>Res: void
     Res-->>Lnk: void
     Lnk-->>Cmd: void
@@ -368,7 +420,7 @@ sequenceDiagram
     Res-->>Lnk: Entry
     Lnk->>Entry: createPatch(patchFn)
     Entry->>Entry: Immer produce → patches + inversePatches
-    Entry-->>Entry: machine$ → success (patched data)
+    Entry-->>Entry: state$ → success (patched data)
 
     alt ответ OK
         Cmd->>Lnk: $queryFulfilled.resolve(data)
@@ -379,7 +431,7 @@ sequenceDiagram
         Cmd->>Lnk: onError(args, error)
         Lnk->>Entry: handle.abort()
         Entry->>Entry: inversePatches → rollback
-        Entry-->>Entry: machine$ → success (original data)
+        Entry-->>Entry: state$ → success (original data)
         Note over Entry: Возможен isConsistencyViolation →<br/>автоинвалидация (см. патчинг)
         Entry-->>Lnk: void
     end
@@ -398,7 +450,7 @@ sequenceDiagram
 sequenceDiagram
     participant UI as React-компонент
     participant Hook as useResource
-    participant Agent as Agent
+    participant Clutch as Clutch
     participant Res as Resource
     participant Entry as QueryCacheEntry
     participant BQ as beforeQuery
@@ -414,7 +466,7 @@ sequenceDiagram
     Res->>Entry: new Entry(options)
 
     opt beforeQuery настроен (sync: true)
-        Res->>BQ: beforeQuery(key, keyedArgs)
+        Entry->>BQ: beforeQuery(key, keyedArgs) — первый запуск
         BQ->>Sync: REQ { keys, reqId }
         Note over Sync: BroadcastChannel.postMessage
         Sync-->>Sync2: ISyncMessage { type: "REQ", reqId, keys }
@@ -427,14 +479,14 @@ sequenceDiagram
             BQ-->>Entry: hydrate(data)
             Entry->>Entry: → success (queryFn не вызывается)
             Note over Entry: Мгновенный кэш-хит —<br/>рендер без сетевого запроса
-            Entry-->>Agent: machine$ → success
-            Agent-->>Hook: success
+            Entry-->>Clutch: state$ → success
+            Clutch-->>Hook: success
             Hook-->>UI: { status: success, data }
         else таймаут
             Note over Sync2: Нет данных / нет других вкладок → нет ответа
             Note over BQ: Таймаут — RES не получен
-            BQ-->>Res: null
-            Note over Res: queryFn вызывается далее
+            BQ-->>Entry: null
+            Note over Entry: тот же запуск вызывает queryFn
         end
     end
 
@@ -444,14 +496,14 @@ sequenceDiagram
     alt ответ OK
         Query-->>Entry: data
         Entry->>Entry: → success
-        Entry-->>Agent: machine$ → success
-        Agent-->>Hook: success
+        Entry-->>Clutch: state$ → success
+        Clutch-->>Hook: success
         Hook-->>UI: { status: success, data }
     else ошибка
         Query-->>Entry: error
         Entry->>Entry: → error
-        Entry-->>Agent: machine$ → error
-        Agent-->>Hook: error
+        Entry-->>Clutch: state$ → error
+        Clutch-->>Hook: error
         Hook-->>UI: { status: error, error }
     end
 ```
@@ -459,15 +511,16 @@ sequenceDiagram
 
 ## См. также
 
-- [Машина состояний запроса][machine] — статусы и переходы, на которых построены все потоки
+- [Состояние записи запроса][entry-state] — статусы и переходы, на которых построены все потоки
 - [Система кэширования][cache] — жизненный цикл записей и `retentionTime`
 - [Оптимистичные обновления (links)][usage-links] — `optimisticUpdate` и `invalidate` в действии
-- [Агент][agent] — SWR-наблюдатель, транслирующий состояние машины в UI
+- [Сцепление][clutch] — SWR-наблюдатель, транслирующий состояние записи в UI
 - [Кросс-табовая синхронизация][usage-broadcast] — настройка `syncDriver` и `broadcastSyncDriver`
 
 
-[agent]: agent.md
-[machine]: machine.md
+[clutch]: clutch.md
+[entry-state]: query-entry-state.md
 [cache]: cache.md
+[cache-invalidation]: cache.md#инвалидация-тающей-записи
 [usage-links]: ../usage/links.md
 [usage-broadcast]: ../usage/broadcast.md

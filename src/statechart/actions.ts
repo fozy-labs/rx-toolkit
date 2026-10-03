@@ -14,7 +14,18 @@ import type {
     RaiseActionOptions,
     SendExpr,
 } from "./types";
-import type { DoNotInfer, NonReducibleUnknown } from "./types/common";
+
+/**
+ * Blocks inference without wrapping the type (the native `NoInfer` survives
+ * instantiation as a wrapper and breaks distributive conditionals and discriminated
+ * object-literal checks in this module). Module-local so a consumer's declaration
+ * inlines it (see `types/index.ts`).
+ */
+type DoNotInfer<T> = [T][T extends any ? 0 : any];
+
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local, as above. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
 
 /**
  * Builtin action creators. Like XState they return frozen *functions* (named
@@ -47,8 +58,8 @@ export function assign<
  * Updates the context through an Immer draft: the recipe mutates `context`
  * in place and the produced next context replaces the current one (the
  * previous object is untouched; unchanged subtrees are shared). The recipe's
- * return value is ignored. Plain objects and arrays are drafted; other values
- * (`Map`, `Set`, class instances) are handed over as they are.
+ * return value is ignored. Plain objects, arrays, `Map` and `Set` are
+ * drafted; class instances are handed over as they are.
  *
  * Not an XState builtin: the converter emits it for `@action` bodies, and
  * `toXStateSource()` imports it from this package.

@@ -25,7 +25,7 @@ export interface MachineDevtoolsSnapshot {
 export interface MachineDevtoolsActorInfo {
     /**
      * Unique per `Statechart` instance (the engine passes `"sc:<n>"`). When
-     * omitted the adapter generates one (`crypto.randomUUID` with a fallback).
+     * omitted the adapter generates one (a random UUID).
      */
     readonly sessionId?: string;
     /** Display name: the machine id. */

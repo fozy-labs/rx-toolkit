@@ -45,19 +45,19 @@ function trackedStream<TData>() {
     return { stream, state };
 }
 
-// ==================== Stream lifecycle through the machine ====================
+// ==================== Stream lifecycle through the entry state ====================
 
-describe("stream queryFn — machine transitions", () => {
+describe("stream queryFn — entry state transitions", () => {
     it("first emission: pending → success", () => {
         const subject = new Subject<string>();
         const resource = createResource({ queryFn: () => subject.asObservable() });
 
         const entry = resource.getEntry(undefined, true);
-        expect(entry.machine$.peek().state.status).toBe("pending");
+        expect(entry.state$.peek().status).toBe("pending");
 
         subject.next("live-1");
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-1");
     });
@@ -71,7 +71,7 @@ describe("stream queryFn — machine transitions", () => {
         subject.next("live-2");
         subject.next("live-3");
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-3");
     });
@@ -81,7 +81,7 @@ describe("stream queryFn — machine transitions", () => {
 
         const entry = resource.getEntry(undefined, true);
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("c");
     });
@@ -97,12 +97,12 @@ describe("stream queryFn — machine transitions", () => {
         const boom = new Error("boom");
         subject.error(boom);
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("error");
         expect(state.error).toEqual({ mapped: boom });
     });
 
-    it("stream error after data: success → refresh-error with data kept", () => {
+    it("stream error after data: success → invalidate-error with data kept", () => {
         const subject = new Subject<string>();
         const resource = createResource({ queryFn: () => subject.asObservable() });
 
@@ -111,8 +111,8 @@ describe("stream queryFn — machine transitions", () => {
         const boom = new Error("late-boom");
         subject.error(boom);
 
-        const state = entry.machine$.peek().state;
-        expect(state.status).toBe("refresh-error");
+        const state = entry.state$.peek();
+        expect(state.status).toBe("invalidate-error");
         expect(state.data).toBe("live-1");
         expect(state.error).toBe(boom);
     });
@@ -124,7 +124,7 @@ describe("stream queryFn — machine transitions", () => {
         const entry = resource.getEntry(undefined, true);
         subject.complete();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("error");
         expect(state.error).toBeInstanceOf(EmptyStreamError);
     });
@@ -139,7 +139,7 @@ describe("stream queryFn — machine transitions", () => {
         subject.next("live-2");
         subject.complete();
 
-        const state = entry.machine$.peek().state;
+        const state = entry.state$.peek();
         expect(state.status).toBe("success");
         expect(state.data).toBe("live-2");
         expect(queryFn).toHaveBeenCalledTimes(1);
@@ -149,23 +149,25 @@ describe("stream queryFn — machine transitions", () => {
 // ==================== Teardown & resubscription ====================
 
 describe("stream queryFn — teardown and resubscription", () => {
-    it("refresh() unsubscribes the previous run and resubscribes; first emission rebases", () => {
+    it("invalidate() unsubscribes the previous run and resubscribes; first emission rebases", () => {
         const { stream, state } = trackedStream<string>();
         const resource = createResource({ queryFn: () => stream });
 
+        // Held: an active entry re-runs at once on invalidate.
         const entry = resource.getEntry(undefined, true);
+        entry.hold();
         state.subscriber!.next("run1-value");
         expect(state.subscribeCount).toBe(1);
 
-        entry.refresh();
+        entry.invalidate();
         expect(state.teardownCount).toBe(1);
         expect(state.subscribeCount).toBe(2);
-        expect(entry.machine$.peek().state.status).toBe("refreshing");
+        expect(entry.state$.peek().status).toBe("invalidating");
 
         state.subscriber!.next("run2-value");
-        const machineState = entry.machine$.peek().state;
-        expect(machineState.status).toBe("success");
-        expect(machineState.data).toBe("run2-value");
+        const entryState = entry.state$.peek();
+        expect(entryState.status).toBe("success");
+        expect(entryState.data).toBe("run2-value");
     });
 
     it("emissions from a superseded run are ignored", () => {
@@ -173,15 +175,16 @@ describe("stream queryFn — teardown and resubscription", () => {
         const resource = createResource({ queryFn: () => stream });
 
         const entry = resource.getEntry(undefined, true);
+        entry.hold();
         const run1 = state.subscriber!;
         run1.next("run1-value");
 
-        entry.refresh();
-        // The stale producer keeps pushing after unsubscribe — must not reach the machine.
+        entry.invalidate();
+        // The stale producer keeps pushing after unsubscribe — must not reach the entry.
         run1.next("stale-value");
 
-        expect(entry.machine$.peek().state.status).toBe("refreshing");
-        expect(entry.machine$.peek().state.data).toBe("run1-value");
+        expect(entry.state$.peek().status).toBe("invalidating");
+        expect(entry.state$.peek().data).toBe("run1-value");
     });
 
     it("entry eviction (reset) tears down the subscription", () => {
@@ -201,14 +204,213 @@ describe("stream queryFn — teardown and resubscription", () => {
 
         const entry = resource.getEntry(undefined, true);
         state.subscriber!.error(new Error("boom"));
-        expect(entry.machine$.peek().state.status).toBe("error");
+        expect(entry.state$.peek().status).toBe("error");
 
         entry.retry();
         expect(state.subscribeCount).toBe(2);
 
         state.subscriber!.next("recovered");
-        expect(entry.machine$.peek().state.status).toBe("success");
-        expect(entry.machine$.peek().state.data).toBe("recovered");
+        expect(entry.state$.peek().status).toBe("success");
+        expect(entry.state$.peek().data).toBe("recovered");
+    });
+
+    it("invalidate() on a melting entry (default: cancel) tears the stream down now and marks the entry; the first hold resubscribes", () => {
+        const { stream, state } = trackedStream<string>();
+        const resource = createResource({ queryFn: () => stream });
+
+        const entry = resource.getEntry(undefined, true);
+        const run1 = state.subscriber!;
+        run1.next("run1-value");
+
+        entry.invalidate();
+
+        // Nobody holds the entry and its data was declared unreliable: the
+        // socket is closed, the entry is marked, the data stays on screen.
+        expect(entry.isInvalidated).toBe(true);
+        expect(state.teardownCount).toBe(1);
+        expect(state.subscribeCount).toBe(1);
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "run1-value" });
+
+        // The torn-down producer keeps pushing — nothing reaches the entry.
+        run1.next("stale-value");
+        expect(entry.state$.peek().data).toBe("run1-value");
+
+        // The first hold resubscribes.
+        entry.hold();
+        expect(state.subscribeCount).toBe(2);
+        expect(entry.isInvalidated).toBe(false);
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "run1-value" });
+
+        state.subscriber!.next("run2-value");
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "run2-value" });
+    });
+
+    it("invalidateInFlight: 'trail' — invalidate() on a melting entry keeps the stream open; the first hold waits for it", () => {
+        const { stream, state } = trackedStream<string>();
+        const resource = createResource({ queryFn: () => stream, invalidateInFlight: "trail" });
+
+        const entry = resource.getEntry(undefined, true);
+        const run1 = state.subscriber!;
+        run1.next("run1-value");
+
+        entry.invalidate();
+
+        // Nobody holds the entry: the live stream stays, the entry is marked.
+        expect(entry.isInvalidated).toBe(true);
+        expect(state.teardownCount).toBe(0);
+        expect(state.subscribeCount).toBe(1);
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "run1-value" });
+
+        // An emission on the still-open stream lands, but does not clear the mark.
+        run1.next("run1-later");
+        expect(entry.state$.peek().data).toBe("run1-later");
+        expect(entry.isInvalidated).toBe(true);
+
+        // The first hold trusts the still-open stream: the resubscription waits
+        // for it to complete.
+        entry.hold();
+        expect(state.teardownCount).toBe(0);
+        expect(state.subscribeCount).toBe(1);
+        expect(entry.isInvalidated).toBe(true);
+
+        run1.complete();
+        expect(state.subscribeCount).toBe(2);
+        expect(entry.isInvalidated).toBe(false);
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "run1-later" });
+
+        state.subscriber!.next("run2-value");
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "run2-value" });
+    });
+
+    it("invalidateInFlight: 'trail' — invalidate() on a held entry with an open stream waits for it to complete", () => {
+        const { stream, state } = trackedStream<string>();
+        const resource = createResource({ queryFn: () => stream, invalidateInFlight: "trail" });
+
+        const entry = resource.getEntry(undefined, true);
+        entry.hold();
+        const run1 = state.subscriber!;
+        run1.next("run1-value");
+
+        entry.invalidate();
+
+        // `success` with an open stream is still a run in flight under trail.
+        expect(entry.isInvalidated).toBe(true);
+        expect(state.teardownCount).toBe(0);
+        expect(state.subscribeCount).toBe(1);
+
+        run1.complete();
+
+        expect(state.subscribeCount).toBe(2);
+        expect(entry.isInvalidated).toBe(false);
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "run1-value" });
+    });
+});
+
+describe("stream queryFn — invalidateInFlight: 'join'", () => {
+    it("invalidate() on a held entry with an open stream is a no-op: the stream is trusted, nothing follows its completion", () => {
+        const { stream, state } = trackedStream<string>();
+        const resource = createResource({ queryFn: () => stream, invalidateInFlight: "join" });
+
+        const entry = resource.getEntry(undefined, true);
+        entry.hold();
+        const run1 = state.subscriber!;
+        run1.next("run1-value");
+
+        resource.invalidate();
+
+        expect(entry.isInvalidated).toBe(false);
+        expect(state.teardownCount).toBe(0);
+        expect(state.subscribeCount).toBe(1);
+
+        run1.complete();
+        expect(state.subscribeCount).toBe(1);
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: "run1-value" });
+    });
+
+    describe("a joined consistency violation whose stream ends without another emission", () => {
+        type TItems = { items: { n: number }[] };
+
+        /**
+         * Held entry; stream 2 (opened by a cancelling invalidate) emits data
+         * the pending patch cannot replay over — the violation is joined, and
+         * the stream then ends without landing anything.
+         */
+        function setup() {
+            const { stream, state } = trackedStream<TItems>();
+            const resource = createResource<void, TItems>({
+                queryFn: () => stream,
+                invalidateInFlight: "join",
+                allowStreamPatches: true,
+            });
+            const entry = resource.getEntry(undefined, true);
+            entry.hold();
+            state.subscriber!.next({ items: [{ n: 1 }] });
+
+            entry.invalidate({ inFlight: "cancel" });
+            const run2 = state.subscriber!;
+            entry.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+            run2.next({ items: [] });
+            expect(entry.state$.peek().status).toBe("invalidating");
+            return { resource, entry, state, run2 };
+        }
+
+        it("the entry re-queries once the stream ends: it is never left invalidating with nothing in flight", () => {
+            const { entry, state, run2 } = setup();
+
+            run2.complete();
+
+            expect(state.subscribeCount).toBe(3);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
+        });
+
+        it.each(["cancel", "trail", "join"] as const)(
+            "fetch({ inFlight: %s }) settles with the owed run's data",
+            async (inFlight) => {
+                const { resource, state, run2 } = setup();
+
+                const fetched = resource.fetch(undefined, { inFlight });
+                if (inFlight !== "cancel") run2.complete();
+
+                expect(state.subscribeCount).toBe(3);
+                state.subscriber!.next({ items: [{ n: 5 }] });
+                await expect(fetched).resolves.toEqual({ items: [{ n: 5 }] });
+            },
+        );
+
+        it("prefetch({ force: true }) after the stream ended settles with a fresh run", async () => {
+            const { resource, state, run2 } = setup();
+            run2.complete();
+            let isSettled = false;
+
+            const prefetched = resource.prefetch(undefined, { force: true }).then(() => {
+                isSettled = true;
+            });
+            expect(state.subscribeCount).toBeGreaterThan(2);
+            state.subscriber!.next({ items: [{ n: 5 }] });
+
+            await flushMicrotasks();
+            await flushMicrotasks();
+            expect(isSettled).toBe(true);
+            await prefetched;
+        });
+    });
+
+    it("after the stream completed, invalidate() re-queries as usual", () => {
+        const { stream, state } = trackedStream<string>();
+        const resource = createResource({ queryFn: () => stream, invalidateInFlight: "join" });
+
+        const entry = resource.getEntry(undefined, true);
+        entry.hold();
+        state.subscriber!.next("run1-value");
+        state.subscriber!.complete();
+
+        resource.invalidate();
+
+        expect(state.subscribeCount).toBe(2);
+        expect(entry.state$.peek()).toMatchObject({ status: "invalidating", data: "run1-value" });
     });
 });
 
@@ -232,14 +434,14 @@ describe("stream queryFn — optimistic patches", () => {
         entry.createPatch((draft) => {
             draft.likes += 1;
         });
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2, title: "v1" });
+        expect(entry.state$.peek().data).toEqual({ likes: 2, title: "v1" });
 
         subject.next({ likes: 5, title: "v2" });
 
-        // Pending patch replayed on the new base. Immer patches are absolute
-        // replacements: the recorded `likes = 2` wins over the emitted 5,
-        // while untouched fields take the new base's values.
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2, title: "v2" });
+        // Pending patch replayed on the new base: its recipe re-runs, so
+        // `likes += 1` applies to the emitted 5, while untouched fields
+        // take the new base's values.
+        expect(entry.state$.peek().data).toEqual({ likes: 6, title: "v2" });
     });
 
     it("committing a patch during a stream folds it into the data", () => {
@@ -257,11 +459,11 @@ describe("stream queryFn — optimistic patches", () => {
         })!;
         handle.commit();
 
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 2 });
+        expect(entry.state$.peek().data).toEqual({ likes: 2 });
 
         // The next emission is the new base — the committed patch dissolved into it.
         subject.next({ likes: 10 });
-        expect(entry.machine$.peek().state.data).toEqual({ likes: 10 });
+        expect(entry.state$.peek().data).toEqual({ likes: 10 });
     });
 
     it("warns once per resource when patching while the stream is open", () => {
@@ -372,6 +574,33 @@ describe("stream queryFn — ensure / fetch", () => {
 
         await expect(promise).rejects.toBe(boom);
     });
+
+    it.each(["cancel", "trail", "join"] as const)(
+        "fetch() on an open stream at success resubscribes and resolves with the new first emission (invalidateInFlight: %s)",
+        async (invalidateInFlight) => {
+            const { stream, state } = trackedStream<string>();
+            const resource = createResource({ queryFn: () => stream, invalidateInFlight });
+            const entry = resource.getEntry(undefined, true);
+            entry.hold();
+            state.subscriber!.next("live-1");
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "live-1" });
+
+            // An open stream at `success` has already delivered: `fetch` means a
+            // fresh run, so the stream is resubscribed whatever the policy —
+            // under `trail` a bare invalidate() would only mark the entry and
+            // the promise would settle on the data just declared suspect.
+            const promise = resource.fetch();
+
+            expect(state.teardownCount).toBe(1);
+            expect(state.subscribeCount).toBe(2);
+            expect(entry.isInvalidated).toBe(false);
+            expect(entry.state$.peek().status).toBe("invalidating");
+
+            state.subscriber!.next("live-2");
+            await expect(promise).resolves.toBe("live-2");
+            expect(entry.state$.peek()).toMatchObject({ status: "success", data: "live-2" });
+        },
+    );
 });
 
 // ==================== onQueryStarted lifecycle ====================
@@ -467,14 +696,15 @@ describe("stream queryFn — onQueryStarted lifecycle", () => {
         await expect(captured[0]!.$queryFulfilled).resolves.toEqual({ data: "one-shot" });
     });
 
-    it("refresh() fires the hook again for the new run", () => {
+    it("invalidate() fires the hook again for the new run", () => {
         const subject = new Subject<string>();
         const { captured, onQueryStarted } = captureContext<string>();
         const resource = createResource({ queryFn: () => subject.asObservable(), onQueryStarted });
 
         const entry = resource.getEntry(undefined, true);
+        entry.hold();
         subject.next("live-1");
-        entry.refresh();
+        entry.invalidate();
 
         expect(captured).toHaveLength(2);
     });

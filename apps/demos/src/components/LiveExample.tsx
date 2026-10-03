@@ -1,35 +1,8 @@
 import React from 'react';
 import { LiveEditor, LiveError, LivePreview, LiveProvider } from 'react-live';
 import { themes } from 'prism-react-renderer';
-import {
-    and,
-    assign,
-    cancel,
-    Computed,
-    createApi,
-    CURRENT_SNAPSHOT_VERSION,
-    DefaultOptions,
-    Effect,
-    LocalSignal,
-    LocalState,
-    log,
-    not,
-    or,
-    raise,
-    reactHooksPlugin,
-    Signal,
-    SKIP,
-    State,
-    stateIn,
-    statelyInspector,
-    unstable_createMachine as createMachine,
-    unstable_KeyedSignal,
-    unstable_MachineSignal as MachineSignal,
-    unstable_ProxySignal as ProxySignal,
-    useCommand,
-    useResource,
-    useSignal,
-} from '@fozy-labs/rx-toolkit';
+import { and, assign, cancel, Computed, createApi, CURRENT_SNAPSHOT_VERSION, DefaultOptions, Effect, LocalSignal, LocalState, log, not, or, raise, Signal, SKIP, State, stateIn, statelyInspector, unstable_createMachine as createMachine, unstable_FormSignal as FormSignal, unstable_KeyedSignal, unstable_MachineSignal as MachineSignal, unstable_ProxySignal as ProxySignal } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin, unstable_formsReactPlugin, useCommand, useResource, useSignal } from '@fozy-labs/rx-toolkit/react';
 import {
     Button,
     Card,
@@ -50,6 +23,7 @@ import {
     Tabs,
 } from '@heroui/react';
 import { debounceTime, map, scan, startWith, Subject, take, timer } from 'rxjs';
+import { z } from 'zod';
 import { fetches } from '../utils/fetches';
 
 function processExample(code: string): string {
@@ -103,6 +77,7 @@ export function LiveExample({
         Divider,
         Effect,
         fetches,
+        FormSignal,
         Input,
         LocalSignal,
         LocalState,
@@ -131,11 +106,13 @@ export function LiveExample({
         Tabs,
         take,
         timer,
+        unstable_formsReactPlugin,
         unstable_KeyedSignal,
         ProxySignal,
         useCommand,
         useResource,
         useSignal,
+        z,
         ...scope
     };
 

@@ -1,32 +1,42 @@
 import type {
     IPatchHandle,
-    TErrorState,
-    TMachineState,
     TPatchEntry,
     TPatchState,
-    TPendingState,
-    TRefreshErrorState,
-    TRefreshingState,
-    TSuccessState,
+    TQueryEntryErrorState,
+    TQueryEntryInvalidateErrorState,
+    TQueryEntryInvalidatingState,
+    TQueryEntryPendingState,
+    TQueryEntryState,
+    TQueryEntrySuccessState,
 } from "@/query/types";
 
-import { MachineStateError, MachineTransitionError } from "../errors";
+import { QueryEntryStateError, QueryEntryTransitionError } from "../errors";
 import { createPatches } from "../patcher";
 
-import { hasData, processAllPatches, processPatches, replayPatches } from "./machine-helpers";
+import { isDataState, processAllPatches, processPatches, replayPatches } from "./machine-helpers";
 
 /**
  * Base class for the Machine state machine.
  *
  * Provides all transition methods with runtime guards.
  * Subtypes extend this and override their valid transitions with narrower return types.
- * Invalid transitions inherited from MachineBase throw MachineTransitionError/MachineStateError.
+ * Invalid transitions inherited from MachineBase throw QueryEntryTransitionError/QueryEntryStateError.
  */
 export class MachineBase<TArgs, TData> {
-    readonly state: TMachineState<TArgs, TData>;
+    readonly state: TQueryEntryState<TArgs, TData>;
 
-    protected constructor(state: TMachineState<TArgs, TData>) {
+    /**
+     * The transition that produced this machine hit a consistency violation
+     * (see `consistencyViolation`): the owner must re-query. Unlike the
+     * `isConsistencyViolation` flag, which stays in the state until a server
+     * answer lands, this marks only the transition itself — a machine
+     * rebuilt from the stored state never carries it.
+     */
+    readonly violated: boolean;
+
+    protected constructor(state: TQueryEntryState<TArgs, TData>, violated = false) {
         this.state = state;
+        this.violated = violated;
     }
 
     // ==================== Transition Methods ====================
@@ -34,10 +44,10 @@ export class MachineBase<TArgs, TData> {
     /** pending → success */
     success(data: TData): MachineBase<TArgs, TData> {
         if (this.state.status !== "pending") {
-            throw new MachineTransitionError("success", this.state.status);
+            throw new QueryEntryTransitionError("success", this.state.status);
         }
 
-        const state: TSuccessState<TArgs, TData> = {
+        const state: TQueryEntrySuccessState<TArgs, TData> = {
             status: "success",
             args: this.state.args,
             data,
@@ -48,10 +58,10 @@ export class MachineBase<TArgs, TData> {
         return new MachineBase<TArgs, TData>(state);
     }
 
-    /** pending → error, refreshing → refresh-error, success → refresh-error */
+    /** pending → error, invalidating → invalidate-error, success → invalidate-error */
     fail(error: unknown): MachineBase<TArgs, TData> {
         if (this.state.status === "pending") {
-            const state: TErrorState<TArgs> = {
+            const state: TQueryEntryErrorState<TArgs> = {
                 status: "error",
                 args: this.state.args,
                 data: null,
@@ -63,10 +73,10 @@ export class MachineBase<TArgs, TData> {
 
         // A streaming query can fail after it already delivered data: the entry
         // sits in `success` when the stream errors. Data is kept, like a failed
-        // background refresh.
+        // background invalidation.
         if (this.state.status === "success") {
-            const state: TRefreshErrorState<TArgs, TData> = {
-                status: "refresh-error",
+            const state: TQueryEntryInvalidateErrorState<TArgs, TData> = {
+                status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
                 error,
@@ -76,9 +86,9 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        if (this.state.status === "refreshing") {
-            const state: TRefreshErrorState<TArgs, TData> = {
-                status: "refresh-error",
+        if (this.state.status === "invalidating") {
+            const state: TQueryEntryInvalidateErrorState<TArgs, TData> = {
+                status: "invalidate-error",
                 args: this.state.args,
                 data: this.state.data,
                 error,
@@ -88,84 +98,97 @@ export class MachineBase<TArgs, TData> {
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("fail", this.state.status);
-    }
-
-    /** success → refreshing, refresh-error → refreshing */
-    refresh(): MachineBase<TArgs, TData> {
-        if (this.state.status === "success") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
-                args: this.state.args,
-                data: this.state.data,
-                error: null,
-                updatedAt: this.state.updatedAt,
-                patchState: this.state.patchState,
-                isRetrying: false,
-            };
-            return new MachineBase<TArgs, TData>(state);
-        }
-
-        if (this.state.status === "refresh-error") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
-                args: this.state.args,
-                data: this.state.data,
-                error: null,
-                updatedAt: this.state.updatedAt,
-                patchState: this.state.patchState,
-                isRetrying: false,
-            };
-            return new MachineBase<TArgs, TData>(state);
-        }
-
-        throw new MachineTransitionError("refresh", this.state.status);
+        throw new QueryEntryTransitionError("fail", this.state.status);
     }
 
     /**
-     * error → pending, refresh-error → refreshing. Unlike {@link refresh}, the
-     * retried failure stays in `error` and the target is marked `isRetrying`.
+     * success → invalidating, invalidate-error → invalidating, error → pending.
+     * Re-checks what is shown and clears the error; the caller's own view may
+     * still hold data the machine does not know about (previous args or a
+     * placeholder), which is why `error` is a valid origin.
+     */
+    invalidate(): MachineBase<TArgs, TData> {
+        if (this.state.status === "error") {
+            const state: TQueryEntryPendingState<TArgs> = {
+                status: "pending",
+                args: this.state.args,
+                data: null,
+                error: null,
+                updatedAt: null,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        if (this.state.status === "success") {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
+                args: this.state.args,
+                data: this.state.data,
+                error: null,
+                updatedAt: this.state.updatedAt,
+                patchState: this.state.patchState,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        if (this.state.status === "invalidate-error") {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
+                args: this.state.args,
+                data: this.state.data,
+                error: null,
+                updatedAt: this.state.updatedAt,
+                patchState: this.state.patchState,
+            };
+            return new MachineBase<TArgs, TData>(state);
+        }
+
+        throw new QueryEntryTransitionError("invalidate", this.state.status);
+    }
+
+    /**
+     * error → pending, invalidate-error → invalidating. Unlike {@link invalidate},
+     * the retried failure stays in `error` — in an in-flight state that is what
+     * marks the run as a retry.
      */
     retry(): MachineBase<TArgs, TData> {
         if (this.state.status === "error") {
-            const state: TPendingState<TArgs> = {
+            const state: TQueryEntryPendingState<TArgs> = {
                 status: "pending",
                 args: this.state.args,
                 data: null,
                 error: this.state.error,
                 updatedAt: null,
-                isRetrying: true,
             };
             return new MachineBase<TArgs, TData>(state);
         }
 
-        if (this.state.status === "refresh-error") {
-            const state: TRefreshingState<TArgs, TData> = {
-                status: "refreshing",
+        if (this.state.status === "invalidate-error") {
+            const state: TQueryEntryInvalidatingState<TArgs, TData> = {
+                status: "invalidating",
                 args: this.state.args,
                 data: this.state.data,
                 error: this.state.error,
                 updatedAt: this.state.updatedAt,
                 patchState: this.state.patchState,
-                isRetrying: true,
             };
             return new MachineBase<TArgs, TData>(state);
         }
 
-        throw new MachineTransitionError("retry", this.state.status);
+        throw new QueryEntryTransitionError("retry", this.state.status);
     }
 
     /** success → success (subsequent stream emission; replays patches on new data) */
     next(data: TData): MachineBase<TArgs, TData> {
         if (this.state.status !== "success") {
-            throw new MachineTransitionError("next", this.state.status);
+            throw new QueryEntryTransitionError("next", this.state.status);
         }
 
         const patchState = this.state.patchState;
 
         // No patches → fresh success with the new base
         if (!patchState) {
-            const state: TSuccessState<TArgs, TData> = {
+            const state: TQueryEntrySuccessState<TArgs, TData> = {
                 status: "success",
                 args: this.state.args,
                 data,
@@ -177,22 +200,21 @@ export class MachineBase<TArgs, TData> {
         }
 
         // Replay pending patches on new base
-        return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()),
-        );
+        const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
+        return new MachineBase<TArgs, TData>(replayed.state, !replayed.ok);
     }
 
-    /** refreshing → success (replays patches on new data) */
+    /** invalidating → success (replays patches on new data) */
     rebase(data: TData): MachineBase<TArgs, TData> {
-        if (this.state.status !== "refreshing") {
-            throw new MachineTransitionError("rebase", this.state.status);
+        if (this.state.status !== "invalidating") {
+            throw new QueryEntryTransitionError("rebase", this.state.status);
         }
 
         const patchState = this.state.patchState;
 
         // No patches → straight to success
         if (!patchState) {
-            const state: TSuccessState<TArgs, TData> = {
+            const state: TQueryEntrySuccessState<TArgs, TData> = {
                 status: "success",
                 args: this.state.args,
                 data,
@@ -204,20 +226,19 @@ export class MachineBase<TArgs, TData> {
         }
 
         // Replay pending patches on new base
-        return new MachineBase<TArgs, TData>(
-            replayPatches(this.state, "success", data, patchState.patches, Date.now()),
-        );
+        const replayed = replayPatches(this.state, "success", data, patchState.patches, Date.now());
+        return new MachineBase<TArgs, TData>(replayed.state, !replayed.ok);
     }
 
     // ==================== Patch Methods ====================
 
-    /** Create an optimistic patch (success, refreshing, refresh-error) */
+    /** Create an optimistic patch (success, invalidating, invalidate-error) */
     createPatch(
         patchFn: (data: TData) => void,
         onSettle?: () => void,
     ): { machine: MachineBase<TArgs, TData>; handle: IPatchHandle } {
-        if (!hasData(this.state)) {
-            throw new MachineStateError("createPatch", `invalid state "${this.state.status}"`);
+        if (!isDataState(this.state)) {
+            throw new QueryEntryStateError("createPatch", `invalid state "${this.state.status}"`);
         }
 
         const currentData = this.state.data;
@@ -228,6 +249,10 @@ export class MachineBase<TArgs, TData> {
             forward,
             inverse,
             status: "pending",
+            // Kept for replays: a rebase re-runs the recipe on the new base
+            // rather than re-applying the recorded positional patches (see
+            // `TPatchEntry.recipe`).
+            recipe: patchFn,
         };
 
         const existingPatches = this.state.patchState?.patches ?? [];
@@ -236,7 +261,7 @@ export class MachineBase<TArgs, TData> {
         const newPatchState: TPatchState<TData> = {
             originalData,
             patches: [...existingPatches, entry],
-            isConsistencyViolation: false,
+            isConsistencyViolation: this.state.patchState?.isConsistencyViolation ?? false,
         };
 
         const newState = {
@@ -267,19 +292,21 @@ export class MachineBase<TArgs, TData> {
 
     /** Process all settled patches up to the first pending one */
     finishPatch(): MachineBase<TArgs, TData> {
-        if (!hasData(this.state) || !this.state.patchState) {
-            throw new MachineStateError("finishPatch", "no active patchState");
+        if (!isDataState(this.state) || !this.state.patchState) {
+            throw new QueryEntryStateError("finishPatch", "no active patchState");
         }
 
-        return new MachineBase<TArgs, TData>(processPatches(this.state, this.state.patchState));
+        const outcome = processPatches(this.state, this.state.patchState);
+        return new MachineBase<TArgs, TData>(outcome.state, !outcome.ok);
     }
 
     /** Process all settled patches (continues past pending) */
     finishAllPatches(): MachineBase<TArgs, TData> {
-        if (!hasData(this.state) || !this.state.patchState) {
-            throw new MachineStateError("finishAllPatches", "no active patchState");
+        if (!isDataState(this.state) || !this.state.patchState) {
+            throw new QueryEntryStateError("finishAllPatches", "no active patchState");
         }
 
-        return new MachineBase<TArgs, TData>(processAllPatches(this.state, this.state.patchState));
+        const outcome = processAllPatches(this.state, this.state.patchState);
+        return new MachineBase<TArgs, TData>(outcome.state, !outcome.ok);
     }
 }

@@ -3,11 +3,112 @@
 
 ## [Unreleased]
 
+[Гайд по миграции с 0.12.x](./migrations/0.13.0.md)
+
+Breaking-релиз: новый словарь и форма состояния в Query, новое ядро сигналов, модуль форм.
+
+### Added
+- **Формы — `unstable_FormSignal`**: поля, группы и списки на сигналах со схемой поля из любой Standard Schema, валидацией, запросами и сабмитом через команду. К `createApi` подключаются плагином `unstable_formsPlugin` или `unstable_formsReactPlugin` (`api.defineForm`, `useForm`). См. [docs/form](./form/README.md).
+- **`retentionTime` функцией** — `(args, state) => number | false`: время удержания записи зависит от её состояния. См. [docs/query/concepts/cache](./query/concepts/cache.md#время-удержания-записи).
+- **`entry.hold()`** — держит запись кэша без подписки на данные; флаги `entry.isMelting` и `entry.isInvalidated`. См. [docs/query/concepts/cache](./query/concepts/cache.md#кто-удерживает-запись).
+- **`placeholderData`** — опция ресурса: данные для показа, пока для args ничего не закэшировано; в кэш они не попадают. См. [docs/query/api/resource](./query/api/resource.md#placeholderdata).
+- **`clutch.whenSettled({ waitForDone: true })`** — ждёт конца запроса, а не первых данных для показа. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#whensettled).
+- **Массив в `onQueryStarted` и `onCacheEntryAdded`** — несколько хуков без `composeHooks`, falsy-элементы пропускаются: `[log, isDev && metrics]`. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md).
+- **`Signal.compute(fn, { equals })`** — своё сравнение: при равенстве computed сохраняет прежнюю ссылку. См. [docs/signals](./signals/README.md#computed).
+- **Плагины добавляют члены самому `api`** — метод `augmentApi(api)` и HKT-слот `apiType`. См. [docs/query/usage/plugins](./query/usage/plugins.md#написание-собственного-плагина).
+
+### Changed
+- **Breaking:** словарь Query — `createAgent` → `createClutch`, `refresh` → `invalidate`, `pack` → `bind`, `clutch.set` → `clutch.switch`, `key` команды → `entryKey`, префиксы типов. Старые имена остались deprecated-алиасами, кроме поля дескриптора команды `.key`. См. [гайд](./migrations/0.13.0.md#словарь).
+- **Breaking:** состояние сцепления ресурса и `getState()` — `status` (`idle | pending | success | error`) плюс `dataSource` (`none | placeholder | previous | current`). Данные рисуйте по `hasData`: `pending` и `error` бывают поверх показанных данных. См. [гайд](./migrations/0.13.0.md#состояние-сцепления-ресурса).
+- **Breaking:** флаги команды и `useInfiniteResource` — `isPending`, `hasData`, `hasError`, `isLoadingNext` вместо `isLoading`, `isSuccess`, `isError`, `isFetchingNext`. См. [гайд](./migrations/0.13.0.md#состояние-сцепления-команды).
+- **Breaking:** `useSuspenseResource` возвращает ошибку поверх previous- или placeholder-данных, а не бросает её в Error Boundary. См. [гайд](./migrations/0.13.0.md#usesuspenseresource).
+- **Breaking:** состояние записи кэша — плоская запись: `entry.state$().status` вместо `entry.state$().state.status`, опция `initialMachine` → `initialState`. См. [гайд](./migrations/0.13.0.md#состояние-записи-кэша).
+- **Breaking:** инвалидация ленивая — запись, которую никто не удерживает, только помечается и перезапрашивается при следующем удержании; так же гидрируется устаревший снимок. Запрос сразу — `prefetch(args, { force: true })`. См. [гайд](./migrations/0.13.0.md#инвалидация-ленивая).
+- **Breaking:** `invalidate()` и `fetch()` прерывают запрос в полёте и отправляют новый, а не игнорируют его или ждут. Режим настраивается опцией ресурса `invalidateInFlight` и параметром `inFlight` у `invalidate`, `fetch` и `prefetch` — `cancel`, `trail` или `join` (прежнее поведение). См. [docs/query/concepts/cache](./query/concepts/cache.md#инвалидация-в-полёте) и гайд: [`invalidate()`](./migrations/0.13.0.md#invalidate-при-запросе-в-полёте), [`fetch()`](./migrations/0.13.0.md#fetch-при-запросе-в-полёте).
+- **Breaking:** `invalidate()` на упавшей записи перезапускает запрос, а не пишет предупреждение. См. [гайд](./migrations/0.13.0.md#invalidate-на-упавшей-записи).
+- **Breaking:** версия снимка — `2`: снимки 0.12 читаются, а снимки 0.13 старой версией — нет. См. [гайд](./migrations/0.13.0.md#снимки-версия-2).
+- **Breaking:** собственные реализации `ICacheEntry` / `IQueryCacheEntry` должны добавить `hold()`, `isMelting`, `isInvalidated`; `TResourcePrefetchOptions` стал объединением. См. [гайд](./migrations/0.13.0.md#интерфейсы-и-типы-опций).
+- **Breaking:** действия в Redux DevTools — `UPDATE: refresh` / `refresh-error` → `UPDATE: invalidate` / `invalidate-error`, новое `UPDATE: revalidate`. См. [docs/devtools](./devtools/README.md#имена-действий-у-ресурсов-и-команд).
+- **Breaking:** `LocalSignal` принимает любую синхронную Standard Schema в опции `schema` вместо `zodSchema`; `zod` больше не peer-зависимость. См. [гайд](./migrations/0.13.0.md#localsignal-zodschema--schema).
+- **Breaking:** `Signal.effect` требует от `effectFn` вернуть teardown или ничего — стрелка-выражение со значением стала ошибкой типов. См. [гайд](./migrations/0.13.0.md#signaleffect-teardown-или-ничего).
+- **Breaking:** ошибка в сигнале больше не выключает часть графа — упавший computed восстанавливается, эффект переживает ошибку, батч выполняет все реакции, `useSignal` бросает в Error Boundary. См. [гайд](./migrations/0.13.0.md#ошибки-в-сигналах).
+- **Breaking:** ядро сигналов переписано — `.obs` у `Signal.from` отдаёт одно значение за батч, эффекты идут в порядке постановки в очередь, запись изнутри подписчика `State.obs` доходит до подписчиков после его возврата. См. [гайд](./migrations/0.13.0.md#ядро-сигналов).
+- **Сигналы быстрее**: на сценариях kairo из js-reactivity-benchmark — 0,8–1,3 времени `@preact/signals-core` вместо 3,4–24 (Node 24).
+- **Breaking:** весь React-API переехал на подпуть `@fozy-labs/rx-toolkit/react` (`useSignal`, `useResource`, `useSuspenseResource`, `useInfiniteResource`, `useCommand`, `reactHooksPlugin`, `unstable_formsReactPlugin`, `useConstant` и др.). Корневой импорт больше не тянет `react` — он стал опциональной peer-зависимостью, и не-React потребители ставят только `rxjs`. См. [гайд](./migrations/0.13.0.md#react-api-переехал-на-подпуть-react).
+- Кросс-табовая синхронизация не отдаёт другой вкладке помеченные для перезапроса данные как свежие. См. [docs/query/usage/broadcast](./query/usage/broadcast.md#что-синхронизируется).
+- Statechart без `key` пишет в Redux DevTools под `Statechart/<id машины>` без суффиксов `#2`, `#3`; чтобы различать инстансы, передавайте `key`. См. [docs/devtools](./devtools/README.md#именование-для-devtools).
+
+### Deprecated
+- Старые имена словаря Query, типы `TMachine*` и `composeHooks` (замена — массив хуков). Таблица замен — в [гайде](./migrations/0.13.0.md#словарь).
+
+### Removed
+- **Breaking:** `resource.trigger()`, `command.trigger()` и `signalize`, объявленные deprecated в 0.11.1. См. [гайд](./migrations/0.13.0.md#удалены-deprecated-из-0111).
+- **Breaking:** без алиасов — флаги и статусы старого состояния Query, `entry.machine$`, классы `Machine*` и внутренности движка сигналов. Список — в [гайде](./migrations/0.13.0.md#удалено-без-алиасов).
+
+### Fixed
+- `broadcastSyncDriver()` без опции `channel` подключался к общему каналу `rx-toolkit`, теперь подключается к `rx-toolkit:{keyPrefix}`, как и сказано в документации.
+- Контролируемый input на `useSignal` терял позицию курсора, теперь обновление приходит синхронно, внутри записи.
+- `useSignal` и хуки поверх него падали при серверном рендере с `Missing getServerSnapshot`, теперь работают без расхождений.
+- Команды и кросс-табовая синхронизация падали с `TypeError` без `crypto.randomUUID` — на HTTP без secure context, в Node до 19, в React Native. Теперь UUID строится и без него.
+- `reduxDevtools()` без установленного расширения бросал ошибку и ронял приложение. Теперь пишет её в `console.error` и ничего не делает.
+- Бросивший teardown эффекта вызывался при каждом изменении зависимости, а `unsubscribe()` бросал, не отписав зависимости. Теперь teardown вызывается один раз, а `unsubscribe()` отписывает всё и затем пробрасывает ошибку.
+- Эффект, вызвавший свой `unsubscribe()` во время запуска, навсегда оставался подписан на сигналы, прочитанные после этого. Теперь он ничего не держит.
+- `peek()` у computed без подписчиков бросал ошибку зависимости, даже если `computeFn` её перехватывал. Теперь возвращается перехваченный результат.
+- Ошибка computed на первом расчёте в эффекте приходила дважды — синхронно и необработанной. Теперь — один раз и синхронно.
+- Циклы вешали вкладку или переполняли стек: computed, читающий сам себя, эффекты и подписчики `.obs`, пишущие в источники друг друга. Теперь бросается `SignalCycleError` с цепочкой `A → B → A`. См. [docs/signals](./signals/README.md#computed).
+- Computed, эффект и `Signal.from(a.obs.pipe(…))` могли увидеть устаревшее или промежуточное значение внутри `Batcher.run` и после записи в источник из эффекта. Теперь они видят только итог.
+- Сигналы, прочитанные в `queryFn`, lifecycle-хуках и связях команды, перезапускали эффект или computed, который запустил запрос. Теперь этот код не отслеживается.
+- Записи, к которым обращались без подписки — через `getState()`/`peek()` или из сцепления без подписчиков (например, при `getSnapshot` дерева под `<Activity>`), — не удалялись никогда. Теперь чтение не сбрасывает таймер `retentionTime`, а сцепление без подписчиков запись не создаёт.
+- `retentionTime: Infinity` удалял запись сразу после отписки. Теперь `Infinity` означает «не удалять», как `false`. См. [docs/query/concepts/cache](./query/concepts/cache.md#нормализация-результата).
+- `unstable_createProjectionResource`: инвалидация могла получить данные «до инвалидации», а поздний ответ — перезаписать более свежие элементы; загрузка после `resetAll()` присоединялась к мёртвому запросу и застревала в ошибке; бросающий `makeArgs`/`serializeArgs` обходил `mapError`. Теперь остаются только свежие данные, после сброса отправляется свежий запрос, а ошибка проходит через `mapError`.
+- Redux DevTools: ключи `a/b` и `a/b/c` перезаписывали друг друга, а удаление `a/b` уносило `a/b/c`. Теперь значение узла — поле `.` рядом с детьми, как в пути: `a/b/.` — это сам `a/b`.
+- Эффект оставался на устаревшем значении, если во время его запуска другая реакция — эффект, подписчик `.obs`, `Signal.from` над `.obs` — меняла уже прочитанный им сигнал. Теперь он перезапускается. См. [docs/signals](./signals/README.md#effect).
+- `deepEqual` считал равными любые два `File`, `Blob` или `URL`. Теперь такие объекты сравниваются по ссылке.
+- Тип `forwardArgs` допускал `undefined`, и это читалось как «все записи ресурса», хотя связь всегда адресует одну запись. Теперь `forwardArgs` возвращает `TResArgs`.
+- Серия исправлений `unstable_ProxySignal`: `produce` отбрасывал присваивание `undefined` (`d.x = undefined`, `arr[i] = undefined`, `map.set(k, undefined)`) и не отменял правку при возврате ключу исходного значения, черновики утекали в зафиксированное состояние и меняли прошлые снимки, узлы путей копились без наблюдателей, `in` и `Object.keys` отвечали для функции-цели вместо данных, `await node` зависал на thenable-узле.
+- Цепочка «эффект → `send()`» в statechart глохла на втором шаге, если первое событие пришло из реакции или `Batcher.run`: снапшот, записанный внутри собственного запуска эффекта, подавлялся. Теперь цепочка доходит до конца.
+- Глобальный обработчик `DefaultOptions.onQueryError` никогда не вызывался. Теперь вызывается на каждой ошибке запроса ресурсов и команд, включая ретраи, после фиксации ошибки в записи и с ошибкой после `mapError`.
+- `createApi({ initialSnapshot })` сохранял объект вызывающего по ссылке, и его изменение после передачи дотягивалось до гидрированных записей кэша. Теперь снимок глубоко клонируется на `createApi` через structured clone с сохранением не-JSON значений (`bigint`, `NaN`, `Infinity`, `undefined`).
+- Генерация деклараций у потребителя падала на типах за опубликованными алиасами (TS4023/TS4058/TS2742): узел пути `ProxySignal`, `driver` из опций `reduxDevtools`, `config` машины statechart, ресурс с `reactHooksPlugin`, хук над `useSuspenseResource`. Теперь нужные типы экспортируются из корня пакета.
+- Бросающая схема `LocalSignal` роняла конструктор при каждой загрузке, а под преобразующей схемой (`transform`, `z.date()`, coercion) значение терялось: `set()` сохранял выход схемы, который загрузка проверяла как вход. Теперь бросок схемы — неудачная валидация, а записанное `set()` доверяется при загрузке; `Date` переживают хранение.
+- Политика GC `LocalSignal`: изменённая `gc`-политика не доходила до сохранённого слота, значения, записанные после `localStorage.clear()` в середине сессии, стирались при следующей загрузке, а `checkInterval: Infinity` стирал все значения. Теперь загрузка применяет текущую политику, запись восстанавливает мету неймспейса, а `Infinity` выключает GC.
+- `Resource.reset()` и `api.resetAll()` уходили в бесконечный цикл, если эффект пересоздавал запись во время сброса, и не очищали сохранённый SSR-снимок — ресурсы, созданные после сброса, гидрировались данными прежнего пользователя. Теперь сброс идёт по снимку кэша, а снимок очищается.
+- Данные, бывшие до `SKIP`, проходили сквозь него как `previous` в `useResource`/`useSuspenseResource` (A → SKIP → B показывал данные A). Теперь отбрасываются.
+- Исключение потребителя при записи состояния принималось за ошибку запроса или обрывало переход записи. Теперь оно сообщается в `config.onUnhandledError` RxJS, а переход завершается.
+- Подтверждённый патч из стека повторно применялся к свежему ответу сервера. Теперь на новый ответ переносятся только ожидающие патчи.
+- `stableStringify` (умолчательный `serializeArgs`) склеивал разные аргументы (`NaN`, `Infinity`, `null`, `undefined` в массивах, boxed-примитивы, собственный ключ `__proto__`) в один ключ кэша и бросал на `bigint`. Теперь различает их.
+- Мутация, вытесненная повторным `execute`, `reset()`/`resetAll()` или retention, всё равно применяла связи и отправлялась. Теперь её оптимистичные патчи сразу откатываются, поздний результат не применяет связей, а запуск без назначенного id не отправляется.
+- Промисы жизненного цикла promise-запуска (`$queryFulfilled`, `$queryStream` в `onQueryStarted`) брались из сырого промиса `queryFn`. Теперь они завершаются от записи кэша после фиксации исхода, а прерванный запуск отклоняется с причиной abort.
+- `useSuspenseResource` после сброса ErrorBoundary снова бросал закэшированную ошибку без перезапроса. Теперь бросок помечает запись для перезапроса, и перемонтирование запрашивает заново.
+- Хуки ресурсов расходились с серверной разметкой при гидратации снимка, устаревшего по `snapshotValidTime`. Теперь рендер гидратации совпадает с разметкой сервера, а должный перезапрос показывается сразу после неё.
+- `useInfiniteResource.fetchNext` начинал запрос страницы после ухода ленты с экрана (размонтирование, скрытие `<Activity>`, замена начальных args), оставляя запись без держателя. Теперь страница дописывается и запрашивается, когда лента вернулась.
+- `mutate` statechart падал на любом `Map`/`Set` в контексте машины. Теперь подключён плагин MapSet Immer, и `Map`/`Set` черновятся как обычные объекты.
+- Чтения сигналов в guard, `assign`, action и фабрике контекста отслеживались вызывающим эффектом. Теперь колбэки машины не перезапускают эффект, вызвавший `send()`/`start()`.
+- `toMermaid()`: бросал «no id assigned to state node» на переходе в корень машины, выдавал ключевые слова Mermaid как id состояний, ломая диаграмму, менял порядок кандидатов одного триггера, сливал регионы параллельного состояния при переходе из региона в регион, терял собственные переходы `$final`.
+- Сцепление ресурса, заведшее запись без подписчиков, не давало ей ни одного retention-цикла: политика `retentionTime` запускается на переходе `active → retention`, а никем не удержанная запись этого перехода не делает — она жила вечно, а при `retentionTime: 0` `useResource` мог увидеть её удалённой в зазоре между эффектами. Теперь сцепление берёт промежуточное удержание до конца тика.
+- Переигрывание оптимистичных патчей (ребейс на ответ сервера, аборт в стеке) накладывало записанные позиционные Immer-патчи на изменённую базу — при сдвинутых индексах патч ложился на другой элемент. Теперь перезапускается рецепт патча; бросивший его — [нарушение консистентности](./query/concepts/patching.md#нарушение-консистентности). См. [docs/query/concepts/patching](./query/concepts/patching.md#ребейс-при-обновлении).
+- Коммит патча связи (`update`, `optimisticUpdate`) происходил сразу, и ответ запроса, ушедшего в полёт до мутации, стирал его при ребейсе. Теперь коммит ждёт выхода этого запроса из полёта; без запроса в полёте и при открытом стриме — сразу. См. [docs/query/usage/links](./query/usage/links.md#тайминг-выполнения).
+- Повторный `execute`/`trigger` под тем же `entryKey` публиковал промежуточное `idle` между `success` и `pending`. Теперь замена записи проходит одним батчем — `idle` не публикуется.
+- Связь на записи без данных (ещё грузится или в `error`) писала внутреннее предупреждение `createPatch() called in invalid state`. Теперь шаги `optimisticUpdate`/`update` на такой записи молча пропускаются, `invalidate` работает как прежде.
+- `useCommand` привязывал `entryKey` в пассивном эффекте: первый коммит под новым ключом показывал состояние прежнего, `trigger` до эффекта уходил на старый ключ, а `entryKey: undefined` ключ не отвязывал вовсе. Теперь сцепление пересоздаётся по `entryKey` во время рендера.
+- Кросс-табовая синхронизация отбрасывала закэшированное `undefined`: вкладка-адресат вызывала свой `queryFn`, хотя другая вкладка ответила `RES`. Теперь любой `RES` — это попадание.
+- Computed без подписчиков, прочитанный внутри `Batcher.run` после чужой записи, пересчитывался даже когда его источники не менялись. Теперь батч-чтение сначала валидирует источники и отдаёт закэшированное значение без пересчёта.
+- `useSignal` терял исходную ошибку асинхронного источника без `default` (в Error Boundary уходило «No value emitted»), а значение, пришедшее между рендером и эффектом подписки, могло не показаться. Теперь снимок кэшируется на хук, ошибка доходит исходной, а расхождение рендера и подписки закрывается повторным рендером.
+- `useSignal` провоцировал предупреждение React «getSnapshot should be cached» — `getSnapshot`/`getServerSnapshot` возвращали новое значение на каждый вызов. Теперь исход снимка кэшируется до следующего обновления.
+- Тип `Signal.from(source, { default })` не учитывал `default: undefined`: он возвращал `Signal<T>` без `undefined`. Теперь `default: undefined` даёт `Signal<T | undefined>`, а `default: T` — `Signal<T>`.
+- `produce` терял собственный ключ `__proto__` на объектах и присваивание `draft.x["__proto__"] = v` меняло прототип вместо ключа. Теперь ключ копируется и записывается через `defineProperty`.
+- `deepEqual` считал разными два `new Date("")` (Invalid Date) и квадратично сравнивал `Map`/`Set` с примитивными ключами и значениями. Теперь Invalid Date равны друг другу, а примитивные ключи/элементы сравниваются через `has`/`get`.
+- `statechart.start()`, вызванный из действия, выполняемого во время обработки события (например, `entry` финального состояния), игнорировался — машина оставалась остановленной. Теперь запрос на перезапуск ставится всегда; `stop()` в том же батче по-прежнему отменяет его.
+- `toXStateSource()` печатал `Map`, `Set`, `Date` и `RegExp` из контекста как `{}` и зацикливался на циклических ссылках. Теперь они печатаются конструкторами (`new Map([[k, v], ...])`, `new Date(<время>)`, литерал regexp), экземпляры других классов отклоняются `TypeError` с именем класса и путём, а цикл — `TypeError` с путём к нему.
+- `toXStateSource()` ломал Unicode-имена реализаций (кириллица заменялась на `_`) и выдавал непарсящийся модуль, когда имя машины или реализации совпадало с импортируемым (`log`, `mutate`). Теперь Unicode-идентификаторы сохраняются, а конфликтующий импорт получает алиас (`log as log_`).
+- Тип `EventDescriptor` statechart отклонял системные события `xstate.done.state.*`, `xstate.after.*` и `xstate.*` как ключи `on` при объявленном `types.events`. Теперь они принимаются и сужают `event` до `DoneStateEvent` / `AfterEvent`; `xstate.init` и `xstate.stop` по-прежнему отклоняются.
+- Форма: `initialize()` группы во время сабмита обесценивал коммит всей формы — остальные отправленные поля не становились новой базой. Теперь пропускается только поддерево реинициализированной группы, а коммит остальных узлов проходит.
+- Документация: сниппет `MachineImplementations` в docs/statechart без дженерик-аргументов и пример `logState` в docs/query/usage/plugins с `unknown` вместо `Parameters<typeof resource.getEntry>[0]` не компилировались. Исправлены; примеры покрыты тестом на дрейф.
 
 ## [0.12.3] - 2026-09-17
 
 ### Added
-- **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+- **`isRetrying`** в состоянии агента ресурса и `resource.getState()` — загрузка запущена через `retry()`. Отличает повтор после ошибки от первичной загрузки (`pending`) и от `refresh()` (`refreshing`). Повторяемая ошибка остаётся в `error`, пока идёт повтор (`isError` при этом `false`). См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#варианты-состояния).
 
 ### Changed
 - **`retry()` работает из `refresh-error`** (`refresh-error → refreshing` с `isRetrying`), а не только из `error`. Раньше — no-op с предупреждением. `refresh()` из `refresh-error` не изменился.
@@ -17,16 +118,16 @@
 ## [0.12.2] - 2026-09-17
 
 ### Added
-- **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#варианты-состояния).
+- **`isSwitching` и `dataArgs`** в состоянии `useResource`, `useSuspenseResource` и `agent.state$`, чтобы можно было различать SWR и инвалидацию. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#варианты-состояния).
 
 
 ## [0.12.1] - 2026-09-03
 
 ### Added
-- **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-agent](./query/api/resource-agent.md#методы).
+- **`agent.adoptPrevious(source)`** — перенос SWR-fallback с другого агента для сценариев, где агент заменяют новым вместо `set`. См. [docs/query/api/resource-clutch](./query/api/resource-clutch.md#методы).
 
 ### Fixed
-- **React-хуки в concurrent-режиме** — `useResource`, `useSuspenseResource` и `useInfiniteResource` больше не мутируют общий агент во время рендера. Смена args внутри `startTransition` (например, навигация react-router) зацикливала React между transition-веткой и закоммиченным деревом до таймаута transition. Теперь хук создаёт агент на пару «ресурс + ключ args», а SWR-данные передаются новому агенту через `adoptPrevious`. См. [docs/query/concepts/agent](./query/concepts/agent.md#swr-fallback-при-смене-аргументов).
+- **React-хуки в concurrent-режиме** — `useResource`, `useSuspenseResource` и `useInfiniteResource` больше не мутируют общий агент во время рендера. Смена args внутри `startTransition` (например, навигация react-router) зацикливала React между transition-веткой и закоммиченным деревом до таймаута transition. Теперь хук создаёт агент на пару «ресурс + ключ args», а SWR-данные передаются новому агенту через `adoptPrevious`. См. [docs/query/concepts/clutch](./query/concepts/clutch.md#swr-fallback-при-смене-аргументов).
 
 
 ## [0.12.0] - 2026-08-31
@@ -35,7 +136,7 @@
 - **Стриминговые запросы** — поддержка `Observable<TData>` в ответе `queryFn` ресурса. См. [docs/query/usage/stream-query](./query/usage/stream-query.md).
 - **`api.unstable_createProjectionResource` (experimental)** — обёртка над ресурсом для загрузки коллекций по списку id с кэшем на уровне отдельных элементов, для дедупликации и бесконечной загрузки. См. [docs/query/usage/projection-resource](./query/usage/projection-resource.md).
 - **`snapshotable`** — опция ресурса для исключения его из снапшота.
-- **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков-composehooks).
+- **`composeHooks`** — утилита для композиции нескольких lifecycle-хуков (`onQueryStarted` / `onCacheEntryAdded`) в один. См. [docs/query/usage/lifecycle](./query/usage/lifecycle.md#композиция-хуков).
 - **`unstable_MachineSignal` (experimental)** — стейт-машина на собственном рантайме поверх сигналов, без внешних зависимостей. См. [docs/statechart](./statechart/README.md).
 
 ### Fixed
@@ -145,7 +246,7 @@
 [Гайд по миграции с 0.9.x](./migrations/0.10.0.md)
 
 ### Changed
-- 💥 **Breaking.** `trigger` на уровне агента и хука (`CommandAgent.trigger`, `useCommand`) теперь возвращает `TTriggerPromise<TData>` — промис, который **не реджектится**, а резолвится конвертом `TTriggerResult<TData>`: `{ status: "success", data }` либо `{ status: "error", error }`. Для «бросающей» семантики (как раньше) у промиса есть метод `.unwrap(): Promise<TData>`. Обработка ошибок через `try/catch` вокруг `await trigger(...)` больше не срабатывает — используйте проверку `result.status` либо `.unwrap()`. См. [CommandAgent API](./query/api/command-agent.md#результат-trigger).
+- **Breaking:** `trigger` на уровне агента и хука (`CommandAgent.trigger`, `useCommand`) теперь возвращает `TTriggerPromise<TData>` — промис, который **не реджектится**, а резолвится конвертом `TTriggerResult<TData>`: `{ status: "success", data }` либо `{ status: "error", error }`. Для «бросающей» семантики (как раньше) у промиса есть метод `.unwrap(): Promise<TData>`. Обработка ошибок через `try/catch` вокруг `await trigger(...)` больше не срабатывает — используйте проверку `result.status` либо `.unwrap()`. См. [CommandClutch API](./query/api/command-clutch.md#результат-trigger).
 - `Command.trigger` (уровень ядра) не изменился — по-прежнему возвращает сырой `Promise<TData>`, реджектящийся ошибкой.
 
 ### Added
@@ -170,7 +271,7 @@
 ## [0.9.1] - 2026-06-27
 
 ### Added
-- Метод `pack` у ресурсов и команд — связывает ресурс/команду с аргументами в инертный дескриптор. См. [Resource API](./query/api/resource.md#pack) и [Command API](./query/api/command.md#pack).
+- Метод `pack` у ресурсов и команд — связывает ресурс/команду с аргументами в инертный дескриптор. См. [Resource API](./query/api/resource.md#bind) и [Command API](./query/api/command.md#bind).
 
 
 ## [0.9.0] - 2026-06-26
@@ -365,13 +466,6 @@
 
 [Гайд по миграции с 0.4.x](./migrations/0.5.0.md)
 
-### Breaking Changes
-
-- Удалены хуки `useObservable` и `useSyncObservable`
-- Сигналы больше не наследуют `Observable` — используйте `.obs` для подписки
-- Удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
-- Нет необходимости вызывать `complete()` для Signal и Computed
-
 ### Added
 
 #### Signals
@@ -390,8 +484,15 @@
 
 ### Changed
 
+- **Breaking:** сигналы больше не наследуют `Observable` — используйте `.obs` для подписки
+- Нет необходимости вызывать `complete()` для Signal и Computed
 - **BatchStrategy**: настройка стратегии обновлений (`'sync'`, `'microtask'`, `'task'`)
 - **DefaultOptions**: расширенная конфигурация (`onQueryError`, `getScopeName`)
+
+### Removed
+
+- **Breaking:** удалены хуки `useObservable` и `useSyncObservable`
+- **Breaking:** удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
 
 
 [Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...develop

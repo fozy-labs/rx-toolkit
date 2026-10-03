@@ -1,6 +1,8 @@
 import React from "react";
-import { type Key } from '@react-types/shared';
 import { Tabs } from "@heroui/react";
+
+/** The key `Tabs` reports: `@react-types/shared` is not a dependency of the demos. */
+type Key = string | number;
 
 export function QueryTabs({ children }: React.PropsWithChildren) {
     const [activeTab, setActiveTab] = React.useState<string | undefined>(() => {

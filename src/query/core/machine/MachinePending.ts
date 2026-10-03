@@ -1,4 +1,4 @@
-import type { TErrorState, TPendingState, TSuccessState } from "@/query/types";
+import type { TQueryEntryErrorState, TQueryEntryPendingState, TQueryEntrySuccessState } from "@/query/types";
 
 import { MachineBase } from "./MachineBase";
 import { MachineError } from "./MachineError";
@@ -6,15 +6,15 @@ import { MachineSuccess } from "./MachineSuccess";
 
 export class MachinePending<TArgs, TData> extends MachineBase<TArgs, TData> {
     readonly status = "pending" as const;
-    declare readonly state: TPendingState<TArgs>;
+    declare readonly state: TQueryEntryPendingState<TArgs>;
 
-    constructor(state: TPendingState<TArgs>) {
+    constructor(state: TQueryEntryPendingState<TArgs>) {
         super(state);
     }
 
     /** pending → success */
     success(data: TData): MachineSuccess<TArgs, TData> {
-        const state: TSuccessState<TArgs, TData> = {
+        const state: TQueryEntrySuccessState<TArgs, TData> = {
             status: "success",
             args: this.state.args,
             data,
@@ -27,7 +27,7 @@ export class MachinePending<TArgs, TData> extends MachineBase<TArgs, TData> {
 
     /** pending → error */
     fail(error: unknown): MachineError<TArgs, TData> {
-        const state: TErrorState<TArgs> = {
+        const state: TQueryEntryErrorState<TArgs> = {
             status: "error",
             args: this.state.args,
             data: null,

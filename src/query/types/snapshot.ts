@@ -28,8 +28,14 @@ export interface ISyncMessage {
     data?: unknown;
 }
 
+/** What the api tells its sync driver on connect. */
+export interface TSyncDriverContext {
+    /** The api `keyPrefix`; `""` when the api has none. */
+    keyPrefix: string;
+}
+
 export interface ISyncDriver {
-    connect(onMessage: (msg: ISyncMessage) => void): void;
+    connect(onMessage: (msg: ISyncMessage) => void, context: TSyncDriverContext): void;
     disconnect(): void;
     send(message: ISyncMessage): void;
 }

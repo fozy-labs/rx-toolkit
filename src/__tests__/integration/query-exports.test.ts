@@ -47,33 +47,33 @@ describe("Query module exports (@/index)", () => {
         });
     });
 
-    describe("react re-exports", () => {
+    describe("react re-exports (@/react)", () => {
         it("exports ReactHooksPlugin", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.ReactHooksPlugin).toBeDefined();
             expect(typeof mod.ReactHooksPlugin).toBe("function");
         });
 
         it("exports reactHooksPlugin factory", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.reactHooksPlugin).toBeDefined();
             expect(typeof mod.reactHooksPlugin).toBe("function");
         });
 
         it("exports useResource", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useResource).toBeDefined();
             expect(typeof mod.useResource).toBe("function");
         });
 
         it("exports useSuspenseResource", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useSuspenseResource).toBeDefined();
             expect(typeof mod.useSuspenseResource).toBe("function");
         });
 
         it("exports useCommand", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useCommand).toBeDefined();
             expect(typeof mod.useCommand).toBe("function");
         });
@@ -86,52 +86,26 @@ describe("Query module exports (@/index)", () => {
             expect(typeof mod.ProjectionItemMissingError).toBe("function");
         });
 
-        it("exports Machine", async () => {
-            const mod = await import("@/index");
-            expect(mod.Machine).toBeDefined();
-            expect(typeof mod.Machine).toBe("object");
+        it.each([
+            "Machine",
+            "MachineBase",
+            "MachineWithData",
+            "MachinePending",
+            "MachineSuccess",
+            "MachineError",
+            "MachineInvalidating",
+            "MachineInvalidateError",
+        ])("does not export %s — the query state machine left the public API in 0.13.0", async (name) => {
+            const mod = (await import("@/index")) as Record<string, unknown>;
+            expect(name in mod).toBe(false);
         });
 
-        it("exports MachineBase", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineBase).toBeDefined();
-            expect(typeof mod.MachineBase).toBe("function");
-        });
-
-        it("exports MachineWithData", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineWithData).toBeDefined();
-            expect(typeof mod.MachineWithData).toBe("function");
-        });
-
-        it("exports MachinePending", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachinePending).toBeDefined();
-            expect(typeof mod.MachinePending).toBe("function");
-        });
-
-        it("exports MachineSuccess", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineSuccess).toBeDefined();
-            expect(typeof mod.MachineSuccess).toBe("function");
-        });
-
-        it("exports MachineError", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineError).toBeDefined();
-            expect(typeof mod.MachineError).toBe("function");
-        });
-
-        it("exports MachineRefreshing", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineRefreshing).toBeDefined();
-            expect(typeof mod.MachineRefreshing).toBe("function");
-        });
-
-        it("exports MachineRefreshError", async () => {
-            const mod = await import("@/index");
-            expect(mod.MachineRefreshError).toBeDefined();
-            expect(typeof mod.MachineRefreshError).toBe("function");
-        });
+        it.each(["MachineStateError", "MachineTransitionError", "QueryEntryStateError", "QueryEntryTransitionError"])(
+            "does not export %s — entry transition errors stay internal",
+            async (name) => {
+                const mod = (await import("@/index")) as Record<string, unknown>;
+                expect(name in mod).toBe(false);
+            },
+        );
     });
 });

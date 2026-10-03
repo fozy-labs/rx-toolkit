@@ -1,5 +1,6 @@
 import React from "react";
-import { createApi, reactHooksPlugin, SKIP, Signal, useSignal } from "@fozy-labs/rx-toolkit";
+import { createApi, SKIP, Signal } from "@fozy-labs/rx-toolkit";
+import { reactHooksPlugin, useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Input } from "@heroui/react";
 
 // ── Types ──────────────────────────────────────────────
@@ -166,7 +167,7 @@ export function Base() {
                                 color="danger"
                                 variant="flat"
                                 onPress={() => logoutTrigger()}
-                                isLoading={logoutState.isLoading}
+                                isLoading={logoutState.isPending}
                             >
                                 Выйти
                             </Button>
@@ -195,7 +196,7 @@ export function Base() {
                                     color="primary"
                                     size="sm"
                                     onPress={handleLogin}
-                                    isLoading={loginState.isLoading}
+                                    isLoading={loginState.isPending}
                                 >
                                     Войти
                                 </Button>
@@ -210,7 +211,7 @@ export function Base() {
                     )}
 
                     {/* Pokemon grid */}
-                    {isLoggedIn && listState.isSuccess && listState.data && (
+                    {isLoggedIn && listState.hasData && (
                         <div className="grid grid-cols-3 gap-3">
                             {listState.data.results.map((p: Pokemon) => {
                                 const id = p.url
@@ -246,7 +247,7 @@ export function Base() {
                                             }
                                             isDisabled={
                                                 isCaught ||
-                                                catchState.isLoading
+                                                catchState.isPending
                                             }
                                             className="mt-1"
                                         >

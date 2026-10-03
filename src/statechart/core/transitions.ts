@@ -8,6 +8,9 @@
  * (`computeEntrySet` with `addDescendantStatesToEnter` /
  * `addAncestorStatesToEnter`). Pure functions; the "no node is `null`"
  * convention of `configuration.ts` applies to the domain.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
 import type { EventObject, MachineContext } from "../types";
 

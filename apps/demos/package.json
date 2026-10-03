@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
+    "ts-check": "tsc --noEmit",
     "lint": "eslint src/",
-    "statechart:generate": "pnpm --dir ../converter --silent run build && node ../converter/dist/cli.js src/examples/statechart/square.mmd"
+    "statechart:generate": "statechart-convert src/examples/statechart/square.mmd"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
@@ -23,10 +25,12 @@
     "react-dom": "19.2.0",
     "react-live": "4.1.8",
     "react-router-dom": "7.9.6",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "zod": "4.1.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@fozy-labs/statechart-converter": "0.4.0",
     "@tailwindcss/vite": "4.1.17",
     "@types/react": "19.2.4",
     "@types/react-dom": "19.2.3",

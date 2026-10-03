@@ -1,13 +1,14 @@
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { ICommand, TCommandOptions } from "./command";
+import type { ICommand, TCommandEntryIdleState, TCommandEntryState, TCommandOptions } from "./command";
+import type { TRetentionTime } from "./common";
 import type {
-    CombinePluginCommandAugments,
-    CombinePluginProjectionResourceAugments,
-    CombinePluginResourceAugments,
-    PluginHKT,
+    IPluginHKT,
+    TCombinePluginCommandAugments,
+    TCombinePluginProjectionResourceAugments,
+    TCombinePluginResourceAugments,
 } from "./plugin-hkt";
 import type { TProjectionResourceOptions } from "./projection-resource";
-import type { IResource, TResourceOptions } from "./resource";
+import type { IResource, TResourceEntryIdleState, TResourceEntryState, TResourceOptions } from "./resource";
 import type { ISyncDriver, TApiSnapshot } from "./snapshot";
 
 // ==================== Error Mapping Types ====================
@@ -31,7 +32,7 @@ export interface TErrorContext {
 /**
  * Normalizes every raw error surfaced by a query/command into the api's error
  * type. Runs exactly once per failure, at the boundary where the rejection is
- * first observed, so everything downstream — agent state, imperative-fetch
+ * first observed, so everything downstream — clutch state, imperative-fetch
  * rejections, the Suspense throw, the command result envelope — sees the mapped
  * value. The mapper also receives internal lifecycle errors that feed the typed
  * mutation envelope: a `CacheEntryRemovedError` when a command entry is evicted
@@ -68,14 +69,36 @@ export interface IPlugin {
         resource: IResource<TArgs, TItem[], TError>,
         options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): Record<string, unknown>;
+    /**
+     * Members added to the api itself (typed by the `apiType` HKT slot).
+     * Called once in `createApi()`, after every plugin's `install`, in plugin
+     * order; `api` already carries the members of earlier plugins. A name the
+     * api already has — its own member or one an earlier plugin added —
+     * throws: plugins never replace api members.
+     */
+    augmentApi?<TError = unknown>(api: IApi<readonly IPlugin[], TError>): Record<string, unknown>;
 
     /**
      * Phantom type member. Plugins that provide typed augmentations should
-     * `declare readonly _hkt: MyPluginHKT` where `MyPluginHKT extends PluginHKT`.
+     * `declare readonly _hkt: MyPluginHKT` where `MyPluginHKT extends IPluginHKT`.
      * Never set at runtime — purely a compile-time protocol.
      */
-    readonly _hkt?: PluginHKT;
+    readonly _hkt?: IPluginHKT;
 }
+
+// ==================== Lifecycle Hook Options ====================
+
+/**
+ * Value accepted by the `onQueryStarted` / `onCacheEntryAdded` options: a
+ * single hook, or an array of hooks.
+ *
+ * Every hook in the array starts concurrently — the array order does not
+ * sequence them — and each one's failure is suppressed independently, so a
+ * throwing hook never stops the others. Sequencing is expressed inside a single
+ * hook with `await`. `undefined` and `false` entries are skipped, so a
+ * conditional hook can be written inline: `[log, isDev && metrics]`.
+ */
+export type TLifecycleHookOption<THook> = THook | Array<THook | undefined | false>;
 
 // ==================== Options Types ====================
 
@@ -83,10 +106,30 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
     keyPrefix?: string | null;
     plugins?: TPlugins;
     serializeArgs?: (args: unknown) => string;
-    resourceRetentionTime?: number | false;
-    commandRetentionTime?: number | false;
+    /**
+     * Default retention of every resource entry. A resource's own
+     * {@link TResourceOptions.retentionTime} replaces this entirely — a
+     * function here is then never called. See {@link TRetentionTime}.
+     */
+    resourceRetentionTime?: TRetentionTime<
+        unknown,
+        Exclude<TResourceEntryState<unknown, unknown, unknown>, TResourceEntryIdleState>
+    >;
+    /**
+     * Default retention of every command entry. A command's own
+     * {@link TCommandOptions.retentionTime} replaces this entirely — a
+     * function here is then never called. See {@link TRetentionTime}.
+     */
+    commandRetentionTime?: TRetentionTime<
+        unknown,
+        Exclude<TCommandEntryState<unknown, unknown, unknown>, TCommandEntryIdleState>
+    >;
     initialSnapshot?: TApiSnapshot | null;
     snapshotValidTime?: number | false;
+    /**
+     * Default of {@link TResourceOptions.sync}. Commands never sync, so
+     * `"all"` is the same as `"resources"`.
+     */
     defaultSync?: "none" | "resources" | "all";
     syncDriver?: ISyncDriver;
     /**
@@ -95,8 +138,10 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
      * is typed as its return value instead of `unknown`. See {@link TMapError}.
      */
     mapError?: TMapError<TError>;
-    onCacheEntryAdded?: (args: unknown, ctx: TCacheEntryAddedContext<unknown, unknown>) => void;
-    onQueryStarted?: (args: unknown, ctx: TQueryStartedContext<unknown, unknown>) => void | Promise<void>;
+    onCacheEntryAdded?: TLifecycleHookOption<(args: unknown, ctx: TCacheEntryAddedContext<unknown, unknown>) => void>;
+    onQueryStarted?: TLifecycleHookOption<
+        (args: unknown, ctx: TQueryStartedContext<unknown, unknown>) => void | Promise<void>
+    >;
 }
 
 // ==================== API Interface ====================
@@ -104,15 +149,15 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
 export interface IApi<TPlugins extends readonly IPlugin[] = readonly IPlugin[], TError = unknown> {
     createResource<TArgs = void, TData = unknown>(
         options: TResourceOptions<TArgs, TData>,
-    ): IResource<TArgs, TData, TError> & CombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
+    ): IResource<TArgs, TData, TError> & TCombinePluginResourceAugments<TPlugins, TArgs, TData, TError>;
     unstable_createProjectionResource<TResArgs, TResData, TId, TItem, TArgs = TId[]>(
         options: TProjectionResourceOptions<TArgs, TId, TItem, TResArgs, TResData>,
     ): IResource<TArgs, TItem[], TError> &
-        CombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError> &
-        CombinePluginProjectionResourceAugments<TPlugins, TArgs, TItem[], TError>;
+        TCombinePluginResourceAugments<TPlugins, TArgs, TItem[], TError> &
+        TCombinePluginProjectionResourceAugments<TPlugins, TArgs, TItem[], TError>;
     createCommand<TArgs = void, TData = unknown>(
         options: TCommandOptions<TArgs, TData>,
-    ): ICommand<TArgs, TData, TError> & CombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;
+    ): ICommand<TArgs, TData, TError> & TCombinePluginCommandAugments<TPlugins, TArgs, TData, TError>;
     getSnapshot(): TApiSnapshot;
     resetAll(): void;
 }

@@ -1,13 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
 import { createApi } from "@/query/api/createApi";
 import { SKIP } from "@/query/constants";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
-import type { TResourceAgentState } from "@/query/types";
+import type { TResourceClutchState } from "@/query/types";
 
 const h = React.createElement;
 
@@ -25,15 +25,15 @@ function createSetup() {
 }
 
 interface Captured {
-    state: TResourceAgentState<TArgs, TUser>;
+    state: TResourceClutchState<TArgs, TUser>;
     /** Every state seen by the probe, one per render. */
-    history: TResourceAgentState<TArgs, TUser>[];
+    history: TResourceClutchState<TArgs, TUser>[];
     rerender: (args: TArgs | typeof SKIP) => void;
 }
 
 /** Render a probe component around useResource and expose the live state. */
 function setup(
-    useResource: (args: TArgs | typeof SKIP) => TResourceAgentState<TArgs, TUser>,
+    useResource: (args: TArgs | typeof SKIP) => TResourceClutchState<TArgs, TUser>,
     initialArgs: TArgs | typeof SKIP,
 ): Captured {
     const captured = { history: [] } as unknown as Captured;
@@ -63,16 +63,30 @@ describe("useResource", () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
+        // Row 2 — the initial load with nothing to show.
         expect(c.state.status).toBe("pending");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.isPending).toBe(true);
+        expect(c.state.isInitialLoading).toBe(true);
+        expect(c.state.isSwitching).toBe(false);
+        expect(c.state.isInvalidating).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
         expect(c.state.args).toEqual({ id: 1 });
 
         await settle();
 
+        // Row 5 — success.
         expect(c.state.status).toBe("success");
+        expect(c.state.dataSource).toBe("current");
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.hasData).toBe(true);
+        expect(c.state.hasError).toBe(false);
         expect(c.state.data).toEqual({ id: 1, name: "user-1" });
+        expect(c.state.dataArgs).toEqual({ id: 1 });
     });
 
-    it("keeps the previous data as refreshing while the new args load (SWR), with no pending flash", async () => {
+    it("keeps the previous data on screen while the new args load (SWR), with no empty flash", async () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
@@ -82,15 +96,22 @@ describe("useResource", () => {
         c.history.length = 0;
         c.rerender({ id: 2 });
 
-        // The very first render on the new args already carries the stale data.
-        expect(c.history[0].status).toBe("refreshing");
+        // Row 4 — the very first render on the new args already carries the stale data.
+        expect(c.history[0].status).toBe("pending");
+        expect(c.history[0].dataSource).toBe("previous");
+        expect(c.history[0].isSwitching).toBe(true);
+        expect(c.history[0].isInitialLoading).toBe(false);
+        expect(c.history[0].isInvalidating).toBe(false);
         expect(c.history[0].data).toEqual({ id: 1, name: "user-1" });
         expect(c.history[0].args).toEqual({ id: 2 });
-        expect(c.history.map((s) => s.status)).not.toContain("pending");
+        expect(c.history[0].dataArgs).toEqual({ id: 1 });
+        // Nothing to show never happens in between.
+        expect(c.history.map((s) => s.hasData)).not.toContain(false);
 
         await settle();
 
         expect(c.state.status).toBe("success");
+        expect(c.state.dataSource).toBe("current");
         expect(c.state.data).toEqual({ id: 2, name: "user-2" });
     });
 
@@ -107,6 +128,7 @@ describe("useResource", () => {
         c.rerender({ id: 1 });
 
         expect(c.history[0].status).toBe("success");
+        expect(c.history[0].dataSource).toBe("current");
         expect(c.history[0].data).toEqual({ id: 1, name: "user-1" });
     });
 
@@ -114,7 +136,13 @@ describe("useResource", () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, SKIP);
+        // Row 1 — nothing observed.
         expect(c.state.status).toBe("idle");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.isPending).toBe(false);
+        expect(c.state.hasData).toBe(false);
+        expect(c.state.hasError).toBe(false);
+        expect(c.state.args).toBeNull();
 
         c.rerender({ id: 1 });
         expect(c.state.status).toBe("pending");
@@ -123,10 +151,178 @@ describe("useResource", () => {
 
         c.rerender(SKIP);
         expect(c.state.status).toBe("idle");
+        expect(c.state.dataSource).toBe("none");
         expect(c.state.data).toBeNull();
+        expect(c.state.hasData).toBe(false);
     });
 
-    it("re-rendering with an equal args literal keeps the same agent state", async () => {
+    it("SKIP drops the SWR data: the args after it load with nothing to show", async () => {
+        const { resource } = createSetup();
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+        expect(c.state.status).toBe("success");
+
+        c.rerender(SKIP);
+        expect(c.state.status).toBe("idle");
+
+        // Row 2, as on a single clutch doing switch(1), switch(SKIP), switch(2).
+        c.rerender({ id: 2 });
+        expect(c.state.status).toBe("pending");
+        expect(c.state.dataSource).toBe("none");
+        expect(c.state.data).toBeNull();
+        expect(c.state.isSwitching).toBe(false);
+        expect(c.state.isInitialLoading).toBe(true);
+    });
+
+    it("mounting on an entry marked for revalidation shows its data as an invalidation from the first render", async () => {
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++call}` }),
+        });
+
+        // Warm the cache, then invalidate with nobody holding the entry: the
+        // invalidation is only recorded on the entry.
+        await resource.ensure({ id: 1 });
+        resource.invalidate({ id: 1 });
+        expect(call).toBe(1);
+        expect(resource.getEntry({ id: 1 })!.isInvalidated).toBe(true);
+
+        const c = setup(resource.useResource, { id: 1 });
+
+        // Every render has the marked data on screen — no empty flash.
+        expect(c.history.map((s) => s.hasData)).not.toContain(false);
+        // The hook's subscription is the first hold and starts the re-query: the
+        // first render already shows it as an invalidation behind the data (row 6).
+        expect(c.history[0]).toMatchObject({
+            status: "pending",
+            dataSource: "current",
+            isInvalidating: true,
+            data: { id: 1, name: "user-1-v1" },
+        });
+
+        await settle();
+        expect(call).toBe(2);
+        // The stale data never passes for a settled success.
+        expect(c.history.some((s) => s.status === "success" && s.data?.name === "user-1-v1")).toBe(false);
+        expect(c.state.status).toBe("success");
+        expect(c.state.isInvalidating).toBe(false);
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
+    it("mounting on a failed entry marked for revalidation never shows the cleared error", async () => {
+        let fail = true;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => {
+                if (fail) throw new Error("old failure");
+                return { id, name: `user-${id}` };
+            },
+        });
+
+        await resource.ensure({ id: 1 }).catch(() => {});
+        fail = false;
+        resource.invalidate({ id: 1 });
+
+        const c = setup(resource.useResource, { id: 1 });
+        // Row 2: the re-query the mount starts, with the failure cleared.
+        expect(c.history[0]).toMatchObject({ status: "pending", dataSource: "none", error: null });
+
+        await settle();
+        expect(c.history.map((s) => s.status)).not.toContain("error");
+        expect(c.state.data).toEqual({ id: 1, name: "user-1" });
+    });
+
+    it("unmounting the last consumer and invalidating leaves the entry marked until the next mount", async () => {
+        let call = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++call}` }),
+        });
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v1" });
+
+        // Switch away: the entry for id 1 loses its only consumer.
+        c.rerender({ id: 2 });
+        await settle();
+        const entry = resource.getEntry({ id: 1 })!;
+        expect(entry.isMelting).toBe(true);
+
+        resource.invalidate({ id: 1 });
+        expect(call).toBe(2);
+        expect(entry.isInvalidated).toBe(true);
+
+        // Coming back re-queries: the stale data shows first, then the fresh one.
+        c.history.length = 0;
+        c.rerender({ id: 1 });
+        expect(c.history[0].data).toEqual({ id: 1, name: "user-1-v1" });
+        await settle();
+        expect(call).toBe(3);
+        expect(c.state.data).toEqual({ id: 1, name: "user-1-v3" });
+    });
+
+    it("under a hidden <Activity>, an expired entry is not re-queried until shown", async () => {
+        let calls = 0;
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<TArgs, TUser>({
+            retentionTime: 20,
+            queryFn: async ({ id }) => ({ id, name: `user-${id}-v${++calls}` }),
+        });
+
+        let state!: TResourceClutchState<TArgs, TUser>;
+        function Probe(_props: { tick: number }) {
+            state = resource.useResource({ id: 1 });
+            return null;
+        }
+        const app = (mode: "visible" | "hidden", tick: number) =>
+            h(React.Activity, { mode, children: h(Probe, { tick }) });
+
+        const view = render(app("visible", 0));
+        await settle();
+        expect(calls).toBe(1);
+
+        view.rerender(app("hidden", 0));
+        await act(() => sleep(50));
+        expect(resource.getEntry({ id: 1 })).toBeNull();
+
+        // A render of the hidden tree reads the clutch without observing it.
+        view.rerender(app("hidden", 1));
+        await act(() => sleep(50));
+        expect(calls).toBe(1);
+        expect(resource.getEntry({ id: 1 })).toBeNull();
+
+        view.rerender(app("visible", 1));
+        await settle();
+        expect(calls).toBe(2);
+        expect(state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
+    it("retentionTime: 0 — the mounted entry survives the start→subscribe gap and is not re-fetched", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const queryFn = vi.fn(async ({ id }: TArgs) => ({ id, name: `user-${id}` }));
+        const resource = api.createResource<TArgs, TUser>({ retentionTime: 0, queryFn });
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+
+        // The layout-effect start() creates the entry under a bridging hold;
+        // the passive-effect subscription takes over before it is released, so
+        // the entry is never evicted mid-mount and the query does not re-run.
+        expect(c.state.status).toBe("success");
+        expect(c.state.data).toEqual({ id: 1, name: "user-1" });
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        // Past the bridge's macrotask the mounted subscription is what holds it.
+        await act(() => sleep(20));
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry({ id: 1 })).not.toBeNull();
+        expect(c.state.status).toBe("success");
+    });
+
+    it("re-rendering with an equal args literal keeps the same clutch state", async () => {
         const { resource } = createSetup();
 
         const c = setup(resource.useResource, { id: 1 });
@@ -167,7 +363,7 @@ describe("useResource", () => {
 
         expect(screen.getByTestId("args").textContent).toBe("2");
         // The transition render plus, at most, a couple of store-driven follow-ups.
-        // A render-phase mutation of a shared agent makes this ping-pong between
+        // A render-phase mutation of a shared clutch makes this ping-pong between
         // the transition lane (id=2) and the committed tree (id=1) instead.
         expect(renders).toBeLessThanOrEqual(4);
 

@@ -1,5 +1,7 @@
+import { randomUUID } from "@/common/utils/randomUUID";
 import type { ISyncDriver, ISyncMessage, TResourceOptions } from "@/query/types";
 
+import { confirmedData } from "../machine";
 import type { Resource } from "../resource/Resource";
 
 export interface ISyncerConfig {
@@ -37,7 +39,7 @@ export class Syncer {
 
     /** Connect the sync driver and start listening for messages. */
     connect(): void {
-        this.syncDriver.connect(this.handleIncomingSyncMessage);
+        this.connectDriver();
     }
 
     /** Create a beforeQuery hook for resource config. */
@@ -60,10 +62,14 @@ export class Syncer {
         this.pendingRequests.clear();
 
         this.syncDriver.disconnect();
-        this.syncDriver.connect(this.handleIncomingSyncMessage);
+        this.connectDriver();
     }
 
     // ── Private ──
+
+    private connectDriver(): void {
+        this.syncDriver.connect(this.handleIncomingSyncMessage, { keyPrefix: this.keyPrefix ?? "" });
+    }
 
     private handleIncomingSyncMessage = (msg: ISyncMessage): void => {
         if (msg.type === "REQ") {
@@ -78,14 +84,16 @@ export class Syncer {
 
             if (!entry) return;
 
-            const machine = entry.peek();
-            if (machine.state.status === "success") {
-                const data = machine.state.patchState ? machine.state.patchState.originalData : machine.state.data;
+            // Only settled data the entry still vouches for: an entry marked for
+            // revalidation must not seed another tab's cold entry as fresh.
+            const state = entry.peek();
+            const confirmed = confirmedData(state);
+            if (state.status === "success" && !entry.isInvalidated && confirmed) {
                 this.syncDriver.send({
                     type: "RES",
                     reqId: msg.reqId,
                     keys: msg.keys,
-                    data,
+                    data: confirmed.data,
                 });
             }
         } else if (msg.type === "RES") {
@@ -93,13 +101,16 @@ export class Syncer {
             if (pending) {
                 clearTimeout(pending.timer);
                 this.pendingRequests.delete(msg.reqId);
-                pending.resolve(msg.data !== undefined ? { data: msg.data } : null);
+                // A RES is only ever sent for a cache hit — including a hit
+                // whose data is `undefined` — so the message is always an
+                // answer, never a miss.
+                pending.resolve({ data: msg.data });
             }
         }
     };
 
     private requestDataFromOtherTabs(resourceKey: string, entryKey: string): Promise<{ data: unknown } | null> {
-        const reqId = crypto.randomUUID();
+        const reqId = randomUUID();
         const keys: [string, string, string] = [this.keyPrefix ?? "", resourceKey, entryKey];
 
         return new Promise((resolve) => {

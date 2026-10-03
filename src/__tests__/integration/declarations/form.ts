@@ -1,0 +1,133 @@
+// A consumer of the forms module: every export is left to inference, so its declaration names
+// the form's types. `declarations.test.ts` compiles it against the built package, with `@/index`
+// replaced by the package name.
+import {
+    createApi,
+    unstable_FormSignal as FormSignal,
+    unstable_formsPlugin,
+    type AnyGroupDef,
+    type FormInitArgs,
+    type StandardSchemaV1,
+} from "@/index";
+import { unstable_formsReactPlugin } from "@/react";
+
+function schema<T>(check: (value: unknown) => value is T): StandardSchemaV1<T, T> {
+    return {
+        "~standard": {
+            version: 1,
+            vendor: "consumer",
+            validate: (value) => (check(value) ? { value } : { issues: [{ message: "Invalid" }] }),
+        },
+    } as StandardSchemaV1<T, T>;
+}
+
+const text = schema((value): value is string => typeof value === "string");
+const flag = schema((value): value is boolean => typeof value === "boolean");
+
+export const api = createApi({
+    plugins: [unstable_formsPlugin({ mapSubmitError: (error: { message: string }) => [{ message: error.message }] })],
+    mapError: (error) => ({ message: String(error) }),
+});
+
+export const getInfo = api.createResource<string, { taken: boolean }>({ queryFn: async () => ({ taken: false }) });
+
+export const save = api.createCommand<{ email: string; phones: { number: string }[] }, { id: string }>({
+    queryFn: async () => ({ id: "1" }),
+});
+
+export const email = FormSignal.field({
+    schema: text,
+    defaultValue: "",
+    queries: { info: { bind: ({ value$ }) => getInfo.bind(value$()), debounce: 300 } },
+    validate: ({ queries, error }) => {
+        const info = queries.info$();
+        if (info.dataSource === "current" && info.data.taken) error("Taken");
+    },
+});
+
+export const phones = FormSignal.list({
+    item: FormSignal.group({ fields: { number: FormSignal.field({ schema: text, defaultValue: "" }) } }),
+    validate: ({ items$, error }) => {
+        if (items$().length > 3) error("At most three");
+    },
+});
+
+export const Profile = api.defineForm({
+    name: "profile",
+    fields: { email, phones, company: FormSignal.field({ schema: flag, defaultValue: false }) },
+    context: FormSignal.context<{ id: string }>(),
+    computed: { title: ({ fields }) => fields.email.value$().toUpperCase() },
+    disabled: { phones: ({ fields }) => fields.company.value$() },
+    submit: ({ parsed$ }) => save.bind({ email: parsed$().value.email, phones: parsed$().value.phones ?? [] }),
+    mapSubmitError: (error) => [{ message: error.message }],
+});
+
+export const Draft = FormSignal.group({
+    fields: { note: FormSignal.field({ schema: text, defaultValue: "" }) },
+    submit: () => Promise.resolve(1),
+});
+
+export const form = FormSignal.state(Profile, { context: { id: "1" } });
+export const rows = form.fields.phones.items$();
+export const row = form.fields.phones.push();
+export const submission = form.submission$();
+export const info = form.fields.email.queries.info$();
+export const state = form.state$();
+export const title = form.computed.title$;
+export const fields = form.fields;
+export const computed = form.computed;
+export const queries = form.fields.email.queries;
+export const phoneFields = row.fields;
+export const defineForm = api.defineForm;
+export const { field, group, list, context, state: createForm } = FormSignal;
+
+export function createDraft() {
+    return FormSignal.state(Draft);
+}
+
+export const reactApi = createApi({ plugins: [unstable_formsReactPlugin()] });
+
+export const Note = reactApi.defineForm({
+    fields: { note: FormSignal.field({ schema: text, defaultValue: "" }) },
+    context: FormSignal.context<{ id: string }>(),
+});
+
+export function useNote() {
+    return Note.useForm({ context: { id: "1" } });
+}
+
+export function useNoteContext() {
+    return Note.useFormContext();
+}
+
+export const useNoteForm = Note.useForm;
+export const defineReactForm = reactApi.defineForm;
+
+// Generic wrappers: their declarations name the form's types over their own type parameters,
+// which TypeScript cannot resolve away.
+export function textField<S extends StandardSchemaV1<string, string>>(fieldSchema: S) {
+    return FormSignal.field({ schema: fieldSchema, defaultValue: "" });
+}
+
+export function createFormsApi<E extends { message: string }>(map: (error: unknown) => E) {
+    return createApi({
+        plugins: [unstable_formsPlugin({ mapSubmitError: (error: E) => [{ message: error.message }] })],
+        mapError: map,
+    });
+}
+
+export function createReactFormsApi<E extends { message: string }>(map: (error: unknown) => E) {
+    return createApi({
+        plugins: [unstable_formsReactPlugin({ mapSubmitError: (error: E) => [{ message: error.message }] })],
+        mapError: map,
+    });
+}
+
+export function textList<S extends StandardSchemaV1<string, string>>(itemSchema: S) {
+    return FormSignal.list({ item: textField(itemSchema) });
+}
+
+export function watch<D extends AnyGroupDef>(definition: D, ...init: FormInitArgs<D>) {
+    const instance = FormSignal.state(definition, ...init);
+    return { state: instance.state$(), submission: instance.submission$(), fields: instance.fields };
+}

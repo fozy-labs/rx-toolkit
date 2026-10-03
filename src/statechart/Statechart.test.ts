@@ -2,14 +2,16 @@ import { createActor, createMachine as createXStateMachine } from "xstate";
 
 import type { MachineDevtoolsActor, MachineDevtoolsLike, MachineDevtoolsSnapshot } from "@/common/devtools/types";
 import { SharedOptions } from "@/common/options/SharedOptions";
+import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import { SignalCycleError } from "@/signals/base/SignalCycleError";
 import { Signal } from "@/signals/signals/Signal";
 
 import { assign, cancel, log, raise } from "./actions";
 import { MachineConfigError } from "./core/MachineConfigError";
 import { unstable_createMachine as createMachine } from "./createMachine";
 import { unstable_Statechart as Statechart } from "./Statechart";
-import type { MachineClock, MachineContext, MachineSnapshot } from "./types";
+import type { AnyEventObject, MachineClock, MachineContext, MachineSnapshot } from "./types";
 
 // --- helpers ---------------------------------------------------------------
 
@@ -816,6 +818,160 @@ describe("Statechart lifecycle", () => {
         engine.dispose();
     });
 
+    it("stop() then start() inside a burst restarts the engine after the burst; start() then stop() leaves it stopped", () => {
+        const definition = createMachine(
+            {
+                id: "m",
+                initial: "a",
+                states: {
+                    a: { on: { RESTART: { actions: "restart" }, HALT: { actions: "halt" }, GO: "b" } },
+                    b: { on: { BACK: "a" } },
+                },
+            },
+            {
+                actions: {
+                    restart: () => {
+                        engine.stop();
+                        engine.start();
+                    },
+                    halt: () => {
+                        engine.stop();
+                        engine.start();
+                        engine.stop();
+                    },
+                },
+            },
+        );
+        const engine = new Statechart(definition);
+
+        const effect = Signal.effect(() => {
+            if (engine.state().value !== "b") return;
+            engine.stop();
+            engine.start();
+        });
+        engine.send({ type: "GO" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+        effect.unsubscribe();
+
+        engine.send({ type: "RESTART" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+
+        engine.send({ type: "HALT" });
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("stopped");
+        engine.dispose();
+    });
+
+    it("start() from the entry action of the completing state restarts the engine after the burst", () => {
+        let engine: Statechart<{ round: number }, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({ round: 0 }),
+            states: {
+                editing: { on: { SUBMIT: "submitted" } },
+                // "loop forever": when the wizard finishes, start a fresh run.
+                // The engine is still `running` while entry actions execute —
+                // `_halt()` flips it only after `step()` returns.
+                submitted: { type: "final", entry: () => engine!.start() },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "editing" });
+        engine.dispose();
+    });
+
+    it("start() in the actions of a transition into a final state restarts the engine after the burst", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({}),
+            states: {
+                editing: { on: { SUBMIT: { target: "submitted", actions: () => engine!.start() } } },
+                submitted: { type: "final" },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "editing" });
+        engine.dispose();
+    });
+
+    it("start() from an action of a step that keeps running does nothing — no restart, no extra snapshot", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "m",
+            initial: "a",
+            context: () => ({}),
+            states: {
+                a: { on: { PING: { actions: () => engine!.start() } } },
+            },
+        });
+        engine = new Statechart(definition);
+        const seen: string[] = [];
+        const subscription = engine.state.obs.subscribe((s) => seen.push(`${s.status}`));
+
+        engine.send({ type: "PING" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+        expect(seen).toEqual(["active"]);
+        subscription.unsubscribe();
+        engine.dispose();
+    });
+
+    it("start() from the entry action of a machine done at initialization throws SignalCycleError, not a hang", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "loop",
+            initial: "done-state",
+            context: () => ({}),
+            states: { "done-state": { type: "final", entry: () => engine!.start() } },
+        });
+        // Manual start: with autoStart the constructor would run the entry
+        // before `engine` is assigned.
+        engine = new Statechart(definition, { autoStart: false });
+
+        expect(() => engine.start()).toThrow(SignalCycleError);
+        engine.dispose();
+    });
+
+    it("a stop() after start() in the same completing step cancels the restart", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({}),
+            states: {
+                editing: { on: { SUBMIT: "submitted" } },
+                submitted: {
+                    type: "final",
+                    entry: () => {
+                        engine!.start();
+                        engine!.stop();
+                    },
+                },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("done");
+        engine.dispose();
+    });
+
     it("dispose() is idempotent, completes the observable and makes start() throw", () => {
         const definition = createMachine({ id: "m", initial: "a", states: { a: {} } });
         const engine = new Statechart(definition);
@@ -1132,32 +1288,17 @@ describe("Statechart Redux DevTools", () => {
         withBase.dispose();
     });
 
-    it("gives concurrent keyless instances of one machine id distinct default keys and reuses freed slots", () => {
+    it("gives concurrent keyless instances of one machine id the same key, like keyless signals", () => {
         const devtools = createFakeDevtools();
         const definition = createMachine({ id: "keyed", initial: "a", states: { a: {} } });
         const other = createMachine({ id: "other", initial: "a", states: { a: {} } });
         const first = new Statechart(definition);
         const second = new Statechart(definition);
-        const third = new Statechart(definition);
         const unrelated = new Statechart(other);
-        expect(devtools.keys).toEqual([
-            "Statechart/keyed",
-            "Statechart/keyed#2",
-            "Statechart/keyed#3",
-            "Statechart/other",
-        ]);
-
-        second.dispose();
-        const fourth = new Statechart(definition); // the lowest free slot
-        expect(devtools.keys.at(-1)).toBe("Statechart/keyed#2");
-
+        expect(devtools.keys).toEqual(["Statechart/keyed", "Statechart/keyed", "Statechart/other"]);
         first.dispose();
-        third.dispose();
-        fourth.dispose();
+        second.dispose();
         unrelated.dispose();
-        const again = new Statechart(definition); // everything released: the bare name again
-        expect(devtools.keys.at(-1)).toBe("Statechart/keyed");
-        again.dispose();
     });
 
     it("re-mount pattern: dispose then re-create yields the same default key (no #2)", () => {
@@ -1168,24 +1309,6 @@ describe("Statechart Redux DevTools", () => {
         const remounted = new Statechart(definition);
         expect(devtools.keys).toEqual(["Statechart/remount", "Statechart/remount"]);
         remounted.dispose();
-    });
-
-    it("releases the default key slot when the constructor throws", () => {
-        const devtools = createFakeDevtools();
-        const definition = createMachine({
-            id: "failing",
-            initial: "a",
-            states: {
-                a: {
-                    entry: assign(() => {
-                        throw new Error("x");
-                    }),
-                },
-            },
-        });
-        expect(() => new Statechart(definition)).toThrow("x");
-        expect(() => new Statechart(definition)).toThrow("x");
-        expect(devtools.keys).toEqual(["Statechart/failing", "Statechart/failing"]);
     });
 
     it("isDisabled turns Redux DevTools off for the instance", () => {
@@ -1363,6 +1486,38 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         engine.dispose();
     });
 
+    it("a throwing effect does not strand the events other effects sent in the same flush", () => {
+        const definition = createMachine({
+            id: "m",
+            initial: "a",
+            states: {
+                a: { on: { GO: "b" } },
+                b: { on: { NEXT: "c", OTHER: "x" } },
+                c: { on: { OTHER: "y" } },
+                x: {},
+                y: {},
+            },
+        });
+        const engine = new Statechart(definition);
+        const failing = Signal.effect(() => {
+            if (engine.state().value === "b") throw new Error("effect-error");
+        });
+        const sending = Signal.effect(() => {
+            if (engine.state().value === "b") engine.send({ type: "NEXT" });
+        });
+
+        // The effect's error surfaces from send(), after the queued NEXT was processed
+        expect(() => engine.send({ type: "GO" })).toThrow("effect-error");
+        expect(engine.state().value).toBe("c");
+
+        engine.send({ type: "OTHER" });
+        expect(engine.state().value).toBe("y");
+
+        failing.unsubscribe();
+        sending.unsubscribe();
+        engine.dispose();
+    });
+
     it("effects reacting to snapshots produced by start() (initial actions sending events) get their events processed too", () => {
         const definition = createMachine(
             {
@@ -1488,6 +1643,286 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         handled.dispose();
     });
 
+    it("dispose() is not undone by an effect that restarts the engine on the stopped snapshot", () => {
+        const entries: string[] = [];
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { entry: "enterA", after: { 1000: "b" } }, b: {} } },
+            {
+                actions: {
+                    enterA: () => {
+                        entries.push("enterA");
+                    },
+                },
+            },
+        );
+        const pending = new Set<number>();
+        let timerId = 0;
+        const clock: MachineClock = {
+            setTimeout: () => {
+                pending.add(++timerId);
+                return timerId;
+            },
+            clearTimeout: (handle) => {
+                pending.delete(handle as number);
+            },
+        };
+        const { inspector, calls } = createFakeInspector();
+        const engine = new Statechart(definition, { clock, inspector });
+        const effect = Signal.effect(() => {
+            if (engine.state().status === "stopped") engine.start();
+        });
+        calls.length = 0;
+
+        engine.dispose();
+        expect(engine.status).toBe("disposed");
+        expect(entries).toEqual(["enterA"]);
+        expect(pending.size).toBe(0);
+        expect(calls).toEqual(['snapshot:xstate.stop:stopped:"a"', "stop"]);
+        effect.unsubscribe();
+    });
+
+    it("an effect that sends an event on every snapshot throws SignalCycleError instead of looping forever", () => {
+        const definition = createMachine({
+            id: "m",
+            initial: "off",
+            states: { off: { on: { TOGGLE: "on" } }, on: { on: { TOGGLE: "off" } } },
+        });
+        const engine = new Statechart(definition);
+        let looping = false;
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            engine.state();
+            // The cap only keeps a broken runtime from hanging the test run.
+            if (looping && ++runs < 5000) engine.send({ type: "TOGGLE" });
+        });
+        looping = true;
+        expect(() => engine.send({ type: "TOGGLE" })).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+
+        // The loop is dropped, the machine keeps working.
+        looping = false;
+        const value = engine.state.peek().value;
+        engine.send({ type: "TOGGLE" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe(value === "on" ? "off" : "on");
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    const toggle = () =>
+        createMachine({
+            id: "m",
+            initial: "off",
+            states: { off: { on: { TOGGLE: "on" } }, on: { on: { TOGGLE: "off" } } },
+        });
+
+    it("a synchronous obs subscriber that sends on every snapshot throws SignalCycleError", () => {
+        const engine = new Statechart(toggle());
+        let looping = false;
+        let runs = 0;
+        const subscription = engine.state.obs.subscribe(() => {
+            // The cap only keeps a broken runtime from hanging the test run.
+            if (looping && ++runs < 5000) engine.send({ type: "TOGGLE" });
+        });
+        looping = true;
+        expect(() => engine.send({ type: "TOGGLE" })).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+
+        looping = false;
+        const value = engine.state.peek().value;
+        engine.send({ type: "TOGGLE" });
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe(value === "on" ? "off" : "on");
+        subscription.unsubscribe();
+        engine.dispose();
+    });
+
+    it("an action that sends to its own machine on every event throws SignalCycleError", () => {
+        let engine!: Statechart<MachineContext, AnyEventObject>;
+        let runs = 0;
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { on: { PING: { actions: "echo" } } } } },
+            {
+                actions: {
+                    echo: () => {
+                        if (++runs < 5000) engine.send({ type: "PING" });
+                    },
+                },
+            },
+        );
+        engine = new Statechart(definition);
+        expect(() => engine.send({ type: "PING" })).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+        expect(engine.status).toBe("running");
+        engine.dispose();
+    });
+
+    it("many events sent by one action are not a cycle", () => {
+        let engine!: Statechart<{ count: number }, AnyEventObject>;
+        const definition = createMachine(
+            {
+                id: "m",
+                context: { count: 0 },
+                initial: "a",
+                states: {
+                    a: {
+                        on: {
+                            FAN_OUT: { actions: "fanOut" },
+                            TICK: { actions: assign({ count: ({ context }) => context.count + 1 }) },
+                        },
+                    },
+                },
+            },
+            {
+                actions: {
+                    fanOut: () => {
+                        for (let i = 0; i < 3000; i++) engine.send({ type: "TICK" });
+                    },
+                },
+            },
+        );
+        engine = new Statechart(definition);
+        engine.send({ type: "FAN_OUT" });
+        expect(engine.state.peek().context.count).toBe(3000);
+        engine.dispose();
+    });
+
+    it("an effect that restarts the engine on every active snapshot throws SignalCycleError", () => {
+        const engine = new Statechart(toggle());
+        let looping = false;
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            if (engine.state().status !== "active" || !looping) return;
+            if (++runs < 5000) {
+                engine.stop();
+                engine.start();
+            }
+        });
+        looping = true;
+        expect(() => engine.send({ type: "TOGGLE" })).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+
+        // The loop is dropped: the engine can be driven again.
+        looping = false;
+        engine.start();
+        expect(engine.status).toBe("running");
+        engine.send({ type: "TOGGLE" });
+        expect(engine.state.peek().value).toBe("on");
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    it("an effect that restarts a machine done at initialization throws SignalCycleError", () => {
+        const definition = createMachine({ id: "m", initial: "end", states: { end: { type: "final" } } });
+        const engine = new Statechart(definition);
+        expect(engine.status).toBe("stopped");
+        let looping = false;
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            engine.state();
+            if (looping && engine.status !== "running" && ++runs < 5000) engine.start();
+        });
+        looping = true;
+        expect(() => engine.start()).toThrow(SignalCycleError);
+        expect(runs).toBeLessThan(5000);
+        expect(engine.status).toBe("stopped");
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    it("an effect re-sending the failing event on every active snapshot throws SignalCycleError (bounded by the core's cycle limit)", () => {
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { on: { GO: { actions: "explode" } } } } },
+            {
+                actions: {
+                    explode: () => {
+                        throw new Error("x");
+                    },
+                },
+            },
+        );
+        let looping = true;
+        let restarts = 0;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                if (looping && ++restarts < 5000) engine.start();
+            },
+        });
+        // The loop runs through effect scheduling — each `send()` opens a fresh burst —
+        // so the signal core's cycle limit reports it, out of `Signal.effect` like any
+        // first-run loop; a first run that throws releases the effect (no handle to unsubscribe).
+        expect(() =>
+            Signal.effect(() => {
+                if (engine.state().status === "active" && looping) engine.send({ type: "GO" });
+            }),
+        ).toThrow(SignalCycleError);
+        expect(restarts).toBeLessThan(5000);
+
+        // The loop is dropped: the engine starts and keeps working.
+        looping = false;
+        engine.start();
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe("a");
+        engine.dispose();
+    });
+
+    it("onError restarting a machine whose initialization always fails throws SignalCycleError", () => {
+        const definition = createMachine({
+            id: "m",
+            context: (): { n: number } => {
+                throw new Error("init");
+            },
+            initial: "a",
+            states: { a: {} },
+        });
+        let looping = false;
+        let restarts = 0;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                if (looping && ++restarts < 5000) engine.start();
+            },
+        });
+        looping = true;
+        expect(() => engine.start()).toThrow(SignalCycleError);
+        expect(restarts).toBeLessThan(5000);
+        expect(engine.status).toBe("stopped");
+        engine.dispose();
+    });
+
+    it("start() from onError restarts once onError has returned; a later stop() there cancels it", () => {
+        const definition = createMachine(
+            { id: "m", initial: "a", states: { a: { on: { GO: "b" } }, b: { on: { BOOM: { actions: "explode" } } } } },
+            {
+                actions: {
+                    explode: () => {
+                        throw new Error("x");
+                    },
+                },
+            },
+        );
+        const seen: string[] = [];
+        let cancel = false;
+        const engine = new Statechart(definition, {
+            onError: () => {
+                engine.start();
+                if (cancel) engine.stop();
+                seen.push(engine.status);
+            },
+        });
+        engine.send({ type: "GO" });
+        engine.send({ type: "BOOM" });
+        expect(seen).toEqual(["stopped"]);
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek().value).toBe("a");
+
+        cancel = true;
+        engine.send({ type: "GO" });
+        engine.send({ type: "BOOM" });
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("error");
+        engine.dispose();
+    });
+
     it("dispose() requested inside the burst wins over a restart requested by another effect", () => {
         const definition = createMachine({
             id: "m",
@@ -1505,6 +1940,137 @@ describe("Statechart and Batcher-scheduled subscribers (Signal.effect)", () => {
         expect(engine.status).toBe("disposed");
         restart.unsubscribe();
         dispose.unsubscribe();
+    });
+
+    // docs/statechart/README.md ("Жизненный цикл"): events sent from a `Signal.effect`
+    // reacting to a new snapshot are processed until the queue is empty, so effects
+    // see every snapshot — also when the first event came from another reaction.
+    describe("an effect auto-advancing the machine with send()", () => {
+        const wizard = () =>
+            createMachine({
+                id: "wizard",
+                initial: "a",
+                states: {
+                    a: { on: { NEXT: "b" } },
+                    b: { on: { NEXT: "c" } }, // "b" and "c" are transient: an effect advances them
+                    c: { on: { NEXT: "done" } },
+                    done: {},
+                },
+            });
+
+        const autoAdvance = (engine: Statechart<MachineContext, AnyEventObject>) => {
+            const seen: unknown[] = [];
+            const effect = Signal.effect(() => {
+                const value = engine.state().value;
+                seen.push(value);
+                if (value === "b" || value === "c") engine.send({ type: "NEXT" });
+            });
+            return { seen, effect };
+        };
+
+        it("the first event sent from an effect (e.g. one watching a query): the chain completes", () => {
+            const engine = new Statechart(wizard());
+            const { seen, effect } = autoAdvance(engine);
+            const loaded = Signal.state(false);
+            const onLoaded = Signal.effect(() => {
+                if (loaded()) engine.send({ type: "NEXT" });
+            });
+
+            loaded.set(true);
+
+            expect(engine.state.peek().value).toBe("done");
+            expect(seen).toEqual(["a", "b", "c", "done"]);
+            onLoaded.unsubscribe();
+            effect.unsubscribe();
+            engine.dispose();
+        });
+
+        it("the first event sent inside Batcher.run: the chain completes", () => {
+            const engine = new Statechart(wizard());
+            const { seen, effect } = autoAdvance(engine);
+
+            Batcher.run(() => engine.send({ type: "NEXT" }));
+
+            expect(engine.state.peek().value).toBe("done");
+            expect(seen).toEqual(["a", "b", "c", "done"]);
+            effect.unsubscribe();
+            engine.dispose();
+        });
+    });
+});
+
+describe("Statechart and dependency tracking", () => {
+    it("signals read by guards, assign and actions during send() do not become dependencies of the calling effect", () => {
+        const allowed = Signal.state(true);
+        const amount = Signal.state(1);
+        const note = Signal.state("");
+        const definition = createMachine(
+            {
+                id: "m",
+                initial: "a",
+                context: { total: 0 },
+                states: {
+                    a: {
+                        on: {
+                            ADD: {
+                                guard: () => allowed(),
+                                actions: [assign({ total: ({ context }) => context.total + amount() }), "record"],
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                actions: {
+                    record: () => {
+                        note();
+                    },
+                },
+            },
+        );
+        const engine = new Statechart(definition);
+        let runs = 0;
+        const effect = Signal.effect(() => {
+            runs++;
+            engine.send({ type: "ADD" });
+        });
+        expect(runs).toBe(1);
+
+        allowed.set(false);
+        amount.set(2);
+        note.set("x");
+        expect(runs).toBe(1);
+        expect(engine.state.peek().context.total).toBe(1);
+        effect.unsubscribe();
+        engine.dispose();
+    });
+
+    it("signals read by the context factory and initial entry actions do not become dependencies of the creating effect", () => {
+        const seed = Signal.state(0);
+        const other = Signal.state(0);
+        const definition = createMachine(
+            { id: "m", initial: "a", context: () => ({ n: seed() }), states: { a: { entry: "read" } } },
+            {
+                actions: {
+                    read: () => {
+                        other();
+                    },
+                },
+            },
+        );
+        let runs = 0;
+        let engine: Statechart<{ n: number }, AnyEventObject> | undefined;
+        const effect = Signal.effect(() => {
+            runs++;
+            engine?.dispose();
+            engine = new Statechart(definition);
+        });
+        seed.set(1);
+        other.set(1);
+        expect(runs).toBe(1);
+        expect(engine!.state.peek().context.n).toBe(0);
+        effect.unsubscribe();
+        engine!.dispose();
     });
 });
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createApi } from "../api/createApi";
 import { Resource } from "../core/resource/Resource";
 import { Syncer, type ISyncerConfig } from "../core/syncer/Syncer";
 import { stableStringify } from "../lib/stableStringify";
@@ -40,11 +41,9 @@ function createMockResource(
             entries.map((e) => ({
                 keyedArgs: { key: e.key },
                 peek: () => ({
-                    state: {
-                        status: e.status,
-                        data: e.data,
-                        patchState: e.patchState ?? null,
-                    },
+                    status: e.status,
+                    data: e.data,
+                    patchState: e.patchState ?? null,
                 }),
             })),
         getEntryByKey: (key: string) => {
@@ -52,11 +51,9 @@ function createMockResource(
             if (!found) return null;
             return {
                 peek: () => ({
-                    state: {
-                        status: found.status,
-                        data: found.data,
-                        patchState: found.patchState ?? null,
-                    },
+                    status: found.status,
+                    data: found.data,
+                    patchState: found.patchState ?? null,
                 }),
             };
         },
@@ -101,6 +98,20 @@ describe("Syncer", () => {
         const connectSpy = vi.spyOn(driver, "connect");
         syncer.connect();
         expect(connectSpy).toHaveBeenCalledOnce();
+    });
+
+    it("connect() passes the api keyPrefix to the driver", () => {
+        const { syncer, driver } = createSyncer({ keyPrefix: "my-api" });
+        const connectSpy = vi.spyOn(driver, "connect");
+        syncer.connect();
+        expect(connectSpy).toHaveBeenCalledWith(expect.any(Function), { keyPrefix: "my-api" });
+    });
+
+    it("connect() passes an empty keyPrefix when the api has none", () => {
+        const { syncer, driver } = createSyncer({ keyPrefix: null });
+        const connectSpy = vi.spyOn(driver, "connect");
+        syncer.connect();
+        expect(connectSpy).toHaveBeenCalledWith(expect.any(Function), { keyPrefix: "" });
     });
 
     // ── isResourceSyncEnabled ──────────────────────────────────────
@@ -298,6 +309,71 @@ describe("Syncer", () => {
             });
         });
 
+        it("does not answer REQ from an entry marked for revalidation", async () => {
+            const resource = createRealResource();
+            await resource.ensure({ id: 1 });
+
+            // Nobody holds the entry: invalidate() only marks it, the data stays.
+            resource.invalidate({ id: 1 });
+            const entry = resource.getEntry({ id: 1 })!;
+            expect(entry.isInvalidated).toBe(true);
+            expect(entry.peek().status).toBe("success");
+
+            const { syncer, driver } = createSyncer({
+                keyPrefix: "ns",
+                resourcesByKey: new Map([["res", resource as Resource<any, any>]]),
+            });
+            syncer.connect();
+
+            driver.simulateMessage({
+                type: "REQ",
+                reqId: "req-marked",
+                keys: ["ns", "res", resource.serialize({ id: 1 })],
+            });
+
+            // Marked data must not seed another tab's cold entry as fresh.
+            expect(driver.lastSent).toBeNull();
+        });
+
+        it("does not answer REQ from an entry left `invalidating` with nothing in flight", async () => {
+            let calls = 0;
+            const resource = new Resource<{ id: number }, { id: number; name: string }>({
+                queryFn: (args) =>
+                    ++calls === 1
+                        ? Promise.resolve({ id: args.id, name: "loaded" })
+                        : new Promise<{ id: number; name: string }>(() => {}),
+                key: "res",
+                retentionTime: false,
+                serializeArgs: stableStringify,
+            });
+            await resource.ensure({ id: 1 });
+            const entry = resource.getEntry({ id: 1 })!;
+
+            // Held, invalidated (a run goes out), released, invalidated again:
+            // the default `cancel` aborts the run and only marks the entry.
+            const release = entry.hold();
+            resource.invalidate({ id: 1 });
+            release();
+            resource.invalidate({ id: 1 });
+            expect(entry._isInFlight).toBe(false);
+            expect(entry.peek().status).toBe("invalidating");
+            expect(entry.isInvalidated).toBe(true);
+
+            const { syncer, driver } = createSyncer({
+                keyPrefix: "ns",
+                resourcesByKey: new Map([["res", resource as Resource<any, any>]]),
+            });
+            syncer.connect();
+
+            driver.simulateMessage({
+                type: "REQ",
+                reqId: "req-idle-invalidating",
+                keys: ["ns", "res", resource.serialize({ id: 1 })],
+            });
+
+            expect(driver.lastSent).toBeNull();
+        });
+
         it("round-trip: requesting tab receives data instead of hitting the timeout", async () => {
             // Two syncers wired through an in-memory bus = two tabs.
             const handlers: Array<(msg: ISyncMessage) => void> = [];
@@ -346,6 +422,54 @@ describe("Syncer", () => {
 
             await expect(promise).resolves.toEqual({ data: { id: 7, name: "loaded" } });
         });
+
+        it("a cached undefined syncs too: the cold tab does not call its queryFn", async () => {
+            // In-memory BroadcastChannel stand-in: structured-clones every
+            // message and delivers it to the other connected peers.
+            const peers = new Set<(m: ISyncMessage) => void>();
+            const createDriver = (): ISyncDriver => {
+                let mine: ((m: ISyncMessage) => void) | null = null;
+                return {
+                    connect(onMessage) {
+                        mine = (m) => onMessage(structuredClone(m));
+                        peers.add(mine);
+                    },
+                    disconnect() {
+                        if (mine) peers.delete(mine);
+                        mine = null;
+                    },
+                    send(message) {
+                        const self = mine;
+                        for (const peer of [...peers]) {
+                            if (peer !== self) queueMicrotask(() => peer(message));
+                        }
+                    },
+                };
+            };
+
+            const tabA = createApi({ keyPrefix: "app", syncDriver: createDriver(), defaultSync: "resources" });
+            const settingsA = tabA.createResource({
+                key: "optionalSettings",
+                queryFn: async (_id: string): Promise<{ theme: string } | undefined> => undefined,
+            });
+            // Tab A is alone: its own cold load waits out the sync timeout,
+            // then runs queryFn.
+            const seeded = settingsA.ensure("user-1");
+            await vi.advanceTimersByTimeAsync(1000);
+            await seeded;
+
+            const tabB = createApi({ keyPrefix: "app", syncDriver: createDriver(), defaultSync: "resources" });
+            const queryFnB = vi.fn(async (_id: string): Promise<{ theme: string } | undefined> => undefined);
+            const settingsB = tabB.createResource({ key: "optionalSettings", queryFn: queryFnB });
+
+            const result = settingsB.ensure("user-1");
+            await vi.advanceTimersByTimeAsync(1000);
+            await expect(result).resolves.toBeUndefined();
+
+            // Tab A answered with RES { data: undefined }, so tab B must not
+            // hit the network.
+            expect(queryFnB).not.toHaveBeenCalled();
+        });
     });
 
     // ── RES handling (incoming) ────────────────────────────────────
@@ -366,7 +490,9 @@ describe("Syncer", () => {
         expect(result).toEqual({ data: { id: 42 } });
     });
 
-    it("resolves with null when RES has no data", async () => {
+    it("resolves a RES without a data field as a hit carrying undefined", async () => {
+        // A RES is only ever sent for a cache hit — including a hit whose data
+        // is `undefined` — so the receiver always resolves { data }.
         const { syncer, driver } = createSyncer({ keyPrefix: "ns" });
         syncer.connect();
 
@@ -378,7 +504,7 @@ describe("Syncer", () => {
         });
 
         const result = await promise;
-        expect(result).toBeNull();
+        expect(result).toEqual({ data: undefined });
     });
 
     it("resolves with null on timeout (150ms)", async () => {

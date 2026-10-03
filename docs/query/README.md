@@ -6,7 +6,8 @@
 ## Быстрый старт
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({ plugins: [reactHooksPlugin()] });
 
@@ -19,8 +20,9 @@ const usersResource = api.createResource({
 
 // React-компонент
 function UsersList({ page }: { page: number }) {
-  const { data, error, isLoading } = usersResource.useResource({ page });
-  if (isLoading) return <Spinner />;
+  const { data, error, hasData, hasError } = usersResource.useResource({ page });
+  if (hasError) return <ErrorMessage error={error} />;
+  if (!hasData) return <Spinner />;
   return <ul>{data.map(u => <li key={u.id}>{u.name}</li>)}</ul>;
 }
 ```
@@ -34,8 +36,8 @@ function UsersList({ page }: { page: number }) {
 - **Stale-While-Revalidate** — показ устаревших данных во время фонового обновления
 - **Оптимистичные обновления** — Immer-патчи с автоматическим ребейсом при ответе сервера
 - **SSR / гидрация** — снимки кеша для серверного рендеринга
-- **Кросс-табовая синхронизация** — BroadcastChannel для актуальности данных между вкладками
-- **Система плагинов** — расширение ресурсов и команд через `createApi({ plugins: [...] })`
+- **Кросс-табовая синхронизация** — новая запись ресурса берёт данные из кэша другой вкладки через BroadcastChannel вместо сетевого запроса
+- **Система плагинов** — расширение ресурсов, команд и самого `api` через `createApi({ plugins: [...] })`
 
 
 ## Что читать дальше
@@ -46,7 +48,7 @@ function UsersList({ page }: { page: number }) {
 | **Коллекции по id** | [usage/projection-resource.md][projection-resource] — кэш на уровне элементов |
 | **Написание queryFn** | [usage/query-fn.md][query-fn] — fetcher, отличия ресурса и команды, request id |
 | **Живые данные (WebSocket, SSE)** | [usage/stream-query.md][stream-query] — `Observable` в queryFn ресурса |
-| **Понять внутреннее устройство** | [concepts/machine.md][machine] → [concepts/cache.md][cache] → [concepts/agent.md][agent] |
+| **Понять внутреннее устройство** | [concepts/query-entry-state.md][entry-state] → [concepts/cache.md][cache] → [concepts/clutch.md][clutch] |
 | **Оптимистичные обновления** | [concepts/patching.md][patching] → [usage/links.md][links] |
 | **SSR / гидрация** | [usage/snapshot.md][snapshot] |
 | **Кросс-табовая синхронизация** | [usage/broadcast.md][broadcast] |
@@ -60,9 +62,9 @@ function UsersList({ page }: { page: number }) {
 [stream-query]: usage/stream-query.md
 [command]: usage/command.md
 [query-fn]: usage/query-fn.md
-[machine]: concepts/machine.md
+[entry-state]: concepts/query-entry-state.md
 [cache]: concepts/cache.md
-[agent]: concepts/agent.md
+[clutch]: concepts/clutch.md
 [patching]: concepts/patching.md
 [links]: usage/links.md
 [snapshot]: usage/snapshot.md

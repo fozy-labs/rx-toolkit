@@ -1,3 +1,5 @@
+import { combineHooks } from "./mergeHooks";
+
 /**
  * Composes several lifecycle hooks (`onQueryStarted` / `onCacheEntryAdded`)
  * into a single hook. `undefined` entries are skipped; with no hooks left the
@@ -11,33 +13,21 @@
  * hook never prevents the others from running and the composed promise never
  * rejects.
  *
- * The Api uses this internally to combine api-level hooks with
- * resource/command-level ones; consumers can use it to stack several
- * behaviors (logging, optimistic updates, …) on a single option.
- *
  * Inference note: when used inline in resource/command options, TS types the
  * hooks' `ctx` from the outer generics only if `TData` is already known —
  * annotate the `queryFn` return type (or the hook's `ctx`, or pass explicit
- * generics to `createResource`/`createCommand`) to get full typing.
+ * generics to `createResource`/`createCommand`) to get full typing. The array
+ * form of the option does not have that limit: there is no inner generic call
+ * to resolve, so contextual typing reaches the hooks directly.
+ *
+ * @deprecated Pass an array to the option instead: `onQueryStarted: [log, track]`,
+ * `onCacheEntryAdded: [log, isDev && metrics]`. The array form has the same
+ * semantics and additionally skips `false` entries. Will be removed in 0.14.0.
  */
 export function composeHooks<TArgs, TCtx>(
     ...hooks: Array<((args: TArgs, ctx: TCtx) => void | Promise<void>) | undefined>
 ): ((args: TArgs, ctx: TCtx) => void | Promise<void>) | undefined {
     type TFn = (args: TArgs, ctx: TCtx) => void | Promise<void>;
-    const present = hooks.filter((hook): hook is TFn => hook != null);
 
-    if (present.length === 0) return undefined;
-    if (present.length === 1) return present[0];
-
-    return (args, ctx) => {
-        const run = (hook: TFn): Promise<unknown> => {
-            try {
-                return Promise.resolve(hook(args, ctx)).catch(() => undefined);
-            } catch {
-                return Promise.resolve();
-            }
-        };
-
-        return Promise.all(present.map(run)).then(() => undefined);
-    };
+    return combineHooks(hooks.filter((hook): hook is TFn => hook != null));
 }

@@ -1,23 +1,28 @@
+import { randomUUID } from "@/common/utils/randomUUID";
 import type {
-    Args,
     ICommand,
-    ICommandAgent,
+    ICommandClutch,
     ICommandConfig,
-    IPatchHandle,
-    Keyed,
+    IQueryCacheEntryOptions,
+    TArgsOrKeyed,
+    TBoundCommand,
     TCacheEntryAddedContext,
+    TKeyed,
     TMapError,
-    TPackedCommand,
     TQueryStartedContext,
 } from "@/query/types";
-import { Signal, unstable_KeyedSignal } from "@/signals";
+import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
+import { untracked } from "@/signals/base/untracked";
 
 import { KEYED_BRAND } from "../../constants";
+import { abortReason } from "../../lib/abortReason";
 import { isKeyed } from "../../lib/toKeyed";
 import { QueryCacheEntry } from "../cache/QueryCacheEntry";
+import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "../resource/instrumentQueryRun";
 
-import { CommandAgent } from "./CommandAgent";
-import { LinkManager } from "./LinkManager";
+import { CommandClutch } from "./CommandClutch";
+import { buildCommandEntryState } from "./entry-state";
+import { LinkManager, type TLinkedPatch } from "./LinkManager";
 
 // ==================== Command ====================
 
@@ -44,14 +49,14 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
     private readonly _onCacheEntryAdded;
     private readonly _onQueryStarted;
 
-    private _keyCounter = 0;
+    private _entryKeyCounter = 0;
 
     constructor(config: ICommandConfig<TArgs, TData>) {
         this._queryFn = config.queryFn;
         this._key = config.key;
         this._linkManager = new LinkManager(config.links);
         this._retentionTime = config.retentionTime;
-        this._generateRequestId = config.generateRequestId ?? (() => crypto.randomUUID());
+        this._generateRequestId = config.generateRequestId ?? randomUUID;
         this._mapError = config.mapError ?? ((error) => error);
         this._onCacheEntryAdded = config.onCacheEntryAdded;
         this._onQueryStarted = config.onQueryStarted;
@@ -65,68 +70,84 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * Applies optimistic patches, runs `queryFn`, then commits/rolls-back
      * patches and invalidates linked resources on success/failure.
      *
-     * @param argsOrKeyed - Plain arguments or a {@link Keyed} wrapper.
-     * @param key - Optional cache-entry key. Auto-generated when omitted.
+     * @param argsOrKeyed - Plain arguments or a {@link TKeyed} wrapper.
+     * @param entryKey - Optional cache-entry key. Auto-generated when omitted.
      * @returns A promise that resolves with the mutation result. Every
      *   rejection is normalized via `mapError` — including the
      *   `CacheEntryRemovedError` produced when the entry is evicted mid-flight
-     *   (re-execute with the same key, `reset()` / `resetAll()`).
+     *   (re-execute with the same entry key, `reset()` / `resetAll()`).
      */
-    execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
+    execute(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
         // execute() must never throw synchronously, and every rejection of the
-        // returned promise must be normalized to the api's TError — the agent /
+        // returned promise must be normalized to the api's TError — the clutch /
         // hook envelope (wrapTrigger) casts on that guarantee. queryFn failures
-        // are mapped at the machine boundary and removals inside currentResult;
+        // are mapped at the entry's error boundary and removals inside currentResult;
         // this guard converts anything thrown before the entry takes over
         // (argument normalization, cache bookkeeping) into a mapped rejection.
         try {
-            return this._execute(argsOrKeyed, key);
+            return this._execute(argsOrKeyed, entryKey);
         } catch (error) {
             return Promise.reject(
                 this._mapError(error, {
                     source: "command",
                     args: isKeyed(argsOrKeyed) ? argsOrKeyed.value : argsOrKeyed,
-                    // The throw may precede key generation — best effort from the input.
-                    entryKey: isKeyed(argsOrKeyed) ? argsOrKeyed.key : (key ?? ""),
+                    // The throw may precede entry-key generation — best effort from the input.
+                    entryKey: isKeyed(argsOrKeyed) ? argsOrKeyed.key : (entryKey ?? ""),
+                    // The command's own key (identifier / cache-key prefix), not the entry key.
                     key: this._key,
                 }),
             );
         }
     }
 
-    /**
-     * @deprecated Renamed to {@link execute} (identical contract). Will be
-     * removed in a future release.
-     */
-    trigger(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
-        return this.execute(argsOrKeyed, key);
-    }
-
-    private _execute(argsOrKeyed: Args<TArgs>, key?: string): Promise<TData> {
-        const keyed = this._toKeyed(argsOrKeyed, key);
+    private _execute(argsOrKeyed: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData> {
+        const keyed = this._toKeyed(argsOrKeyed, entryKey);
         const args = keyed.value;
-        const entryKey = keyed.key;
+        const resolvedEntryKey = keyed.key;
 
         const linkManager = this._linkManager;
 
         // Optimistic patches are applied inside wrappedQueryFn (first run only),
-        // so a throwing optimisticUpdate enters the machine like any other
+        // so a throwing optimisticUpdate enters the entry's state like any other
         // mutation failure — the entry exists and settles in `error`, state
-        // observers (agent / useCommand) see it, and mapError normalizes it at
-        // the single machine.fail() boundary.
-        let patchHandles: IPatchHandle[] = [];
+        // observers (clutch / useCommand) see it, and mapError normalizes it at
+        // the single fail() boundary. The handles belong to the first run: the
+        // run that settles first takes them, any later one settles none.
+        let patchHandles: TLinkedPatch[] = [];
         let optimisticApplied = false;
 
-        // Clean up existing entry for the same key, if any
-        const existing = this._cache.get(entryKey);
-        if (existing) {
-            existing.complete();
-        }
+        const settleLinks = (outcome: PromiseSettledResult<TData>): void => {
+            const handles = patchHandles;
+            patchHandles = [];
+            linkManager.settle(args, handles, outcome);
+        };
 
-        // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
+        // Clean up existing entry for the same entry key, if any — it is
+        // completed where the new entry is registered, inside one batch below.
+        const existing = this._cache.get(resolvedEntryKey);
+
+        // eslint-disable-next-line prefer-const -- read during the constructor below via wrappedQueryFn
         let entry!: QueryCacheEntry<TArgs, TData>;
-        let initialQueryPromise: Promise<TData> | null = null;
-        let firstAttemptSettled = false;
+        let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
+
+        // A mutation in flight keeps its entry: every run — the first one and
+        // each retry() — holds it until the entry records the run's outcome.
+        // Nobody may be subscribed (with the default retentionTime: 0 a fresh
+        // entry, or one whose last subscriber left mid-retry, would be collected
+        // out from under the mutation), so only an explicit removal —
+        // re-execute, reset() / resetAll() — drops a mutation in flight. It also
+        // means every `active → retention` transition happens on a settled
+        // entry: a `retentionTime` policy sees `success` or `error`, never
+        // `pending`. Returns the run's result (see `currentResult`).
+        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
+        // re-rejects with the run's error and nobody consumes it, so every
+        // failed run would surface a global unhandled rejection.
+        const holdUntilSettled = (): Promise<TData> => {
+            const release = entry.hold();
+            const result = entry.currentResult();
+            void result.then(release, release);
+            return result;
+        };
 
         // Request id is minted once per cache entry and reused across retries, so a
         // failed-then-retried mutation carries the same idempotency token to the
@@ -134,7 +155,14 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         let requestId: string | undefined;
         let requestIdPromise: Promise<string> | undefined;
 
-        const runQueryFn = (): Promise<TData> => {
+        // A run whose entry was removed while its id was being minted is
+        // dropped before it is sent (see the abort handling in wrappedQueryFn).
+        const sendOnceMinted = (id: string, signal: AbortSignal): Promise<TData> => {
+            if (signal.aborted) return Promise.reject(abortReason(signal));
+            return this._queryFn(args, id);
+        };
+
+        const runQueryFn = (signal: AbortSignal): Promise<TData> => {
             // Reuse an already-minted id across retries (same idempotency token).
             if (requestId !== undefined) {
                 return this._queryFn(args, requestId);
@@ -142,7 +170,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
 
             // An async mint is already in flight: chain onto it rather than re-minting.
             if (requestIdPromise) {
-                return requestIdPromise.then((id) => this._queryFn(args, id));
+                return requestIdPromise.then((id) => sendOnceMinted(id, signal));
             }
 
             const minted = this._generateRequestId(args);
@@ -165,10 +193,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             });
             requestIdPromise = pending;
 
-            return pending.then((id) => this._queryFn(args, id));
+            return pending.then((id) => sendOnceMinted(id, signal));
         };
 
-        const wrappedQueryFn = (_keyedArgs: Keyed<TArgs>, _signal: AbortSignal): Promise<TData> => {
+        const wrappedQueryFn = (_keyedArgs: TKeyed<TArgs>, signal: AbortSignal): Promise<TData> => {
             // A throwing optimisticUpdate, a non-async queryFn, or a sync
             // generateRequestId can all throw *before* a promise exists. Convert
             // that synchronous throw into a rejected promise here — this is the
@@ -190,79 +218,84 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
                     patchHandles = linkManager.applyOptimisticPatches(args);
                 }
 
-                promise = runQueryFn();
+                promise = runQueryFn(signal);
             } catch (error) {
                 promise = Promise.reject(error);
             }
 
             // Link orchestration runs per execution; the result itself is surfaced by
             // the entry's native promise (`entry.currentResult()`), settled where the
-            // machine transitions. This `.then` is registered before the one in
+            // entry transitions. This `.then` is registered before the one in
             // `_execute`, so `settle` runs before `execute()`'s promise resolves.
+            // A retry that succeeds applies update patches and invalidation only;
+            // one that fails has nothing to settle.
+            //
+            // A retry holds the entry like the first run does (see holdUntilSettled);
+            // the first run is held once the entry exists.
+            if (entry) void holdUntilSettled();
+
+            // The entry aborts the run only when it is removed — a re-execute with
+            // the same key, reset() / resetAll(). The mutation is then
+            // dropped like a failed one: its optimistic patches roll back at once,
+            // and a result that still arrives applies no link — the cache it would
+            // write into may already belong to someone else (a reset on logout).
+            signal.addEventListener("abort", () => settleLinks({ status: "rejected", reason: abortReason(signal) }), {
+                once: true,
+            });
             promise.then(
-                (result) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "fulfilled", value: result });
-                    } else {
-                        // Retry succeeded: optimistic patches were already rolled back on
-                        // the first failure, so only apply update patches + invalidation.
-                        linkManager.settle(args, [], { status: "fulfilled", value: result });
-                    }
+                (value) => {
+                    if (!signal.aborted) settleLinks({ status: "fulfilled", value });
                 },
-                (error) => {
-                    if (!firstAttemptSettled) {
-                        firstAttemptSettled = true;
-                        linkManager.settle(args, patchHandles, { status: "rejected", reason: error });
-                    }
-                    // Retry failed: nothing to settle — optimistic handles were already
-                    // aborted and the original execute promise already rejected. The
-                    // machine stays in `error`, ready for another retry.
+                (reason: unknown) => {
+                    if (!signal.aborted) settleLinks({ status: "rejected", reason });
                 },
             );
 
             // Lifecycle: onQueryStarted
-            if (entry) {
-                this._fireOnQueryStarted(entry, args, promise);
-            } else {
-                initialQueryPromise = promise;
+            if (this._onQueryStarted) {
+                const { lifecycle } = instrumentQueryRun(promise, signal);
+                if (entry) {
+                    this._fireOnQueryStarted(entry, args, lifecycle);
+                } else {
+                    initialRunLifecycle = lifecycle;
+                }
             }
 
             return promise;
         };
 
         // Create QueryCacheEntry — auto-executes wrappedQueryFn in constructor
-        entry = new QueryCacheEntry<TArgs, TData>({
-            queryFn: wrappedQueryFn,
-            retentionTime: this._retentionTime,
-            keyedArgs: keyed,
-            resourceKey: this._key,
-            mapError: this._mapError,
-            errorSource: "command",
-        });
+        entry = new QueryCacheEntry<TArgs, TData>(
+            {
+                queryFn: wrappedQueryFn,
+                retentionTime: this._entryRetentionTime(keyed),
+                keyedArgs: keyed,
+                resourceKey: this._key,
+                mapError: this._mapError,
+                errorSource: "command",
+            },
+            { onPromiseRunSettled: settleQueryRun },
+        );
 
         // Mutation result = the entry's first run. Captured now (before any retry
         // replaces the current execution) so it reflects only the first attempt.
-        const firstResult = entry.currentResult();
+        const firstResult = holdUntilSettled();
 
-        // machine$.peek() in _execute() leaves refcount at 0, which starts
-        // timer(retentionTime). Hold refcount ≥ 1 until the mutation settles so
-        // the GC timer cannot fire and complete() the entry mid-flight.
-        // `.then(f, f)` instead of `.finally()`: the promise `.finally()` derives
-        // re-rejects with firstResult's error and nobody consumes it, so every
-        // failed execute would surface a global unhandled rejection.
-        const keepalive = entry.obs.subscribe();
-        const releaseKeepalive = () => keepalive.unsubscribe();
-        void firstResult.then(releaseKeepalive, releaseKeepalive);
-
-        // Register in cache
-        this._cache.set(entryKey, entry);
+        // Re-triggering under an entry key replaces its entry: the old one
+        // completes (removing the key through its own completed$ subscription)
+        // and the new one is set — inside one batch the entry-less state in
+        // between is never published. An `idle` would otherwise flash between
+        // `success` and `pending` on every repeat save.
+        Batcher.run(() => {
+            existing?.complete();
+            this._cache.set(resolvedEntryKey, entry);
+        });
 
         // Cleanup: remove entry from cache when it completes
         entry.completed$.subscribe(() => {
-            // Guard: only remove if THIS entry is still the current one for the key
-            if (this._cache.get(entryKey) === entry) {
-                this._cache.delete(entryKey);
+            // Guard: only remove if THIS entry is still the current one for the entry key
+            if (this._cache.get(resolvedEntryKey) === entry) {
+                this._cache.delete(resolvedEntryKey);
             }
         });
 
@@ -270,21 +303,21 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         this._fireOnCacheEntryAdded(entry, keyed);
 
         // Fire onQueryStarted for the initial query (deferred from constructor)
-        if (initialQueryPromise) {
-            this._fireOnQueryStarted(entry, keyed.value, initialQueryPromise);
+        if (initialRunLifecycle) {
+            this._fireOnQueryStarted(entry, keyed.value, initialRunLifecycle);
         }
 
         return firstResult;
     }
 
     /**
-     * Synchronously retrieve a cache entry by key.
+     * Synchronously retrieve a cache entry by its entry key.
      *
-     * @param key - The cache-entry key.
+     * @param entryKey - The cache-entry key.
      * @returns The matching {@link QueryCacheEntry}, or `null` if none exists.
      */
-    getEntry(key: string): QueryCacheEntry<TArgs, TData> | null {
-        return this._cache.get(key) ?? null;
+    getEntry(entryKey: string): QueryCacheEntry<TArgs, TData> | null {
+        return this._cache.get(entryKey) ?? null;
     }
 
     /**
@@ -293,37 +326,47 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
      * Reads an internal signal so that callers in a reactive context
      * (e.g. `computed`, `effect`) re-evaluate when the cache changes.
      *
-     * @param key - The cache-entry key.
+     * @param entryKey - The cache-entry key.
      * @returns The matching {@link QueryCacheEntry}, or `null` if none exists.
      */
-    getEntry$(key: string): QueryCacheEntry<TArgs, TData> | null {
-        const signal$ = Signal.compute(() => this._cache.get$(key) ?? null, { isDisabled: true });
+    getEntry$(entryKey: string): QueryCacheEntry<TArgs, TData> | null {
+        const signal$ = Signal.compute(() => this._cache.get$(entryKey) ?? null, { isDisabled: true });
 
         return signal$();
     }
 
     /**
-     * Create a reactive agent that observes this command's state.
+     * Create a reactive clutch that observes this command's state.
      *
-     * @param key - Optional key to bind the agent to a specific cache entry.
-     * @returns A new {@link ICommandAgent} instance.
+     * @param entryKey - Optional cache-entry key to bind the clutch to a specific cache entry.
+     * @returns A new {@link ICommandClutch} instance.
      */
-    createAgent(key?: string): ICommandAgent<TArgs, TData, TError> {
-        return new CommandAgent<TArgs, TData, TError>(this, key);
+    createClutch(entryKey?: string): ICommandClutch<TArgs, TData, TError> {
+        return new CommandClutch<TArgs, TData, TError>(this, entryKey);
+    }
+
+    /** @deprecated Renamed to {@link createClutch}. Will be removed in 0.14.0. */
+    createAgent(entryKey?: string): ICommandClutch<TArgs, TData, TError> {
+        return this.createClutch(entryKey);
     }
 
     /**
-     * Bundle this command with arguments (and an optional cache key) into an inert
-     * {@link TPackedCommand} descriptor. Nothing is executed — the consumer hands
-     * the descriptor back to the library, which can later run it
-     * (e.g. `command.execute(args, key)`).
+     * Bundle this command with arguments (and an optional cache-entry key) into an
+     * inert {@link TBoundCommand} descriptor. Nothing is executed — the consumer
+     * hands the descriptor back to the library, which can later run it
+     * (e.g. `command.execute(args, entryKey)`).
      *
-     * @param args - Mutation arguments (or a {@link Keyed} wrapper).
-     * @param key - Optional cache-entry key, forwarded to {@link execute}.
-     * @returns A `{ kind: "command", command, args, key }` descriptor.
+     * @param args - Mutation arguments (or a {@link TKeyed} wrapper).
+     * @param entryKey - Optional cache-entry key, forwarded to {@link execute}.
+     * @returns A `{ kind: "command", command, args, entryKey }` descriptor.
      */
-    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError> {
-        return { kind: "command", command: this, args, key };
+    bind(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError> {
+        return { kind: "command", command: this, args, entryKey };
+    }
+
+    /** @deprecated Renamed to {@link bind}. Will be removed in 0.14.0. */
+    pack(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError> {
+        return this.bind(args, entryKey);
     }
 
     /** Clear all cache entries. Called by createApi.resetAll(). */
@@ -335,27 +378,40 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    // ==================== Private — Key Generation ====================
+    // ==================== Private — Entry Key Generation ====================
 
-    private _generateKey(): string {
-        return `${Date.now()}-${this._keyCounter++}`;
+    private _generateEntryKey(): string {
+        return `${Date.now()}-${this._entryKeyCounter++}`;
     }
 
-    private _toKeyed(args: Args<TArgs>, key?: string): Keyed<TArgs> {
+    private _toKeyed(args: TArgsOrKeyed<TArgs>, entryKey?: string): TKeyed<TArgs> {
         if (isKeyed(args)) {
             return args;
         }
 
         return {
             value: args,
-            key: key ?? this._generateKey(),
+            key: entryKey ?? this._generateEntryKey(),
             [KEYED_BRAND]: true,
-        } as Keyed<TArgs>;
+        } as TKeyed<TArgs>;
+    }
+
+    // ==================== Private — Retention ====================
+
+    /**
+     * The retention option bound to one entry: the function form is re-expressed
+     * as a function of the entry's own raw record, which the entry evaluates on
+     * every `active → retention` transition.
+     */
+    private _entryRetentionTime(keyed: TKeyed<TArgs>): IQueryCacheEntryOptions<TArgs, TData>["retentionTime"] {
+        const configured = this._retentionTime;
+        if (typeof configured !== "function") return configured;
+        return (state) => configured(keyed.value, buildCommandEntryState<TArgs, TData, unknown>(state));
     }
 
     // ==================== Private — Lifecycle Hooks ====================
 
-    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: Keyed<TArgs>): void {
+    private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {
         if (!this._onCacheEntryAdded) return;
 
         let resolveRemoved!: () => void;
@@ -377,7 +433,10 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         };
 
         try {
-            const result = this._onCacheEntryAdded(keyed.value, ctx);
+            // Untracked, like the queryFn (see QueryCacheEntry._runQuery): the
+            // hook runs inside whatever called execute().
+            const onCacheEntryAdded = this._onCacheEntryAdded;
+            const result = untracked(() => onCacheEntryAdded(keyed.value, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {
@@ -385,26 +444,24 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         }
     }
 
-    private _fireOnQueryStarted(entry: QueryCacheEntry<TArgs, TData>, args: TArgs, queryPromise: Promise<TData>): void {
+    private _fireOnQueryStarted(
+        entry: QueryCacheEntry<TArgs, TData>,
+        args: TArgs,
+        lifecycle: TQueryRunLifecycle<TData>,
+    ): void {
         if (!this._onQueryStarted) return;
 
-        const $queryFulfilled = queryPromise.then((data) => ({ data }));
-        // Derived promise: rejects with the query error even though the base
-        // promise is consumed by _execute. Suppress "nobody awaited" rejections
-        // (the hook may not consume it); awaiting hooks still see the rejection.
-        void $queryFulfilled.catch(() => {});
-
+        // Commands are promise-only: both stream milestones coincide with the
+        // run's outcome (see instrumentQueryRun).
         const ctx: TQueryStartedContext<TArgs, TData> = {
             entry,
-            $queryFulfilled,
-            // Commands are promise-only: both stream milestones coincide with
-            // the run's outcome. The base promise is safe to hand out — the
-            // entry always attaches a rejection handler to it.
-            $queryStream: { firstReceived: queryPromise, allReceived: queryPromise },
+            $queryFulfilled: lifecycle.$queryFulfilled,
+            $queryStream: lifecycle.$queryStream,
         };
 
         try {
-            const result = this._onQueryStarted(args, ctx);
+            const onQueryStarted = this._onQueryStarted;
+            const result = untracked(() => onQueryStarted(args, ctx));
             // Hook may be async — suppress unhandled rejection
             void Promise.resolve(result).catch(() => {});
         } catch {

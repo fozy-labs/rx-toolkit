@@ -2,6 +2,7 @@
 **/.idea
 **/dist
 **/*.tsbuildinfo
+**/*.timestamp-*.mjs
 **/*.obsidian
 
 coverage

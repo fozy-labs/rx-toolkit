@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin, Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { createApi, Signal } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin, useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Checkbox, Chip, Divider } from '@heroui/react';
 import React from 'react';
 import { fetches } from "../../utils/fetches";
@@ -46,7 +47,7 @@ export function Base() {
         setSelected((prev) => (isOn ? [...prev, id] : prev.filter((x) => x !== id)));
     };
 
-    const handleRefresh = () => usersProjection.refresh(ids);
+    const handleInvalidate = () => usersProjection.invalidate(ids);
 
     const handleReset = () => {
         api.resetAll();
@@ -74,11 +75,11 @@ export function Base() {
 
                 <Divider />
 
-                {state.isLoading && (
+                {state.isPending && (
                     <div className="text-sm text-default-500">⏳ Загрузка...</div>
                 )}
 
-                {state.data && (
+                {state.hasData && (
                     <div className="space-y-2">
                         {state.data.map((user) => (
                             <div key={user.id} className="p-3 bg-default-100 rounded-lg flex items-center gap-3">
@@ -98,7 +99,7 @@ export function Base() {
                     <Chip size="sm" variant="flat" color="primary">
                         Запросов в сеть: {log.length}
                     </Chip>
-                    <Button size="sm" variant="flat" onPress={handleRefresh}>
+                    <Button size="sm" variant="flat" onPress={handleInvalidate}>
                         🔄 Обновить выбранных
                     </Button>
                     <Button size="sm" variant="flat" color="warning" onPress={handleReset}>

@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Divider } from '@heroui/react';
 import { fetches } from "../../utils/fetches";
 
@@ -31,7 +32,7 @@ export function Base() {
                     </div>
                 )}
 
-                {state.isSuccess && state.data && (
+                {state.hasData && (
                     <>
                         <div className="space-y-2">
                             {state.data.items.map((item: { id: number; name: string; description: string }) => (

@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { MAX_TIMEOUT_DELAY } from "@/common/utils";
 
 export type StorageLike = {
     getItem(key: string): string | null;
@@ -35,6 +35,9 @@ export const LOCAL_STATE_GC_DEFAULTS = {
  * `LocalState.GC_OPTIONS` / `LocalSignal.GC_OPTIONS` (same object reference).
  * Values are read at scheduling/sweep time — mutations apply from the next
  * scheduled step, they do not rewind an already pending timer.
+ * `checkInterval: Infinity` turns GC off: no sweep runs, not even one whose
+ * deadline is already stored in the meta; a finite value set back resumes
+ * GC from the next session.
  */
 export const GC_OPTIONS: {
     syncLimit: number;
@@ -60,28 +63,58 @@ export const KEY_PREFIX = "__LSValue__";
 const META_KEY = KEY_PREFIX;
 const DATA_KEY_PREFIX = `${KEY_PREFIX}:`;
 
-/** setTimeout clamps delays above 2^31-1 to 0 — clamp and re-check instead. */
-const MAX_TIMEOUT = 2147483647;
-
-const metaSchema = z.object({
-    v: z.number(),
-    nextGcAt: z.number(),
-});
+type Meta = {
+    v: number;
+    nextGcAt: number;
+};
 
 /**
  * Per-slot envelope:
  * - `at` — last-touched timestamp, the LRU input for the sweep (refreshed by
  *   throttled touch-on-read and by the periodic live-slot re-touch);
  * - `ttl` — `null` = slot is GC-exempt, number = per-slot `maxUnreadTime`,
- *   absent = `LOCAL_STATE_GC_DEFAULTS.maxUnreadTime` applies at sweep time.
+ *   absent = `LOCAL_STATE_GC_DEFAULTS.maxUnreadTime` applies at sweep time;
+ * - `data` — the stored value; absent when it is `undefined` (JSON drops it);
+ * - `out` — `true` marks `data` as a ready value (a schema's output written
+ *   by `set()`), trusted on load instead of being validated as schema input.
  */
-const envelopeSchema = z.object({
-    at: z.number(),
-    ttl: z.number().nullable().optional(),
-    data: z.unknown(),
-});
+type Envelope = {
+    at: number;
+    ttl?: number | null;
+    data: unknown;
+    out?: true;
+};
 
-type Envelope = z.infer<typeof envelopeSchema>;
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Validates parsed JSON; returns a fresh object so unknown fields are dropped. */
+function toMeta(json: unknown): Meta | null {
+    if (!isPlainRecord(json) || !isFiniteNumber(json.v) || !isFiniteNumber(json.nextGcAt)) return null;
+
+    return { v: json.v, nextGcAt: json.nextGcAt };
+}
+
+/** Validates parsed JSON; returns a fresh object so unknown fields are dropped. */
+function toEnvelope(json: unknown): Envelope | null {
+    if (!isPlainRecord(json) || !isFiniteNumber(json.at)) return null;
+
+    const { ttl } = json;
+
+    if (ttl !== undefined && ttl !== null && !isFiniteNumber(ttl)) return null;
+
+    const envelope: Envelope = { at: json.at, data: json.data };
+
+    if (ttl !== undefined) envelope.ttl = ttl;
+    if (json.out === true) envelope.out = true;
+
+    return envelope;
+}
 
 export type SlotTtl = number | null | undefined;
 
@@ -101,6 +134,21 @@ export function slotStorageKey(key: string, userId?: string) {
 
 function jitter(maxAbs: number) {
     return (Math.random() * 2 - 1) * maxAbs;
+}
+
+/**
+ * The next sweep deadline for the meta. A non-finite result (`Infinity` in
+ * `GC_OPTIONS` to put GC off) would turn into `null` in JSON and void the
+ * meta, making the next init wipe the namespace — so it becomes "never".
+ */
+function nextGcDeadline() {
+    const deadline = Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset);
+    return Number.isFinite(deadline) ? deadline : Number.MAX_SAFE_INTEGER;
+}
+
+/** GC runs only on a finite cadence — `checkInterval: Infinity` turns it off. */
+function isGcEnabled() {
+    return Number.isFinite(GC_OPTIONS.checkInterval);
 }
 
 /** Keep a Node process (SSR with a custom driver) from being held by GC timers. */
@@ -135,8 +183,9 @@ export class LocalStateStorage {
 
     /**
      * Slots alive in this session (a `LocalState` instance was constructed
-     * for them): the GC re-touches them instead of expiring, so an actively
-     * used value never falls to its `maxUnreadTime` while the app runs.
+     * for them): the live-touch loop re-touches them and this tab's sweep
+     * skips them, so an actively used value never falls to its
+     * `maxUnreadTime` while the app runs.
      */
     private readonly _liveSlots = new Map<string, SlotTtl>();
 
@@ -160,10 +209,8 @@ export class LocalStateStorage {
     registerSlot(storageKey: string, ttl: SlotTtl) {
         this._liveSlots.set(storageKey, ttl);
 
-        // A slot with a TTL tighter than the GC cadence cannot rely on the
-        // ~checkInterval re-touch: another tab (which does not hold it live)
-        // would sweep it between rounds. Re-arm the dedicated loop if this
-        // slot needs a shorter cadence than the currently armed one.
+        // Re-arm the live-touch loop if this slot needs a shorter cadence
+        // than the currently armed one.
         const interval = this._minLiveTouchThreshold();
 
         if (this._liveTouchTimer !== null && interval < this._liveTouchInterval) {
@@ -179,7 +226,7 @@ export class LocalStateStorage {
         this._armLiveTouchTimer(interval);
     }
 
-    readSlot(storageKey: string, ttl: SlotTtl): { found: false } | { found: true; data: unknown } {
+    readSlot(storageKey: string, ttl: SlotTtl): { found: false } | { found: true; data: unknown; out?: true } {
         const raw = this._driver.getItem(storageKey);
 
         if (raw === null) return { found: false };
@@ -194,25 +241,32 @@ export class LocalStateStorage {
         }
 
         // Touch-on-read (throttled): keeps slots that are read but rarely
-        // written from expiring under GC. Best-effort — a read must never
-        // fail because the freshness write did (e.g. QuotaExceededError).
-        if (Date.now() - envelope.at >= this._touchThreshold(ttl) && this._refreshOwnership()) {
+        // written from expiring under GC, and stamps a changed gc policy.
+        // Best-effort — a read must never fail because the freshness write
+        // did (e.g. QuotaExceededError).
+        if (this._needsTouch(envelope, ttl, Date.now()) && this._refreshOwnership()) {
             try {
-                this.writeSlot(storageKey, envelope.data, ttl);
+                this.writeSlot(storageKey, envelope.data, ttl, envelope.out);
             } catch {
                 // The value itself was read successfully — serve it.
             }
         }
 
-        return { found: true, data: envelope.data };
+        return { found: true, data: envelope.data, out: envelope.out };
     }
 
-    writeSlot(storageKey: string, data: unknown, ttl: SlotTtl) {
+    writeSlot(storageKey: string, data: unknown, ttl: SlotTtl, out?: true) {
+        // A slot outlives the next init only under a valid meta — without one
+        // the namespace reads as an unknown format and is wiped. The meta can
+        // vanish mid-session (localStorage.clear() on logout): re-mark first.
+        if (this._ownsFormat && this._readMeta() === null) this._mark();
+
         const envelope: Envelope = { at: Date.now(), data };
 
         // `undefined` means "default policy" and is omitted, so changing the
         // default later applies to already stored slots as well.
         if (ttl !== undefined) envelope.ttl = ttl;
+        if (out) envelope.out = true;
 
         this._driver.setItem(storageKey, JSON.stringify(envelope));
     }
@@ -259,13 +313,18 @@ export class LocalStateStorage {
 
         try {
             this._wipe();
-            this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
-            this._scheduleGc();
+            this._mark();
         } catch {
             // Storage rejects writes (quota / private mode): construction must
             // not throw — keep serving reads and defaults without GC this
             // session; the wipe/meta write retries on a later session.
         }
+    }
+
+    /** Marks the namespace as this format and resumes GC scheduling. */
+    private _mark() {
+        this._writeMeta(nextGcDeadline());
+        this._scheduleGc();
     }
 
     private _readMeta() {
@@ -281,8 +340,7 @@ export class LocalStateStorage {
             return null;
         }
 
-        const parsed = metaSchema.safeParse(json);
-        return parsed.success ? parsed.data : null;
+        return toMeta(json);
     }
 
     private _writeMeta(nextGcAt: number) {
@@ -312,11 +370,11 @@ export class LocalStateStorage {
      * and sweeps; the rest see the moved deadline and just re-schedule.
      */
     private _scheduleGc() {
-        if (this._gcTimer !== null || !this._canSweep()) return;
+        if (this._gcTimer !== null || !isGcEnabled() || !this._canSweep()) return;
 
         const meta = this._readMeta();
 
-        // Meta gone/broken (cleared externally) — GC pauses until next session re-inits.
+        // Meta gone/broken (cleared externally) — GC pauses until a slot write re-marks it.
         if (!meta) return;
 
         let dueIn = Math.max(0, meta.nextGcAt - Date.now());
@@ -329,13 +387,15 @@ export class LocalStateStorage {
             dueIn = GC_OPTIONS.checkInterval;
 
             try {
-                this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+                this._writeMeta(nextGcDeadline());
             } catch {
                 // Keep the clamped timer; healing retries on the next round.
             }
         }
 
-        const delay = Math.min(dueIn + Math.random() * GC_OPTIONS.randomOffset, MAX_TIMEOUT);
+        // An over-limit delay would fire immediately, so clamp it: the sweep
+        // then re-checks and re-arms instead of running early.
+        const delay = Math.min(dueIn + Math.random() * GC_OPTIONS.randomOffset, MAX_TIMEOUT_DELAY);
 
         this._gcTimer = setTimeout(() => {
             this._gcTimer = null;
@@ -357,12 +417,9 @@ export class LocalStateStorage {
             return;
         }
 
-        this._touchLiveSlots();
-
-        // Re-evaluate the dedicated loop here as well: GC_OPTIONS.checkInterval
-        // may have been raised mid-session, turning slots that used to be
-        // covered by the GC cadence into ones that need their own loop.
-        this._armLiveTouchTimer(this._minLiveTouchThreshold());
+        // GC was turned off while this timer was pending — leave the deadline to
+        // sessions that still run GC and stop here without re-scheduling.
+        if (!isGcEnabled()) return;
 
         // Another tab already claimed and swept (or the timer was clamped) — re-schedule.
         if (Date.now() < meta.nextGcAt) {
@@ -373,7 +430,7 @@ export class LocalStateStorage {
         // The claim must land BEFORE the sweep: it is the only cross-tab
         // dedup — sweeping unclaimed would run concurrent duplicate sweeps.
         try {
-            this._writeMeta(Date.now() + GC_OPTIONS.checkInterval + jitter(GC_OPTIONS.randomOffset));
+            this._writeMeta(nextGcDeadline());
         } catch {
             this._scheduleGc();
             return;
@@ -437,10 +494,9 @@ export class LocalStateStorage {
     }
 
     /**
-     * Refreshes `at` of this session's live slots (runs on every GC timer
-     * fire and on the dedicated live-touch loop, so no tab — including this
-     * one — expires a value the app is actively holding). Ownership was
-     * checked by the caller.
+     * Refreshes `at` of this session's live slots, so no other tab's sweep
+     * expires a value the app is actively holding. Ownership was checked by
+     * the caller.
      */
     private _touchLiveSlots() {
         const now = Date.now();
@@ -452,10 +508,10 @@ export class LocalStateStorage {
 
             const envelope = this._parseEnvelope(raw);
 
-            if (!envelope || now - envelope.at < this._touchThreshold(ttl)) continue;
+            if (!envelope || !this._needsTouch(envelope, ttl, now)) continue;
 
             try {
-                this.writeSlot(storageKey, envelope.data, ttl);
+                this.writeSlot(storageKey, envelope.data, ttl, envelope.out);
             } catch {
                 // Best-effort per slot: one failed write (size-dependent
                 // quota) must not leave the remaining slots un-refreshed.
@@ -464,13 +520,15 @@ export class LocalStateStorage {
     }
 
     /**
-     * Dedicated re-touch loop for slots whose TTL is tighter than the GC
-     * cadence: the GC timer visits live slots only about once per
-     * checkInterval, which is too rare to keep e.g. a 4-day slot alive
-     * against sweeps from tabs that do not hold it live.
+     * The live-touch loop: the only re-touch of live slots, independent of
+     * this tab's GC timer — that one is not armed while GC is off here
+     * (`checkInterval: Infinity`, no key enumeration, a missing meta), yet
+     * other tabs may still sweep. Each round re-reads the cadence, so a
+     * changed `GC_OPTIONS` or a tighter slot applies from the next round.
+     * Only GC-exempt slots under an infinite `checkInterval` need no loop.
      */
     private _armLiveTouchTimer(interval: number) {
-        if (this._liveTouchTimer !== null || interval >= GC_OPTIONS.checkInterval) return;
+        if (this._liveTouchTimer !== null || !Number.isFinite(interval)) return;
 
         this._liveTouchInterval = interval;
 
@@ -484,7 +542,7 @@ export class LocalStateStorage {
                 this._touchLiveSlots();
                 this._armLiveTouchTimer(this._minLiveTouchThreshold());
             },
-            Math.min(interval, MAX_TIMEOUT),
+            Math.min(interval, MAX_TIMEOUT_DELAY),
         );
 
         unrefSafe(this._liveTouchTimer);
@@ -501,6 +559,15 @@ export class LocalStateStorage {
     }
 
     // === utils ===
+
+    /**
+     * The envelope is rewritten when it is due for a freshness touch, or when
+     * it carries another gc policy than this session's: the sweep of any tab
+     * trusts the stored `ttl`, so a changed policy must reach storage at once.
+     */
+    private _needsTouch(envelope: Envelope, ttl: SlotTtl, now: number) {
+        return now - envelope.at >= this._touchThreshold(ttl) || envelope.ttl !== ttl;
+    }
 
     /**
      * A slot must be re-touched well before its own TTL expires, not only
@@ -534,8 +601,7 @@ export class LocalStateStorage {
             return null;
         }
 
-        const parsed = envelopeSchema.safeParse(json);
-        return parsed.success ? parsed.data : null;
+        return toEnvelope(json);
     }
 
     private _enumerateKeys(): string[] | null {

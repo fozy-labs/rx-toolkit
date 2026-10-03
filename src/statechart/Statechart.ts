@@ -2,10 +2,18 @@ import type { MachineDevtoolsActor, MachineDevtoolsLike } from "@/common/devtool
 import { SharedOptions } from "@/common/options/SharedOptions";
 import { Batcher } from "@/signals/base/Batcher";
 import { SYMBOL_DISPOSE } from "@/signals/base/disposeSymbol";
+import { SignalCycleError } from "@/signals/base/SignalCycleError";
+import { untracked, untrackedWrites } from "@/signals/base/untracked";
 import { State } from "@/signals/signals/State";
 import type { ReadonlySignal } from "@/signals/types";
 
-import { createInitEvent, createStopEvent, DEFAULT_MAX_MICROSTEPS, XSTATE_STOP } from "./core/constants";
+import {
+    createInitEvent,
+    createStopEvent,
+    DEFAULT_MAX_MICROSTEPS,
+    MAX_REACTION_DEPTH,
+    XSTATE_STOP,
+} from "./core/constants";
 import {
     canHandle,
     createSnapshot,
@@ -45,6 +53,16 @@ interface TimerEntry {
     handle: unknown;
 }
 
+/**
+ * A queued event and its causal depth within the burst: 0 for an event sent
+ * from outside, one more than the deepest event processed so far for an
+ * event sent by an action, a subscriber or an effect reacting to it.
+ */
+interface QueuedEvent<TEvent extends EventObject> {
+    readonly event: MachineEvent<TEvent>;
+    readonly depth: number;
+}
+
 const DEFAULT_CLOCK: MachineClock = {
     // Resolved at call time so that fake timers installed later (tests) are honoured.
     setTimeout: (callback, delay) => globalThis.setTimeout(callback, delay),
@@ -54,7 +72,7 @@ const DEFAULT_CLOCK: MachineClock = {
 const DEFAULT_LOGGER: MachineLogger = (...args) => console.log(...args);
 
 interface ResolvedStatechartOptions {
-    /** `null` = no key given: a per-instance default is allocated (`acquireDefaultKeySlot`). */
+    /** `null` = no key given: the default `{base}/<machine id>` is used. */
     readonly key: string | null;
     readonly isDisabled: boolean | undefined;
     /** `null` = off; resolved against `SharedOptions.MACHINE_DEVTOOLS` at construction time. */
@@ -80,46 +98,6 @@ function resolveOptions(options: StatechartOptionsOrKey | undefined): ResolvedSt
     };
 }
 
-// --- default Redux DevTools keys ---------------------------------------------
-
-/**
- * Ordinal slots of the live keyless instances of each machine id. Slot 1
- * renders as `{base}/<id>`, slot n as `{base}/<id>#n`; the lowest free slot
- * is taken and released again on `dispose()` (or by the finalizer). So
- * concurrent keyless instances of one definition never fight over a single
- * Redux DevTools entry, while a re-created instance (React re-mount,
- * StrictMode) gets its predecessor's name back.
- */
-const defaultKeySlots = new Map<string, Set<number>>();
-
-interface DefaultKeySlot {
-    readonly machineId: string;
-    readonly slot: number;
-}
-
-function acquireDefaultKeySlot(machineId: string): DefaultKeySlot {
-    let taken = defaultKeySlots.get(machineId);
-    if (taken === undefined) {
-        taken = new Set();
-        defaultKeySlots.set(machineId, taken);
-    }
-    let slot = 1;
-    while (taken.has(slot)) slot += 1;
-    taken.add(slot);
-    return { machineId, slot };
-}
-
-function releaseDefaultKeySlot({ machineId, slot }: DefaultKeySlot): void {
-    const taken = defaultKeySlots.get(machineId);
-    if (taken === undefined) return;
-    taken.delete(slot);
-    if (taken.size === 0) defaultKeySlots.delete(machineId);
-}
-
-function formatDefaultKey({ machineId, slot }: DefaultKeySlot): string {
-    return slot === 1 ? `{base}/${machineId}` : `{base}/${machineId}#${slot}`;
-}
-
 // --- inspector ---------------------------------------------------------------
 
 function reportInspectorFailure(error: unknown): void {
@@ -128,12 +106,6 @@ function reportInspectorFailure(error: unknown): void {
         "[RxToolkit Statechart] the inspector adapter threw; the inspector is disabled for this instance",
         error,
     );
-}
-
-/** What the finalizer releases for an engine that was garbage-collected without `dispose()`. */
-interface FinalizationTarget {
-    readonly actorHandle: MachineDevtoolsActor | null;
-    readonly keySlot: DefaultKeySlot | null;
 }
 
 /**
@@ -160,8 +132,6 @@ export class unstable_Statechart<
     private readonly _scope: InterpreterScope<TContext, TEvent>;
     private readonly _options: ResolvedStatechartOptions;
     private readonly _state$: State<MachineSnapshot<TContext, TOutput>>;
-    /** Allocated only for keyless instances; released by `dispose()` / the finalizer. */
-    private readonly _keySlot: DefaultKeySlot | null;
     /** Best-effort: set to `null` after the adapter threw once (`_notifyInspector`). */
     private _actorHandle: MachineDevtoolsActor | null;
 
@@ -176,7 +146,11 @@ export class unstable_Statechart<
     /** Error raised inside the guarded section, reported once the batch has finished. */
     private _failure: { error: unknown } | null = null;
     /** Events sent before `start()` and re-entrant sends (FIFO). */
-    private readonly _queue: MachineEvent<TEvent>[] = [];
+    private readonly _queue: QueuedEvent<TEvent>[] = [];
+    /** Deepest causal depth the current burst has reached (see `_runBurst`). */
+    private _depth = 0;
+    /** Set once the current burst went past `MAX_REACTION_DEPTH`: nothing more is drained or restarted. */
+    private _cycleDetected = false;
     /** Executor calls captured while not running (initial actions), flushed by `start()`. */
     private readonly _deferred: (() => void)[] = [];
     private readonly _timers = new Map<string, TimerEntry>();
@@ -207,24 +181,18 @@ export class unstable_Statechart<
 
         // Everything below allocates resources that `dispose()` releases; the
         // catch at the end covers a constructor that throws after this point.
-        let key = this._options.key;
-        let keySlot: DefaultKeySlot | null = null;
-        if (key === null) {
-            keySlot = acquireDefaultKeySlot(definition.id);
-            key = formatDefaultKey(keySlot);
-        }
-        this._keySlot = keySlot;
+        // Keyless instances of one definition share the default key, as keyless
+        // signals share theirs: the newest one owns the Redux DevTools entry.
         this._state$ = new State<MachineSnapshot<TContext, TOutput>>(this._snapshot, {
-            key,
+            key: this._options.key ?? `{base}/${definition.id}`,
             base: DEVTOOLS_BASE,
             isDisabled: this._options.isDisabled,
         });
         this.state = unstable_Statechart._createReadonlySignal(this._state$);
 
         this._actorHandle = this._createActorHandle();
-        if (this._actorHandle !== null || this._keySlot !== null) {
-            const target: FinalizationTarget = { actorHandle: this._actorHandle, keySlot: this._keySlot };
-            unstable_Statechart._finalizationRegistry.register(this, target, this);
+        if (this._actorHandle !== null) {
+            unstable_Statechart._finalizationRegistry.register(this, this._actorHandle, this);
         }
 
         // Nobody can call `dispose()` on an instance whose constructor threw:
@@ -251,23 +219,33 @@ export class unstable_Statechart<
      * re-initializes a stopped/done/errored machine). Moves straight to
      * `stopped` when the initial snapshot is already done/error. Throws after
      * `dispose()`. Called from inside a burst (an action, a synchronous
-     * subscriber or an effect reacting to the done / error / stop snapshot)
-     * the restart is deferred until the burst has finished.
+     * subscriber or an effect reacting to the done / error / stop snapshot,
+     * `onError`, or right after a `stop()` of the same burst) the restart is deferred
+     * until the burst has finished; a later `stop()` in the burst cancels it.
      */
     start(): void {
         if (this._status === "disposed") throw new Error("Statechart has been disposed");
-        if (this._status === "running") return;
         if (this._processing) {
-            // Only reachable once the burst in progress stopped the engine;
-            // `_runGuarded` performs the restart after the batch (and after
-            // the error report, if the burst failed).
+            // Record the restart unconditionally: the actions of a completing
+            // step still see `_status === "running"` — `_halt()` flips it only
+            // after `step()` has run them — and `_runGuarded` performs the
+            // restart after the batch (and after the error report, if the
+            // burst failed) when the engine ended `stopped`. A `stop()` later
+            // in the burst still cancels it.
             this._restartRequested = true;
             return;
         }
+        if (this._status === "running") return;
+        this._runGuarded(this._prepareStart());
+    }
 
+    /**
+     * Re-initializes a stopped engine (fresh context, fresh initial
+     * macrostep, effects deferred) and returns the burst body that starts it.
+     */
+    private _prepareStart(): () => void {
         let initError: { error: unknown } | null = null;
         if (this._status === "stopped") {
-            // Restart from scratch: fresh context, fresh initial macrostep (effects deferred).
             this._deferred.length = 0;
             this._queue.length = 0;
             const initialization = this._computeInitialState();
@@ -275,7 +253,7 @@ export class unstable_Statechart<
             initError = initialization.error;
         }
 
-        this._runGuarded(() => {
+        return () => {
             this._status = "running";
             const initEvent = createInitEvent();
             this._notifyInspector((handle) => handle.event(initEvent));
@@ -310,7 +288,7 @@ export class unstable_Statechart<
                 return;
             }
             this._drain();
-        });
+        };
     }
 
     /**
@@ -320,13 +298,15 @@ export class unstable_Statechart<
      * behaviour).
      */
     stop(): void {
+        // Inside a burst a later `stop()` cancels a restart requested before it.
+        if (this._processing) this._restartRequested = false;
         if (this._status !== "running") return;
         this._queue.length = 0;
         const stopEvent = createStopEvent();
         if (this._processing) {
             // Never step inside a running step: the outer `process()` would
             // overwrite the state. The drain loop picks the stop event up.
-            this._queue.push(stopEvent);
+            this._queue.push({ event: stopEvent, depth: this._depth + 1 });
             return;
         }
         this._runGuarded(() => {
@@ -346,7 +326,7 @@ export class unstable_Statechart<
         }
         switch (this._status) {
             case "idle":
-                this._queue.push(event);
+                this._queue.push({ event, depth: 0 });
                 return;
             case "running":
                 this._receive(event);
@@ -378,15 +358,15 @@ export class unstable_Statechart<
      * finishes after the current macrostep.
      */
     dispose(): void {
-        if (this._status === "disposed") return;
-        if (this._processing) {
-            if (!this._disposeRequested) {
-                this._disposeRequested = true;
-                this.stop();
-            }
+        if (this._status === "disposed" || this._disposeRequested) return;
+        if (this._processing || this._status === "running") {
+            // The dispose finishes in the tail of the burst — the current one,
+            // or the one `stop()` runs — so that nothing the burst triggers
+            // (an effect restarting the engine on `stopped`) can restart it.
+            this._disposeRequested = true;
+            this.stop();
             return;
         }
-        if (this._status === "running") this.stop();
         this._finishDispose();
     }
 
@@ -397,13 +377,15 @@ export class unstable_Statechart<
     // === initialization ===
 
     /**
-     * Runs the initial macrostep with the executor in deferred mode. A throw
-     * (builtin at init) yields an error state built from the pre-initial
-     * state; the caller decides where to report it.
+     * Runs the initial macrostep with the executor in deferred mode, untracked
+     * like a burst (see `_runGuarded`): the `context` factory and initial
+     * builtins may read signals. A throw (builtin at init) yields an error
+     * state built from the pre-initial state; the caller decides where to
+     * report it.
      */
     private _computeInitialState(): { state: MachineState<TContext, TEvent>; error: { error: unknown } | null } {
         try {
-            return { state: initialize(this._model, this._scope).state, error: null };
+            return { state: untracked(() => initialize(this._model, this._scope)).state, error: null };
         } catch (error) {
             this._deferred.length = 0;
             return { state: this._createErrorState(this._createPreInitialState(), error), error: { error } };
@@ -440,46 +422,106 @@ export class unstable_Statechart<
      * (a macrostep plus every re-entrant send), `processing` set so that
      * nested `send()` / `stop()` / `dispose()` / `start()` calls are queued or
      * deferred, deferred teardown / restart in the tail, and the failure (if
-     * any) reported only after the batch has flushed — throwing out of
-     * `Batcher.run` would drop the scheduled derived updates.
+     * any) reported only after the batch has flushed and the deferred work
+     * above has run.
      *
      * `Batcher.run` flushes the scheduled Computed/Effect work after the body
      * returned; an effect reacting to the new snapshot may itself `send()`
      * (queued, because the guard is still set). Those events are drained in
      * further rounds — each one a `Batcher.run` of its own, so its effects are
-     * flushed too — until nothing new arrives.
+     * flushed too — until nothing new arrives. A restart requested in the
+     * burst runs in the same loop, as one more segment after the tail.
+     *
+     * Reactions that never settle (an action, a subscriber or an effect that
+     * sends or restarts on every snapshot) are a loop the signal core cannot
+     * see across rounds and segments. Every queued event carries its causal
+     * depth, and a restart counts as one more level; past
+     * `MAX_REACTION_DEPTH` the queue and a pending restart are dropped and a
+     * `SignalCycleError` is thrown like a reaction error. The machine stays
+     * in the state the loop left it in.
+     *
+     * An error thrown out of `Batcher.run` (a throwing effect; the batch still
+     * ran every other reaction) does not stop the drain: events those
+     * reactions sent are processed, and the first such error is rethrown at
+     * the very end.
+     *
+     * The burst runs untracked: signals read by guards, actions, `assign` or
+     * `onError` belong to the machine, not to the `Computed` / `Effect` that
+     * happened to call `send()` / `start()` / `stop()`.
      */
     private _runGuarded(body: () => void): void {
-        this._processing = true;
-        let failure: { error: unknown } | null = null;
-        let restart = false;
-        try {
-            Batcher.run(body);
-            while (this._queue.length > 0 && this._status === "running") {
-                Batcher.run(() => this._drain());
+        untracked(() => this._runBurst(body));
+    }
+
+    private _runBurst(body: () => void): void {
+        let reactionError: { error: unknown } | null = null;
+        const flush = (fn: () => void) => {
+            try {
+                Batcher.run(fn);
+            } catch (error) {
+                reactionError ??= { error };
             }
-        } finally {
-            failure = this._failure;
-            this._failure = null;
-            restart = this._restartRequested;
-            this._restartRequested = false;
-            this._processing = false;
-            if (this._disposeRequested) {
-                this._disposeRequested = false;
-                restart = false;
-                this.dispose();
+        };
+        this._depth = 0;
+        this._cycleDetected = false;
+        let segment: (() => void) | null = body;
+        while (segment) {
+            let failure: { error: unknown } | null = null;
+            let restart = false;
+            this._processing = true;
+            try {
+                flush(segment);
+                while (this._queue.length > 0 && this._status === "running" && !this._cycleDetected) {
+                    flush(() => this._drain());
+                }
+            } finally {
+                if (this._cycleDetected) {
+                    this._queue.length = 0;
+                    this._restartRequested = false;
+                }
+                failure = this._failure;
+                this._failure = null;
+            }
+            try {
+                // `onError` is the last step of the burst, still guarded: a
+                // `start()` there becomes the next segment (and a level of
+                // depth), a `stop()` / `dispose()` there is deferred as usual.
+                // An unhandled failure is rethrown here and drops a pending
+                // restart: the engine stays in its error state.
+                if (failure) this._report(failure.error);
+            } finally {
+                restart = this._restartRequested;
+                this._restartRequested = false;
+                this._processing = false;
+                if (this._disposeRequested) {
+                    this._disposeRequested = false;
+                    restart = false;
+                    this.dispose();
+                }
+            }
+            segment = null;
+            if (restart && this._status === "stopped") {
+                if (++this._depth > MAX_REACTION_DEPTH) reactionError ??= { error: this._detectCycle() };
+                else segment = this._prepareStart();
             }
         }
-        // An unhandled failure is rethrown here and drops a pending restart:
-        // the engine stays in its error state, consistent with the exception.
-        if (failure) this._report(failure.error);
-        if (restart && this._status === "stopped") this.start();
+        if (reactionError) throw (reactionError as { error: unknown }).error;
+    }
+
+    /** Marks the burst as a reaction loop and returns the error that reports it. */
+    private _detectCycle(): SignalCycleError {
+        this._cycleDetected = true;
+        return new SignalCycleError(
+            [],
+            `Cycle detected: reactions to machine "${this.definition.id}" kept sending events or restarting it ` +
+                `past a depth of ${MAX_REACTION_DEPTH}`,
+        );
     }
 
     /** Entry point of every event while running: direct processing or FIFO when re-entrant. */
     private _receive(event: MachineEvent<TEvent>): void {
         if (this._processing) {
-            this._queue.push(event);
+            this._queue.push({ event, depth: this._depth + 1 });
             return;
         }
         this._runGuarded(() => {
@@ -488,9 +530,13 @@ export class unstable_Statechart<
         });
     }
 
+    /** Processes queued events; past `MAX_REACTION_DEPTH` throws `SignalCycleError` (the burst drops the queue). */
     private _drain(): void {
-        while (this._queue.length > 0 && this._status === "running") {
-            this._process(this._queue.shift()!);
+        while (this._queue.length > 0 && this._status === "running" && !this._cycleDetected) {
+            const { event, depth } = this._queue.shift()!;
+            if (depth > MAX_REACTION_DEPTH) throw this._detectCycle();
+            if (depth > this._depth) this._depth = depth;
+            this._process(event);
         }
     }
 
@@ -525,9 +571,15 @@ export class unstable_Statechart<
      * inspector. `State.set` dedupes by identity, so an unchanged macrostep
      * (and the initial commit of `start()`) costs no emission; the inspector
      * is told about every macrostep regardless.
+     *
+     * The write belongs to the machine, not to whatever reaction called
+     * `send()` / `start()` / `stop()`: without `untrackedWrites` an effect
+     * that sent the event would take the snapshot it produced as its own
+     * write (suppressed, see `notifyTargets`), never re-run on it, and an
+     * effect → `send()` chain would stall one step later.
      */
     private _commit(event: EventObject): void {
-        this._state$.set(this._snapshot, event.type);
+        untrackedWrites(() => this._state$.set(this._snapshot, event.type));
         this._notifyInspector((handle) => handle.snapshot(this._snapshot, event));
     }
 
@@ -568,7 +620,6 @@ export class unstable_Statechart<
         this._status = "disposed";
         unstable_Statechart._finalizationRegistry.unregister(this);
         this._state$.dispose();
-        if (this._keySlot !== null) releaseDefaultKeySlot(this._keySlot);
         this._notifyInspector((handle) => handle.stop());
         this._actorHandle = null;
     }
@@ -661,15 +712,12 @@ export class unstable_Statechart<
 
     // === static ===
 
-    /** Releases the inspector actor and the default key slot of an engine that was garbage-collected without `dispose()`. */
-    private static _finalizationRegistry = new FinalizationRegistry((target: FinalizationTarget) => {
-        if (target.keySlot !== null) releaseDefaultKeySlot(target.keySlot);
-        if (target.actorHandle !== null) {
-            try {
-                target.actorHandle.stop();
-            } catch (error) {
-                reportInspectorFailure(error);
-            }
+    /** Releases the inspector actor of an engine that was garbage-collected without `dispose()`. */
+    private static _finalizationRegistry = new FinalizationRegistry((actorHandle: MachineDevtoolsActor) => {
+        try {
+            actorHandle.stop();
+        } catch (error) {
+            reportInspectorFailure(error);
         }
     });
 

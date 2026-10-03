@@ -1,131 +1,82 @@
-import { distinctUntilChanged, finalize, map, ReplaySubject, share } from "rxjs";
+import type { Observable } from "rxjs";
 
-import { DisposableSignal, normalizeSignalOptions, SignalOptionsOrKey } from "@/signals/types";
+import { DisposableSignal, normalizeSignalOptions, SignalComputeOptions } from "@/signals/types";
 
-import { ComputeCache, DependencyRecord, DependencyTracker } from "../base";
+import { Devtools, type TDevtoolsStateUpdater } from "../base";
+import { ComputedNode, HAS_ERROR, REPORTS_STATE, TRACKING } from "../base/core";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
 
-import { Effect } from "./Effect";
-import { State } from "./State";
+/** Devtools placeholder before the first value: never pushed. */
+const EMPTY = Symbol("empty");
 
-export class Computed<T> {
-    private _state$;
-    readonly obs;
-    private _effect: Effect | null = null;
-    /**
-     * Кеш для хранения вычисленного значения (без подписки) и его зависимостей
-     */
-    private _computeCache = new ComputeCache<T>();
-    // Стабильный record на инстанс (см. State): переиспользуется на каждом get()
-    // вместо аллокации нового объекта с замыканиями.
-    private readonly _depRecord: DependencyRecord;
+/** Devtools entries of computeds collected by GC before `dispose()`: completed then. */
+const finalizationRegistry = new FinalizationRegistry((devtools: TDevtoolsStateUpdater<any>) => {
+    devtools.complete();
+});
 
-    constructor(
-        private _computeFn: () => T,
-        options?: SignalOptionsOrKey<T>,
-    ) {
-        const opts = normalizeSignalOptions(options);
-        const stateOptions: SignalOptionsOrKey<symbol | T> = {
+/** The engine node behind a {@link Computed}: a computed node that reports to devtools. */
+export class ComputedSignalNode<T> extends ComputedNode<T> {
+    private readonly _devtools: TDevtoolsStateUpdater<T | typeof EMPTY> | null;
+
+    constructor(computeFn: () => T, options?: SignalComputeOptions<T> | string) {
+        const opts: SignalComputeOptions<T> = normalizeSignalOptions(options);
+        super(computeFn, opts.equals, opts.key ?? "<anonymous>");
+        this._devtools = Devtools.createState<T | typeof EMPTY>(EMPTY, {
             key: opts.key,
             base: opts.base ?? Computed.name,
             isDisabled: opts.isDisabled,
-            beforeDevtoolsPush: (value: symbol | T, push: (v: symbol | T) => void) => {
-                if (value !== Computed._EMPTY) {
-                    push(value);
-                }
+            beforeDevtoolsPush: (value, push) => {
+                if (value !== EMPTY) push(value);
             },
-        };
-
-        this._state$ = State.create<symbol | T>(Computed._EMPTY, stateOptions);
-
-        this.obs = this._state$.obs.pipe(
-            map((value) => {
-                if (value === Computed._EMPTY) {
-                    return this._start();
-                }
-
-                return value as T;
-            }),
-            // Object.is (not the default ===): collapses the structural duplicate
-            // initial emit for NaN, and lets a real +0 -> -0 change through —
-            // consistent with State.set / ComputeCache dedupe across the engine.
-            distinctUntilChanged((a, b) => Object.is(a, b)),
-            finalize(() => {
-                this._stop();
-            }),
-            share({
-                connector: () => new ReplaySubject(1),
-                resetOnRefCountZero: true,
-                resetOnComplete: true,
-            }),
-        );
-
-        this._depRecord = {
-            getRang: () => {
-                if (!this._effect) {
-                    throw new Error("Effect in not started. Possibly maximum call stack size exceeded.");
-                }
-                return this._effect!._getRang();
-            },
-            obs: this.obs,
-            peek: () => this.peek(),
-        };
-    }
-
-    get() {
-        if (DependencyTracker.isTracking) {
-            DependencyTracker.track(this._depRecord);
-        }
-
-        return this.peek();
-    }
-
-    peek() {
-        const v = this._state$.peek();
-
-        if (v === Computed._EMPTY) {
-            // Используем кеш для вычисления без создания подписки
-            return this._computeCache.getOrCompute(this._computeFn);
-        }
-
-        return v as T;
-    }
-
-    private _start(): T {
-        let initialValue: T | symbol = Computed._EMPTY;
-
-        this._effect = new Effect(() => {
-            if (initialValue === Computed._EMPTY) {
-                initialValue = this._computeFn();
-                this._state$.set(initialValue);
-                return;
-            }
-
-            this._state$.set(this._computeFn());
         });
-
-        this._computeCache.clear();
-
-        if (initialValue === Computed._EMPTY) {
-            throw new Error("Computed value is not initialized");
+        if (this._devtools) {
+            this._flags |= REPORTS_STATE;
+            finalizationRegistry.register(this, this._devtools, this);
         }
-
-        return initialValue as T;
     }
 
-    private _stop() {
-        if (this._effect) {
-            this._effect.unsubscribe();
-            this._effect = null;
-        }
-
-        this._state$.set(Computed._EMPTY);
+    override _onNewState(): void {
+        const devtools = this._devtools;
+        if (devtools === null) return;
+        // Pushed while observed, as the state of a live node; errors are not values.
+        if ((this._flags & (TRACKING | HAS_ERROR)) === TRACKING) devtools(this._value as T);
     }
 
     dispose() {
-        this._stop();
-        this._computeCache.clear();
-        this._state$.dispose();
+        this._disposeNode();
+        if (this._devtools) {
+            finalizationRegistry.unregister(this);
+            this._devtools.complete();
+        }
+    }
+}
+
+/**
+ * A lazy value derived from the signals `computeFn` reads. Observed (by an
+ * effect, an `.obs` subscriber or an observed computed) it stays linked to
+ * its sources and recomputes when one of them changed and it is read;
+ * unobserved it is validated on read by the versions of its sources.
+ * `Signal.compute` is its functional form.
+ */
+export class Computed<T> {
+    private readonly _node: ComputedSignalNode<T>;
+    readonly obs: Observable<T>;
+
+    constructor(computeFn: () => T, options?: SignalComputeOptions<T> | string) {
+        this._node = new ComputedSignalNode(computeFn, options);
+        this.obs = this._node.obs;
+    }
+
+    get(): T {
+        return this._node.get();
+    }
+
+    peek(): T {
+        return this._node.peek();
+    }
+
+    dispose() {
+        this._node.dispose();
     }
 
     [SYMBOL_DISPOSE]() {
@@ -134,10 +85,8 @@ export class Computed<T> {
 
     // === static ===
 
-    private static _EMPTY = Symbol("empty");
-
-    static create<T>(computeFn: () => T, options?: SignalOptionsOrKey<T>): DisposableSignal<T> {
-        const lc = new Computed(computeFn, options);
+    static create<T>(computeFn: () => T, options?: SignalComputeOptions<T> | string): DisposableSignal<T> {
+        const lc = new ComputedSignalNode(computeFn, options);
 
         function computedFn() {
             return lc.get();

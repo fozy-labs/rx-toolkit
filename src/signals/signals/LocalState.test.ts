@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { type StandardSchemaV1 } from "@/common/standard-schema";
+
 import { LocalSignal } from "./LocalSignal";
 import { LocalState } from "./LocalState";
 import { LOCAL_STATE_GC_DEFAULTS } from "./LocalStateStorage";
@@ -250,12 +252,24 @@ describe("LocalState", () => {
         });
     });
 
-    describe("zod schema validation", () => {
-        it("valid data accepted from storage", () => {
+    describe("schema validation (Standard Schema)", () => {
+        /** A hand-written Standard Schema — proves no dependency on a particular vendor. */
+        function numberSchema(): StandardSchemaV1<unknown, number> {
+            return {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: (value) =>
+                        typeof value === "number" ? { value } : { issues: [{ message: "Expected a number" }] },
+                },
+            };
+        }
+
+        it("valid data accepted from storage (zod schema)", () => {
             seedStorage("zod1", 42);
             const s = LocalSignal.state({
                 key: "zod1",
-                zodSchema: z.number(),
+                schema: z.number(),
                 defaultValue: 0,
             });
             const sub = activate(s);
@@ -263,13 +277,13 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("invalid data in storage → uses defaultValue and drops the slot", () => {
+        it("invalid data in storage → uses defaultValue and drops the slot (zod schema)", () => {
             seedStorage("zod2", "not-a-number");
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
             const s = LocalSignal.state({
                 key: "zod2",
-                zodSchema: z.number(),
+                schema: z.number(),
                 defaultValue: 0,
             });
             const sub = activate(s);
@@ -278,6 +292,152 @@ describe("LocalState", () => {
             expect(warnSpy).toHaveBeenCalled();
 
             warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("a vendor-agnostic schema validates stored data", () => {
+            seedStorage("std1", 42);
+            seedStorage("std2", "not-a-number");
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const valid = LocalSignal.state({ key: "std1", schema: numberSchema(), defaultValue: 0 });
+            const invalid = LocalSignal.state({ key: "std2", schema: numberSchema(), defaultValue: 0 });
+            const subs = [activate(valid), activate(invalid)];
+
+            expect(valid.peek()).toBe(42);
+            expect(invalid.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("std2"))).toBeNull();
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"std2"'), [{ message: "Expected a number" }]);
+
+            warnSpy.mockRestore();
+            subs.forEach((sub) => sub.unsubscribe());
+        });
+
+        it("serves the schema output, not the raw stored value", () => {
+            seedStorage("out", "  padded  ");
+
+            const s = LocalSignal.state({ key: "out", schema: z.string().trim(), defaultValue: "" });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe("padded");
+            sub.unsubscribe();
+        });
+
+        it("a value written by set() survives reload under a transforming schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const schema = z.string().transform((v) => v.split(","));
+
+            seedStorage("rt", "a,b");
+            const s = LocalSignal.state<string[]>({ key: "rt", schema, defaultValue: [] });
+            expect(s.peek()).toEqual(["a", "b"]);
+
+            s.set(["x", "y"]);
+
+            const reloaded = LocalSignal.state<string[]>({ key: "rt", schema, defaultValue: [] });
+            expect(reloaded.peek()).toEqual(["x", "y"]);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("a Date written by set() survives reload under a z.date() schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const date = new Date("2024-05-06T07:08:09.000Z");
+
+            const s = LocalSignal.state({ key: "dt", schema: z.date(), defaultValue: new Date(0) });
+            s.set(date);
+
+            const reloaded = LocalSignal.state({ key: "dt", schema: z.date(), defaultValue: new Date(0) });
+            expect(reloaded.peek()).toEqual(date);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("nested Dates written by set() survive reload under a schema", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const schema = z.object({ at: z.date(), tags: z.array(z.date()) });
+            const value = { at: new Date("2024-01-02T03:04:05.000Z"), tags: [new Date(0)] };
+
+            const s = LocalSignal.state({ key: "ndt", schema, defaultValue: { at: new Date(0), tags: [] } });
+            s.set(value);
+
+            const reloaded = LocalSignal.state({ key: "ndt", schema, defaultValue: { at: new Date(0), tags: [] } });
+            expect(reloaded.peek()).toEqual(value);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("a gc-policy re-stamp keeps a schema-written value trusted", () => {
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const driver = createMarkedDriver();
+            const schema = z.string().transform((v) => v.split(","));
+
+            const s = LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver });
+            s.set(["x"]);
+
+            // A different gc policy rewrites the envelope on the next load.
+            LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver, gc: false });
+            expect(JSON.parse(driver.getItem(storageKey("pol"))!).out).toBe(true);
+
+            const reloaded = LocalSignal.state<string[]>({ key: "pol", schema, defaultValue: [], driver, gc: false });
+            expect(reloaded.peek()).toEqual(["x"]);
+            expect(warnSpy).not.toHaveBeenCalled();
+
+            warnSpy.mockRestore();
+        });
+
+        it("a schema that throws on stored data → defaultValue, the slot is dropped, construction does not throw", () => {
+            seedStorage("throws", { a: null });
+            const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+            const failure = new TypeError("Cannot read properties of null");
+            const throwingSchema: StandardSchemaV1<unknown, number> = {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: () => {
+                        throw failure;
+                    },
+                },
+            };
+
+            const s = LocalSignal.state({ key: "throws", schema: throwingSchema, defaultValue: 0 });
+
+            expect(s.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("throws"))).toBeNull();
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"throws"'), failure);
+            // The bad slot is gone, so the next load is clean.
+            expect(LocalSignal.state({ key: "throws", schema: throwingSchema, defaultValue: 0 }).peek()).toBe(0);
+
+            errorSpy.mockRestore();
+        });
+
+        it("an async schema is rejected without touching the stored slot", () => {
+            const slot = envelope(42);
+            localStorage.setItem(storageKey("async"), slot);
+            const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+            // A thenable (not a native Promise) also covers cross-realm promises.
+            const then = vi.fn();
+            const asyncSchema: StandardSchemaV1<unknown, number> = {
+                "~standard": {
+                    version: 1,
+                    vendor: "test",
+                    validate: () => ({ then }) as unknown as Promise<{ value: number }>,
+                },
+            };
+
+            const s = LocalSignal.state({ key: "async", schema: asyncSchema, defaultValue: 0 });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe(0);
+            expect(localStorage.getItem(storageKey("async"))).toBe(slot);
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("asynchronously"));
+            // A rejection handler is attached, so the discarded result is never an unhandled rejection.
+            expect(then).toHaveBeenCalledWith(undefined, expect.any(Function));
+
+            errorSpy.mockRestore();
             sub.unsubscribe();
         });
     });
@@ -307,6 +467,38 @@ describe("LocalState", () => {
             expect(localStorage.getItem(storageKey("bad-shape"))).toBeNull();
 
             warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it.each([
+            ["an array", JSON.stringify([1, 2])],
+            ["null", "null"],
+            ["a non-numeric `at`", JSON.stringify({ at: "now", data: 1 })],
+            ["a non-numeric `ttl`", JSON.stringify({ at: Date.now(), ttl: "1d", data: 1 })],
+        ])("an envelope that is %s → defaultValue, entry removed", (_, raw) => {
+            localStorage.setItem(storageKey("bad-env"), raw);
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            const s = LocalSignal.state({ key: "bad-env", defaultValue: 7 });
+            const sub = activate(s);
+            expect(s.peek()).toBe(7);
+            expect(localStorage.getItem(storageKey("bad-env"))).toBeNull();
+
+            warnSpy.mockRestore();
+            sub.unsubscribe();
+        });
+
+        it("an envelope without `data` (a stored undefined) is valid", () => {
+            const s1 = LocalSignal.state<number | undefined>({ key: "undef", defaultValue: 7 });
+            s1.set(undefined);
+
+            const raw = localStorage.getItem(storageKey("undef"))!;
+            expect(JSON.parse(raw)).not.toHaveProperty("data");
+
+            const s2 = LocalSignal.state<number | undefined>({ key: "undef", defaultValue: 7 });
+            const sub = activate(s2);
+            expect(s2.peek()).toBeUndefined();
+            expect(localStorage.getItem(storageKey("undef"))).toBe(raw);
             sub.unsubscribe();
         });
 
@@ -399,6 +591,19 @@ describe("LocalState", () => {
 
             expect("ttl" in JSON.parse(driver.getItem(storageKey("g5"))!)).toBe(false);
         });
+
+        it.each([0, -1, NaN, -Infinity])(
+            "an invalid maxUnreadTime (%s) warns and falls back to the default policy",
+            (ttl) => {
+                const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+                const driver = createMarkedDriver();
+                const s = LocalSignal.state({ key: "g6", defaultValue: 0, driver, gc: { maxUnreadTime: ttl } });
+                s.set(1);
+
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("maxUnreadTime"));
+                expect("ttl" in JSON.parse(driver.getItem(storageKey("g6"))!)).toBe(false);
+            },
+        );
     });
 
     describe("static facade delegation", () => {
@@ -449,6 +654,25 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it.each([
+            ["a non-numeric version", JSON.stringify({ v: "1", nextGcAt: Date.now() + WEEK })],
+            ["no `nextGcAt`", JSON.stringify({ v: 1 })],
+            ["an array", JSON.stringify([1, Date.now() + WEEK])],
+        ])("meta with %s is treated as missing → wipe", (_, rawMeta) => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: rawMeta,
+                [storageKey("m")]: envelope(3),
+            });
+
+            const s = LocalSignal.state({ key: "m", defaultValue: -1, driver });
+            const sub = activate(s);
+
+            expect(s.peek()).toBe(-1);
+            expect(driver.getItem(storageKey("m"))).toBeNull();
+            expect(readMeta(driver)?.v).toBe(1);
+            sub.unsubscribe();
+        });
+
         it("meta with an older version → wipe", () => {
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(0, Date.now() + WEEK),
@@ -482,6 +706,25 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
+        it("a value set after the storage was cleared mid-session survives the next load", () => {
+            const map = new Map<string, string>();
+            const makeSession = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            const s = LocalSignal.state({ key: "theme", defaultValue: "light", driver: makeSession() });
+            map.clear(); // e.g. localStorage.clear() on logout
+            s.set("dark");
+
+            expect(JSON.parse(map.get(KEY_PREFIX)!).v).toBe(1);
+            expect(LocalSignal.state({ key: "theme", defaultValue: "light", driver: makeSession() }).peek()).toBe(
+                "dark",
+            );
+        });
+
         it("valid current meta → data survives init", () => {
             const driver = createMarkedDriver({ [storageKey("kept")]: envelope(42) });
 
@@ -509,7 +752,7 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("zod-schema failure does not delete a slot owned by a newer format", () => {
+        it("schema failure does not delete a slot owned by a newer format", () => {
             const slot = envelope({ migrated: true });
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(2, Date.now() + WEEK),
@@ -517,7 +760,7 @@ describe("LocalState", () => {
             });
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-            const s = LocalSignal.state({ key: "mig", zodSchema: z.number(), defaultValue: 0, driver });
+            const s = LocalSignal.state({ key: "mig", schema: z.number(), defaultValue: 0, driver });
             const sub = activate(s);
 
             expect(s.peek()).toBe(0);
@@ -730,7 +973,112 @@ describe("LocalState", () => {
             sub.unsubscribe();
         });
 
-        it("slots alive in this session are re-touched by GC instead of expiring", () => {
+        it("a meta cleared while the due timer was pending stops the round: no claim, no sweep", () => {
+            const driver = createMockDriver({
+                [KEY_PREFIX]: meta(1, BASE - 1000),
+                [storageKey("old")]: envelope(1, BASE - 61 * DAY),
+            });
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // "Another tab" clears the namespace before the armed timer fires.
+            driver.removeItem(KEY_PREFIX);
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            expect(driver.getItem(KEY_PREFIX)).toBeNull();
+            expect(driver.getItem(storageKey("old"))).not.toBeNull();
+        });
+
+        it("a meta gone when the round re-schedules pauses GC until a slot write re-marks it", () => {
+            // The due check and the re-schedule read the meta separately; the
+            // second read finds it gone (cleared by "another tab" between them).
+            let metaReads = 0;
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + 5 * DAY)],
+                [storageKey("old"), envelope(1, BASE - 61 * DAY)],
+            ]);
+            const driver = {
+                getItem: (k: string) => {
+                    if (k === KEY_PREFIX && ++metaReads === 4) return null;
+                    return map.has(k) ? map.get(k)! : null;
+                },
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            };
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // "Another tab" moves the deadline: our timer fires before it and the
+            // round is a re-schedule, not a claim-and-sweep.
+            const moved = meta(1, BASE + 10 * DAY);
+            driver.setItem(KEY_PREFIX, moved);
+            vi.advanceTimersByTime(5 * DAY + HOUR);
+
+            // No claim: the stored meta is exactly what the other tab wrote.
+            expect(map.get(KEY_PREFIX)).toBe(moved);
+            // GC paused: past the moved deadline still nothing was swept.
+            vi.advanceTimersByTime(6 * DAY);
+            expect(map.has(storageKey("old"))).toBe(true);
+            expect(map.get(KEY_PREFIX)).toBe(moved);
+        });
+
+        it("a sweep with key enumeration gone does not run, after the claim landed", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE - 1000)],
+                [storageKey("old"), envelope(1, BASE - 61 * DAY)],
+            ]);
+            const driver = {
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            };
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // Enumeration goes away before the armed timer fires.
+            delete (driver as { keys?: () => string[] }).keys;
+            vi.advanceTimersByTime(30 * MINUTE);
+
+            // The claim landed before the sweep bailed out; nothing was removed.
+            expect(JSON.parse(map.get(KEY_PREFIX)!).nextGcAt).toBe(BASE + 30 * MINUTE + WEEK);
+            expect(map.has(storageKey("old"))).toBe(true);
+        });
+
+        it("a key removed by another tab mid-sweep is skipped, the rest is swept", () => {
+            const entries: Record<string, string> = { [KEY_PREFIX]: meta(1, BASE - 1000) };
+            for (let i = 0; i < 25; i++) {
+                entries[storageKey(`expired-${i}`)] = envelope(i, BASE - 61 * DAY);
+            }
+            const driver = createMockDriver(entries);
+
+            LocalSignal.state({ key: "unrelated", defaultValue: 0, driver });
+
+            // First synchronous slice of 20; five keys wait for the continuation.
+            vi.advanceTimersToNextTimer();
+            driver.removeItem(storageKey("expired-24"));
+            vi.advanceTimersToNextTimer();
+
+            expect(driver.keys().filter((k) => k.includes("expired-"))).toEqual([]);
+        });
+
+        it("a live-touch round under a newer format owner does not touch the slots", () => {
+            const driver = createMarkedDriver({}, BASE + WEEK);
+            const s = LocalSignal.state({ key: "live", defaultValue: 1, driver });
+            const sub = activate(s);
+            s.set(2);
+            expect(JSON.parse(driver.getItem(storageKey("live"))!).at).toBe(BASE);
+
+            // Another tab upgrades the namespace before the weekly live-touch round.
+            driver.setItem(KEY_PREFIX, meta(2, BASE + 4 * WEEK));
+            vi.advanceTimersByTime(WEEK);
+
+            expect(JSON.parse(driver.getItem(storageKey("live"))!).at).toBe(BASE);
+            sub.unsubscribe();
+        });
+
+        it("slots alive in this session are re-touched instead of expiring", () => {
             const driver = createMockDriver({
                 [KEY_PREFIX]: meta(1, BASE + WEEK),
                 [storageKey("live")]: envelope(1, BASE),
@@ -846,31 +1194,121 @@ describe("LocalState", () => {
             expect(env.at).toBe(BASE + 2 * DAY - MINUTE);
         });
 
-        it("raising checkInterval mid-session arms the live-touch loop at the next GC fire", () => {
+        it("raising checkInterval mid-session keeps a live slot away from other tabs' sweeps", () => {
             const original = { ...LocalSignal.GC_OPTIONS };
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE - 1000)],
+                [storageKey("d"), envelope(1, BASE)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
 
             try {
-                const driver = createMockDriver({
-                    [KEY_PREFIX]: meta(1, BASE - 1000),
-                    [storageKey("d")]: envelope(1, BASE),
-                });
+                // Tab B does not hold the slot and fires its GC timers first.
+                LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+                LocalSignal.state({ key: "d", defaultValue: 0, driver: makeTab(), gc: { maxUnreadTime: 20 * DAY } });
 
-                LocalSignal.state({ key: "d", defaultValue: 0, driver, gc: { maxUnreadTime: 20 * DAY } });
-
-                // With a 40-day GC cadence the weekly rounds no longer protect
-                // a 20-day TTL — the dedicated loop must take over on the next
-                // GC fire (threshold becomes min(40d, 10d) = 10 days).
+                // The live-touch cadence was set up for weekly GC rounds; with
+                // a 40-day cadence the slot's own 20-day TTL must still hold.
                 LocalSignal.GC_OPTIONS = { ...original, checkInterval: 40 * DAY };
 
-                vi.advanceTimersByTime(30 * MINUTE); // due GC fire arms the loop
-                vi.advanceTimersByTime(12 * DAY);
+                vi.advanceTimersByTime(130 * DAY);
 
-                const env = JSON.parse(driver.getItem(storageKey("d"))!);
-                expect(env.at).toBe(BASE + 30 * MINUTE + 10 * DAY);
+                expect(map.has(storageKey("d"))).toBe(true);
             } finally {
                 LocalSignal.GC_OPTIONS = original;
             }
         });
+
+        it.each([
+            ["checkInterval", { checkInterval: Infinity }],
+            ["randomOffset", { randomOffset: Infinity }],
+        ])("an infinite %s does not make the next load wipe stored values", (_, override) => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+            const map = new Map<string, string>();
+            const makeSession = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            try {
+                LocalSignal.GC_OPTIONS = { ...original, ...override };
+
+                LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).set(5);
+                expect(LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).peek()).toBe(5);
+
+                // A claim under the infinite option must not void the meta either.
+                vi.advanceTimersByTime(30 * DAY);
+                expect(LocalSignal.state({ key: "k", defaultValue: 0, driver: makeSession() }).peek()).toBe(5);
+            } finally {
+                LocalSignal.GC_OPTIONS = original;
+            }
+        });
+
+        it.each([
+            ["before init", true],
+            ["over a pending GC timer", false],
+        ])("checkInterval: Infinity set %s runs no sweep, even one already due in the meta", (_, beforeInit) => {
+            const original = { ...LocalSignal.GC_OPTIONS };
+            const driver = createMarkedDriver({ [storageKey("stale")]: envelope(1, BASE - 61 * DAY) }, BASE + HOUR);
+
+            try {
+                if (beforeInit) LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+                LocalSignal.state({ key: "other", defaultValue: 0, driver });
+                LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+
+                vi.advanceTimersByTime(3 * HOUR);
+
+                expect(driver.getItem(storageKey("stale"))).not.toBeNull();
+            } finally {
+                LocalSignal.GC_OPTIONS = original;
+            }
+        });
+
+        it.each([
+            ["before init", true],
+            ["over a pending GC timer", false],
+        ])(
+            "a live slot stays protected from other tabs after checkInterval: Infinity set %s is reverted",
+            (_, beforeInit) => {
+                const original = { ...LocalSignal.GC_OPTIONS };
+                const map = new Map<string, string>([
+                    [KEY_PREFIX, meta(1, BASE + DAY)],
+                    [storageKey("live"), envelope(1, BASE - HOUR)],
+                ]);
+                const makeTab = () => ({
+                    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                    setItem: (k: string, v: string) => void map.set(k, String(v)),
+                    removeItem: (k: string) => void map.delete(k),
+                    keys: () => [...map.keys()],
+                });
+
+                try {
+                    if (beforeInit) LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+                    LocalSignal.state({ key: "live", defaultValue: 0, driver: makeTab() });
+                    LocalSignal.GC_OPTIONS = { ...original, checkInterval: Infinity };
+
+                    // The pending GC timer (if any) fires while GC is off.
+                    vi.advanceTimersByTime(2 * DAY);
+
+                    // GC back on; tab B does not hold the slot and sweeps weekly.
+                    LocalSignal.GC_OPTIONS = original;
+                    LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+
+                    vi.advanceTimersByTime(200 * DAY);
+
+                    expect(map.has(storageKey("live"))).toBe(true);
+                } finally {
+                    LocalSignal.GC_OPTIONS = original;
+                }
+            },
+        );
 
         it("touch threshold respects a small per-slot maxUnreadTime", () => {
             const driver = createMarkedDriver(
@@ -885,6 +1323,97 @@ describe("LocalState", () => {
             const env = JSON.parse(driver.getItem(storageKey("small"))!);
             expect(env.at).toBe(BASE);
             expect(env.ttl).toBe(4 * DAY);
+        });
+
+        it("a load stamps a changed gc policy on the stored envelope, before the touch threshold", () => {
+            const driver = createMarkedDriver(
+                {
+                    [storageKey("to-exempt")]: envelope(1, BASE - HOUR, DAY),
+                    [storageKey("to-default")]: envelope(2, BASE - HOUR, null),
+                    [storageKey("to-custom")]: envelope(3, BASE - HOUR),
+                },
+                BASE + WEEK,
+            );
+
+            LocalSignal.state({ key: "to-exempt", defaultValue: 0, driver, gc: false });
+            LocalSignal.state({ key: "to-default", defaultValue: 0, driver });
+            LocalSignal.state({ key: "to-custom", defaultValue: 0, driver, gc: { maxUnreadTime: 2 * DAY } });
+
+            const stored = (key: string) => JSON.parse(driver.getItem(storageKey(key))!);
+            expect(stored("to-exempt")).toEqual({ at: BASE, ttl: null, data: 1 });
+            expect(stored("to-default")).toEqual({ at: BASE, data: 2 });
+            expect(stored("to-custom")).toEqual({ at: BASE, ttl: 2 * DAY, data: 3 });
+        });
+
+        it("maxUnreadTime: Infinity is stored and touched exactly like gc: false", () => {
+            const driver = createMarkedDriver(
+                {
+                    [storageKey("inf")]: envelope(1, BASE - HOUR, null),
+                    [storageKey("off")]: envelope(2, BASE - HOUR, null),
+                },
+                BASE + WEEK,
+            );
+            const setItem = vi.spyOn(driver, "setItem");
+            const writes = (key: string) => setItem.mock.calls.filter(([k]) => k === storageKey(key)).length;
+            const load = () => {
+                LocalSignal.state({ key: "inf", defaultValue: 0, driver, gc: { maxUnreadTime: Infinity } });
+                LocalSignal.state({ key: "off", defaultValue: 0, driver, gc: false });
+            };
+
+            load();
+            expect(writes("inf")).toBe(0);
+
+            vi.advanceTimersByTime(60 * DAY);
+            load();
+
+            expect(writes("inf")).toBe(writes("off"));
+            expect(JSON.parse(driver.getItem(storageKey("inf"))!).ttl).toBeNull();
+        });
+
+        it("a slot with a NaN maxUnreadTime does not stop the re-touch of other live slots", () => {
+            vi.spyOn(console, "warn").mockImplementation(() => {});
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + DAY)],
+                [storageKey("live"), envelope(1, BASE - HOUR)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            // Tab B does not hold the slot and fires its GC timers first.
+            LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+
+            const tabA = makeTab();
+            LocalSignal.state({ key: "live", defaultValue: 0, driver: tabA });
+            LocalSignal.state({ key: "nan", defaultValue: 0, driver: tabA, gc: { maxUnreadTime: NaN } });
+
+            vi.advanceTimersByTime(200 * DAY);
+
+            expect(map.has(storageKey("live"))).toBe(true);
+        });
+
+        it("another tab does not sweep a slot loaded with gc: false over an older 1-day ttl", () => {
+            const map = new Map<string, string>([
+                [KEY_PREFIX, meta(1, BASE + 25 * HOUR)],
+                [storageKey("prefs"), envelope("dark", BASE - HOUR, DAY)],
+            ]);
+            const makeTab = () => ({
+                getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+                setItem: (k: string, v: string) => void map.set(k, String(v)),
+                removeItem: (k: string) => void map.delete(k),
+                keys: () => [...map.keys()],
+            });
+
+            // Tab B does not hold the slot and claims the sweep first.
+            LocalSignal.state({ key: "other", defaultValue: 0, driver: makeTab() });
+            LocalSignal.state({ key: "prefs", defaultValue: "light", driver: makeTab(), gc: false });
+
+            vi.advanceTimersByTime(26 * HOUR);
+
+            expect(map.has(storageKey("prefs"))).toBe(true);
         });
     });
 

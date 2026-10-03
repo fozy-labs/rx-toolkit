@@ -19,14 +19,14 @@ describe("Root module exports (@/index)", () => {
     });
 
     describe("common/react re-exports", () => {
-        it("exports useConstant", async () => {
+        it("does NOT export useConstant (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.useConstant).toBeDefined();
+            expect((mod as any).useConstant).toBeUndefined();
         });
 
-        it("exports useEventHandler", async () => {
+        it("does NOT export useEventHandler (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.useEventHandler).toBeDefined();
+            expect((mod as any).useEventHandler).toBeUndefined();
         });
     });
 
@@ -53,16 +53,6 @@ describe("Root module exports (@/index)", () => {
             expect(mod.Batcher).toBeDefined();
         });
 
-        it("exports ComputeCache", async () => {
-            const mod = await import("@/index");
-            expect(mod.ComputeCache).toBeDefined();
-        });
-
-        it("exports DependencyTracker", async () => {
-            const mod = await import("@/index");
-            expect(mod.DependencyTracker).toBeDefined();
-        });
-
         it("exports Devtools", async () => {
             const mod = await import("@/index");
             expect(mod.Devtools).toBeDefined();
@@ -73,19 +63,14 @@ describe("Root module exports (@/index)", () => {
             expect(mod.SourceSignal).toBeDefined();
         });
 
-        it("exports SyncObservable", async () => {
+        it("no longer exports the removed signalize", async () => {
             const mod = await import("@/index");
-            expect(mod.SyncObservable).toBeDefined();
+            expect("signalize" in mod).toBe(false);
         });
 
-        it("exports signalize", async () => {
+        it("does NOT export useSignal (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.signalize).toBeDefined();
-        });
-
-        it("exports useSignal", async () => {
-            const mod = await import("@/index");
-            expect(mod.useSignal).toBeDefined();
+            expect((mod as any).useSignal).toBeUndefined();
         });
 
         it("exports State", async () => {
@@ -171,6 +156,29 @@ describe("Root module exports (@/index)", () => {
         it("exports statelyInspector (from common/devtools)", async () => {
             const mod = await import("@/index");
             expect(mod.statelyInspector).toBeDefined();
+        });
+    });
+
+    describe("form re-exports", () => {
+        it("exports unstable_FormSignal with its builders", async () => {
+            const mod = await import("@/index");
+            expect(mod.unstable_FormSignal).toBeDefined();
+            expect(typeof mod.unstable_FormSignal.field).toBe("function");
+            expect(typeof mod.unstable_FormSignal.group).toBe("function");
+            expect(typeof mod.unstable_FormSignal.list).toBe("function");
+            expect(typeof mod.unstable_FormSignal.context).toBe("function");
+            expect(typeof mod.unstable_FormSignal.state).toBe("function");
+        });
+
+        it("exports unstable_formsPlugin and unstable_FormsPlugin", async () => {
+            const mod = await import("@/index");
+            expect(mod.unstable_formsPlugin().name).toBe("FormsPlugin");
+            expect(mod.unstable_formsPlugin()).toBeInstanceOf(mod.unstable_FormsPlugin);
+        });
+
+        it("exports FormConfigError", async () => {
+            const mod = await import("@/index");
+            expect(mod.FormConfigError).toBeDefined();
         });
     });
 });

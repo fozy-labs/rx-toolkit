@@ -13,14 +13,15 @@ import type {
     TResourceOptions,
 } from "@/query/types";
 
+import type { TQueryCacheEntryInternals } from "../cache/QueryCacheEntry";
 import { Command } from "../command/Command";
 import { ProjectionRuntime } from "../projection-resource/ProjectionRuntime";
 import { Resource } from "../resource/Resource";
-import { Snapshoter } from "../snapshoter";
+import { Snapshotter } from "../snapshotter";
 import { Syncer } from "../syncer";
 
-import { composeHooks } from "./composeHooks";
 import { DEFAULT_COMMAND_RETENTION_TIME, DEFAULT_RESOURCE_RETENTION_TIME } from "./constants";
+import { mergeHooks } from "./mergeHooks";
 import { normalizeLinks } from "./normalizeLinks";
 
 /**
@@ -56,9 +57,9 @@ export class Api implements IApi {
     private readonly keyPrefix: string | null;
     private readonly plugins: NonNullable<TCreateApiOptions["plugins"]>;
     private readonly apiSerializeArgs: (args: any) => string;
-    private readonly apiResourceRetentionTime: number | false;
-    private readonly apiCommandRetentionTime: number | false;
-    private readonly snapshoter: Snapshoter;
+    private readonly apiResourceRetentionTime: NonNullable<TCreateApiOptions["resourceRetentionTime"]>;
+    private readonly apiCommandRetentionTime: NonNullable<TCreateApiOptions["commandRetentionTime"]>;
+    private readonly snapshotter: Snapshotter;
     private readonly apiOnCacheEntryAdded: TCreateApiOptions["onCacheEntryAdded"];
     private readonly apiOnQueryStarted: TCreateApiOptions["onQueryStarted"];
     private readonly apiMapError: TMapError;
@@ -70,7 +71,7 @@ export class Api implements IApi {
         this.apiSerializeArgs = options?.serializeArgs ?? stableStringify;
         this.apiResourceRetentionTime = options?.resourceRetentionTime ?? DEFAULT_RESOURCE_RETENTION_TIME;
         this.apiCommandRetentionTime = options?.commandRetentionTime ?? DEFAULT_COMMAND_RETENTION_TIME;
-        this.snapshoter = new Snapshoter({
+        this.snapshotter = new Snapshotter({
             initialSnapshot: options?.initialSnapshot ?? null,
             snapshotValidTime: options?.snapshotValidTime ?? false,
             keyPrefix: this.keyPrefix,
@@ -91,11 +92,55 @@ export class Api implements IApi {
             plugin.install({ keyPrefix: this.keyPrefix ?? "" });
         }
 
+        this.applyApiAugments();
+
         // Connect sync driver after setup
         this.syncer?.connect();
     }
 
-    createResource = <TArgs = void, TData = unknown>(opts: TResourceOptions<TArgs, TData>): IResource<TArgs, TData> => {
+    /**
+     * Add the members plugins contribute to the api itself, in plugin order.
+     * A plugin never replaces a member: a name the api already has — its own
+     * (methods and internal fields alike) or one an earlier plugin added —
+     * throws, since a silent override would break every caller of the other.
+     */
+    private applyApiAugments(): void {
+        const addedBy = new Map<string, string>();
+
+        for (const plugin of this.plugins) {
+            if (!plugin.augmentApi) continue;
+
+            const additions = plugin.augmentApi(this);
+            const names = Object.keys(additions);
+
+            for (const name of names) {
+                if (!(name in this)) continue;
+                const owner = addedBy.get(name);
+                throw new Error(
+                    `[rx-toolkit] Plugin "${plugin.name}" cannot add "${name}" to the api: ` +
+                        (owner ? `plugin "${owner}" already added it.` : "the api already has it."),
+                );
+            }
+
+            for (const name of names) {
+                (this as Record<string, unknown>)[name] = additions[name];
+                addedBy.set(name, plugin.name);
+            }
+        }
+    }
+
+    createResource = <TArgs = void, TData = unknown>(opts: TResourceOptions<TArgs, TData>): IResource<TArgs, TData> =>
+        this._createResource(opts);
+
+    /**
+     * {@link createResource} plus the internal wiring a resource built by the
+     * library itself may need (the projection resource's in-place
+     * revalidation) — kept out of the public {@link TResourceOptions}.
+     */
+    private _createResource<TArgs, TData>(
+        opts: TResourceOptions<TArgs, TData>,
+        entryInternals: TQueryCacheEntryInternals = {},
+    ): IResource<TArgs, TData> {
         const effectiveRetentionTime =
             opts.retentionTime !== undefined ? opts.retentionTime : this.apiResourceRetentionTime;
 
@@ -104,12 +149,14 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + resource-level
-        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         // Snapshot hydration: build initialEntries if snapshot has matching resource data
         const initialEntries =
-            opts.snapshotable === false ? undefined : this.snapshoter.hydrateResource(opts.key, opts.snapshotValidTime);
+            opts.snapshotable === false
+                ? undefined
+                : this.snapshotter.hydrateResource(opts.key, opts.snapshotValidTime);
 
         const syncEnabled = this.syncer && this.syncer.isResourceSyncEnabled(opts);
 
@@ -121,15 +168,17 @@ export class Api implements IApi {
             mapError: this.apiMapError,
             onCacheEntryAdded: mergedOnCacheEntryAdded,
             onQueryStarted: mergedOnQueryStarted,
+            placeholderData: opts.placeholderData,
             snapshot: initialEntries,
             snapshotable: opts.snapshotable,
             allowStreamPatches: opts.allowStreamPatches,
+            invalidateInFlight: opts.invalidateInFlight,
             beforeQuery: syncEnabled
                 ? (this.syncer!.beforeQuery as IResourceConfig<TArgs, TData>["beforeQuery"])
                 : undefined,
         };
 
-        const resource = new Resource<TArgs, TData>(config);
+        const resource = new Resource<TArgs, TData>(config, entryInternals);
 
         // Track for resetAll / getSnapshot
         this.resources.push(resource);
@@ -151,7 +200,7 @@ export class Api implements IApi {
         Object.assign(resource, augmented);
 
         return resource;
-    };
+    }
 
     /**
      * Create a projection resource: a wrapper over an existing resource that fetches
@@ -163,7 +212,7 @@ export class Api implements IApi {
     ): IResource<TArgs, TItem[]> => {
         const runtime = new ProjectionRuntime<TArgs, TId, TItem, TResArgs, TResData>(opts);
 
-        // An ordinary resource caching one entry per id-set, so agents, hooks,
+        // An ordinary resource caching one entry per id-set, so clutches, hooks,
         // SWR and plugin augmentation work unchanged; the runtime deduplicates
         // the network traffic underneath. Cross-tab sync is disabled: it would
         // fill id-set entries bypassing the per-id item cache. Snapshots are
@@ -171,20 +220,27 @@ export class Api implements IApi {
         // wrapped resource owns the data that goes into SSR snapshots. The
         // generic stream-patch warning is suppressed: projection runs are always
         // open streams (live item-cache projections), and the runtime raises
-        // its own, more precise set-local patch warning instead.
-        const resource = this.createResource<TArgs, TItem[]>({
-            queryFn: runtime.queryFn,
-            key: opts.key,
-            retentionTime: opts.retentionTime,
-            serializeArgs: opts.serializeArgs,
-            // Runtime bookkeeping first: its synchronous item refcounting must
-            // be in place before any consumer hook observes the entry.
-            onCacheEntryAdded: composeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
-            onQueryStarted: opts.onQueryStarted,
-            snapshotable: false,
-            sync: false,
-            allowStreamPatches: true,
-        });
+        // its own, more precise set-local patch warning instead. An id-set
+        // entry never restarts its run to revalidate: the live run re-fetches
+        // its ids through the wrapped resource under the in-flight policy
+        // (`revalidateInRun`), and re-emits once the fresh items land.
+        const resource = this._createResource<TArgs, TItem[]>(
+            {
+                queryFn: runtime.queryFn,
+                key: opts.key,
+                retentionTime: opts.retentionTime,
+                serializeArgs: opts.serializeArgs,
+                // Runtime bookkeeping first: its synchronous item refcounting must
+                // be in place before any consumer hook observes the entry.
+                onCacheEntryAdded: mergeHooks(runtime.onCacheEntryAdded, opts.onCacheEntryAdded),
+                onQueryStarted: opts.onQueryStarted,
+                invalidateInFlight: opts.invalidateInFlight,
+                snapshotable: false,
+                sync: false,
+                allowStreamPatches: true,
+            },
+            { revalidateInRun: runtime.revalidateInRun },
+        );
 
         runtime.attach(resource);
 
@@ -210,8 +266,8 @@ export class Api implements IApi {
         const effectiveKey = this.keyPrefix != null && opts.key != null ? `${this.keyPrefix}/${opts.key}` : opts.key;
 
         // Merge lifecycle hooks: API-level + command-level
-        const mergedOnCacheEntryAdded = composeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
-        const mergedOnQueryStarted = composeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
+        const mergedOnCacheEntryAdded = mergeHooks(this.apiOnCacheEntryAdded, opts.onCacheEntryAdded);
+        const mergedOnQueryStarted = mergeHooks(this.apiOnQueryStarted, opts.onQueryStarted);
 
         const config: ICommandConfig<TArgs, TData> = {
             queryFn: opts.queryFn,
@@ -244,7 +300,7 @@ export class Api implements IApi {
     };
 
     getSnapshot = (): TApiSnapshot => {
-        return this.snapshoter.getSnapshot(this.resources);
+        return this.snapshotter.getSnapshot(this.resources);
     };
 
     resetAll = (): void => {
@@ -254,6 +310,7 @@ export class Api implements IApi {
         for (const command of this.commands) {
             command.reset();
         }
+        this.snapshotter.clear();
 
         // Clean up sync state and reconnect
         this.syncer?.cleanup();

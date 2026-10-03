@@ -46,11 +46,11 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.isError).toBe(true);
+        expect(state.hasError).toBe(true);
         expect(state.error).toBeInstanceOf(NetUnknownError);
         expect((state.error as NetUnknownError).original).toBeInstanceOf(Error);
     });
@@ -65,7 +65,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getState(1).error).toBe(cause);
@@ -83,14 +83,14 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(produced).toBeInstanceOf(NetUnknownError);
         expect(resource.getState(1).error).toBe(produced);
     });
 
-    it("maps a refresh failure into refresh-error while keeping stale data", async () => {
+    it("maps a failed invalidation into an error keeping the entry's own data", async () => {
         let calls = 0;
         const api = createApi({ mapError: toNetError });
         const resource = api.createResource<number, string>({
@@ -102,16 +102,19 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect(resource.getState(1).status).toBe("success");
 
-        resource.refresh(1);
+        // Held: an active entry re-runs at once on invalidate.
+        resource.getEntry(1)!.hold();
+        resource.invalidate(1);
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.status).toBe("refresh-error");
-        expect(state.isRefreshError).toBe(true);
+        expect(state.status).toBe("error");
+        expect(state.dataSource).toBe("current");
+        expect(state.hasError).toBe(true);
         expect(state.data).toBe("good");
         expect(state.error).toBeInstanceOf(NetError);
     });
@@ -127,7 +130,7 @@ describe("mapError — resource state", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         expect((resource.getState(1).error as NetError).status).toBe(1);
 
@@ -137,10 +140,10 @@ describe("mapError — resource state", () => {
     });
 });
 
-// ==================== Resource agent + imperative fetch ====================
+// ==================== Resource clutch + imperative fetch ====================
 
-describe("mapError — resource agent and imperative fetch", () => {
-    it("surfaces the mapped error on the agent state", async () => {
+describe("mapError — resource clutch and imperative fetch", () => {
+    it("surfaces the mapped error on the clutch state", async () => {
         const api = createApi({ mapError: toNetError });
         const resource = api.createResource<number, string>({
             queryFn: async () => {
@@ -149,14 +152,14 @@ describe("mapError — resource agent and imperative fetch", () => {
             retentionTime: false,
         });
 
-        const agent = resource.createAgent();
-        agent.set(1, true);
-        agent.start();
+        const clutch = resource.createClutch();
+        clutch.switch(1, { markPending: true });
+        clutch.start();
         await flushMicrotasks();
         await flushMicrotasks();
 
-        const state = agent.state$.peek();
-        expect(state.isError).toBe(true);
+        const state = clutch.state$.peek();
+        expect(state.hasError).toBe(true);
         expect(state.error).toBeInstanceOf(NetError);
     });
 
@@ -199,7 +202,7 @@ describe("mapError — context", () => {
             retentionTime: false,
         });
 
-        resource.trigger({ id: 7 });
+        resource.getEntry({ id: 7 }, true);
         await flushMicrotasks();
 
         expect(mapError).toHaveBeenCalledTimes(1);
@@ -220,7 +223,7 @@ describe("mapError — context", () => {
             },
         });
 
-        await command.trigger("payload", "k1").catch(() => {});
+        await command.execute("payload", "k1").catch(() => {});
         await flushMicrotasks();
 
         expect(mapError).toHaveBeenCalledTimes(1);
@@ -244,7 +247,7 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         // Abort the in-flight run before its rejection is processed.
         resource.getEntry(1)!.complete();
         await flushMicrotasks();
@@ -267,11 +270,11 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         const state = resource.getState(1);
-        expect(state.isError).toBe(true);
+        expect(state.hasError).toBe(true);
         expect(state.error).toBe(raw);
         expect(consoleError).toHaveBeenCalled();
 
@@ -288,7 +291,7 @@ describe("mapError — robustness", () => {
             retentionTime: false,
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
 
         expect(resource.getState(1).error).toBe(raw);
@@ -312,7 +315,7 @@ describe("mapError — robustness", () => {
             },
         });
 
-        resource.trigger(1);
+        resource.getEntry(1, true);
         await flushMicrotasks();
         await flushMicrotasks();
 
@@ -334,14 +337,14 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger("x");
+        const clutch = command.createClutch();
+        const result = await clutch.trigger("x");
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetError);
     });
 
-    it("maps the rejection from the agent trigger's unwrap()", async () => {
+    it("maps the rejection from the clutch trigger's unwrap()", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: async () => {
@@ -349,8 +352,8 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        await expect(agent.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
+        const clutch = command.createClutch();
+        await expect(clutch.trigger("x").unwrap()).rejects.toBeInstanceOf(NetUnknownError);
     });
 
     it("maps the raw Command.execute rejection", async () => {
@@ -373,8 +376,8 @@ describe("mapError — command", () => {
             },
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger("x");
+        const clutch = command.createClutch();
+        const result = await clutch.trigger("x");
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetUnknownError);
@@ -387,7 +390,7 @@ describe("mapError — command", () => {
             queryFn: async () => "seed",
             retentionTime: false,
         });
-        target.trigger(1);
+        target.getEntry(1, true);
         await flushMicrotasks();
 
         const command = api.createCommand<number, string>({
@@ -402,8 +405,8 @@ describe("mapError — command", () => {
                 }),
         });
 
-        const agent = command.createAgent();
-        const result = await agent.trigger(1);
+        const clutch = command.createClutch();
+        const result = await clutch.trigger(1);
 
         expect(result.status).toBe("error");
         expect(result.error).toBeInstanceOf(NetUnknownError);
@@ -413,15 +416,15 @@ describe("mapError — command", () => {
 // ==================== Command entry removal ====================
 
 describe("mapError — command entry removal", () => {
-    it("maps the eviction error when a re-trigger with the same key replaces an in-flight mutation", async () => {
+    it("maps the eviction error when a re-trigger with the same entry key replaces an in-flight mutation", async () => {
         const api = createApi({ mapError: toNetError });
         const command = api.createCommand<string, string>({
             queryFn: () => new Promise<string>(() => {}),
         });
 
-        const agent = command.createAgent();
-        const first = agent.trigger("a", "k");
-        void agent.trigger("b", "k");
+        const clutch = command.createClutch();
+        const first = clutch.trigger("a", "k");
+        void clutch.trigger("b", "k");
 
         const result = await first;
         expect(result.status).toBe("error");

@@ -44,7 +44,8 @@ const addTodoCommand = api.createCommand({
 Для работы в React подключите `reactHooksPlugin()` при создании API:
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
   plugins: [reactHooksPlugin()],
@@ -55,7 +56,7 @@ const api = createApi({
 
 ```tsx
 function AddTodoForm() {
-  const [trigger, { data, error, isLoading }] = addTodoCommand.useCommand();
+  const [trigger, { data, error, isPending }] = addTodoCommand.useCommand();
   const [text, setText] = React.useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,8 +68,8 @@ function AddTodoForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <input value={text} onChange={e => setText(e.target.value)} disabled={isLoading} />
-      <button disabled={isLoading}>Добавить</button>
+      <input value={text} onChange={e => setText(e.target.value)} disabled={isPending} />
+      <button disabled={isPending}>Добавить</button>
       {error && <p>Ошибка: {String(error)}</p>}
     </form>
   );
@@ -79,12 +80,13 @@ function AddTodoForm() {
 
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
 2. `trigger(args)` запускает `queryFn` и возвращает `TTriggerPromise<TData>` — [конверт результата](#результат-trigger); промис не реджектится.
-3. Состояние (`isLoading`, `isSuccess`, `isError`) обновляется реактивно.
+3. Состояние (`isPending`, `hasData`, `hasError`) обновляется реактивно.
+4. `entryKey` привязывает хук к кэш-записи во время рендера: при смене ключа первый же коммит уже наблюдает за новой записью (никогда — за прежней), а `trigger` до срабатывания эффектов уже идёт под новым ключом. `useCommand(undefined)` запускает мутации под свежим сгенерированным ключом, не переиспользуя прежний — в полёте под ним оставшаяся мутация не трогается.
 
 
 ## Результат trigger
 
-`trigger` из `useCommand` (и `agent.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
+`trigger` из `useCommand` (и `clutch.trigger`) возвращает промис, который **никогда не реджектится** — итог приходит конвертом, дискриминированным по `status`. Обрабатывать ошибку через try/catch не нужно:
 
 ```tsx
 const result = await trigger({ text });
@@ -106,7 +108,7 @@ try {
 }
 ```
 
-Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.isError`.
+Игнорировать результат тоже безопасно — необработанного реджекта не будет, а ошибка отразится реактивно через `state.hasError`.
 
 ## Состояния команды
 
@@ -114,15 +116,16 @@ try {
 
 | Поле | Тип | Описание |
 |---|---|---|
-| `status` | `string` | `'idle'` · `'pending'` · `'success'` · `'error'` |
+| `status` | `TClutchStatus` | `'idle'` · `'pending'` · `'success'` · `'error'` |
 | `data` | `TData \| null` | Данные последнего успешного ответа. |
-| `error` | `TError \| null` | Ошибка последней мутации. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
-| `isLoading` | `boolean` | `true` при выполнении мутации. |
-| `isSuccess` | `boolean` | `true` когда мутация завершилась успешно. |
-| `isError` | `boolean` | `true` при ошибке мутации. |
+| `error` | `TError \| null` | Ошибка последней мутации; живёт до следующего ответа, поэтому переживает повтор. По умолчанию `unknown`; типизируется опцией API [`mapError`](../api/README.md#типизация-ошибок-maperror). |
+| `isPending` | `boolean` | `true` при выполнении мутации. |
+| `hasData` | `boolean` | `true` ⇔ `status === 'success'`. |
+| `hasError` | `boolean` | `true` ⇔ `error !== null`. |
+| `args` | `TArgs \| null` | Аргументы последнего запуска. |
 | `retry` | `() => void` | Перезапускает упавшую мутацию (тот же request id). No-op вне состояния `error`. |
 
-Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `isSuccess` гарантирует `data: TData` (без `| null`), `isError` — `error: TError` и `data: null`. Полная таблица вариантов — в [API агента команды][api-cmd-agent].
+Состояние — **дискриминированное объединение**: проверка `status` или любого флага сужает типы остальных полей — `hasData` гарантирует `data: TData` (без `| null`), `hasError` — `error: TError`. Пока идёт повтор упавшей мутации, истинны и `isPending`, и `hasError`. Полная таблица вариантов — в [API сцепления команды][api-cmd-clutch].
 
 
 ## Ретраи и request id
@@ -131,9 +134,9 @@ try {
 
 ```tsx
 function PayButton() {
-  const [pay, { isError, error, retry, isLoading }] = payCommand.useCommand();
+  const [pay, { hasError, error, retry, isPending }] = payCommand.useCommand();
 
-  if (isError) {
+  if (hasError && !isPending) {
     return (
       <div>
         <p>Ошибка: {String(error)}</p>
@@ -142,11 +145,11 @@ function PayButton() {
     );
   }
 
-  return <button disabled={isLoading} onClick={() => pay({ amount: 100 })}>Оплатить</button>;
+  return <button disabled={isPending} onClick={() => pay({ amount: 100 })}>Оплатить</button>;
 }
 ```
 
-`retry()` перезапускает текущую (упавшую) кэш-запись — новая запись не создаётся, request id сохраняется. Повторный вызов `trigger` без явного ключа, наоборот, создаёт новую запись с новым request id.
+`retry()` перезапускает текущую (упавшую) кэш-запись — новая запись не создаётся, request id сохраняется, а повторяемая ошибка остаётся читаемой в `error`. Повторный вызов `trigger`, наоборот, создаёт новую запись с новым request id — в том числе с тем же ключом записи, поэтому `data` и `error` прошлого запуска в новое `pending` не переносятся.
 
 
 ## Императивный API
@@ -161,9 +164,9 @@ const data = await addTodoCommand.execute({ text: 'Новая задача' });
 const data = await addTodoCommand.execute({ text: 'Новая задача' }, 'my-mutation-1');
 ```
 
-Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `key` идентифицирует кэш-запись.
+Запускает `queryFn` и возвращает промис с результатом. Необязательный второй аргумент `entryKey` идентифицирует кэш-запись.
 
-В отличие от `trigger` на уровне агента и хука, `Command.execute` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
+В отличие от `trigger` на уровне сцепления и хука, `Command.execute` возвращает **сырой** `Promise<TData>` — при ошибке мутации он реджектится. Чтобы получить [конверт результата](#результат-trigger) вручную, оберните промис хелпером `wrapTrigger`:
 
 ```typescript
 import { wrapTrigger } from '@fozy-labs/rx-toolkit';
@@ -172,8 +175,6 @@ const result = await wrapTrigger(addTodoCommand.execute({ text: 'Задача' }
 if (result.status === 'error') { /* ... */ }
 ```
 
-Прежнее имя `Command.trigger` объявлено **deprecated** (контракт идентичен `execute`) и будет удалено в одном из следующих релизов.
-
 ### getEntry
 
 Синхронно возвращает кэш-запись для указанного ключа, или `null` если записи нет.
@@ -181,7 +182,7 @@ if (result.status === 'error') { /* ... */ }
 ```typescript
 const entry = addTodoCommand.getEntry('my-mutation-1');
 if (entry) {
-  console.log(entry.machine$().data);
+  console.log(entry.state$().data);
 }
 ```
 
@@ -193,17 +194,17 @@ if (entry) {
 const entry$ = Signal.compute(() => addTodoCommand.getEntry$('my-mutation-1'));
 ```
 
-### createAgent
+### createClutch
 
-Создаёт агент — реактивный наблюдатель за командой. Принимает опциональный `key` для привязки к конкретной кэш-записи.
-Полная таблица методов и статусов — в [API агента команды][api-cmd-agent].
+Создаёт сцепление — реактивный наблюдатель за командой. Принимает опциональный `entryKey` для привязки к конкретной кэш-записи.
+Полная таблица методов и статусов — в [API сцепления команды][api-cmd-clutch].
 
 ```typescript
-const agent = addTodoCommand.createAgent('my-mutation-1');
+const clutch = addTodoCommand.createClutch('my-mutation-1');
 
-// trigger через агент
-agent.trigger({ text: 'New todo' });
-// agent.state$() → { status: "pending", data: null, isLoading: true, ... }
+// trigger через сцепление
+clutch.trigger({ text: 'New todo' });
+// clutch.state$() → { status: "pending", data: null, isPending: true, ... }
 ```
 
 
@@ -228,12 +229,12 @@ const [trigger, state] = addTodoCommand.useCommand('my-mutation-1');
 await trigger({ text: 'Задача' });
 ```
 
-- **Агент** — ключ передаётся в `createAgent` и может меняться с помощью методов `trigger` или `setKey`:
+- **Сцепление** — ключ передаётся в `createClutch` и может меняться с помощью методов `trigger` или `setEntryKey`:
 
 ```typescript
-const agent = addTodoCommand.createAgent('my-mutation-1');
-agent.trigger({ text: 'Задача' }, 'my-mutation-2');
-agent.setKey('my-mutation-3');
+const clutch = addTodoCommand.createClutch('my-mutation-1');
+clutch.trigger({ text: 'Задача' }, 'my-mutation-2');
+clutch.setEntryKey('my-mutation-3');
 ```
 
 Разные потребители могут синхронизировать состояние, используя один и тот же ключ.
@@ -252,18 +253,18 @@ agent.setKey('my-mutation-3');
 ## См. также
 
 - [Ресурс][resource] — чтение данных с кэшированием и SWR
-- [Машина состояний][machine] — детали переходов между статусами
+- [Состояние записи запроса][entry-state] — детали переходов между статусами
 - [Система кэширования][cache] — жизненный цикл записей кэша
-- [Агент][agent] — реактивный наблюдатель, транслирующий состояние в UI
-- [Broadcast][broadcast] — синхронизация между вкладками; команды поддерживают опцию `sync: true`
+- [Сцепление][clutch] — реактивный наблюдатель, транслирующий состояние в UI
+- [Broadcast][broadcast] — синхронизация между вкладками; команды в ней не участвуют
 
 [resource]: ./resource.md
-[machine]: ../concepts/machine.md
+[entry-state]: ../concepts/query-entry-state.md
 [cache]: ../concepts/cache.md
-[agent]: ../concepts/agent.md
+[clutch]: ../concepts/clutch.md
 [broadcast]: ./broadcast.md
 [api-command]: ../api/command.md
-[api-cmd-agent]: ../api/command-agent.md
+[api-cmd-clutch]: ../api/command-clutch.md
 [lifecycle]: ./lifecycle.md
 [links]: ./links.md
 [query-fn]: ./query-fn.md

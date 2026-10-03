@@ -1,37 +1,93 @@
 import { isObservable, type Observable, type Subscription } from "rxjs";
 
+import { SharedOptions } from "@/common/options/SharedOptions";
+import { reportUnhandledError } from "@/common/utils";
 import type {
     IPatchHandle,
     IQueryCacheEntry,
     IQueryCacheEntryOptions,
-    Keyed,
     TErrorContext,
-    TMachineState,
+    TInFlightPolicy,
+    TInvalidateOptions,
+    TKeyed,
     TMapError,
+    TQueryEntryState,
 } from "@/query/types";
-import type { ReadonlySignal } from "@/signals/types";
+import { untracked } from "@/signals/base/untracked";
 
 import { abortReason } from "../../lib/abortReason";
 import { CacheEntryRemovedError, EmptyStreamError, PreMappedError } from "../errors";
 import { Machine } from "../machine/Machine";
-import { hasData } from "../machine/machine-helpers";
+import { isDataState, pendingEntryState } from "../machine/machine-helpers";
+import type { MachineBase } from "../machine/MachineBase";
 
 import { CacheEntry } from "./CacheEntry";
 
 // ==================== QueryCacheEntry ====================
 
-/** Outcome of matching a machine state in {@link QueryCacheEntry._awaitState}. */
+/**
+ * Lets a run revalidate in place instead of being restarted — for a queryFn
+ * whose open stream brings fresh data on its own (the projection resource).
+ * When set, `invalidate()` never aborts or joins the run in flight: the mark
+ * carries the policy, and when it turns into a revalidation (at once when
+ * held, on the first hold when melting) the revalidation is handed to the run
+ * — `signal` identifies it (the one its queryFn received), `policy` is the
+ * in-flight policy to apply to the requests underneath. The entry moves
+ * `success → invalidating` itself; the run's next emission settles it, a
+ * stream error fails it. Returns `false` when the run cannot take the
+ * revalidation over (it is no longer live) — the entry then restarts it as
+ * usual.
+ */
+export type TRevalidateInRun = (signal: AbortSignal, policy: TInFlightPolicy) => boolean;
+
+/**
+ * Core-only wiring of a {@link QueryCacheEntry}: hooks the library's own
+ * resources need and that are deliberately kept out of the public
+ * {@link IQueryCacheEntryOptions}. Handed to the constructor separately.
+ */
+export interface TQueryCacheEntryInternals<TData = never> {
+    /** See {@link TRevalidateInRun}. */
+    revalidateInRun?: TRevalidateInRun;
+    /**
+     * Where the entry's cold load looks first — the other tabs' cache
+     * (`beforeQuery`). Consulted by the first run only, and only when no
+     * `initialState` is given: an answer settles the run (`sync`); `null` or
+     * a rejection falls through to the queryFn within the same run. The whole
+     * round-trip is that run in flight, so every in-flight policy applies to
+     * it — `cancel` drops it (a late answer is ignored), `trail` waits for it
+     * and whatever it falls through to, `join` takes its outcome.
+     */
+    coldLoad?: () => Promise<{ data: TData } | null>;
+    /**
+     * Told that a promise run has settled into the entry: called right after
+     * the entry recorded the outcome, so whoever it wakes finds the entry
+     * already showing it. `signal` identifies the run (the one its queryFn
+     * received); `outcome` carries the data or the raw failure, before
+     * `mapError`. An aborted run is never reported — its signal already says
+     * how it ended.
+     */
+    onPromiseRunSettled?: (signal: AbortSignal, outcome: PromiseSettledResult<TData>) => void;
+}
+
+/** Outcome of matching an entry state in {@link QueryCacheEntry._awaitState}. */
 type TSettled<TData> = { kind: "data"; data: TData } | { kind: "error"; error: unknown };
 
 export class QueryCacheEntry<TArgs, TData>
-    extends CacheEntry<Machine<TArgs, TData>>
+    extends CacheEntry<TQueryEntryState<TArgs, TData>>
     implements IQueryCacheEntry<TArgs, TData>
 {
-    readonly keyedArgs: Keyed<TArgs>;
-    readonly machine$: ReadonlySignal<Machine<TArgs, TData>>;
+    readonly keyedArgs: TKeyed<TArgs>;
 
-    private _queryFn: (keyedArgs: Keyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
-    private _abortController: AbortController | null = null;
+    private _queryFn: (keyedArgs: TKeyed<TArgs>, signal: AbortSignal) => Promise<TData> | Observable<TData>;
+
+    /**
+     * Controller of the run in flight — a promise run that has not settled, or
+     * a stream run whose subscription is open — and `null` between runs. Only
+     * the run it belongs to may clear it on settle: a superseding run replaces
+     * it before the old one is aborted (see {@link _abortRun}), and an aborted
+     * run's handlers stand down without touching it.
+     */
+    private _runController: AbortController | null = null;
 
     /**
      * Controller of the run whose query stream is currently open (has an
@@ -51,18 +107,58 @@ export class QueryCacheEntry<TArgs, TData>
     private readonly _errorSource: "query" | "command";
     private readonly _resourceKey: string | undefined;
     private readonly _onStreamPatch: (() => void) | undefined;
+    private readonly _invalidateInFlight: TInFlightPolicy;
+    private readonly _revalidateInRun: TRevalidateInRun | undefined;
+    private readonly _onPromiseRunSettled: TQueryCacheEntryInternals<TData>["onPromiseRunSettled"];
+
+    /** See {@link TQueryCacheEntryInternals.coldLoad}; consumed by the first run. */
+    private _coldLoad: (() => Promise<{ data: TData } | null>) | undefined;
 
     /** First data ever seen (survives error+retry); rejected only if the entry is removed first. */
     private readonly _firstLoaded: Promise<TData>;
 
-    constructor(options: IQueryCacheEntryOptions<TArgs, TData>) {
-        const machine = options.initialMachine ?? Machine.pending<TArgs, TData>(options.keyedArgs.value);
+    /**
+     * The entry owes a revalidation: it was invalidated while melting, or while
+     * a run it was told to trail was in flight, or a run left flight without
+     * landing the load the entry waits for (see {@link _onRunLeftFlight}). The
+     * owed run starts at the first moment the entry is held with nothing in
+     * flight (see {@link _maybeRevalidate}). Cleared by whatever starts a run
+     * — any run that goes out after the mark brings data from after it — and
+     * by the hand-over of an in-place revalidation (see {@link _revalidateInPlace}).
+     */
+    private _isInvalidated = false;
+
+    /**
+     * The in-flight policy the pending mark was set under: the strongest of
+     * the calls since the last run started (`cancel` > `trail` > `join`).
+     * `null` without a mark, and for a mark no call set (a stale snapshot) —
+     * the entry's `invalidateInFlight` stands in then. Consumed when the mark
+     * turns into a revalidation (see {@link _invalidationRunPolicy}).
+     */
+    private _markPolicy: TInFlightPolicy | null = null;
+
+    /** Backing field of {@link _invalidationRunPolicy}. */
+    private _runPolicy: TInFlightPolicy | null = null;
+
+    /**
+     * Callbacks deferred while a run is in flight (see {@link _afterRunInFlight}),
+     * keyed by that run's controller so a superseding run never inherits them.
+     * Emptied as the run leaves flight — its settle written into the state, or
+     * its abort.
+     */
+    private _deferredRunCallbacks: Map<AbortController, (() => void)[]> | null = null;
+
+    constructor(options: IQueryCacheEntryOptions<TArgs, TData>, internals: TQueryCacheEntryInternals<TData> = {}) {
+        const initialState = options.initialState ?? pendingEntryState<TArgs>(options.keyedArgs.value);
 
         const devtoolsKey = options.resourceKey
             ? `${options.resourceKey}:${options.keyedArgs.key}`
             : options.keyedArgs.key;
 
-        super(machine, {
+        // The retention policy is already a function of this entry's state, and
+        // the state it would read belongs to the base class — so it is handed
+        // over untouched and evaluated there, once per retention cycle.
+        super(initialState, {
             retentionTime: options.retentionTime,
             devtoolsKey,
             beforeDevtoolsPush: options.beforeDevtoolsPush,
@@ -74,84 +170,249 @@ export class QueryCacheEntry<TArgs, TData>
         this._errorSource = options.errorSource ?? "query";
         this._resourceKey = options.resourceKey;
         this._onStreamPatch = options.onStreamPatch;
-        this.machine$ = this.state$;
+        this._invalidateInFlight = options.invalidateInFlight ?? "cancel";
+        this._revalidateInRun = internals.revalidateInRun;
+        this._onPromiseRunSettled = internals.onPromiseRunSettled;
 
         // The raw stream replays the current state, so hydrated entries settle
         // immediately. Suppress "nobody awaited" rejections (may never be read).
-        this._firstLoaded = this._awaitState((state) => (hasData(state) ? { kind: "data", data: state.data } : null), {
-            keepalive: false,
-        });
+        this._firstLoaded = this._awaitState(
+            (state) => (isDataState(state) ? { kind: "data", data: state.data } : null),
+            {
+                keepalive: false,
+            },
+        );
         void this._firstLoaded.catch(() => {});
 
-        // Auto-execute queryFn when no initial state is provided. An explicit
-        // pending initialMachine suppresses auto-execute (beforeQuery intercept),
-        // but a hydrated "refreshing" machine (stale snapshot) requires a real
-        // run: the state means "query in flight" and, with refresh()/retry()
-        // invalid from it, has no other way out.
-        if (!options.initialMachine || options.initialMachine.status === "refreshing") {
+        // A stale snapshot hydrates as data that owes a revalidation: the entry
+        // is born melting and marked, and re-queries on its first hold. A mark
+        // on a pending initial state is just as meaningful — nothing is in
+        // flight, so the first hold runs the load it owes.
+        this._isInvalidated = options.isInvalidated ?? false;
+
+        // Auto-execute queryFn when no initialState is provided — through the
+        // cold load, if there is one. An explicit initialState suppresses
+        // auto-execute: a pending one is a load nobody started yet, a data
+        // one is a snapshot.
+        if (!options.initialState) {
+            this._coldLoad = internals.coldLoad;
             this._execute();
         }
     }
 
-    /** Transition to refreshing and re-fetch data. Valid from success or refresh-error. */
-    refresh(): void {
-        const machine = this.machine$.peek();
+    /**
+     * Whether the entry owes a revalidation: invalidated while melting, or
+     * while a run it was told to trail is in flight, or a run left flight
+     * without landing the load the entry waits for. On an active entry it is
+     * only ever `true` while such a run is in flight.
+     */
+    get isInvalidated(): boolean {
+        return this._isInvalidated;
+    }
 
-        if (machine.status !== "success" && machine.status !== "refresh-error") {
-            console.warn(`[QueryCacheEntry] refresh() called in invalid state: ${machine.status}`);
-            return;
-        }
-
-        this.set(machine.refresh(), "refresh");
-        this._execute();
+    /** @internal Whether a query run is in flight: a promise not yet settled, or a stream still open. */
+    get _isInFlight(): boolean {
+        return this._runController !== null;
     }
 
     /**
-     * Re-execute the query after a failure. Valid from error and refresh-error.
-     * Unlike {@link refresh}, the failed error stays visible and the in-flight
-     * state is marked `isRetrying`.
+     * @internal Run `cb` once the run currently in flight leaves flight —
+     * immediately when nothing is in flight, or when the in-flight run is an
+     * open stream (its emissions keep coming; a deferred commit would never
+     * land). Otherwise `cb` is held against the current run's controller and
+     * invoked after that run's settle is written into the state — right before
+     * {@link _onRunLeftFlight} — or when the run is aborted. A run superseded
+     * or aborted takes its callbacks with it; a later run does not inherit
+     * them.
+     *
+     * A throwing callback does not take down the rest, nor the run leaving
+     * flight.
+     */
+    _afterRunInFlight(cb: () => void): void {
+        const controller = this._runController;
+        if (!controller || this._isStreamOpen) {
+            cb();
+            return;
+        }
+
+        let queue = this._deferredRunCallbacks?.get(controller);
+        if (!queue) {
+            queue = [];
+            (this._deferredRunCallbacks ??= new Map()).set(controller, queue);
+            // An aborted run never reaches a settle handler — flush it here.
+            // Deferred to a microtask: a synchronous flush would run the commit
+            // inside `_abortRun()` → `_execute()` / `invalidate()`, and a commit
+            // hitting a consistency violation starts a nested run whose
+            // controller the outer `_execute()` then overwrites — a leaked run.
+            // The microtask still lands before any response of the replacing run.
+            controller.signal.addEventListener(
+                "abort",
+                () => queueMicrotask(() => this._flushDeferredRunCallbacks(controller)),
+                {
+                    once: true,
+                },
+            );
+        }
+        queue.push(cb);
+    }
+
+    /** Run the callbacks the run of `controller` had deferred; no-op for a run that deferred none. */
+    private _flushDeferredRunCallbacks(controller: AbortController): void {
+        const queue = this._deferredRunCallbacks?.get(controller);
+        if (!queue?.length) return;
+        this._deferredRunCallbacks?.delete(controller);
+        for (const cb of queue) {
+            try {
+                cb();
+            } catch (error) {
+                console.error("[QueryCacheEntry] a callback deferred by _afterRunInFlight threw; continuing.", error);
+            }
+        }
+    }
+
+    /**
+     * @internal `state` as the entry shows it once held. A hold starts the
+     * revalidation the entry owes before its holder's first snapshot (see
+     * {@link onActive}), so a consumer that reads before it holds — a clutch
+     * read during render, ahead of its subscription — gets that in-flight
+     * state at once: `success` / `invalidate-error` → `invalidating`, `error`
+     * → `pending` with the failure cleared. Without an owed revalidation, or
+     * with a trailed run in the way, `state` comes back as it is.
+     */
+    _stateOnHold(state: TQueryEntryState<TArgs, TData>): TQueryEntryState<TArgs, TData> {
+        if (!this._isRevalidationDue) return state;
+
+        const machine = Machine.of(state);
+        if (machine.status === "pending" || machine.status === "invalidating") return state;
+        return machine.invalidate().state;
+    }
+
+    /**
+     * @internal The in-flight policy of the invalidation the current run
+     * answers, or `null` when it answers none. Set when a run is started by
+     * `invalidate()` — at once, or as a mark honoured later — and when a run
+     * takes a revalidation over in place (see
+     * {@link TRevalidateInRun}); a retry keeps it, so a
+     * cold load and its retries stay `null`. The status alone cannot tell: a
+     * cold load cancelled by `invalidate()` restarts from `pending`. Read by
+     * the projection runtime, whose run then loads its ids under that policy
+     * instead of from its item cache.
+     */
+    get _invalidationRunPolicy(): TInFlightPolicy | null {
+        return this._runPolicy;
+    }
+
+    /**
+     * Re-check what the entry shows. Valid from every status: from error the
+     * re-fetch lands in `pending` (the entry holds nothing, and the reader's
+     * view may show data the entry does not know about).
+     *
+     * Lazy: the entry is marked, and the mark turns into a run the moment the
+     * entry is held with nothing in flight — right here for a held, settled
+     * entry; on the first hold for a melting one (nobody is looking). Marking
+     * is idempotent. With a run in flight, `opts.inFlight` — else the entry's
+     * `invalidateInFlight` — decides whether that run is aborted now (`cancel`)
+     * or left to settle (`trail`) before the rule above applies, or taken as
+     * the answer to this call (`join`: nothing is aborted or marked, the call
+     * is a no-op); for a stream "in flight" means an open subscription,
+     * `success` included. A run that revalidates in place
+     * ({@link TRevalidateInRun}) is exempt from all
+     * three: it is never aborted or joined here — the mark carries the policy
+     * and turns into an in-place revalidation under the same lazy rule, at
+     * once when held, on the first hold when melting. Either way this never
+     * throws: a failed re-fetch lands in `invalidate-error` like any other,
+     * and a consumer's throw on the state write is reported (see
+     * {@link _setMachine}). A
+     * consistency violation (a patch that could not be replayed) re-queries
+     * through this same call, under the entry's `invalidateInFlight`.
+     *
+     * Never valid on a command entry: a command result is not re-checked, it is
+     * re-executed. That is what keeps `invalidating` / `invalidate-error`
+     * unreachable for a command, so the command clutch can treat those statuses
+     * as an exhaustive `never` branch.
+     */
+    invalidate(opts?: TInvalidateOptions): void {
+        if (this._errorSource === "command") {
+            console.warn("[QueryCacheEntry] invalidate() called on a command entry: not supported");
+            return;
+        }
+
+        const inFlight = opts?.inFlight ?? this._invalidateInFlight;
+
+        // A run that revalidates in place applies the policy itself, to the
+        // requests underneath it — here the policy only goes with the mark.
+        if (this._isInFlight && !this._revalidateInRun) {
+            // Under `join` the caller accepts the run in flight as the answer:
+            // nothing is aborted, nothing is marked, nothing follows its settle.
+            if (inFlight === "join") return;
+
+            // The run in flight was started before the invalidation: whatever
+            // it brings is suspect. Under `cancel` it is dropped here — melting
+            // or not: a socket kept open for data nobody trusts is not worth
+            // keeping.
+            if (inFlight === "cancel") this._abortRun();
+        }
+
+        this._isInvalidated = true;
+        this._markPolicy = strongerPolicy(this._markPolicy, inFlight);
+        this._maybeRevalidate("invalidate");
+    }
+
+    /** @deprecated Renamed to {@link invalidate}. Will be removed in 0.14.0. */
+    refresh(): void {
+        this.invalidate();
+    }
+
+    /**
+     * Re-execute the query after a failure. Valid from error and invalidate-error.
+     * Unlike {@link invalidate}, the failed error stays visible: in the resulting
+     * in-flight state a non-null `error` is what marks the run as a retry.
      */
     retry(): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
-        if (machine.status !== "error" && machine.status !== "refresh-error") {
+        if (machine.status !== "error" && machine.status !== "invalidate-error") {
             console.warn(`[QueryCacheEntry] retry() called in invalid state: ${machine.status}`);
             return;
         }
 
-        this.set(machine.retry(), "retry");
-        this._execute();
+        this._setMachine(machine.retry(), "retry");
+        // The run that starts here settles fresh: it clears any pending mark.
+        // A retry of a failed revalidation still answers that invalidation,
+        // under the same policy.
+        this._execute(this._runPolicy);
     }
 
     /** Create an optimistic patch. Returns null if state has no data. */
     createPatch(patchFn: (data: TData) => void): IPatchHandle | null {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
-        if (machine.status !== "success" && machine.status !== "refreshing" && machine.status !== "refresh-error") {
+        if (
+            machine.status !== "success" &&
+            machine.status !== "invalidating" &&
+            machine.status !== "invalidate-error"
+        ) {
             console.warn(`[QueryCacheEntry] createPatch() called in invalid state: ${machine.status}`);
             return null;
         }
 
         const onSettle = () => {
-            const current = this.machine$.peek();
+            const current = this._machine;
             if (
                 (current.status === "success" ||
-                    current.status === "refreshing" ||
-                    current.status === "refresh-error") &&
+                    current.status === "invalidating" ||
+                    current.status === "invalidate-error") &&
                 current.patchState
             ) {
                 const finished = current.finishPatch();
-                this.set(finished, "patch-settled");
-
-                if (finished.patchState?.isConsistencyViolation) {
-                    this.refresh();
-                }
+                this._setMachine(finished, "patch-settled");
+                this._rerunOnDiscardedData(finished);
             }
         };
 
         const { machine: newMachine, handle } = machine.createPatch(patchFn, onSettle);
 
-        this.set(newMachine, "patch");
+        this._setMachine(newMachine, "patch");
 
         // While a query stream is open, incoming emissions rebase over the patch
         // — let the owner surface that (e.g. the resource's one-time warning).
@@ -162,11 +423,11 @@ export class QueryCacheEntry<TArgs, TData>
 
     /**
      * Resolve as soon as the entry holds data (whether freshly loaded or already
-     * cached / being refreshed), and reject on a terminal `error`. Used by
+     * cached / being invalidated), and reject on a terminal `error`. Used by
      * {@link Resource.ensure} / {@link Resource.prefetch}.
      *
-     * Stale data (refreshing / refresh-error) resolves immediately — the caller
-     * gets whatever is available without waiting for a background refresh.
+     * Stale data (invalidating / invalidate-error) resolves immediately — the caller
+     * gets whatever is available without waiting for a background invalidation.
      *
      * @experimental Low-level primitive backing the imperative fetch API; may
      *   change before stabilization.
@@ -177,7 +438,7 @@ export class QueryCacheEntry<TArgs, TData>
     whenLoaded(signal?: AbortSignal): Promise<TData> {
         return this._awaitState(
             (state) => {
-                if (hasData(state)) return { kind: "data", data: state.data };
+                if (isDataState(state)) return { kind: "data", data: state.data };
                 if (state.status === "error") return { kind: "error", error: state.error };
                 return null;
             },
@@ -186,9 +447,9 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Resolve when the machine settles with fresh data (`success`), rejecting on
-     * `error` / `refresh-error`. Unlike {@link whenLoaded}, transient stale data
-     * (pending / refreshing) is awaited rather than resolved. Used by
+     * Resolve when the entry settles with fresh data (`success`), rejecting on
+     * `error` / `invalidate-error`. Unlike {@link whenLoaded}, transient stale data
+     * (pending / invalidating) is awaited rather than resolved. Used by
      * {@link Resource.fetch} (which always (re)starts a run before awaiting).
      *
      * @experimental Low-level primitive backing the imperative fetch API; may
@@ -197,6 +458,70 @@ export class QueryCacheEntry<TArgs, TData>
      */
     whenFetched(signal?: AbortSignal): Promise<TData> {
         return this._awaitState((state) => this._settleQueryOutcome(state), { keepalive: true, signal });
+    }
+
+    /**
+     * @internal Backs `Resource.fetch` on an existing entry: make a run answer
+     * the fetch under `policy`, and resolve with that run's result.
+     *
+     * With a run in flight: `join` awaits it (an open stream at `success`
+     * already delivered — its data is the answer); `cancel` aborts it and
+     * awaits a fresh run; `trail` marks the entry, lets the run settle and
+     * awaits the fresh run the mark turns into — the trailed run's own
+     * outcome is skipped, however it ends. An open stream counts as in flight
+     * until it ends. A run that revalidates in place and has landed its load
+     * (`success`) holds no pending result: like a settled entry, it is
+     * revalidated under `policy`.
+     *
+     * With nothing in flight the policy only travels with the revalidation:
+     * data is re-queried, a failure retried, and the fresh result awaited. An
+     * entry `pending` / `invalidating` with nothing in flight — a hydrated or
+     * marked state — starts a run of its own too: a fetch never only awaits a
+     * load that may not come. A cold load's round-trip to other tabs
+     * ({@link TQueryCacheEntryInternals.coldLoad}) is a run in flight.
+     *
+     * The wait holds the entry, so a mark turns into its run even on an entry
+     * nobody else holds.
+     */
+    _fetch(policy: TInFlightPolicy, signal?: AbortSignal): Promise<TData> {
+        const status = this._machine.status;
+        const isRunPending = this._isInFlight && !(this._revalidateInRun && status === "success");
+
+        if (isRunPending) {
+            if (policy === "join") return this.whenFetched(signal);
+            this.invalidate({ inFlight: policy });
+            if (policy === "cancel") return this.whenFetched(signal);
+            return this._whenRevalidated(signal);
+        }
+
+        // Nothing is pending: a failure is retried, anything else invalidated
+        // — held by the wait below, the mark turns into the run at once.
+        if (status === "error") {
+            this.retry();
+        } else {
+            this.invalidate({ inFlight: policy });
+        }
+        return this.whenFetched(signal);
+    }
+
+    /**
+     * @internal Resolve with the outcome of the first settled state the entry
+     * reaches while it owes no revalidation — rejecting on `error` /
+     * `invalidate-error` like {@link whenFetched}. Settled states seen while
+     * a mark stands belong to a run the mark does not trust (a trailed run:
+     * a stream's emissions while it is still open, the run's own settle) and
+     * are skipped; the answer is the run the mark turns into.
+     *
+     * The wait holds the entry, so the mark turns into its run the moment the
+     * trailed run leaves flight — even on an entry nobody else holds — and
+     * the hold lasts until that run settles. Without a mark it is
+     * {@link whenFetched}.
+     */
+    _whenRevalidated(signal?: AbortSignal): Promise<TData> {
+        return this._awaitState((state) => (this._isInvalidated ? null : this._settleQueryOutcome(state)), {
+            keepalive: true,
+            signal,
+        });
     }
 
     /**
@@ -209,7 +534,7 @@ export class QueryCacheEntry<TArgs, TData>
     }
 
     /**
-     * Resolve/reject with the outcome of the machine's next settled state — the
+     * Resolve/reject with the outcome of the entry's next settled state — the
      * same transitions as {@link whenFetched}, but without a keepalive
      * subscription, so the caller owns the entry's lifecycle. Backs `Command.execute`.
      *
@@ -230,34 +555,198 @@ export class QueryCacheEntry<TArgs, TData>
 
     /** Abort any in-flight request before completing the entry. */
     override complete(): void {
-        this._abortController?.abort();
+        this._abortRun();
         // Completing the state stream rejects all pending waiters with CacheEntryRemovedError.
         super.complete();
+    }
+
+    // ==================== Internal ====================
+
+    /**
+     * @internal The transition algebra over the entry's current state.
+     *
+     * The entry stores the flat {@link TQueryEntryState} record; everything that
+     * needs a typed transition (`success`, `fail`, `invalidate`, `rebase`,
+     * `createPatch`, …) goes through a machine rebuilt here and writes the
+     * result back with {@link QueryCacheEntry._setMachine}. Not part of
+     * `IQueryCacheEntry`: consumers read `state$` instead.
+     */
+    get _machine(): Machine<TArgs, TData> {
+        return Machine.of(this.peek());
+    }
+
+    /**
+     * @internal Store the outcome of a transition (see {@link QueryCacheEntry._machine}).
+     *
+     * Never throws. A signal write rethrows what a reacting consumer (an
+     * effect) threw — once the value is stored and every other reaction has
+     * run. That error is the consumer's: it must neither cut short the
+     * transition in progress, leaving the entry half-way (a re-query never
+     * started, a patch handle never returned), nor pass for the entry's own
+     * outcome (a settle taken for a query failure). It goes where errors
+     * without a synchronous caller go — `config.onUnhandledError` of RxJS.
+     */
+    _setMachine(machine: MachineBase<TArgs, TData>, actionName?: string): void {
+        try {
+            this.set(machine.state, actionName);
+        } catch (error) {
+            reportUnhandledError(error);
+        }
+    }
+
+    // ==================== Protected ====================
+
+    /**
+     * The `retention → active` transition: an entry marked while melting owes
+     * a revalidation, and this is where it runs — unless a trailed run is still
+     * in flight, in which case its settle takes over. Called by the retainer
+     * before the first subscriber attaches, so its first state is the in-flight
+     * one.
+     */
+    protected override onActive(): void {
+        this._maybeRevalidate();
     }
 
     // ==================== Private ====================
 
     /**
-     * Universal state-driven waiter: observe machine transitions (starting from
-     * the current state, which is replayed on subscribe) and settle on the first
-     * state that `settle` maps to an outcome.
+     * Whether the entry owes a revalidation that nothing in flight stands in
+     * the way of — so a hold starts it. A completed entry cannot be held, but
+     * the guard keeps that explicit.
+     *
+     * A run that revalidates in place does not stand in the way: the
+     * revalidation is handed to it (see {@link _revalidateInPlace}). Any other
+     * run in flight here is a trailed one: its settle takes over.
+     */
+    private get _isRevalidationDue(): boolean {
+        return !this.isCompleted && this._isInvalidated && (!this._isInFlight || this._revalidateInRun !== undefined);
+    }
+
+    /**
+     * The one rule behind lazy invalidation: the entry revalidates when it is
+     * held and the revalidation it owes is due. Checked wherever either can
+     * change — `invalidate()` itself, the settle of any run, and the first
+     * hold. A run that revalidates in place and turns the revalidation down
+     * is restarted instead.
+     */
+    private _maybeRevalidate(actionName: "invalidate" | "revalidate" = "revalidate"): void {
+        if (this.isMelting || !this._isRevalidationDue) return;
+
+        const policy = this._markPolicy ?? this._invalidateInFlight;
+        if (this._isInFlight) {
+            if (this._revalidateInPlace(actionName, policy)) return;
+            this._abortRun();
+        }
+        this._revalidate(actionName, policy);
+    }
+
+    /**
+     * Hand the owed revalidation to the run in flight, which re-fetches under
+     * `policy` without being restarted. The entry shows it like any other
+     * revalidation: `success` goes `invalidating`, and the run's next emission
+     * settles it (rebase) or its failure lands in `invalidate-error`;
+     * `pending` / `invalidating` already await that emission. The mark is
+     * consumed — the revalidation starts here.
+     *
+     * @returns `false` when the run turned the revalidation down (it is no
+     *   longer live) — the caller restarts it; the entry may already be
+     *   `invalidating` then, which the restart runs from as it is.
+     */
+    private _revalidateInPlace(actionName: "invalidate" | "revalidate", policy: TInFlightPolicy): boolean {
+        const controller = this._runController;
+        const machine = this._machine;
+        if (!controller || !this._revalidateInRun) return false;
+        if (machine.status !== "pending" && machine.status !== "success" && machine.status !== "invalidating") {
+            return false;
+        }
+
+        if (machine.status === "success") this._setMachine(machine.invalidate(), actionName);
+        this._isInvalidated = false;
+        this._markPolicy = null;
+        this._runPolicy = policy;
+        return this._revalidateInRun(controller.signal, policy);
+    }
+
+    /**
+     * Re-fetch behind the entry's data: success / invalidate-error go
+     * `invalidating`, error goes `pending` with the failure cleared. An entry
+     * left `pending` / `invalidating` by a cancelled run is already where the
+     * re-fetch starts from — {@link _execute} runs from both as they are.
+     *
+     * @param actionName - Devtools label: `invalidate` for the direct call,
+     *   `revalidate` for a mark honoured later (a hold, a trailed run's settle).
+     * @param policy - The in-flight policy the invalidation was made under
+     *   (see {@link _invalidationRunPolicy}).
+     */
+    private _revalidate(actionName: "invalidate" | "revalidate", policy: TInFlightPolicy): void {
+        const machine = this._machine;
+        if (machine.status !== "pending" && machine.status !== "invalidating") {
+            this._setMachine(machine.invalidate(), actionName);
+        }
+        this._execute(policy);
+    }
+
+    /**
+     * Abort the run in flight, if any. Its settle handlers stand down (they
+     * check the signal), a stream run's subscription is torn down by its abort
+     * listener, and the entry is left with nothing in flight — the aborting
+     * caller decides what comes next.
+     */
+    private _abortRun(): void {
+        const controller = this._runController;
+        if (!controller) return;
+        this._runController = null;
+        controller.abort();
+    }
+
+    /**
+     * A run left flight on its own — settled, failed or ended; never aborted
+     * (the aborting caller decides what comes next). An entry still waiting
+     * for a load (`pending` / `invalidating`) with nothing in flight got
+     * nothing from that run it can settle on: a discarded rebase the run did
+     * not follow up, an in-place revalidation it did not answer. It owes the
+     * run it is waiting for, exactly like a marked entry — re-queried at once
+     * when held, on the first hold when melting — so it is never left waiting
+     * with nothing in flight and nothing owed. The re-query answers the
+     * invalidation the run did, under its policy.
+     */
+    private _onRunLeftFlight(): void {
+        const status = this._machine.status;
+        if (!this._isInFlight && !this._isInvalidated && (status === "pending" || status === "invalidating")) {
+            this._isInvalidated = true;
+            this._markPolicy = this._runPolicy;
+        }
+        this._maybeRevalidate();
+    }
+
+    /** A run reports itself settled: it stops being the run in flight, if it still is. */
+    private _settleRun(controller: AbortController): void {
+        if (this._runController === controller) {
+            this._runController = null;
+        }
+    }
+
+    /**
+     * Universal state-driven waiter: observe the entry's transitions (starting
+     * from the current state, which is replayed on subscribe) and settle on the
+     * first state that `settle` maps to an outcome.
      *
      * Rejects with {@link CacheEntryRemovedError} if the entry completes before a
      * matching state, and with the signal's reason if `signal` aborts first.
      *
-     * @param settle - Maps a machine state to a resolution/rejection outcome, or
+     * @param settle - Maps an entry state to a resolution/rejection outcome, or
      *   `null` to keep waiting.
-     * @param opts.keepalive - When `true`, observes the shared stream and thereby
-     *   holds the share's refcount, so retention GC only resumes once the waiter
-     *   settles or detaches. When `false`, observes the raw state stream without
-     *   affecting the entry's lifecycle.
+     * @param opts.keepalive - When `true`, holds the entry for as long as the
+     *   waiter is pending, so retention GC only resumes once it settles or
+     *   detaches — and a marked entry revalidates on that hold. When `false`,
+     *   the waiter does not affect the entry's lifecycle.
      * @param opts.mapRemoval - When `true`, the removal rejection passes through
      *   `mapError` — for waiters feeding a channel typed as `TError` (the
      *   command result envelope). Waiters on untyped channels (`ensure`/`fetch`
      *   rejections, `$cacheDataLoaded`) keep the raw `CacheEntryRemovedError`.
      */
     private _awaitState(
-        settle: (state: TMachineState<TArgs, TData>) => TSettled<TData> | null,
+        settle: (state: TQueryEntryState<TArgs, TData>) => TSettled<TData> | null,
         opts: { keepalive: boolean; signal?: AbortSignal; mapRemoval?: boolean },
     ): Promise<TData> {
         const { keepalive, signal } = opts;
@@ -266,28 +755,32 @@ export class QueryCacheEntry<TArgs, TData>
             return Promise.reject(abortReason(signal));
         }
 
-        const source: Observable<Machine<TArgs, TData>> = keepalive ? this.obs : this.rawObs;
-
         // Manual subscription (instead of firstValueFrom) so the promise settles in
-        // the same microtask as the machine transition — no extra `.then` hops.
+        // the same microtask as the state transition — no extra `.then` hops.
         return new Promise<TData>((resolve, reject) => {
             let isSettled = false;
             let subscription: Subscription | null = null;
+
+            // The hold is taken before the raw stream is observed: a marked
+            // entry revalidates here, so the replayed first state is already
+            // the in-flight one and `whenFetched` does not settle on stale data.
+            const release = keepalive ? this.hold() : null;
 
             const finish = (fn: () => void): void => {
                 if (isSettled) return;
                 isSettled = true;
                 signal?.removeEventListener("abort", onAbort);
                 subscription?.unsubscribe();
+                release?.();
                 fn();
             };
 
             const onAbort = (): void => finish(() => reject(abortReason(signal!)));
             signal?.addEventListener("abort", onAbort, { once: true });
 
-            subscription = source.subscribe({
-                next: (machine) => {
-                    const outcome = settle(machine.state);
+            subscription = this.rawObs.subscribe({
+                next: (state) => {
+                    const outcome = settle(state);
                     if (!outcome) return;
                     finish(() => (outcome.kind === "data" ? resolve(outcome.data) : reject(outcome.error)));
                 },
@@ -329,106 +822,229 @@ export class QueryCacheEntry<TArgs, TData>
         return this._mapError(error, this._errorContext());
     }
 
+    /**
+     * Record a run's failure in the entry's state, then report it to the
+     * global `onQueryError` — in that order on purpose: the handler is user
+     * code, and it must find the entry already showing the failure. Called the
+     * other way around, a handler that re-queries this very entry (an
+     * `invalidate()` on an auth failure) starts its run and then has the
+     * in-flight state overwritten by this fail transition: the run's result is
+     * dropped and the entry is left showing a failure it already recovered
+     * from. A failure in a {@link PreMappedError} envelope was reported at the
+     * entry it came from.
+     */
+    private _recordFailure(
+        machine: Machine<TArgs, TData>,
+        error: unknown,
+        failedAction: "error" | "invalidate-error",
+    ): void {
+        const mappedError = this._normalizeError(error);
+        this._setMachine(machine.fail(mappedError), failedAction);
+        if (!(error instanceof PreMappedError)) reportQueryError(mappedError);
+    }
+
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
-    private _settleQueryOutcome(state: TMachineState<TArgs, TData>): TSettled<TData> | null {
+    private _settleQueryOutcome(state: TQueryEntryState<TArgs, TData>): TSettled<TData> | null {
         if (state.status === "success") return { kind: "data", data: state.data };
-        if (state.status === "error" || state.status === "refresh-error") return { kind: "error", error: state.error };
+        if (state.status === "error" || state.status === "invalidate-error")
+            return { kind: "error", error: state.error };
         return null;
     }
 
-    /** @internal Called by Resource when beforeQuery intercept needs to trigger the query. */
-    _execute(): void {
+    /**
+     * @internal Start a run: the first one on creation, and every re-fetch
+     * path in here. The first run goes through the cold load, if any (see
+     * {@link TQueryCacheEntryInternals.coldLoad}). Aborts
+     * the run in flight, if any, and clears the revalidation mark — the run
+     * that starts here goes out after whatever set the mark.
+     *
+     * @param invalidationPolicy - The in-flight policy of the invalidation the
+     *   run answers (see {@link _invalidationRunPolicy}); `null` — the
+     *   default — for a cold load.
+     */
+    _execute(invalidationPolicy: TInFlightPolicy | null = null): void {
         // Abort any in-flight request (also tears down a previous run's stream
         // subscription via its abort listener).
-        this._abortController?.abort();
+        this._abortRun();
 
-        const controller = new AbortController();
-        this._abortController = controller;
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         switch (machine.status) {
             case "success":
-            case "refresh-error":
-                this.set(machine.refresh(), "refetch");
+            case "invalidate-error":
+                this._setMachine(machine.invalidate(), "refetch");
                 break;
             case "pending":
-            case "refreshing":
+            case "invalidating":
                 break;
+            // A failed run is only restarted through retry() / invalidate(), both
+            // of which leave `error` before calling back in — a bare _execute()
+            // here would lose the failure.
             case "error":
                 return;
-            default:
-                console.warn(`[QueryCacheEntry] executed in unexpected state: ${(machine as any).status}`);
+            default: {
+                // Compiler-checked exhaustiveness: the union has no other status.
+                const unexpected: never = machine;
+                return unexpected;
+            }
         }
 
-        const result = this._queryFn(this.keyedArgs, controller.signal);
+        this._isInvalidated = false;
+        this._markPolicy = null;
+        this._runPolicy = invalidationPolicy;
+
+        const controller = new AbortController();
+        this._runController = controller;
+
+        const coldLoad = this._coldLoad;
+        this._coldLoad = undefined;
+        if (coldLoad) {
+            this._runColdLoad(coldLoad, controller);
+            return;
+        }
+        this._runQuery(controller);
+    }
+
+    /**
+     * The cold-load phase of a run (see {@link TQueryCacheEntryInternals.coldLoad}):
+     * an answer settles the run, `null` or a rejection hands it on to the
+     * queryFn under the same controller. The rejection handler covers the
+     * cold load itself only — a throw while settling must not turn into a
+     * fallback query.
+     */
+    private _runColdLoad(coldLoad: () => Promise<{ data: TData } | null>, controller: AbortController): void {
+        // A synchronous throw of the cold load counts as its rejection.
+        let answer: Promise<{ data: TData } | null>;
+        try {
+            answer = coldLoad();
+        } catch (error) {
+            answer = Promise.reject(error);
+        }
+        answer.then(
+            (result) => {
+                if (controller.signal.aborted) return;
+                if (!result) {
+                    this._runQuery(controller);
+                    return;
+                }
+                this._settleRun(controller);
+
+                const machine = this._machine;
+                if (machine.status === "pending") {
+                    this._setMachine(machine.success(result.data), "sync");
+                } else {
+                    console.warn(`[QueryCacheEntry] received cold-load data in unexpected state: ${machine.status}`);
+                }
+                this._flushDeferredRunCallbacks(controller);
+                this._onRunLeftFlight();
+            },
+            () => {
+                if (controller.signal.aborted) return;
+                this._runQuery(controller);
+            },
+        );
+    }
+
+    /**
+     * The query phase of a run: call the queryFn and settle the run from its result.
+     *
+     * The queryFn and a stream's subscription run synchronously inside whatever
+     * started the run — `clutch.switch()` in an effect, `getEntry$(args, true)`
+     * in a computed — so they run untracked: their signal reads belong to no
+     * caller.
+     */
+    private _runQuery(controller: AbortController): void {
+        const result = untracked(() => this._queryFn(this.keyedArgs, controller.signal));
 
         if (isObservable(result)) {
-            this._subscribeStream(result, controller);
+            untracked(() => this._subscribeStream(result, controller));
             return;
         }
 
-        result
-            .then((data) => {
+        // Two handlers, not `.then().catch()`: a throw while settling is not a
+        // failure of this run.
+        result.then(
+            (data) => {
                 if (controller.signal.aborted) return;
+                this._settleRun(controller);
 
-                const machine = this.machine$.peek();
+                const machine = this._machine;
 
                 switch (machine.status) {
                     case "pending":
-                        this.set(machine.success(data), "success");
+                        this._setMachine(machine.success(data), "success");
                         break;
-                    case "refreshing": {
+                    case "invalidating": {
                         const rebased = machine.rebase(data);
-                        this.set(rebased, "rebase");
-
-                        if (rebased.patchState?.isConsistencyViolation) {
-                            this.refresh();
-                        }
+                        this._setMachine(rebased, "rebase");
+                        this._rerunOnDiscardedData(rebased);
                         break;
                     }
                     default:
                         console.warn(`[QueryCacheEntry] received data in unexpected state: ${machine.status}`);
                 }
-            })
-            .catch((error) => {
+                this._onPromiseRunSettled?.(controller.signal, { status: "fulfilled", value: data });
+
+                // Deferred callbacks (e.g. link patch commits) run on the
+                // settled state, before a trailing mark turns into a re-fetch.
+                this._flushDeferredRunCallbacks(controller);
+
+                // Settled with nothing in flight: a mark set while this run was
+                // trailing turns into the re-fetch now (if the entry is held).
+                this._onRunLeftFlight();
+            },
+            (error: unknown) => {
                 if (controller.signal.aborted) return;
+                this._settleRun(controller);
 
-                const machine = this.machine$.peek();
+                const machine = this._machine;
 
-                if (machine.status !== "pending" && machine.status !== "refreshing") {
+                if (machine.status !== "pending" && machine.status !== "invalidating") {
                     console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
+                    this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
+                    this._flushDeferredRunCallbacks(controller);
+                    this._onRunLeftFlight();
                     return;
                 }
 
                 // Single normalization boundary (see _normalizeError): the raw
                 // rejection becomes the api's TError exactly here, as it enters the
-                // machine, so every reader of the machine's error — agent state,
+                // entry's state, so every reader of that error — clutch state,
                 // imperative-fetch rejections, the command result envelope, the
                 // Suspense throw — observes the same mapped instance. Deliberately
                 // upstream of this boundary: lifecycle hooks ($queryFulfilled) are
-                // fed from the raw queryFn promise and see the raw error. Aborted
-                // runs returned above and are never mapped.
-                const mappedError = this._normalizeError(error);
-
-                // Name the failure by the state it lands in: a failed background refresh
+                // told the raw error (see onPromiseRunSettled). Aborted runs
+                // returned above and are never mapped.
+                // Name the failure by the state it lands in: a failed background invalidation
                 // keeps its data, a failed first load has none to keep.
-                const failedAction = machine.status === "refreshing" ? "refresh-error" : "error";
+                const failedAction = machine.status === "invalidating" ? "invalidate-error" : "error";
 
-                this.set(machine.fail(mappedError), failedAction);
-            });
+                this._recordFailure(machine, error, failedAction);
+                this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
+                this._flushDeferredRunCallbacks(controller);
+                this._onRunLeftFlight();
+            },
+        );
     }
 
     /**
      * Run a stream-returning queryFn: the first emission settles the run
-     * (pending → success / refreshing → rebase), each subsequent emission
+     * (pending → success / invalidating → rebase), each subsequent emission
      * updates the data through the patch-rebase machinery (success → success),
-     * a stream error after data lands in refresh-error (data kept), and a
+     * a stream error after data lands in invalidate-error (data kept), and a
      * completion without a single emission fails the run with
-     * {@link EmptyStreamError}. Completion after data leaves the entry as-is.
+     * {@link EmptyStreamError}. Completion after data leaves the entry as-is —
+     * unless it still waits for a load (see {@link _onRunLeftFlight}).
      *
      * The subscription is tied to the run's abort controller: a newer
-     * `_execute` (refresh / retry) or entry completion aborts it, which
-     * unsubscribes and thereby triggers the producer's teardown.
+     * `_execute` (invalidate / retry), a cancelling `invalidate()` or entry
+     * completion aborts it, which unsubscribes and thereby triggers the
+     * producer's teardown.
+     *
+     * The run counts as in flight for as long as the subscription is open —
+     * `success` with a live stream included — so a trailing invalidation waits
+     * for completion or failure, never for an emission, and a joining one
+     * leaves the stream as it is.
      */
     private _subscribeStream(stream: Observable<TData>, controller: AbortController): void {
         let hasEmitted = false;
@@ -436,15 +1052,16 @@ export class QueryCacheEntry<TArgs, TData>
 
         // Only the run that opened the stream may declare it closed — a stale
         // run's teardown must not clobber a newer stream run's flag. Ownership
-        // is tracked via `_streamController` rather than `_abortController`:
-        // when a sync emission triggers a re-execute mid-subscribe, the
-        // superseding run has already swapped `_abortController` (and, if it is
-        // itself a stream run, taken over `_streamController`) by the time the
-        // aborted run's teardown observes the flag.
+        // is tracked per controller: when a sync emission triggers a
+        // re-execute mid-subscribe, the superseding run has already taken over
+        // `_runController` (and, if it is itself a stream run,
+        // `_streamController`) by the time the aborted run's teardown observes
+        // the flags.
         const markClosed = (): void => {
             if (this._streamController === controller) {
                 this._streamController = null;
             }
+            this._settleRun(controller);
         };
 
         const subscription = stream.subscribe({
@@ -457,6 +1074,8 @@ export class QueryCacheEntry<TArgs, TData>
                 markClosed();
                 if (controller.signal.aborted) return;
                 this._failStreamRun(error);
+                this._flushDeferredRunCallbacks(controller);
+                this._onRunLeftFlight();
             },
             complete: () => {
                 markClosed();
@@ -466,11 +1085,16 @@ export class QueryCacheEntry<TArgs, TData>
                 }
                 // With data delivered, completion simply ends the live phase —
                 // the entry keeps the last emission like an ordinary success.
+                // Unless that data never landed (a discarded rebase the stream
+                // did not follow up, an in-place revalidation it did not
+                // answer): the entry then owes the run it is waiting for.
+                this._flushDeferredRunCallbacks(controller);
+                this._onRunLeftFlight();
             },
         });
 
         // A synchronous emission may have triggered a consistency-violation
-        // refresh (re-execute → abort) while `subscribe` was still running —
+        // invalidate (re-execute → abort) while `subscribe` was still running —
         // in that case the listener below was never attached: release the
         // subscription and this run's stream-open flag now. If the superseding
         // run is itself a stream run, it already owns `_streamController` and
@@ -492,30 +1116,48 @@ export class QueryCacheEntry<TArgs, TData>
         );
     }
 
-    /** Apply a stream emission to the machine (see {@link _subscribeStream}). */
+    /**
+     * Re-query after a consistency violation — a rebase or a stream emission
+     * that discarded the server data, a patch settle that could not replay
+     * the stack: through {@link invalidate}, so the lazy rule and the entry's
+     * in-flight policy apply as they are. The violation left the entry
+     * `invalidating` (nothing settled): a promise run has already left
+     * flight, so a held entry re-runs at once and a melting one is marked; a
+     * stream run is still open, so under `cancel` it is torn down and
+     * reopened, under `trail` it is marked and lives on, under `join` it lives
+     * on unmarked — its next emission rebases over the now empty patch list
+     * and lands in a clean `success`, and so does the next run's first
+     * result. A joined stream that ends without that emission leaves the
+     * entry owing the run (see {@link _onRunLeftFlight}).
+     *
+     * Only the transition that hit the violation re-queries: the flag in the
+     * state stays up until a server answer lands, and a later patch or settle
+     * that replays fine must not invalidate the entry again.
+     */
+    private _rerunOnDiscardedData(machine: MachineBase<TArgs, TData>): void {
+        if (!machine.violated) return;
+
+        this.invalidate();
+    }
+
+    /** Apply a stream emission to the entry's state (see {@link _subscribeStream}). */
     private _applyStreamData(data: TData): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
         switch (machine.status) {
             case "pending":
-                this.set(machine.success(data), "success");
+                this._setMachine(machine.success(data), "success");
                 break;
-            case "refreshing": {
+            case "invalidating": {
                 const rebased = machine.rebase(data);
-                this.set(rebased, "rebase");
-
-                if (rebased.patchState?.isConsistencyViolation) {
-                    this.refresh();
-                }
+                this._setMachine(rebased, "rebase");
+                this._rerunOnDiscardedData(rebased);
                 break;
             }
             case "success": {
                 const next = machine.next(data);
-                this.set(next, "stream-next");
-
-                if (next.patchState?.isConsistencyViolation) {
-                    this.refresh();
-                }
+                this._setMachine(next, "stream-next");
+                this._rerunOnDiscardedData(next);
                 break;
             }
             default:
@@ -525,18 +1167,46 @@ export class QueryCacheEntry<TArgs, TData>
 
     /** Fail the current stream run; unlike the promise path, `success` is a valid failure origin. */
     private _failStreamRun(error: unknown): void {
-        const machine = this.machine$.peek();
+        const machine = this._machine;
 
-        if (machine.status !== "pending" && machine.status !== "refreshing" && machine.status !== "success") {
+        if (machine.status !== "pending" && machine.status !== "invalidating" && machine.status !== "success") {
             console.warn(`[QueryCacheEntry] received stream error in unexpected state: ${machine.status}`);
             return;
         }
 
-        // Same single normalization boundary as the promise path (see _execute).
-        const mappedError = this._normalizeError(error);
+        const failedAction = machine.status === "pending" ? "error" : "invalidate-error";
 
-        const failedAction = machine.status === "pending" ? "error" : "refresh-error";
-
-        this.set(machine.fail(mappedError), failedAction);
+        // Same recording as the promise path (see _recordFailure).
+        this._recordFailure(machine, error, failedAction);
     }
+}
+
+// ==================== Helpers ====================
+
+/**
+ * Hand a failure to the global `onQueryError` handler. A throwing handler is a
+ * bug in the consumer's reporting code: it is logged, never allowed to break
+ * the entry's transition.
+ */
+function reportQueryError(error: unknown): void {
+    const onQueryError = SharedOptions.onQueryError;
+    if (!onQueryError) return;
+    try {
+        untracked(() => onQueryError(error));
+    } catch (handlerError) {
+        console.error("[rx-toolkit] onQueryError threw while reporting a query error.", handlerError);
+    }
+}
+
+/** How far each policy goes in distrusting a run in flight. */
+const POLICY_STRENGTH: Record<TInFlightPolicy, number> = { join: 0, trail: 1, cancel: 2 };
+
+/**
+ * Merge the policy of another `invalidate()` call into a pending mark: the
+ * stronger one wins — what a weaker call would accept, the stronger one has
+ * already asked not to.
+ */
+function strongerPolicy(current: TInFlightPolicy | null, next: TInFlightPolicy): TInFlightPolicy {
+    if (current === null) return next;
+    return POLICY_STRENGTH[next] > POLICY_STRENGTH[current] ? next : current;
 }

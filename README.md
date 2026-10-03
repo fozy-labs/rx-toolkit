@@ -11,6 +11,9 @@
 npm install @fozy-labs/rx-toolkit rxjs
 ```
 
+`react` — опциональный peer: он нужен только для React-интеграции (`@fozy-labs/rx-toolkit/react`).
+Для других фреймворков и Node.js достаточно `rxjs`.
+
 ## 🎯 Цель
 
 RxJS действительно мощный инструмент реактивного программирования,
@@ -25,24 +28,24 @@ RxToolkit решает эти проблемы, предоставляя сво�
 - 🔧 **Framework-agnostic** — Стройте систему и описывайте логику в изолированном месте.
 - ⚡ **Built on RxJS** — Наследует всю мощь RxJS.
 - 💾 **Кеш-менеджер** — Предоставляет Query реализацию для работы с данными.
-- 🧪 **Query** — Кеш-менеджер с machine states, плагинами и SSR snapshots.
+- 🧪 **Query** — Кеш-менеджер с иммутабельными состояниями записей, плагинами и SSR snapshots.
 - 🤖 **Statechart** — Стейт-машины на собственном рантайме поверх сигналов.
+- 📝 **Формы** — Валидация схемой и правилами, асинхронные проверки ресурсами и сабмит командой.
 - 🔷 **TypeScript-first** — Полная типизация.
 - 🔗 **Интеграция с фреймворками** — Как и RxJS напрямую работает в Angular, Svelte и SolidJS.
   Поставляется с React-хуками из коробки.
 
 ## 📚 Документация
 - [**RxSignals**](./docs/signals/README.md) - реактивные примитивы
-- [**RxQuery**](./docs/query/README.md) - кеш-менеджер
+- [**Query**](./docs/query/README.md) - кеш-менеджер
 - [**Statechart**](./docs/statechart/README.md) - стейт-машины
+- [**Form**](./docs/form/README.md) - формы
 - [**React**](./docs/usage/react/README.md) - интеграция с React
 - [**Devtools**](./docs/devtools/README.md) - инструменты разработчика
 - [**DefaultOptions**](./docs/options/README.md) - глобальные настройки
 
 
 [**CHANGELOG**](./docs/CHANGELOG.md)
-
-[**CONTRIBUTING**](./docs/CONTRIBUTING.md)
 
 ## 🌟 Примеры
 
@@ -101,12 +104,10 @@ const sub = on10click$.subscribe(() => {
 sub.unsubscribe();
 ```
 
-###### RxQuery (Корзина покупок)
+###### Query (Корзина покупок)
 ```tsx
-import {
-    createApi,
-    reactHooksPlugin,
-} from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
     plugins: [reactHooksPlugin()],
@@ -138,7 +139,7 @@ function ShoppingCart() {
     const cart = cartQuery.data;
 
     return (
-        <Container isLoading={cartQuery.isLoading}>
+        <Container isLoading={cartQuery.isPending}>
             {cart?.items.map(item => (
                 <CartItem
                     key={item.id}

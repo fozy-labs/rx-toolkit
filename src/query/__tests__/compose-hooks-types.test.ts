@@ -74,3 +74,101 @@ describe("composeHooks type-level tests", () => {
         });
     });
 });
+
+// ==================== Array Form Type-Level Tests ====================
+
+describe("lifecycle hook array form — type-level tests", () => {
+    // ---------- Inline hooks in an array keep their contextual typing ----------
+
+    it("inline hooks in an array get args and ctx typed by the resource", () => {
+        const api = createApi();
+
+        api.createResource({
+            queryFn: async (args: { id: number }): Promise<{ id: number }> => args,
+            onQueryStarted: [
+                async (args, ctx) => {
+                    const _args: { id: number } = args;
+                    const { data } = await ctx.$queryFulfilled;
+                    const _check: { id: number } = data;
+                },
+                async (_args, ctx) => {
+                    const { data } = await ctx.$queryFulfilled;
+                    const _check: { id: number } = data;
+                },
+            ],
+            onCacheEntryAdded: [
+                async (args, ctx) => {
+                    const _args: { id: number } = args;
+                    const _check: { id: number } = await ctx.$cacheDataLoaded;
+                },
+            ],
+        });
+    });
+
+    it("hook ctx is typed in an array when createResource generics are explicit", () => {
+        const api = createApi();
+
+        api.createResource<{ id: number }, { id: number }>({
+            queryFn: async (args) => args,
+            onQueryStarted: [
+                async (_args, ctx) => {
+                    const { data } = await ctx.$queryFulfilled;
+                    const _check: { id: number } = data;
+                },
+            ],
+        });
+    });
+
+    // ---------- Falsy entries ----------
+
+    it("a conditional entry — [hook, isDev && other] — compiles", () => {
+        const api = createApi();
+        const isDev: boolean = false;
+
+        const log = async (_args: { id: number }): Promise<void> => {};
+        const metrics = async (_args: { id: number }): Promise<void> => {};
+
+        api.createResource({
+            queryFn: async (args: { id: number }): Promise<{ id: number }> => args,
+            onQueryStarted: [log, isDev && metrics],
+            onCacheEntryAdded: [log, isDev && metrics],
+        });
+    });
+
+    it("an undefined entry compiles", () => {
+        const api = createApi();
+        const maybeHook: ((args: { id: number }) => void) | undefined = undefined;
+
+        api.createResource({
+            queryFn: async (args: { id: number }): Promise<{ id: number }> => args,
+            onQueryStarted: [async (_args) => {}, undefined, maybeHook],
+        });
+    });
+
+    // ---------- Array form on the other factories ----------
+
+    it("the array form is accepted by createCommand", () => {
+        const api = createApi();
+
+        api.createCommand({
+            queryFn: async (_args: { name: string }): Promise<{ ok: boolean }> => ({ ok: true }),
+            onQueryStarted: [
+                async (args, ctx) => {
+                    const _args: { name: string } = args;
+                    const { data } = await ctx.$queryFulfilled;
+                    const _check: { ok: boolean } = data;
+                },
+                undefined,
+            ],
+        });
+    });
+
+    it("the array form is accepted by createApi options", () => {
+        const isDev: boolean = false;
+
+        createApi({
+            onQueryStarted: [async (_args, ctx) => void (await ctx.$queryFulfilled), isDev && (() => {})],
+            onCacheEntryAdded: [(_args, _ctx) => {}, undefined],
+        });
+    });
+});

@@ -1,2 +1,2 @@
 export * from "./Resource";
-export * from "./ResourceAgent";
+export * from "./ResourceClutch";

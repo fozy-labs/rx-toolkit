@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Spinner } from '@heroui/react';
 import React from 'react';
 import { fetches } from '../../utils/fetches';
@@ -67,12 +68,12 @@ export function Base() {
                         size="sm"
                         variant="flat"
                         color="primary"
-                        isDisabled={!hasNext || feed.isFetchingNext || feed.isInitialLoading}
+                        isDisabled={!hasNext || feed.isLoadingNext || feed.isInitialLoading}
                         onPress={() => feed.fetchNext(pageIds(feed.pages.length))}
                     >
-                        {feed.isFetchingNext ? <Spinner size="sm" /> : hasNext ? '⬇️ Загрузить ещё' : 'Это всё'}
+                        {feed.isLoadingNext ? <Spinner size="sm" /> : hasNext ? '⬇️ Загрузить ещё' : 'Это всё'}
                     </Button>
-                    <Button size="sm" variant="flat" onPress={() => feed.refresh()}>
+                    <Button size="sm" variant="flat" onPress={() => feed.invalidate()}>
                         🔄 Обновить ленту
                     </Button>
                     <Button size="sm" variant="flat" color="warning" onPress={() => feed.reset()}>
@@ -86,7 +87,8 @@ export function Base() {
                 <p className="text-xs text-default-400">
                     Каждая страница — отдельная кэш-запись проекционного ресурса: догрузка хвоста
                     не перерисовывает загруженные страницы, id следующей страницы передаёт
-                    вызывающий код. «Обновить» перевалидирует все страницы разом.
+                    вызывающий код. «Обновить» инвалидирует все страницы разом, включая
+                    догружаемую, а упавшую без данных — повторяет.
                 </p>
             </CardBody>
         </Card>

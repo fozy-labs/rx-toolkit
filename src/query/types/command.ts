@@ -1,17 +1,23 @@
 import type { ReadonlySignal } from "@/signals/types";
 
-import type { TMapError } from "./api";
+import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
-import type { Args } from "./common";
-import type { IResource, TPackedResource } from "./resource";
-import type { TCommandAgentState } from "./state";
+import type { TArgsOrKeyed, TInvalidateOptions, TRetentionTime } from "./common";
+import type { IResource, TBoundResource } from "./resource";
+import type { TCommandClutchState, TErrorSlot } from "./state";
 
 // ==================== Link Types ====================
 
 export interface TLinkConfig<TArgs, TData, TResArgs, TResData> {
     resource: IResource<TResArgs, TResData>;
-    forwardArgs: (commandArgs: TArgs) => TResArgs | undefined;
-    invalidate?: boolean;
+    forwardArgs: (commandArgs: TArgs) => TResArgs;
+    /**
+     * Re-query the linked entry once the mutation succeeds. The object form
+     * also says what to do with a run in flight on that entry
+     * (`{ inFlight: "cancel" | "trail" | "join" }`); `true` is `{}` — the resource's
+     * `invalidateInFlight` default applies.
+     */
+    invalidate?: boolean | TInvalidateOptions;
     optimisticUpdate?: (draft: TResData, commandArgs: TArgs) => void;
     update?: (draft: TResData, commandArgs: TArgs, result: TData) => void;
 }
@@ -29,39 +35,39 @@ export interface ICommand<TArgs, TData, TError = unknown> {
      * Returns the raw mutation promise: resolves with the result, rejects with
      * the mapError-normalized error (`TError`). Never throws synchronously.
      */
-    execute(args: Args<TArgs>, key?: string): Promise<TData>;
-    /**
-     * @deprecated Renamed to {@link execute} (identical contract). Will be
-     * removed in a future release.
-     */
-    trigger(args: Args<TArgs>, key?: string): Promise<TData>;
-    getEntry(key: string): IQueryCacheEntry<TArgs, TData> | null;
-    getEntry$(key: string): IQueryCacheEntry<TArgs, TData> | null;
-    createAgent(key?: string): ICommandAgent<TArgs, TData, TError>;
-    pack(args: Args<TArgs>, key?: string): TPackedCommand<TArgs, TData, TError>;
+    execute(args: TArgsOrKeyed<TArgs>, entryKey?: string): Promise<TData>;
+    getEntry(entryKey: string): IQueryCacheEntry<TArgs, TData> | null;
+    getEntry$(entryKey: string): IQueryCacheEntry<TArgs, TData> | null;
+    createClutch(entryKey?: string): ICommandClutch<TArgs, TData, TError>;
+    /** @deprecated Renamed to {@link createClutch}. Will be removed in 0.14.0. */
+    createAgent(entryKey?: string): ICommandClutch<TArgs, TData, TError>;
+    bind(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError>;
+    /** @deprecated Renamed to {@link bind}. Will be removed in 0.14.0. */
+    pack(args: TArgsOrKeyed<TArgs>, entryKey?: string): TBoundCommand<TArgs, TData, TError>;
 }
 
-// ==================== Packed Descriptor ====================
+// ==================== Bound Descriptor ====================
 
 /**
  * Inert descriptor binding a command to a set of arguments (and an optional
- * cache key). Produced by {@link ICommand.pack} — lets a consumer hand "what to
+ * cache-entry key). Produced by {@link ICommand.bind} — lets a consumer hand "what to
  * run, with which args" back to the library without executing anything.
  * Discriminated by `kind`.
  */
-export interface TPackedCommand<TArgs, TData, TError = unknown> {
+export interface TBoundCommand<TArgs, TData, TError = unknown> {
     kind: "command";
     command: ICommand<TArgs, TData, TError>;
-    args: Args<TArgs>;
-    key?: string;
+    args: TArgsOrKeyed<TArgs>;
+    /** Cache-entry key the descriptor targets; several consumers sharing it share one run's state. */
+    entryKey?: string;
 }
 
 /**
- * Discriminated union of every packed descriptor. Narrow on `kind` to recover
+ * Discriminated union of every bound descriptor. Narrow on `kind` to recover
  * the concrete resource/command shape.
  */
-export type TPacked<TArgs, TData, TError = unknown> =
-    TPackedResource<TArgs, TData, TError> | TPackedCommand<TArgs, TData, TError>;
+export type TBound<TArgs, TData, TError = unknown> =
+    TBoundResource<TArgs, TData, TError> | TBoundCommand<TArgs, TData, TError>;
 
 // ==================== Trigger Result Envelope ====================
 
@@ -75,7 +81,7 @@ export type TTriggerResult<TData, TError = unknown> =
     { status: "success"; data: TData; error?: undefined } | { status: "error"; data?: undefined; error: TError };
 
 /**
- * Promise returned by agent/hook-level `trigger`.
+ * Promise returned by clutch/hook-level `trigger`.
  *
  * Never rejects — the outcome is delivered as a {@link TTriggerResult}
  * envelope, so a bare `await trigger(...)` needs no try/catch. Call
@@ -89,10 +95,10 @@ export interface TTriggerPromise<TData, TError = unknown> extends Promise<TTrigg
     unwrap(): Promise<TData>;
 }
 
-// ==================== Command Agent Interface ====================
+// ==================== Command Clutch Interface ====================
 
-export interface ICommandAgent<TArgs, TData, TError = unknown> {
-    state$: ReadonlySignal<TCommandAgentState<TArgs, TData, TError>>;
+export interface ICommandClutch<TArgs, TData, TError = unknown> {
+    state$: ReadonlySignal<TCommandClutchState<TArgs, TData, TError>>;
     /**
      * Execute the mutation and track its cache entry via {@link state$}.
      *
@@ -102,11 +108,72 @@ export interface ICommandAgent<TArgs, TData, TError = unknown> {
      * rejection. `unwrap()` hands back the raw throwing promise
      * (`Command.execute`'s contract) when that is wanted instead.
      */
-    trigger(args: Args<TArgs>, key?: string): TTriggerPromise<TData, TError>;
-    setKey(key: string): void;
+    trigger(args: TArgsOrKeyed<TArgs>, entryKey?: string): TTriggerPromise<TData, TError>;
+    /** Bind the clutch to a cache-entry key: it observes that entry's state. */
+    setEntryKey(entryKey: string): void;
+    /** @deprecated Renamed to {@link setEntryKey}. Will be removed in 0.14.0. */
+    setKey(entryKey: string): void;
     /** Re-execute the tracked mutation after it failed. No-op unless in the `error` state. */
     retry(): void;
 }
+
+// ==================== Command Entry State ====================
+
+// The entry state of a command is its clutch state stripped of the state
+// methods: the same five rows (K1-K5, see {@link TCommandClutchState}) over a
+// single cache entry. It is what a `retentionTime` function observes — the
+// counterpart of the resource's `TResourceEntryState`.
+
+/** K1 — no cache entry: nothing was triggered under this entry key. */
+export interface TCommandEntryIdleState {
+    status: "idle";
+    data: null;
+    hasData: false;
+    error: null;
+    hasError: false;
+    args: null;
+    isPending: false;
+}
+
+/**
+ * K2 / K5 — the mutation is running. `data` is always absent; `hasError` marks
+ * the run as a retry and keeps the failure it retries readable in `error`.
+ */
+export type TCommandEntryPendingState<TArgs, TError = unknown> = {
+    status: "pending";
+    data: null;
+    hasData: false;
+    args: TArgs;
+    isPending: true;
+} & TErrorSlot<TError>;
+
+/** K3 — the mutation succeeded: `data` is present, no error. */
+export interface TCommandEntrySuccessState<TArgs, TData> {
+    status: "success";
+    data: TData;
+    hasData: true;
+    error: null;
+    hasError: false;
+    args: TArgs;
+    isPending: false;
+}
+
+/** K4 — the mutation failed: `error` is present, no data. */
+export interface TCommandEntryErrorState<TArgs, TError = unknown> {
+    status: "error";
+    data: null;
+    hasData: false;
+    error: TError;
+    hasError: true;
+    args: TArgs;
+    isPending: false;
+}
+
+export type TCommandEntryState<TArgs, TData, TError = unknown> =
+    | TCommandEntryIdleState
+    | TCommandEntryPendingState<TArgs, TError>
+    | TCommandEntrySuccessState<TArgs, TData>
+    | TCommandEntryErrorState<TArgs, TError>;
 
 // ==================== Command Options ====================
 
@@ -120,14 +187,29 @@ export interface TCommandOptions<TArgs, TData> {
     queryFn: (args: TArgs, requestId: string) => Promise<TData>;
     key?: string;
     links?: TLinksInput<TArgs, TData>;
-    retentionTime?: number | false;
+    /**
+     * How long an entry of this command is kept after its last subscriber
+     * leaves; falls back to the api-level `commandRetentionTime`. The function
+     * form decides per entry — see {@link TRetentionTime} for when it runs and
+     * how its result is normalized. The `idle` row is excluded because the
+     * entry exists whenever it runs.
+     *
+     * Every evaluation finds the entry settled (`success` or `error`):
+     * `execute()` and each `retry()` hold the entry until their run resolves
+     * or rejects.
+     */
+    retentionTime?: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /**
      * Derives the request id passed to {@link queryFn}. Called once per cache
-     * entry (its result is reused across retries). Defaults to `crypto.randomUUID()`.
+     * entry (its result is reused across retries). Defaults to a random UUID.
      */
     generateRequestId?: (args: TArgs) => string | Promise<string>;
-    onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
-    onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
+    /** See {@link TLifecycleHookOption} for the array form. */
+    onCacheEntryAdded?: TLifecycleHookOption<(args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void>;
+    /** See {@link TLifecycleHookOption} for the array form. */
+    onQueryStarted?: TLifecycleHookOption<
+        (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>
+    >;
 }
 
 // ==================== Command Config (internal) ====================
@@ -141,22 +223,37 @@ export interface TCommandOptions<TArgs, TData> {
 export interface ICommandConfig<TArgs, TData> {
     /** Function that executes the mutation. Receives the per-entry request id as the second argument. */
     queryFn: (args: TArgs, requestId: string) => Promise<TData>;
-    /** Derives the request id; called once per cache entry. Defaults to `crypto.randomUUID()`. */
+    /** Derives the request id; called once per cache entry. Defaults to a random UUID. */
     generateRequestId?: (args: TArgs) => string | Promise<string>;
     /** Optional prefix for cache keys and devtools display. */
     key?: string;
     /**
-     * Normalizes raw mutation errors before they enter the machine. The Api
+     * Normalizes raw mutation errors before they enter the entry's state. The Api
      * always supplies one (identity when the consumer configured no `mapError`);
      * defaults to identity if constructed directly. See {@link TMapError}.
      */
     mapError?: TMapError;
     /** Link descriptors that bind this command to related resources. */
     links: TLinkConfig<TArgs, TData, any, any>[];
-    /** Time (ms) to keep a cache entry after subscribers drop off. `false` disables auto-removal. */
-    retentionTime: number | false;
+    /**
+     * Time (ms) to keep a cache entry after subscribers drop off. `false`
+     * disables auto-removal. See {@link TCommandOptions.retentionTime} for the
+     * function form; the Api always supplies one.
+     */
+    retentionTime: TRetentionTime<TArgs, Exclude<TCommandEntryState<TArgs, TData>, TCommandEntryIdleState>>;
     /** Called when a new cache entry is created. See lifecycle hooks documentation. */
     onCacheEntryAdded?: (args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void;
     /** Called every time `queryFn` starts. See lifecycle hooks documentation. */
     onQueryStarted?: (args: TArgs, ctx: TQueryStartedContext<TArgs, TData>) => void | Promise<void>;
 }
+
+// ==================== Deprecated Aliases ====================
+
+/** @deprecated Renamed to {@link ICommandClutch}. Will be removed in 0.14.0. */
+export type ICommandAgent<TArgs, TData, TError = unknown> = ICommandClutch<TArgs, TData, TError>;
+
+/** @deprecated Renamed to {@link TBoundCommand}. Will be removed in 0.14.0. */
+export type TPackedCommand<TArgs, TData, TError = unknown> = TBoundCommand<TArgs, TData, TError>;
+
+/** @deprecated Renamed to {@link TBound}. Will be removed in 0.14.0. */
+export type TPacked<TArgs, TData, TError = unknown> = TBound<TArgs, TData, TError>;

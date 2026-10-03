@@ -6,7 +6,7 @@ import type { TTriggerPromise, TTriggerResult } from "@/query/types";
  * (`{ status: "success", data }` / `{ status: "error", error }`), while
  * `unwrap()` hands back the original throwing promise.
  *
- * Backs agent/hook-level `trigger`; also usable directly to wrap the raw
+ * Backs clutch/hook-level `trigger`; also usable directly to wrap the raw
  * `Command.execute` promise.
  */
 export function wrapTrigger<TData, TError = unknown>(promise: Promise<TData>): TTriggerPromise<TData, TError> {
@@ -14,7 +14,7 @@ export function wrapTrigger<TData, TError = unknown>(promise: Promise<TData>): T
         (data): TTriggerResult<TData, TError> => ({ status: "success", data }),
         // Sound per the mapError contract: every rejection of Command.execute's
         // promise is normalized to TError before reaching here — queryFn failures
-        // at the machine boundary, entry-removal and pre-entry sync throws at
+        // at the entry's error boundary, entry-removal and pre-entry sync throws at
         // their escape points inside Command / QueryCacheEntry.
         (error: unknown): TTriggerResult<TData, TError> => ({ status: "error", error: error as TError }),
     ) as TTriggerPromise<TData, TError>;

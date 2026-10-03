@@ -1,58 +1,23 @@
-import { BehaviorSubject, map, Observable } from "rxjs";
+import { map, Observable } from "rxjs";
 
-import { Batcher, DependencyTracker, type DependencyRecord } from "../base";
+import { Batcher } from "../base";
+import { isTracking } from "../base/core";
 import { SYMBOL_DISPOSE } from "../base/disposeSymbol";
+import { LiveSourceNode } from "../base/LiveSourceNode";
 import { State } from "../signals/State";
 
 import type { KeyedSignal } from "./types";
 
 /**
  * A reactive per-key node. Reactivity is fine-grained: an observer of one key
- * is never woken by changes to another. `peek` reads the live value from the
- * owning collection (not this local subject) so that a dormant Computed's
- * ComputeCache stays truthful even after this node is reaped and, later,
- * recreated with a different subject.
+ * is never woken by changes to another. When its last observer leaves, the
+ * collection is told, so it can reap a node whose key is gone (otherwise
+ * nodes for churned keys would accumulate). The node validates against the
+ * live collection, so an unobserved computed holding it stays truthful even
+ * after the node is reaped and the key recreated with a new node.
  */
-class KeyNode<V> {
-    private readonly _bs$: BehaviorSubject<V | undefined>;
-    readonly depRecord: DependencyRecord;
-    private _refCount = 0;
-
-    constructor(initialValue: V | undefined, peekLive: () => V | undefined, onIdle: () => void) {
-        this._bs$ = new BehaviorSubject<V | undefined>(initialValue);
-        // Precise per-key refcount: each reactive observer subscribes here; when
-        // the last one leaves, the collection is notified so it can reap a node
-        // whose key is gone (otherwise nodes for churned keys would accumulate).
-        const obs = new Observable<V | undefined>((subscriber) => {
-            this._refCount++;
-            const sub = this._bs$.subscribe(subscriber);
-            return () => {
-                sub.unsubscribe();
-                if (--this._refCount === 0) onIdle();
-            };
-        });
-        this.depRecord = { getRang: () => 0, obs, peek: peekLive };
-    }
-
-    get observed(): boolean {
-        return this._refCount > 0;
-    }
-
-    /** Reactive read: tracks this node in the current tracking context. */
-    read(): V | undefined {
-        if (DependencyTracker.isTracking) DependencyTracker.track(this.depRecord);
-        return this._bs$.getValue();
-    }
-
-    /** Push a new value to observers. Must run inside a Batcher.run (the caller wraps). */
-    notify(value: V | undefined): void {
-        if (Object.is(value, this._bs$.getValue())) return;
-        this._bs$.next(value);
-    }
-
-    dispose(): void {
-        this._bs$.complete();
-    }
+class KeyNode<V> extends LiveSourceNode<V | undefined> {
+    dispose(): void {}
 }
 
 /**
@@ -103,7 +68,7 @@ export class KeyedStore<V> {
         // Materialize a node only under tracking: an untracked call gains no
         // reactivity, so allocating a node (and the creation-reap churn that
         // follows for an absent key) would be pure waste.
-        if (!DependencyTracker.isTracking) return this._present.get(key);
+        if (!isTracking()) return this._present.get(key);
         return this._ensureNode(key).read();
     }
 
@@ -194,12 +159,12 @@ export class KeyedStore<V> {
                 () => this._reap(key),
             );
             this._nodes.set(key, node);
-            // A tracked read does not guarantee a subscription: a tracker may
-            // only record `peek` (e.g. a dormant Computed's ComputeCache) and
-            // never subscribe, so the last-observer-leaving reap would never
-            // fire for this node. Schedule a reap at creation too — if nobody
-            // subscribes by the end of the tick and the key is absent, the
-            // node is dropped instead of leaking until dispose().
+            // A tracked read does not guarantee an observer: an unobserved
+            // computed links the node without observing it, so the
+            // last-observer-leaving reap would never fire for this node.
+            // Schedule a reap at creation too — if nobody observes it by the
+            // end of the tick and the key is absent, the node is dropped
+            // instead of leaking until dispose().
             this._reap(key);
         }
         return node;

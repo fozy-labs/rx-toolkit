@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MachineStateError } from "../core/errors";
+import { QueryEntryStateError } from "../core/errors";
 import type { TDataState } from "../core/machine/machine-helpers";
 import { MachineWithData } from "../core/machine/MachineWithData";
 
@@ -12,6 +12,10 @@ class TestMachine<TArgs, TData> extends MachineWithData<TArgs, TData> {
     }
 
     protected withState(state: TDataState<TArgs, TData>): this {
+        return new TestMachine(state) as this;
+    }
+
+    protected withViolation(state: TDataState<TArgs, TData>): this {
         return new TestMachine(state) as this;
     }
 }
@@ -35,24 +39,23 @@ function makeSuccess(): TestMachine<TestArgs, TestData> {
     });
 }
 
-function makeRefreshing(): TestMachine<TestArgs, TestData> {
+function makeInvalidating(): TestMachine<TestArgs, TestData> {
     return new TestMachine({
-        status: "refreshing",
+        status: "invalidating",
         args: ARGS,
         data: DATA,
         error: null,
         updatedAt: 1000,
         patchState: null,
-        isRetrying: false,
     });
 }
 
-function makeRefreshError(): TestMachine<TestArgs, TestData> {
+function makeInvalidateError(): TestMachine<TestArgs, TestData> {
     return new TestMachine({
-        status: "refresh-error",
+        status: "invalidate-error",
         args: ARGS,
         data: DATA,
-        error: new Error("refresh-boom"),
+        error: new Error("invalidate-boom"),
         updatedAt: 1000,
         patchState: null,
     });
@@ -122,23 +125,23 @@ describe("MachineWithData", () => {
             expect(machine.state.status).toBe("success");
         });
 
-        it("works on refreshing state", () => {
-            const m = makeRefreshing();
+        it("works on invalidating state", () => {
+            const m = makeInvalidating();
             const { machine } = m.createPatch((d) => {
                 d.count = 50;
             });
 
-            expect(machine.state.status).toBe("refreshing");
+            expect(machine.state.status).toBe("invalidating");
             expect(machine.data).toEqual({ name: "Alice", count: 50 });
         });
 
-        it("works on refresh-error state", () => {
-            const m = makeRefreshError();
+        it("works on invalidate-error state", () => {
+            const m = makeInvalidateError();
             const { machine } = m.createPatch((d) => {
                 d.name = "Bob";
             });
 
-            expect(machine.state.status).toBe("refresh-error");
+            expect(machine.state.status).toBe("invalidate-error");
             expect(machine.data).toEqual({ name: "Bob", count: 10 });
         });
 
@@ -235,17 +238,17 @@ describe("MachineWithData", () => {
 
         it("throws when no active patchState", () => {
             const m = makeSuccess();
-            expect(() => m.finishPatch()).toThrow(MachineStateError);
+            expect(() => m.finishPatch()).toThrow(QueryEntryStateError);
         });
 
         it("preserves state status after finish", () => {
-            const m = makeRefreshing();
+            const m = makeInvalidating();
             const { machine, handle } = m.createPatch((d) => {
                 d.count = 42;
             });
             handle.commit();
             const finished = machine.finishPatch();
-            expect(finished.state.status).toBe("refreshing");
+            expect(finished.state.status).toBe("invalidating");
         });
     });
 
@@ -292,9 +295,9 @@ describe("MachineWithData", () => {
             expect(finished.patchState!.patches[0].status).toBe("pending");
         });
 
-        it("throws MachineStateError when no active patchState", () => {
+        it("throws QueryEntryStateError when no active patchState", () => {
             const m = makeSuccess();
-            expect(() => m.finishAllPatches()).toThrow(MachineStateError);
+            expect(() => m.finishAllPatches()).toThrow(QueryEntryStateError);
         });
     });
 });

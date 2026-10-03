@@ -12,7 +12,11 @@ export interface TQueryRunLifecycle<TData> {
 }
 
 export interface TInstrumentedQueryRun<TData> {
-    /** What to hand to the cache entry: the raw promise, or the stream instrumented in place. */
+    /**
+     * What to hand to the cache entry: the raw promise, or the stream
+     * instrumented in place. The entry settling a promise run must report it
+     * through {@link settleQueryRun}.
+     */
     result: TQueryFnResult<TData>;
     lifecycle: TQueryRunLifecycle<TData>;
 }
@@ -42,18 +46,38 @@ function deferred<TData>(): TDeferred<TData> {
     return d;
 }
 
+/** Settlers of the instrumented promise runs in flight, by the run's signal. */
+const promiseRuns = new WeakMap<AbortSignal, (outcome: PromiseSettledResult<unknown>) => void>();
+
+/**
+ * Settle the lifecycle of an instrumented promise run with the outcome its
+ * cache entry recorded. Wired as the entry's `onPromiseRunSettled`; a run
+ * that was not instrumented is ignored.
+ */
+export function settleQueryRun(signal: AbortSignal, outcome: PromiseSettledResult<unknown>): void {
+    const settle = promiseRuns.get(signal);
+    promiseRuns.delete(signal);
+    settle?.(outcome);
+}
+
 /**
  * Derive the `onQueryStarted` context promises from a single query run without
  * consuming it.
  *
- * A promise run backs all three promises directly (`firstReceived` ≡
- * `allReceived` ≡ the run's outcome). A stream run is observed through a `tap`
- * inserted into the observable itself — the cache entry stays its only
- * subscriber, so the producer runs exactly once: `firstReceived` settles with
- * the first emission, `allReceived` with the last one at completion, both
- * reject with the raw producer error (or {@link EmptyStreamError} on an empty
- * completion). If the run is torn down before a milestone (refresh / retry /
- * eviction unsubscribes), the pending promises reject with the abort reason.
+ * A promise run settles all three promises together (`firstReceived` ≡
+ * `allReceived` ≡ the run's outcome), and from the cache entry rather than
+ * from the raw promise: once the entry has recorded the outcome (see
+ * {@link settleQueryRun}), so a hook resuming on it finds the entry already
+ * showing it; with the abort reason if the run is aborted first (a cancelling
+ * invalidation, eviction), whatever the raw promise does later.
+ *
+ * A stream run is observed through a `tap` inserted into the observable
+ * itself — the cache entry stays its only subscriber, so the producer runs
+ * exactly once: `firstReceived` settles with the first emission, `allReceived`
+ * with the last one at completion, both reject with the raw producer error (or
+ * {@link EmptyStreamError} on an empty completion). If the run is torn down
+ * before a milestone (invalidate / retry / eviction unsubscribes), the pending
+ * promises reject with the abort reason.
  *
  * Like `$queryFulfilled`, all promises deliberately sit upstream of `mapError`
  * and carry raw errors.
@@ -63,18 +87,28 @@ export function instrumentQueryRun<TData>(
     signal: AbortSignal,
 ): TInstrumentedQueryRun<TData> {
     if (!isObservable(raw)) {
-        const $queryFulfilled = raw.then((data) => ({ data }));
-        // Derived promise: rejects with the query error even though the base
-        // promise is consumed by the entry. Suppress "nobody awaited" rejections.
+        const outcome = deferred<TData>();
+        promiseRuns.set(signal, (settled) => {
+            if (settled.status === "fulfilled") outcome.resolve(settled.value as TData);
+            else outcome.reject(settled.reason);
+        });
+        signal.addEventListener(
+            "abort",
+            () => {
+                promiseRuns.delete(signal);
+                if (!outcome.isSettled) outcome.reject(abortReason(signal));
+            },
+            { once: true },
+        );
+
+        const $queryFulfilled = outcome.promise.then((data) => ({ data }));
         void $queryFulfilled.catch(() => {});
 
-        // The base promise itself is safe to hand out: the entry always
-        // attaches a rejection handler to it.
         return {
             result: raw,
             lifecycle: {
                 $queryFulfilled,
-                $queryStream: { firstReceived: raw, allReceived: raw },
+                $queryStream: { firstReceived: outcome.promise, allReceived: outcome.promise },
             },
         };
     }

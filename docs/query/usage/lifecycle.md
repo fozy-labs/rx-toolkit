@@ -48,7 +48,7 @@ const messagesResource = api.createResource({
 | Свойство ctx | Тип                                 | Описание                                                             |
 |---|-------------------------------------|----------------------------------------------------------------------|
 | `entry` | `CacheEntry` (ресурса или команды) | Текущая кэш-запись.                                                  |
-| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте. Для [стримового][stream-query] запроса — первая эмиссия. |
+| `$queryFulfilled` | `Promise<{ data: TData }>`          | Разрешается с данными при успехе. Отклоняется при ошибке (**сырой**, до `mapError` — хук наблюдает необработанный исход запроса) или аборте — даже если `queryFn` игнорирует `AbortSignal`. Оседает, когда запись уже зафиксировала исход: после `await` `entry` показывает его. Для [стримового][stream-query] запроса — первая эмиссия. |
 | `$queryStream` | `{ firstReceived: Promise<TData>; allReceived: Promise<TData> }` | Вехи [стримового][stream-query] запуска: `firstReceived` — первая эмиссия (≙ `$queryFulfilled`), `allReceived` — последняя эмиссия после завершения стрима. Для промис-`queryFn` оба совпадают с результатом запроса. Ошибки — сырые, до `mapError`. |
 
 ```typescript
@@ -67,36 +67,35 @@ const userResource = api.createResource({
 Хук работает аналогично и для [команд][command].
 
 
-## Композиция хуков: composeHooks
+## Композиция хуков
 
-`composeHooks(...hooks)` собирает несколько хуков одного вида в один — удобно,
+`onQueryStarted` и `onCacheEntryAdded` принимают либо один хук, либо **массив хуков** —
 когда на одну опцию нужно повесить несколько независимых поведений
 (логирование, оптимистичные обновления, метрики):
 
 ```typescript
-import { composeHooks } from '@fozy-labs/rx-toolkit';
-
 const userResource = api.createResource({
     queryFn: (id: number) => fetch(`/api/users/${id}`).then(r => r.json()),
-    onQueryStarted: composeHooks(
-        logQueryStarted,
-        optimisticUpdate,
-    ),
+    onQueryStarted: [logQueryStarted, isDev && collectMetrics],
 });
 ```
 
 Семантика:
 
-- `undefined`-аргументы пропускаются; если хуков не осталось — вернётся `undefined`,
-  единственный хук возвращается как есть.
-- Все хуки **стартуют одновременно** (порядок завершения не гарантируется):
+- Falsy-элементы (`undefined`, `false`) пропускаются — условный хук пишется
+  прямо в массиве: `[log, isDev && metrics]`.
+- Все хуки **стартуют одновременно**, порядок в массиве порядок выполнения не задаёт:
   долгоживущий хук, ожидающий `$cacheEntryRemoved` или `$queryFulfilled`,
-  не блокирует остальные.
+  не блокирует остальные. Последовательность выражается одним хуком с `await` внутри.
 - Ошибка каждого хука подавляется независимо — упавший хук не мешает остальным
   (та же политика, что и для одиночного хука, см. [Обработка ошибок](#обработка-ошибок)).
 
-Той же утилитой API объединяет хуки уровня `createApi` с хуками
-конкретного ресурса или команды.
+Массив принимают `createApi`, `createResource`, `createCommand` и
+`unstable_createProjectionResource`. По тем же правилам API объединяет хуки уровня
+`createApi` с хуками конкретного ресурса или команды.
+
+> Утилита `composeHooks(...hooks)` — прежний способ собрать несколько хуков в один.
+> Помечена `@deprecated` и будет удалена в 0.14.0: передавайте массив.
 
 **Ограничение вывода типов.** Когда хуки написаны инлайн без аннотаций, TS
 выводит тип их `ctx`, только если `TData` уже известен. Если возвращаемый тип
@@ -111,27 +110,30 @@ const userResource = api.createResource({
 При необходимости (например, для предотвращения утечек памяти) оборачивайте `$queryFulfilled` и  `$cacheDataLoaded` в `try/catch`:
 
 ```typescript
-onCacheEntryAdded: async (id, { $cacheDataLoaded, entry }) => {
-    try {
+const userResource = api.createResource({
+    queryFn: (id: number): Promise<User> => fetch(`/api/users/${id}`).then(r => r.json()),
+    onCacheEntryAdded: async (id, { entry, $cacheDataLoaded, $cacheEntryRemoved }) => {
         const connection = createUserConnection(id);
-        const { data } = await $cacheDataLoaded;
-    } catch {
-        connection.close('unused');
-        return;
-    }
 
-    connection.onUserUpdated((partialUser) => {
-        const patch = entry.patch((draft) => {
-            Object.assign(draft, partialUser);
+        try {
+            await $cacheDataLoaded;
+        } catch {
+            // Запись удалена раньше, чем пришли данные
+            connection.close('unused');
+            return;
+        }
+
+        connection.onUserUpdated((partialUser) => {
+            entry.createPatch((draft) => {
+                Object.assign(draft, partialUser);
+            })?.commit();
         });
 
-        path.commit();
-    });
+        await $cacheEntryRemoved;
 
-    await $cacheEntryRemoved;
-
-    connection.close('disposed');
-},
+        connection.close('disposed');
+    },
+});
 ```
 
 

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MachineStateError, MachineTransitionError } from "../core/errors";
-import { Machine } from "../core/machine/Machine";
+import { QueryEntryStateError, QueryEntryTransitionError } from "../core/errors";
+import { Machine, MachineBase } from "../core/machine/Machine";
+import { pendingEntryState, snapshotEntryState } from "../core/machine/machine-helpers";
+import { MachineInvalidating } from "../core/machine/MachineInvalidating";
+import { MachinePending } from "../core/machine/MachinePending";
+import type { TQueryEntryState } from "../types";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -13,7 +17,7 @@ const DATA: TestData = { name: "Alice", count: 10 };
 const DATA2: TestData = { name: "Bob", count: 20 };
 
 function makePending() {
-    return Machine.pending<TestArgs, TestData>(ARGS);
+    return Machine.of<TestArgs, TestData>(pendingEntryState(ARGS));
 }
 
 function makeSuccess() {
@@ -24,12 +28,12 @@ function makeError() {
     return makePending().fail(new Error("boom"));
 }
 
-function makeRefreshing() {
-    return makeSuccess().refresh();
+function makeInvalidating() {
+    return makeSuccess().invalidate();
 }
 
-function makeRefreshError() {
-    return makeRefreshing().fail(new Error("refresh-boom"));
+function makeInvalidateError() {
+    return makeInvalidating().fail(new Error("invalidate-boom"));
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -44,56 +48,55 @@ describe("Machine", () => {
         vi.useRealTimers();
     });
 
-    // ── Static Constructors ────────────────────────────────────────
+    // ── Initial states ─────────────────────────────────────────────
 
-    describe("Machine.pending()", () => {
-        it("creates machine with status 'pending' and null data/error/updatedAt", () => {
-            const m = makePending();
-            expect(m.state.status).toBe("pending");
-            expect(m.state.data).toBeNull();
-            expect(m.state.error).toBeNull();
-            expect(m.state.updatedAt).toBeNull();
-            expect(m.state.isRetrying).toBe(false);
+    describe("pendingEntryState()", () => {
+        it("creates a state with status 'pending' and null data/error/updatedAt", () => {
+            const state = pendingEntryState<TestArgs>(ARGS);
+            expect(state.status).toBe("pending");
+            expect(state.data).toBeNull();
+            expect(state.error).toBeNull();
+            expect(state.updatedAt).toBeNull();
+        });
+
+        it("carries no retry flag — a retry in flight is `error !== null`", () => {
+            expect(makePending().state).not.toHaveProperty("isRetrying");
+            expect(makeSuccess().invalidate().state).not.toHaveProperty("isRetrying");
+            expect(makeError().retry().state).not.toHaveProperty("isRetrying");
+            expect(makeInvalidateError().retry().state).not.toHaveProperty("isRetrying");
         });
 
         it("preserves args reference", () => {
             const args = { id: 42 };
-            const m = Machine.pending<TestArgs, TestData>(args);
-            expect(m.state.args).toBe(args);
+            const state = pendingEntryState<TestArgs>(args);
+            expect(state.args).toBe(args);
         });
     });
 
-    describe("Machine.fromSnapshot()", () => {
+    describe("snapshotEntryState()", () => {
         const snapshot = { args: ARGS, data: DATA, updatedAt: 500 };
 
-        it("isStale=false → status 'success', patchState null", () => {
-            const m = Machine.fromSnapshot<TestArgs, TestData>(snapshot, false);
-            expect(m.state.status).toBe("success");
-            expect(m.state.data).toBe(DATA);
-            if (m.state.status === "success") {
-                expect(m.state.patchState).toBeNull();
-            }
-        });
-
-        it("isStale=true → status 'refreshing', patchState null", () => {
-            const m = Machine.fromSnapshot<TestArgs, TestData>(snapshot, true);
-            expect(m.state.status).toBe("refreshing");
-            expect(m.state.data).toBe(DATA);
-            if (m.state.status === "refreshing") {
-                expect(m.state.patchState).toBeNull();
-            }
-        });
-
-        it("defaults isStale to false", () => {
-            const m = Machine.fromSnapshot<TestArgs, TestData>(snapshot);
-            expect(m.state.status).toBe("success");
+        // Staleness is not a state: a stale snapshot hydrates as the same
+        // `success` and is marked on the entry (`isInvalidated`) instead.
+        it("→ status 'success', patchState null", () => {
+            const state = snapshotEntryState<TestArgs, TestData>(snapshot);
+            expect(state.status).toBe("success");
+            expect(state.data).toBe(DATA);
+            expect(state.patchState).toBeNull();
+            expect(state.error).toBeNull();
         });
 
         it("preserves args, data, updatedAt from snapshot", () => {
-            const m = Machine.fromSnapshot<TestArgs, TestData>(snapshot);
-            expect(m.state.args).toBe(ARGS);
-            expect(m.state.data).toBe(DATA);
-            expect(m.state.updatedAt).toBe(500);
+            const state = snapshotEntryState<TestArgs, TestData>(snapshot);
+            expect(state.args).toBe(ARGS);
+            expect(state.data).toBe(DATA);
+            expect(state.updatedAt).toBe(500);
+        });
+
+        it("wraps into the machine that owns the snapshot's transitions", () => {
+            const machine = Machine.of<TestArgs, TestData>(snapshotEntryState(snapshot));
+            expect(machine.status).toBe("success");
+            expect(machine.invalidate().state.status).toBe("invalidating");
         });
     });
 
@@ -114,20 +117,20 @@ describe("Machine", () => {
             expect(m1.state.status).toBe("pending");
         });
 
-        it("throws MachineTransitionError from success state", () => {
-            expect(() => makeSuccess().success(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from success state", () => {
+            expect(() => makeSuccess().success(DATA2)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from error state", () => {
-            expect(() => makeError().success(DATA)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from error state", () => {
+            expect(() => makeError().success(DATA)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refreshing state", () => {
-            expect(() => makeRefreshing().success(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidating state", () => {
+            expect(() => makeInvalidating().success(DATA2)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refresh-error state", () => {
-            expect(() => makeRefreshError().success(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidate-error state", () => {
+            expect(() => makeInvalidateError().success(DATA2)).toThrow(QueryEntryTransitionError);
         });
     });
 
@@ -142,48 +145,48 @@ describe("Machine", () => {
             expect(m.state.error).toBe(err);
         });
 
-        it("refreshing → refresh-error: preserves data and patchState", () => {
-            const err = new Error("refresh oops");
-            const m = makeRefreshing().fail(err);
-            expect(m.state.status).toBe("refresh-error");
+        it("invalidating → invalidate-error: preserves data and patchState", () => {
+            const err = new Error("invalidate oops");
+            const m = makeInvalidating().fail(err);
+            expect(m.state.status).toBe("invalidate-error");
             expect(m.state.data).toEqual(DATA);
             expect(m.state.error).toBe(err);
         });
 
-        it("refreshing → refresh-error: preserves patchState when present", () => {
-            const refreshing = makeSuccess()
+        it("invalidating → invalidate-error: preserves patchState when present", () => {
+            const invalidating = makeSuccess()
                 .createPatch((d) => {
                     d.count = 99;
                 })
-                .machine.refresh();
+                .machine.invalidate();
             const err = new Error("fail with patches");
-            const m = refreshing.fail(err);
-            expect(m.state.status).toBe("refresh-error");
-            if (m.state.status === "refresh-error") {
+            const m = invalidating.fail(err);
+            expect(m.state.status).toBe("invalidate-error");
+            if (m.state.status === "invalidate-error") {
                 expect(m.state.patchState).not.toBeNull();
             }
         });
 
-        it("success → refresh-error (stream failure after data): preserves data and patchState", () => {
+        it("success → invalidate-error (stream failure after data): preserves data and patchState", () => {
             const err = new Error("stream oops");
             const { machine: patched } = makeSuccess().createPatch((d) => {
                 d.count = 99;
             });
             const m = patched.fail(err);
-            expect(m.state.status).toBe("refresh-error");
+            expect(m.state.status).toBe("invalidate-error");
             expect(m.state.data).toEqual({ ...DATA, count: 99 });
             expect(m.state.error).toBe(err);
-            if (m.state.status === "refresh-error") {
+            if (m.state.status === "invalidate-error") {
                 expect(m.state.patchState).not.toBeNull();
             }
         });
 
-        it("throws MachineTransitionError from error state", () => {
-            expect(() => makeError().fail(new Error())).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from error state", () => {
+            expect(() => makeError().fail(new Error())).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refresh-error state", () => {
-            expect(() => makeRefreshError().fail(new Error())).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidate-error state", () => {
+            expect(() => makeInvalidateError().fail(new Error())).toThrow(QueryEntryTransitionError);
         });
     });
 
@@ -214,61 +217,66 @@ describe("Machine", () => {
             }
         });
 
-        it("throws MachineTransitionError from pending state", () => {
-            expect(() => (makePending() as any).next(DATA)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from pending state", () => {
+            expect(() => makePending().next(DATA)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refreshing state", () => {
-            expect(() => (makeRefreshing() as any).next(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidating state", () => {
+            expect(() => makeInvalidating().next(DATA2)).toThrow(QueryEntryTransitionError);
         });
     });
 
-    // ── FSM Transition: refresh() ──────────────────────────────────
+    // ── FSM Transition: invalidate() ──────────────────────────────────
 
-    describe("refresh()", () => {
-        it("success → refreshing: preserves data, patchState, clears error", () => {
-            const m = makeSuccess().refresh();
-            expect(m.state.status).toBe("refreshing");
+    describe("invalidate()", () => {
+        it("success → invalidating: preserves data, patchState, clears error", () => {
+            const m = makeSuccess().invalidate();
+            expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toEqual(DATA);
             expect(m.state.error).toBeNull();
-            expect(m.state.isRetrying).toBe(false);
         });
 
-        it("refresh-error → refreshing: preserves data and patchState, not a retry", () => {
-            const m = makeRefreshError().refresh();
-            expect(m.state.status).toBe("refreshing");
+        it("invalidate-error → invalidating: preserves data and patchState, not a retry", () => {
+            const m = makeInvalidateError().invalidate();
+            expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toEqual(DATA);
-            expect(m.state.isRetrying).toBe(false);
+            expect(m.state.error).toBeNull();
         });
 
-        it("preserves patchState through refresh", () => {
+        it("error → pending: same args, clears the error (not a retry)", () => {
+            const failed = makeError();
+            const m = failed.invalidate();
+            expect(m.state.status).toBe("pending");
+            expect(m.state.args).toEqual(ARGS);
+            expect(m.state.data).toBeNull();
+            expect(m.state.error).toBeNull();
+            expect(m.state.updatedAt).toBeNull();
+        });
+
+        it("preserves patchState through invalidate", () => {
             expect.assertions(1);
             const { machine: patched } = makeSuccess().createPatch((d) => {
                 d.count = 99;
             });
-            const refreshed = patched.refresh();
-            if (refreshed.state.status === "refreshing") {
-                expect(refreshed.state.patchState).not.toBeNull();
+            const invalidated = patched.invalidate();
+            if (invalidated.state.status === "invalidating") {
+                expect(invalidated.state.patchState).not.toBeNull();
             }
         });
 
-        it("throws MachineTransitionError from pending state", () => {
-            expect(() => makePending().refresh()).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from pending state", () => {
+            expect(() => makePending().invalidate()).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from error state", () => {
-            expect(() => makeError().refresh()).toThrow(MachineTransitionError);
-        });
-
-        it("throws MachineTransitionError from refreshing state", () => {
-            expect(() => makeRefreshing().refresh()).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidating state", () => {
+            expect(() => makeInvalidating().invalidate()).toThrow(QueryEntryTransitionError);
         });
     });
 
     // ── FSM Transition: retry() ────────────────────────────────────
 
     describe("retry()", () => {
-        it("error → pending: preserves args and the error, resets data/updatedAt, marks the retry", () => {
+        it("error → pending: preserves args and the error (the only retry marker), resets data/updatedAt", () => {
             const failed = makeError();
             const m = failed.retry();
             expect(m.state.status).toBe("pending");
@@ -276,94 +284,104 @@ describe("Machine", () => {
             expect(m.state.data).toBeNull();
             expect(m.state.error).toBe(failed.state.error);
             expect(m.state.updatedAt).toBeNull();
-            expect(m.state.isRetrying).toBe(true);
         });
 
-        it("refresh-error → refreshing: preserves data, patchState and the error, marks the retry", () => {
+        it("invalidate-error → invalidating: preserves data, patchState and the error (the retry marker)", () => {
             const { machine: patched } = makeSuccess().createPatch((d) => {
                 d.count = 99;
             });
-            const failed = patched.refresh().fail(new Error("refresh-boom"));
+            const failed = patched.invalidate().fail(new Error("invalidate-boom"));
             const m = failed.retry();
 
-            expect(m.state.status).toBe("refreshing");
+            expect(m.state.status).toBe("invalidating");
             expect(m.state.data).toEqual({ ...DATA, count: 99 });
             expect(m.state.error).toBe(failed.state.error);
             expect(m.state.updatedAt).toBe(failed.state.updatedAt);
-            if (m.state.status === "refreshing") {
+            if (m.state.status === "invalidating") {
                 expect(m.state.patchState).not.toBeNull();
-                expect(m.state.isRetrying).toBe(true);
             }
         });
 
-        it("isRetrying and the error survive patch operations on the retrying refreshing state", () => {
-            expect.assertions(4);
-            const retrying = makeRefreshError().retry();
+        it("the retried error survives patch operations on the retrying invalidating state", () => {
+            expect.assertions(2);
+            const retrying = makeInvalidateError().retry();
             const { machine: patched, handle } = retrying.createPatch((d) => {
                 d.count = 1;
             });
-            if (patched.state.status === "refreshing") {
-                expect(patched.state.isRetrying).toBe(true);
+            if (patched.state.status === "invalidating") {
                 expect(patched.state.error).toBe(retrying.state.error);
             }
 
             handle.commit();
             const finished = patched.finishPatch();
-            if (finished.state.status === "refreshing") {
-                expect(finished.state.isRetrying).toBe(true);
+            if (finished.state.status === "invalidating") {
                 expect(finished.state.error).toBe(retrying.state.error);
             }
         });
 
-        it("the retry bookkeeping is dropped once the retry settles", () => {
+        it("patch operations on a plain invalidating state keep error null", () => {
+            expect.assertions(2);
+            const invalidating = makeInvalidating();
+            const { machine: patched, handle } = invalidating.createPatch((d) => {
+                d.count = 1;
+            });
+            if (patched.state.status === "invalidating") {
+                expect(patched.state.error).toBeNull();
+            }
+
+            handle.commit();
+            const finished = patched.finishPatch();
+            if (finished.state.status === "invalidating") {
+                expect(finished.state.error).toBeNull();
+            }
+        });
+
+        it("the retried error is dropped once the retry settles", () => {
             const succeeded = makeError().retry().success(DATA);
-            expect(succeeded.state).not.toHaveProperty("isRetrying");
             expect(succeeded.state.error).toBeNull();
 
-            const rebased = makeRefreshError().retry().rebase(DATA2);
-            expect(rebased.state).not.toHaveProperty("isRetrying");
+            const rebased = makeInvalidateError().retry().rebase(DATA2);
             expect(rebased.state.error).toBeNull();
 
             const again = new Error("again");
-            const failed = makeRefreshError().retry().fail(again);
-            expect(failed.state).not.toHaveProperty("isRetrying");
+            const failed = makeInvalidateError().retry().fail(again);
             expect(failed.state.error).toBe(again);
         });
 
-        it("throws MachineTransitionError from pending state", () => {
-            expect(() => makePending().retry()).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from pending state", () => {
+            expect(() => makePending().retry()).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from success state", () => {
-            expect(() => makeSuccess().retry()).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from success state", () => {
+            expect(() => makeSuccess().retry()).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refreshing state", () => {
-            expect(() => makeRefreshing().retry()).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidating state", () => {
+            expect(() => makeInvalidating().retry()).toThrow(QueryEntryTransitionError);
         });
     });
 
     // ── FSM Transition: rebase() ───────────────────────────────────
 
     describe("rebase()", () => {
-        it("refreshing → success (no patches): uses new data, sets updatedAt", () => {
-            const m = makeRefreshing().rebase(DATA2);
+        it("invalidating → success (no patches): uses new data, sets updatedAt", () => {
+            const m = makeInvalidating().rebase(DATA2);
             expect(m.state.status).toBe("success");
             expect(m.state.data).toEqual(DATA2);
             expect(m.state.updatedAt).toBe(1000);
         });
 
-        it("refreshing → success (with patches): replays patches on new base", () => {
-            // success → patch → refresh → rebase
+        it("invalidating → success (with patches): committed patches dissolve in the new base", () => {
+            // success → patch → invalidate → rebase
             const { machine: patched, handle } = makeSuccess().createPatch((d) => {
                 d.count = 99;
             });
             handle.commit();
-            const refreshed = patched.refresh();
-            const rebased = refreshed.rebase({ name: "Server", count: 50 });
+            const invalidated = patched.invalidate();
+            const rebased = invalidated.rebase({ name: "Server", count: 50 });
             expect(rebased.state.status).toBe("success");
-            // Committed patches are applied on new base: count becomes 99
-            expect(rebased.state.data).toEqual({ name: "Server", count: 99 });
+            // The server confirmed the change: its data is the truth, the patch is not replayed.
+            expect(rebased.state.data).toEqual({ name: "Server", count: 50 });
         });
 
         it("replays pending patches on new base and keeps patchState", () => {
@@ -372,28 +390,28 @@ describe("Machine", () => {
                 d.count = 99;
             });
             // handle NOT committed → still pending
-            const refreshed = patched.refresh();
-            const rebased = refreshed.rebase({ name: "Server", count: 50 });
+            const invalidated = patched.invalidate();
+            const rebased = invalidated.rebase({ name: "Server", count: 50 });
             if (rebased.state.status === "success") {
                 expect(rebased.state.patchState).not.toBeNull();
                 expect(rebased.state.data).toEqual({ name: "Server", count: 99 });
             }
         });
 
-        it("throws MachineTransitionError from pending state", () => {
-            expect(() => makePending().rebase(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from pending state", () => {
+            expect(() => makePending().rebase(DATA2)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from success state", () => {
-            expect(() => makeSuccess().rebase(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from success state", () => {
+            expect(() => makeSuccess().rebase(DATA2)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from error state", () => {
-            expect(() => makeError().rebase(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from error state", () => {
+            expect(() => makeError().rebase(DATA2)).toThrow(QueryEntryTransitionError);
         });
 
-        it("throws MachineTransitionError from refresh-error state", () => {
-            expect(() => makeRefreshError().rebase(DATA2)).toThrow(MachineTransitionError);
+        it("throws QueryEntryTransitionError from invalidate-error state", () => {
+            expect(() => makeInvalidateError().rebase(DATA2)).toThrow(QueryEntryTransitionError);
         });
     });
 
@@ -484,28 +502,28 @@ describe("Machine", () => {
             }
         });
 
-        it("works in refreshing state", () => {
-            const { machine } = makeRefreshing().createPatch((d) => {
+        it("works in invalidating state", () => {
+            const { machine } = makeInvalidating().createPatch((d) => {
                 d.count = 77;
             });
-            expect(machine.state.status).toBe("refreshing");
+            expect(machine.state.status).toBe("invalidating");
             expect(machine.state.data).toEqual({ name: "Alice", count: 77 });
         });
 
-        it("works in refresh-error state", () => {
-            const { machine } = makeRefreshError().createPatch((d) => {
+        it("works in invalidate-error state", () => {
+            const { machine } = makeInvalidateError().createPatch((d) => {
                 d.count = 88;
             });
-            expect(machine.state.status).toBe("refresh-error");
+            expect(machine.state.status).toBe("invalidate-error");
             expect(machine.state.data).toEqual({ name: "Alice", count: 88 });
         });
 
-        it("throws MachineStateError from pending state", () => {
-            expect(() => makePending().createPatch(() => {})).toThrow(MachineStateError);
+        it("throws QueryEntryStateError from pending state", () => {
+            expect(() => makePending().createPatch(() => {})).toThrow(QueryEntryStateError);
         });
 
-        it("throws MachineStateError from error state", () => {
-            expect(() => makeError().createPatch(() => {})).toThrow(MachineStateError);
+        it("throws QueryEntryStateError from error state", () => {
+            expect(() => makeError().createPatch(() => {})).toThrow(QueryEntryStateError);
         });
 
         it("returns a new Machine instance (immutability)", () => {
@@ -584,16 +602,16 @@ describe("Machine", () => {
             }
         });
 
-        it("throws MachineStateError when no active patchState", () => {
-            expect(() => makeSuccess().finishPatch()).toThrow(MachineStateError);
+        it("throws QueryEntryStateError when no active patchState", () => {
+            expect(() => makeSuccess().finishPatch()).toThrow(QueryEntryStateError);
         });
 
-        it("throws MachineStateError from pending state", () => {
-            expect(() => makePending().finishPatch()).toThrow(MachineStateError);
+        it("throws QueryEntryStateError from pending state", () => {
+            expect(() => makePending().finishPatch()).toThrow(QueryEntryStateError);
         });
 
-        it("throws MachineStateError from error state", () => {
-            expect(() => makeError().finishPatch()).toThrow(MachineStateError);
+        it("throws QueryEntryStateError from error state", () => {
+            expect(() => makeError().finishPatch()).toThrow(QueryEntryStateError);
         });
     });
 
@@ -642,8 +660,8 @@ describe("Machine", () => {
             expect(finished.state.data).toEqual({ name: "Alice", count: 60 });
         });
 
-        it("throws MachineStateError when no active patchState", () => {
-            expect(() => makeSuccess().finishAllPatches()).toThrow(MachineStateError);
+        it("throws QueryEntryStateError when no active patchState", () => {
+            expect(() => makeSuccess().finishAllPatches()).toThrow(QueryEntryStateError);
         });
     });
 
@@ -666,10 +684,10 @@ describe("Machine", () => {
             expect(Object.is(m1.state, s1)).toBe(true);
         });
 
-        it("refresh() returns a new instance, original unchanged", () => {
+        it("invalidate() returns a new instance, original unchanged", () => {
             const m1 = makeSuccess();
             const s1 = m1.state;
-            m1.refresh();
+            m1.invalidate();
             expect(Object.is(m1.state, s1)).toBe(true);
         });
 
@@ -681,7 +699,7 @@ describe("Machine", () => {
         });
 
         it("rebase() returns a new instance, original unchanged", () => {
-            const m1 = makeRefreshing();
+            const m1 = makeInvalidating();
             const s1 = m1.state;
             m1.rebase(DATA2);
             expect(Object.is(m1.state, s1)).toBe(true);
@@ -699,35 +717,36 @@ describe("Machine", () => {
 
     // ── Full Transition Matrix ─────────────────────────────────────
 
-    describe("transition matrix — invalid transitions throw", () => {
-        const methods = ["success", "fail", "refresh", "retry", "rebase", "next"] as const;
+    describe("transition matrix — drawn edges transition, everything else throws", () => {
+        const methods = ["success", "fail", "invalidate", "retry", "rebase", "next"] as const;
 
-        // Map of valid transitions: [fromState, method]
-        const validTransitions = new Set([
-            "pending:success",
-            "pending:fail",
-            "success:refresh",
-            "success:fail",
-            "success:next",
-            "error:retry",
-            "refreshing:fail",
-            "refreshing:rebase",
-            "refresh-error:refresh",
-            "refresh-error:retry",
+        // Map of valid transitions: [fromState, method] → resulting status
+        const validTransitions = new Map([
+            ["pending:success", "success"],
+            ["pending:fail", "error"],
+            ["success:invalidate", "invalidating"],
+            ["success:fail", "invalidate-error"],
+            ["success:next", "success"],
+            ["error:retry", "pending"],
+            ["error:invalidate", "pending"],
+            ["invalidating:fail", "invalidate-error"],
+            ["invalidating:rebase", "success"],
+            ["invalidate-error:invalidate", "invalidating"],
+            ["invalidate-error:retry", "invalidating"],
         ]);
 
         const states = {
             pending: makePending,
             success: makeSuccess,
             error: makeError,
-            refreshing: makeRefreshing,
-            "refresh-error": makeRefreshError,
+            invalidating: makeInvalidating,
+            "invalidate-error": makeInvalidateError,
         } as const;
 
         const methodArgs: Record<string, unknown[]> = {
             success: [DATA],
             fail: [new Error("e")],
-            refresh: [],
+            invalidate: [],
             retry: [],
             rebase: [DATA2],
             next: [DATA2],
@@ -736,7 +755,16 @@ describe("Machine", () => {
         for (const [stateName, factory] of Object.entries(states)) {
             for (const method of methods) {
                 const key = `${stateName}:${method}`;
-                if (validTransitions.has(key)) continue;
+                const target = validTransitions.get(key);
+
+                if (target !== undefined) {
+                    it(`${stateName} + ${method}() → ${target}`, () => {
+                        const m = factory();
+                        const next = (m as any)[method](...methodArgs[method]);
+                        expect(next.state.status).toBe(target);
+                    });
+                    continue;
+                }
 
                 it(`${stateName} + ${method}() → throws`, () => {
                     const m = factory();
@@ -788,23 +816,27 @@ describe("Machine", () => {
             expect(finished.state.data).toEqual(DATA);
         });
 
-        it("scenario 4: rebase with active patches replays via rebasePatches", () => {
-            const { machine: patched, handle } = makeSuccess().createPatch((d) => {
+        it("scenario 4: rebase replays the pending patches and drops the committed ones", () => {
+            const { machine: m1, handle } = makeSuccess().createPatch((d) => {
                 d.count = 77;
             });
+            const { machine: patched } = m1.createPatch((d) => {
+                d.name = "Pending";
+            });
             handle.commit();
-            const refreshed = patched.refresh();
+            const invalidated = patched.invalidate();
             const serverData: TestData = { name: "ServerName", count: 200 };
-            const rebased = refreshed.rebase(serverData);
-            // Committed patch sets count=77, replayed on new base
-            expect(rebased.state.data).toEqual({ name: "ServerName", count: 77 });
+            const rebased = invalidated.rebase(serverData);
+            // The committed count=77 is the server's to report; the pending name is replayed.
+            expect(rebased.state.data).toEqual({ name: "Pending", count: 200 });
+            expect(rebased.state.status === "success" && rebased.state.patchState?.patches).toHaveLength(1);
         });
 
         it("scenario 5: replay failure → isConsistencyViolation = true", () => {
             // Create a situation where rebase patches can't apply.
             // We need an incompatible structure change.
             type Complex = { items: number[] };
-            const m = Machine.pending<string, Complex>("a").success({ items: [1, 2, 3] });
+            const m = Machine.of<string, Complex>(pendingEntryState("a")).success({ items: [1, 2, 3] });
 
             // Patch: modify index 2
             const { machine: patched, handle } = m.createPatch((d) => {
@@ -812,13 +844,13 @@ describe("Machine", () => {
             });
             handle.commit();
 
-            const refreshed = patched.refresh();
+            const invalidated = patched.invalidate();
             // Rebase with data that has no items[2] — this should trigger consistency violation
             // Use a completely different structure to cause rebasePatches to fail
             // Actually, immer patches are path-based, so applying index 2 on a shorter array may still work.
             // Let's use a more drastic approach:
             const newBase = { items: [] as number[] };
-            const rebased = refreshed.rebase(newBase);
+            const rebased = invalidated.rebase(newBase);
             // The patch tries to replace items[2] but items is empty.
             // Depending on immer behavior, this may or may not throw.
             // If it doesn't throw, data is patched; if it does, consistency violation.
@@ -829,6 +861,91 @@ describe("Machine", () => {
                 // immer applied the patch successfully, which is also valid
                 expect(rebased.state.status).toBe("success");
             }
+        });
+
+        it("scenario 6: a discarded replay stays in the current status, flagged", () => {
+            // A patch on items[0] cannot replay over an empty array, so the
+            // rebase throws its own result away. It settles nothing: the state
+            // must stay `invalidating` (query still owed) with the timestamp of
+            // the last real settle, never a `success` carrying data the server
+            // never sent.
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+
+            const { machine: patched } = base.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const invalidating = patched.invalidate();
+            const rebased = invalidating.rebase({ items: [] });
+
+            expect(rebased.status).toBe("invalidating");
+            expect(rebased.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 99 }] },
+                updatedAt: invalidating.state.updatedAt,
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+        });
+
+        it("scenario 7: the run after a discarded replay lands in a clean success", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+
+            const { machine: patched } = base.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const discarded = patched.invalidate().rebase({ items: [] });
+            expect(discarded.status).toBe("invalidating");
+
+            // The flagged patch state holds no patches, so the next rebase has
+            // nothing to replay and takes the server data as it is.
+            const settled = (discarded as MachineInvalidating<string, Nested>).rebase({ items: [{ n: 5 }] });
+
+            expect(settled.status).toBe("success");
+            expect(settled.state).toMatchObject({ status: "success", data: { items: [{ n: 5 }] } });
+            expect(settled.state.patchState).toBeNull();
+        });
+
+        it("scenario 8: a discarded stream emission leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            const { machine: patched } = base.createPatch((draft) => {
+                draft.items[0]!.n = 99;
+            });
+
+            const next = patched.next({ items: [] });
+
+            expect(next).toBeInstanceOf(MachineInvalidating);
+            expect(next.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 99 }] },
+                updatedAt: base.state.updatedAt,
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
+        });
+
+        it("scenario 9: a patch settle that cannot replay the stack leaves success for invalidating", () => {
+            type Nested = { items: { n: number }[] };
+            const base = new MachinePending<string, Nested>(pendingEntryState("a")).success({ items: [{ n: 1 }] });
+            // Patch 2 edits the item patch 1 adds: once patch 1 is aborted, patch 2 cannot replay.
+            const { machine: m1, handle: h1 } = base.createPatch((draft) => {
+                draft.items.push({ n: 2 });
+            });
+            const { machine: m2 } = m1.createPatch((draft) => {
+                draft.items[1]!.n = 3;
+            });
+            h1.abort();
+
+            const finished = m2.finishPatch();
+
+            expect(finished).toBeInstanceOf(MachineInvalidating);
+            expect(finished.state).toMatchObject({
+                status: "invalidating",
+                data: { items: [{ n: 1 }, { n: 3 }] },
+                patchState: { isConsistencyViolation: true, patches: [] },
+            });
         });
     });
 
@@ -903,15 +1020,99 @@ describe("Machine", () => {
             }
         });
 
-        it("finishPatch in refreshing state with patchState", () => {
+        it("finishPatch in invalidating state with patchState", () => {
             const { machine: patched, handle } = makeSuccess().createPatch((d) => {
                 d.count = 42;
             });
             handle.commit();
-            const refreshed = patched.refresh();
-            const finished = refreshed.finishPatch();
-            expect(finished.state.status).toBe("refreshing");
+            const invalidated = patched.invalidate();
+            const finished = invalidated.finishPatch();
+            expect(finished.state.status).toBe("invalidating");
             expect(finished.state.data).toEqual({ name: "Alice", count: 42 });
+        });
+    });
+
+    // ── MachineBase fallback transitions ───────────────────────────
+
+    /**
+     * The subtypes override their own edges; `MachineBase` keeps the full guard
+     * table for machines built by the base transitions themselves. Exercised
+     * through a harness because the base constructor is protected.
+     */
+    describe("MachineBase guard table", () => {
+        class BaseHarness<TArgs, TData> extends MachineBase<TArgs, TData> {
+            constructor(state: TQueryEntryState<TArgs, TData>) {
+                super(state);
+            }
+        }
+
+        const baseError = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "error",
+                args: ARGS,
+                data: null,
+                error: new Error("boom"),
+                updatedAt: null,
+            });
+
+        const baseSuccess = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "success",
+                args: ARGS,
+                data: DATA,
+                error: null,
+                updatedAt: 1000,
+                patchState: null,
+            });
+
+        const baseInvalidateError = () =>
+            new BaseHarness<TestArgs, TestData>({
+                status: "invalidate-error",
+                args: ARGS,
+                data: DATA,
+                error: new Error("invalidate-boom"),
+                updatedAt: 1000,
+                patchState: null,
+            });
+
+        it("invalidate() from error → pending with a cleared error", () => {
+            const m = baseError().invalidate();
+            expect(m.state.status).toBe("pending");
+            expect(m.state.args).toEqual(ARGS);
+            expect(m.state.data).toBeNull();
+            expect(m.state.error).toBeNull();
+            expect(m.state.updatedAt).toBeNull();
+        });
+
+        it("invalidate() from success / invalidate-error → invalidating with a cleared error", () => {
+            for (const failed of [baseSuccess(), baseInvalidateError()]) {
+                const m = failed.invalidate();
+                expect(m.state.status).toBe("invalidating");
+                expect(m.state.data).toEqual(DATA);
+                expect(m.state.error).toBeNull();
+            }
+        });
+
+        it("retry() keeps the retried error as the only retry marker", () => {
+            const failed = baseError();
+            const retried = failed.retry();
+            expect(retried.state.status).toBe("pending");
+            expect(retried.state.error).toBe(failed.state.error);
+            expect(retried.state).not.toHaveProperty("isRetrying");
+
+            const invalidateFailed = baseInvalidateError();
+            const reRetried = invalidateFailed.retry();
+            expect(reRetried.state.status).toBe("invalidating");
+            expect(reRetried.state.error).toBe(invalidateFailed.state.error);
+            expect(reRetried.state).not.toHaveProperty("isRetrying");
+        });
+
+        it("throws QueryEntryTransitionError on undrawn edges", () => {
+            expect(() => baseError().success(DATA)).toThrow(QueryEntryTransitionError);
+            expect(() => baseError().fail(new Error("e"))).toThrow(QueryEntryTransitionError);
+            expect(() => baseError().rebase(DATA2)).toThrow(QueryEntryTransitionError);
+            expect(() => baseError().next(DATA2)).toThrow(QueryEntryTransitionError);
+            expect(() => baseSuccess().retry()).toThrow(QueryEntryTransitionError);
         });
     });
 });

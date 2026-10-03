@@ -1,6 +1,7 @@
 import { Signal } from "../signals";
 
 import { unstable_ProxySignal as ProxySignal } from "./ProxySignal";
+import type { ProxyStateSignal } from "./types";
 
 type Shape = {
     user: { name: string; age: number };
@@ -16,6 +17,24 @@ const makeShape = (): Shape => ({
     ],
     maybe: { v: 5 },
 });
+
+/** How many Proxies `run` constructs. */
+function countProxies(run: () => void): number {
+    const NativeProxy = globalThis.Proxy;
+    let count = 0;
+    globalThis.Proxy = new NativeProxy(NativeProxy, {
+        construct(target, args, newTarget) {
+            count++;
+            return Reflect.construct(target, args, newTarget);
+        },
+    });
+    try {
+        run();
+    } finally {
+        globalThis.Proxy = NativeProxy;
+    }
+    return count;
+}
 
 describe("unstable_ProxySignal", () => {
     describe("root signal (classic behavior)", () => {
@@ -133,6 +152,14 @@ describe("unstable_ProxySignal", () => {
             const s$ = ProxySignal.state(makeShape());
             expect(s$.root.user()).toBe(s$.root.user());
         });
+
+        it("a path node is not a thenable, so awaiting it gives the node", async () => {
+            const s$ = ProxySignal.state(makeShape());
+            const node = s$.root.user;
+            expect((node as unknown as { then?: unknown }).then).toBeUndefined();
+            const timeout = new Promise((resolve) => setTimeout(resolve, 50, "timeout"));
+            await expect(Promise.race([(async () => node)(), timeout])).resolves.toBe(node);
+        });
     });
 
     describe("optional-chaining semantics", () => {
@@ -248,6 +275,16 @@ describe("unstable_ProxySignal", () => {
             expect("maybe" in s$.peek()).toBe(false);
         });
 
+        it("mutates a deep-frozen state", () => {
+            const s$ = ProxySignal.state<{ user: { name: string } }>(
+                Object.freeze({ user: Object.freeze({ name: "a" }) }),
+            );
+            s$.mutate((draft) => {
+                draft.user.name = "b";
+            });
+            expect(s$.peek()).toEqual({ user: { name: "b" } });
+        });
+
         it("reading from the draft returns already-mutated values", () => {
             const s$ = ProxySignal.state(makeShape());
             let seen: string | undefined;
@@ -256,6 +293,25 @@ describe("unstable_ProxySignal", () => {
                 seen = draft.user.name;
             });
             expect(seen).toBe("Bob");
+        });
+
+        it("a later mutate does not change a snapshot whose array was rebuilt from drafts", () => {
+            const s$ = ProxySignal.state({ items: [{ id: 1, done: false }] });
+            s$.mutate((draft) => {
+                draft.items = [...draft.items];
+            });
+            const snapshot = s$.peek();
+            const seen: (boolean | undefined)[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(s$.root.items[0].done());
+            });
+            s$.mutate((draft) => {
+                draft.items[0].done = true;
+            });
+            expect(snapshot.items[0].done).toBe(false);
+            expect(s$.peek().items[0].done).toBe(true);
+            expect(seen).toEqual([false, true]);
+            eff.unsubscribe();
         });
 
         it("does not modify the pre-mutate state object", () => {
@@ -284,6 +340,24 @@ describe("unstable_ProxySignal", () => {
                 draft.user.name = "Bob";
             });
             expect(s$.peek().items).toBe(originalItems);
+        });
+
+        it("keeps an own `__proto__` key of a JSON.parse dictionary across mutates", () => {
+            // A server response or a persisted cache: "__proto__" is an own data key.
+            const s$ = ProxySignal.state<{ tags: Record<string, { count: number }> }>(
+                JSON.parse('{"tags":{"__proto__":{"count":3},"js":{"count":1}}}'),
+            );
+            s$.mutate((d) => {
+                d.tags.js.count = 2;
+            });
+            // A second mutate on the same subtree.
+            s$.mutate((d) => {
+                d.tags.js.count = 3;
+            });
+
+            expect(Object.keys(s$.peek().tags)).toEqual(["__proto__", "js"]);
+            expect(Object.getPrototypeOf(s$.peek().tags)).toBe(Object.prototype);
+            expect(s$.peek().tags.js.count).toBe(3);
         });
     });
 
@@ -380,6 +454,26 @@ describe("unstable_ProxySignal", () => {
             sub.unsubscribe();
         });
 
+        it("mutate that edits a subtree and assigns the original back notifies no one", () => {
+            const s$ = ProxySignal.state({ form: { name: "Ann" } });
+            const original = s$.peek().form;
+            const names: string[] = [];
+            const emitted: unknown[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.form.name());
+            });
+            const sub = s$.obs.subscribe((value) => emitted.push(value));
+            s$.mutate((draft) => {
+                draft.form.name = "typo";
+                draft.form = original;
+            });
+            expect(s$.peek().form).toBe(original);
+            expect(names).toEqual(["Ann"]);
+            expect(emitted).toHaveLength(1);
+            sub.unsubscribe();
+            eff.unsubscribe();
+        });
+
         it("path subscriber is notified when its key is deleted (value becomes undefined)", () => {
             const s$ = ProxySignal.state(makeShape());
             const seen: unknown[] = [];
@@ -397,6 +491,20 @@ describe("unstable_ProxySignal", () => {
             expect(seen[1]).toBeUndefined();
             eff.unsubscribe();
             c.dispose();
+        });
+
+        it("path subscriber is notified when mutate assigns undefined to its key", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const seen: unknown[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(s$.root.maybe());
+            });
+            s$.mutate((draft) => {
+                draft.maybe = undefined;
+            });
+            expect(s$.peek().maybe).toBeUndefined();
+            expect(seen).toEqual([{ v: 5 }, undefined]);
+            eff.unsubscribe();
         });
 
         it("path subscriber is notified when an ancestor is replaced with null", () => {
@@ -468,6 +576,283 @@ describe("unstable_ProxySignal", () => {
             eff.unsubscribe();
             cUser.dispose();
             cItems.dispose();
+        });
+    });
+
+    describe("key set of a path", () => {
+        it("`in` and Object.keys report the keys of the value at the path", () => {
+            const s$ = ProxySignal.state(makeShape());
+            expect("age" in s$.root.user).toBe(true);
+            expect("nick" in s$.root.user).toBe(false);
+            expect(Object.keys(s$.root.user)).toEqual(["name", "age"]);
+            expect(Object.keys(s$.root.items)).toEqual(["0", "1"]);
+            expect(Object.keys(s$.root.maybe.v)).toEqual([]);
+        });
+
+        it("a Map or Set at the path has no keys", () => {
+            const s$ = ProxySignal.state({ m: new Map([["a", 1]]) });
+            expect(Object.keys(s$.root.m)).toEqual([]);
+            expect("a" in s$.root.m).toBe(false);
+        });
+
+        it("wakes `in` and Object.keys readers on a key-set change only", () => {
+            const s$ = ProxySignal.state<{ user: { name: string; nick?: string } }>({ user: { name: "Ann" } });
+            const keys: string[][] = [];
+            const hasNick: boolean[] = [];
+            const effKeys = Signal.effect(() => {
+                keys.push(Object.keys(s$.root.user));
+            });
+            const effHas = Signal.effect(() => {
+                hasNick.push("nick" in s$.root.user);
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            s$.mutate((draft) => {
+                draft.user.nick = "b";
+            });
+            s$.mutate((draft) => {
+                delete draft.user.nick;
+            });
+            expect(keys).toEqual([["name"], ["name", "nick"], ["name"]]);
+            expect(hasNick).toEqual([false, true, false]);
+            effKeys.unsubscribe();
+            effHas.unsubscribe();
+        });
+
+        it("a computed over Object.keys stays truthful while unobserved", () => {
+            const s$ = ProxySignal.state<Record<string, number>>({ a: 1 });
+            const c = Signal.compute(() => Object.keys(s$.root).join());
+            expect(c.peek()).toBe("a");
+            s$.mutate((draft) => {
+                draft.b = 2;
+            });
+            expect(c.peek()).toBe("a,b");
+        });
+
+        it("a property descriptor gets the child path on access", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const desc = Object.getOwnPropertyDescriptor(s$.root.user, "name")!;
+            expect(desc).toMatchObject({ enumerable: true, configurable: true, set: undefined });
+            expect((desc.get!() as () => string)()).toBe("Alice");
+            expect({ ...s$.root.user }.age()).toBe(30);
+            expect(Object.getOwnPropertyDescriptor(s$.root.user, "nick")).toBeUndefined();
+        });
+
+        it("Object.keys creates no child paths, tracked or not", () => {
+            const s$ = ProxySignal.state<{ c: Record<string, { i: number }> }>({
+                c: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, { i }])),
+            });
+            const node = s$.root.c;
+            const lengths: number[] = [];
+            let created = countProxies(() => lengths.push(Object.keys(node).length));
+            const effect = Signal.effect(() => {
+                created += countProxies(() => lengths.push(Object.keys(node).length));
+            });
+            s$.mutate((draft) => {
+                draft.c.extra = { i: -1 };
+            });
+            effect.unsubscribe();
+            expect(lengths).toEqual([100, 100, 101]);
+            expect(created).toBe(0);
+        });
+    });
+
+    describe("read-only tree", () => {
+        it.each([
+            ["assignment", (node: object) => ((node as Record<string, unknown>).age = 31)],
+            ["delete", (node: object) => delete (node as Record<string, unknown>).age],
+            ["Object.defineProperty", (node: object) => Object.defineProperty(node, "x", { value: 1 })],
+            ["Object.setPrototypeOf", (node: object) => Object.setPrototypeOf(node, null)],
+            ["Object.preventExtensions", (node: object) => Object.preventExtensions(node)],
+            ["Object.freeze", (node: object) => Object.freeze(node)],
+        ])("%s on a path throws and leaves the path readable", (_, operation) => {
+            const s$ = ProxySignal.state(makeShape());
+            expect(() => operation(s$.root.user)).toThrow(TypeError);
+            expect(s$.root.user.name()).toBe("Alice");
+            expect(s$.peek().user).toEqual({ name: "Alice", age: 30 });
+        });
+    });
+
+    describe("commit delivery order", () => {
+        it("an .obs subscriber reads fresh path values during delivery", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            const eff = Signal.effect(() => {
+                c();
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe(() => {
+                seen.push(c.peek());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(seen).toEqual(["Alice", "Bob"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+
+        it("a cold computed read during delivery does not swallow the path notification", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            expect(c.peek()).toBe("Alice");
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe(() => {
+                seen.push(c.peek());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "Bob";
+            });
+            expect(seen).toEqual(["Alice", "Bob"]);
+            expect(names).toEqual(["Alice", "Bob"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+
+        it("a nested write from an .obs subscriber leaves paths and effects at the newest value", () => {
+            const s$ = ProxySignal.state(makeShape());
+            const c = Signal.compute(() => s$.root.user.name());
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe((value) => {
+                seen.push(c.peek());
+                if (value.user.name === "outer") {
+                    s$.mutate((draft) => {
+                        draft.user.name = "nested";
+                    });
+                }
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "outer";
+            });
+            expect(seen).toEqual(["Alice", "outer", "nested"]);
+            expect(names).toEqual(["Alice", "nested"]);
+            expect(s$.root.user.name()).toBe("nested");
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+        });
+    });
+
+    describe("nested write from a lifecycle hook", () => {
+        /** A hook that writes back into the signal on a specific value, like a clamp/validation hook. */
+        const withNestedWrite = (
+            write: (s$: ProxyStateSignal<Shape>, value: Shape) => void,
+            options?: { name?: string },
+        ) => {
+            const nested = options?.name ?? "nested";
+            let s$: ProxyStateSignal<Shape>;
+            s$ = ProxySignal.state(makeShape(), {
+                hooks: [
+                    {
+                        onChange: (value: Shape) => {
+                            if (value.user.name === "outer")
+                                write(s$, { ...makeShape(), user: { name: nested, age: 40 } });
+                        },
+                    },
+                ],
+            });
+            return s$;
+        };
+
+        it("an effect on the path converges to the committed value, as with plain Signal.state", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            // The outer write assigns the root after the nested one, so it wins
+            // (plain Signal.state semantics); path readers must land there too.
+            expect(s$.peek().user.name).toBe("outer");
+            expect(names).toEqual(["Alice", "outer"]);
+            eff.unsubscribe();
+            s$.dispose();
+        });
+
+        it("an observed computed over the path converges to the committed value", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const c = Signal.compute(() => s$.root.user.name());
+            const seen: string[] = [];
+            const eff = Signal.effect(() => {
+                seen.push(c());
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            expect(s$.peek().user.name).toBe("outer");
+            expect(seen).toEqual(["Alice", "outer"]);
+            expect(c.peek()).toBe("outer");
+            eff.unsubscribe();
+            c.dispose();
+            s$.dispose();
+        });
+
+        it("an .obs subscriber reads fresh path values during both the nested and the outer delivery", () => {
+            const s$ = withNestedWrite((ps, value) => ps.set(value));
+            const c = Signal.compute(() => s$.root.user.name());
+            const eff = Signal.effect(() => {
+                c();
+            });
+            const seen: string[] = [];
+            const sub = s$.obs.subscribe((value) => {
+                // The delivered root and the path nodes must agree at every delivery.
+                seen.push(`${value.user.name}:${s$.root.user.name()}:${c.peek()}`);
+            });
+            s$.set({ ...makeShape(), user: { name: "outer", age: 40 } });
+            expect(seen).toEqual(["Alice:Alice:Alice", "nested:nested:nested", "outer:outer:outer"]);
+            eff.unsubscribe();
+            c.dispose();
+            sub.unsubscribe();
+            s$.dispose();
+        });
+
+        it("a nested mutate from the hook converges the same way", () => {
+            const s$ = withNestedWrite((ps) => {
+                ps.mutate((draft) => {
+                    draft.user.name = "nested";
+                });
+            });
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            s$.mutate((draft) => {
+                draft.user.name = "outer";
+            });
+            expect(s$.peek().user.name).toBe("outer");
+            expect(names).toEqual(["Alice", "outer"]);
+            eff.unsubscribe();
+            s$.dispose();
+        });
+
+        it("a throwing hook aborts the write before anything changes", () => {
+            const s$ = ProxySignal.state(makeShape(), {
+                hooks: [
+                    {
+                        onChange: () => {
+                            throw new Error("hook failed");
+                        },
+                    },
+                ],
+            });
+            const names: string[] = [];
+            const eff = Signal.effect(() => {
+                names.push(s$.root.user.name());
+            });
+            expect(() => s$.set({ ...makeShape(), user: { name: "Bob", age: 40 } })).toThrow("hook failed");
+            expect(s$.peek().user.name).toBe("Alice");
+            expect(names).toEqual(["Alice"]);
+            eff.unsubscribe();
+            s$.dispose();
         });
     });
 

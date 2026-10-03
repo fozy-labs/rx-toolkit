@@ -7,8 +7,11 @@
  * `resolveAndExecuteActionsWithContext`, `evaluateGuard`, ...) and of
  * `StateNode.next` / `StateMachine.getInitialSnapshot`.
  * Spec: section 3.
+ *
+ * Derived from XState (https://github.com/statelyai/xstate),
+ * Copyright (c) 2015 David Khourshid, MIT License (see LICENSE).
  */
-import { Immer } from "immer";
+import { enableMapSet, Immer } from "immer";
 
 import type {
     ActionArgs,
@@ -28,7 +31,6 @@ import type {
     StateValue,
 } from "../types";
 import { BUILTIN } from "../types/brand";
-import type { NonReducibleUnknown } from "../types/common";
 
 import {
     areStateNodeCollectionsEqual,
@@ -67,12 +69,21 @@ import {
     type HistoryValue,
 } from "./transitions";
 
+/** `T | unknown` collapses to `unknown` and kills contextual typing; this union covers the same value space without collapsing. Module-local so a consumer's declaration inlines it (see `types/index.ts`). */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: any non-nullish value without collapsing the union
+type NonReducibleUnknown = {} | null | undefined;
+
 /**
  * Immer instance of the `mutate` builtin. Auto-freeze is off: the produced
  * context (and the untouched subtrees it shares with the previous one, up to
  * the definition's initial `context` object) stays as mutable as `assign`
  * leaves it, and the definition's config is not frozen behind the user's back.
+ *
+ * Immer drafts every `Map` / `Set` it meets and throws without its MapSet
+ * plugin, so the plugin is loaded (a global, additive switch shared with the
+ * application's own Immer, like `enablePatches()` in the query patcher).
  */
+enableMapSet();
 const immer = new Immer({ autoFreeze: false });
 
 // --- public contracts ------------------------------------------------------
