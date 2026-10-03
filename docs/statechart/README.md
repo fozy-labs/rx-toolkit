@@ -327,10 +327,10 @@ try {
 Второй аргумент `createMachine` (и аргумент `provide()`):
 
 ```typescript
-interface MachineImplementations<TContext, TEvent> {
-    actions?: Record<string, ActionImplementation>; // (args, params) => void  |  builtin-действие
-    guards?: Record<string, GuardImplementation>; // (args, params) => boolean |  builtin-гвард
-    delays?: Record<string, DelayImplementation>; // number | (args, params) => number
+interface MachineImplementations<TContext extends MachineContext, TEvent extends EventObject> {
+    actions?: Record<string, ActionImplementation<TContext, TEvent>>; // (args, params) => void  |  builtin-действие
+    guards?: Record<string, GuardImplementation<TContext, TEvent>>; // (args, params) => boolean |  builtin-гвард
+    delays?: Record<string, DelayImplementation<TContext, TEvent>>; // number | (args, params) => number
 }
 ```
 
@@ -682,7 +682,7 @@ const dispose = Signal.effect(() => {
 В React:
 
 ```tsx
-import { useSignal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 
 function TrafficLight() {
     const snapshot = useSignal(light$);

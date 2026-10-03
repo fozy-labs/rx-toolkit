@@ -133,6 +133,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     private _placeholder: PlaceholderMemo<TData> | null = null;
     private _isStarted = false;
     private _isMarked = false;
+    /** The pending release of the bridging hold {@link _initiate} took, if any. */
+    private _bridgeRelease: (() => void) | null = null;
     /** The pending {@link whenSettled} promise of each mode, for one loading phase. */
     private readonly _whenSettled: { renderable: Promise<void> | null; done: Promise<void> | null } = {
         renderable: null,
@@ -165,7 +167,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             return;
         }
 
-        this._resource.getEntry(tracking.keyed, true);
+        this._initiate(tracking.keyed);
     }
 
     /**
@@ -186,6 +188,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         if (args === SKIP) {
             // With or without tracked args: a clutch that only adopted previous
             // data (see `adoptPrevious`) drops it all the same.
+            this._releaseBridge();
             this._previous$ = null;
             this._placeholder = null;
             this._tracking$.set(null);
@@ -212,7 +215,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
 
         Batcher.run(() => {
             if (this._isStarted) {
-                this._resource.getEntry(keyed, true);
+                this._initiate(keyed);
             }
 
             this._tracking$.set({
@@ -404,6 +407,45 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         // render) already sees the revalidation that subscription starts.
         const entryState = entry.state$();
         return this._deriveNotIdleState(tracking.keyed, onHold ? entry._stateOnHold(entryState) : entryState);
+    }
+
+    /**
+     * Create the entry behind `keyed` — or find the existing one — for the
+     * started clutch. A brand-new entry gets a bridging hold, released on the
+     * next macrotask: an entry nobody ever held never arms its retention timer,
+     * so an unobserved clutch would otherwise leave entries that never expire.
+     * The release is a macrotask rather than synchronous so the subscription a
+     * committed render is about to make — the React hooks' layout-effect
+     * `start()` precedes the passive-effect subscription, and React posts that
+     * task before this timer — still finds the entry alive even under
+     * `retentionTime: 0`. One bridge at a time: initiating another entry
+     * releases the previous one, as does `switch(SKIP)`.
+     */
+    private _initiate(keyed: TKeyed<TArgs>): void {
+        const existed = this._resource.getEntryByKey(keyed.key) !== null;
+        const entry = this._resource.getEntry(keyed, true);
+
+        if (existed) {
+            return;
+        }
+
+        this._releaseBridge();
+        const release = entry.hold();
+        const timer = setTimeout(() => {
+            if (this._bridgeRelease === bridge) this._bridgeRelease = null;
+            release();
+        }, 0);
+        const bridge = (): void => {
+            clearTimeout(timer);
+            release();
+        };
+        this._bridgeRelease = bridge;
+    }
+
+    /** Release the standing bridging hold, if any (see {@link _initiate}). */
+    private _releaseBridge(): void {
+        this._bridgeRelease?.();
+        this._bridgeRelease = null;
     }
 
     private _promoteToPrevious(tracking: Tracking<TArgs, TData>): void {

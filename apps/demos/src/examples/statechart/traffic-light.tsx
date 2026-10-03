@@ -1,5 +1,6 @@
 import React from 'react';
-import { assign, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal, useSignal } from '@fozy-labs/rx-toolkit';
+import { assign, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardFooter, CardHeader, Chip, cn, Divider } from '@heroui/react';
 
 type LightContext = { cycles: number };

@@ -209,6 +209,61 @@ describe("a root reset / initialize during the flight", () => {
         expect(form.status$()).toBe("success");
     });
 
+    it("a nested initialize() cancels _commit() for its subtree only — the other sent fields still become the base", async () => {
+        const save = manualCommand<unknown>();
+        const def = g({
+            fields: {
+                name: text(),
+                address: g({ fields: { city: text() } }),
+            },
+            submit: ({ parsed$ }) => save.command.bind(parsed$().value),
+        });
+        const form = FormSignal.state(def, { state: { name: "Ann", address: { city: "Oslo" } } });
+        form.fields.name.set("Bob");
+        const result = form.submit();
+        await flush();
+        // e.g. an address autocomplete fills the sub-form while the save is in flight
+        form.fields.address.initialize({ state: { city: "Rome" } });
+        save.last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+
+        // "Bob" was sent and saved: it becomes the base. "Rome" was written by initialize:
+        // it wins over the sent "Oslo" — and is itself the new base of `city`.
+        expect(form.fields.name.value$()).toBe("Bob");
+        expect(form.fields.name.isDirty$()).toBe(false);
+        expect(form.fields.address.fields.city.value$()).toBe("Rome");
+        expect(form.fields.address.fields.city.isDirty$()).toBe(false);
+        form.fields.address.fields.city.reset();
+        expect(form.fields.address.fields.city.value$()).toBe("Rome");
+        expect(form.isDirty$()).toBe(false);
+        expect(form.status$()).toBe("success");
+    });
+
+    it("initialize() of a list row during the flight skips only that row's commit", async () => {
+        const { form, last } = contacts();
+        const phones = form.fields.phones;
+        const [one] = phones.items$();
+        phones.items$()[1].fields.number.set("20");
+        const result = form.submit();
+        await flush();
+        // Re-base the first row while the save is in flight.
+        one.initialize({ state: { number: "9" } });
+        last().resolve({ id: "1" });
+        expect(await result).toBe(true);
+
+        // The re-based row keeps what initialize wrote; the other row's sent value is its base.
+        expect(phones.items$()[0].fields.number.value$()).toBe("9");
+        expect(phones.items$()[0].fields.number.isDirty$()).toBe(false);
+        const second = phones.items$()[1];
+        expect(second.fields.number.value$()).toBe("20");
+        expect(second.fields.number.isDirty$()).toBe(false);
+        second.fields.number.reset();
+        expect(second.fields.number.value$()).toBe("20");
+        phones.items$()[0].fields.number.reset();
+        expect(phones.items$()[0].fields.number.value$()).toBe("9");
+        expect(form.isDirty$()).toBe(false);
+    });
+
     it("initialize({ context }) touches nothing of the attempt", async () => {
         const save = manualCommand<unknown>();
         const def = g({

@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
 import { outsideAct, sleep, withSlowSiblings } from "@/__tests__/helpers/concurrent-react";
@@ -298,6 +298,28 @@ describe("useResource", () => {
         await settle();
         expect(calls).toBe(2);
         expect(state.data).toEqual({ id: 1, name: "user-1-v2" });
+    });
+
+    it("retentionTime: 0 — the mounted entry survives the start→subscribe gap and is not re-fetched", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const queryFn = vi.fn(async ({ id }: TArgs) => ({ id, name: `user-${id}` }));
+        const resource = api.createResource<TArgs, TUser>({ retentionTime: 0, queryFn });
+
+        const c = setup(resource.useResource, { id: 1 });
+        await settle();
+
+        // The layout-effect start() creates the entry under a bridging hold;
+        // the passive-effect subscription takes over before it is released, so
+        // the entry is never evicted mid-mount and the query does not re-run.
+        expect(c.state.status).toBe("success");
+        expect(c.state.data).toEqual({ id: 1, name: "user-1" });
+        expect(queryFn).toHaveBeenCalledTimes(1);
+
+        // Past the bridge's macrotask the mounted subscription is what holds it.
+        await act(() => sleep(20));
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        expect(resource.getEntry({ id: 1 })).not.toBeNull();
+        expect(c.state.status).toBe("success");
     });
 
     it("re-rendering with an equal args literal keeps the same clutch state", async () => {

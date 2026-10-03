@@ -292,6 +292,44 @@ describe("produce", () => {
         });
     });
 
+    describe("an own `__proto__` key", () => {
+        // A dictionary keyed by arbitrary strings, as it arrives from JSON.parse
+        // (e.g. a server response or a persisted cache): "__proto__" is an own data key.
+        const fromServer = () => JSON.parse('{"tags":{"__proto__":{"count":3},"js":{"count":1}}}');
+
+        it("survives an unrelated write, as an own key and with the right prototype", () => {
+            const base = fromServer();
+            const next = produce(base, (d: any) => {
+                d.tags.js.count = 2;
+            });
+
+            expect(Object.getPrototypeOf(next.tags)).toBe(Object.prototype);
+            expect(Object.keys(next.tags)).toEqual(["__proto__", "js"]);
+            expect(next.tags.js.count).toBe(2);
+        });
+
+        it("is written as an own data key, not a prototype change", () => {
+            const base = { tags: { js: { count: 1 } } };
+            const next = produce(base, (d: any) => {
+                d.tags["__proto__"] = { count: 3 };
+            });
+
+            expect(Object.getPrototypeOf(next.tags)).toBe(Object.prototype);
+            expect(Object.keys(next.tags)).toEqual(["js", "__proto__"]);
+            expect((next.tags as Record<string, unknown>)["__proto__"]).toEqual({ count: 3 });
+        });
+
+        it("is deleted like any other key", () => {
+            const base = fromServer();
+            const next = produce(base, (d: any) => {
+                delete d.tags["__proto__"];
+            });
+
+            expect(Object.getPrototypeOf(next.tags)).toBe(Object.prototype);
+            expect(Object.keys(next.tags)).toEqual(["js"]);
+        });
+    });
+
     describe("writing undefined", () => {
         it("clears an existing key", () => {
             const base: { a?: number; o?: { x: number } } = { a: 1, o: { x: 1 } };

@@ -5,11 +5,11 @@ import {
     createApi,
     unstable_FormSignal as FormSignal,
     unstable_formsPlugin,
-    unstable_formsReactPlugin,
     type AnyGroupDef,
     type FormInitArgs,
     type StandardSchemaV1,
 } from "@/index";
+import { unstable_formsReactPlugin } from "@/react";
 
 function schema<T>(check: (value: unknown) => value is T): StandardSchemaV1<T, T> {
     return {

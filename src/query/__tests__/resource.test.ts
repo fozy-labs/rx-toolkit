@@ -3779,6 +3779,75 @@ describe("QueryCacheEntry.createPatch edge cases", () => {
     });
 });
 
+/**
+ * A rebase re-runs the patch's recipe on the data the server answered with,
+ * never the recorded positional patches: `d.items.push(x)` must append at the
+ * end of the list the refetch returned, not at the index it was recorded at.
+ * A recipe that cannot run on the new base throws — the run is discarded as a
+ * consistency violation and re-queried, not silently misapplied.
+ */
+describe("QueryCacheEntry — rebase replays the patch recipe", () => {
+    type Items = { items: { id: number }[] };
+
+    it("a push recipe re-run over a longer list appends at the new end", async () => {
+        let fetchCount = 0;
+        const resource = createResource<void, Items>({
+            queryFn: async () => {
+                fetchCount += 1;
+                return fetchCount === 1 ? { items: [{ id: 1 }] } : { items: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+            },
+        });
+        const entry = resource.getEntry(undefined, true);
+        entry.hold();
+        await flushMicrotasks();
+        expect(entry.state$.peek().data).toEqual({ items: [{ id: 1 }] });
+
+        entry.createPatch((d: Items) => {
+            d.items.push({ id: 99 });
+        });
+        expect(entry.state$.peek().data!.items.map((i) => i.id)).toEqual([1, 99]);
+
+        resource.invalidate();
+        await flushMicrotasks();
+
+        // Re-running `push` over the refetched three items appends at index 3;
+        // replaying the recorded `add [1]` would insert at index 1.
+        const state = entry.state$.peek();
+        expect(state.status).toBe("success");
+        expect(state.data!.items.map((i) => i.id)).toEqual([1, 2, 3, 99]);
+    });
+
+    it("a recipe that throws on the new base is a consistency violation and re-queries", async () => {
+        let fetchCount = 0;
+        const resource = createResource<void, Items>({
+            queryFn: async () => {
+                fetchCount += 1;
+                return fetchCount === 1 ? { items: [{ id: 1 }, { id: 2 }] } : { items: [{ id: 1 }] };
+            },
+        });
+        const entry = resource.getEntry(undefined, true);
+        entry.hold();
+        await flushMicrotasks();
+
+        entry.createPatch((d: Items) => {
+            d.items[1]!.id = 9;
+        });
+        expect(entry.state$.peek().data!.items.map((i) => i.id)).toEqual([1, 9]);
+
+        resource.invalidate();
+        await flushMicrotasks();
+        await flushMicrotasks();
+        await flushMicrotasks();
+
+        // The discarded run re-queries at once; the entry ends in a clean
+        // success on the latest server answer.
+        expect(fetchCount).toBe(3);
+        expect(entry.state$.peek()).toMatchObject({ status: "success", data: { items: [{ id: 1 }] } });
+        const settled = entry.state$.peek();
+        expect(settled.status === "success" && settled.patchState).toBeNull();
+    });
+});
+
 // ==================== Edge Cases (MEDIUM priority) ====================
 
 describe("Resource — retry() on non-error state is no-op", () => {

@@ -1,4 +1,5 @@
-import { unstable_ProxySignal as ProxySignal, useSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_ProxySignal as ProxySignal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardHeader, Chip, Input } from "@heroui/react";
 
 type Profile = {

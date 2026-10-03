@@ -13,12 +13,10 @@ import type {
     ICommandClutch,
     IPlugin,
     IPluginHKT,
-    IReactHooksPluginHKT,
     IResourceAgent,
     IResourceClutch,
     Keyed,
     PluginHKT,
-    ReactHooksPluginHKT,
     TAgentStatus,
     TArgsOrKeyed,
     TArgsOrVoid,
@@ -45,6 +43,7 @@ import type {
     TQueryEntrySuccessState,
     TSuccessState,
 } from "@/query";
+import type { IReactHooksPluginHKT, ReactHooksPluginHKT } from "@/react";
 
 /**
  * The 0.13.0 renames keep a deprecated alias for one release (removed in

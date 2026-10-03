@@ -1,3 +1,6 @@
+import * as xstate from "xstate";
+
+import { deepEqual } from "../../common/utils/deepEqual";
 import { assign, cancel, log, mutate, raise } from "../actions";
 import { unstable_createMachine as createMachine } from "../createMachine";
 import { and, not, or, stateIn } from "../guards";
@@ -717,6 +720,198 @@ describe("toXStateSource", () => {
             const definition = createTrafficLight().provide({ delays: { SHORT: 5, LONG: () => 10 } });
             const source = toXStateSource(definition, { includeImport: false, includeImplementations: true });
             expect(source).toContain("    delays: {\n        SHORT: 5,\n        LONG: LONG,\n    },");
+        });
+    });
+
+    describe("non-plain-object values", () => {
+        /** Strips the module preamble and evaluates the `createMachine` call, returning the config argument. */
+        function evaluateConfig(source: string): { context?: Record<string, unknown> } {
+            const body = source
+                .replace(/^import [^\n]*\n/gm, "")
+                .replace(/^\n+/, "")
+                .replace(/^export const (\w+) =/, "return");
+            // eslint-disable-next-line @typescript-eslint/no-implied-eval -- test-only: proves the output parses as JS
+            return new Function("createMachine", body)((config: unknown) => config) as {
+                context?: Record<string, unknown>;
+            };
+        }
+
+        it("renders Map / Set / Date / RegExp as their constructors and round-trips them", () => {
+            const context = {
+                items: new Map<string, unknown>([
+                    ["sku-1", 2],
+                    ["nested", new Set(["a", "b"])],
+                ]),
+                tags: new Set(["sale", new Map([["color", "red"]])]),
+                createdAt: new Date(0),
+                pattern: /a+/gi,
+            };
+            const definition = createMachine({ id: "cart", context, initial: "idle", states: { idle: {} } });
+            const source = toXStateSource(definition);
+            expect(source).toContain('items: new Map([["sku-1", 2], ["nested", new Set(["a", "b"])]])');
+            expect(source).toContain("createdAt: new Date(0)");
+            expect(source).toContain("pattern: /a+/gi");
+            const evaluated = evaluateConfig(source);
+            expect(deepEqual(evaluated.context, context)).toBe(true);
+            expect(evaluated.context!.items).toBeInstanceOf(Map);
+            expect(evaluated.context!.tags).toBeInstanceOf(Set);
+            expect(evaluated.context!.createdAt).toBeInstanceOf(Date);
+        });
+
+        it("renders an Invalid Date as new Date(NaN)", () => {
+            const definition = createMachine({
+                id: "m",
+                context: { when: new Date("") },
+                initial: "idle",
+                states: { idle: {} },
+            });
+            const source = toXStateSource(definition);
+            expect(source).toContain("when: new Date(NaN)");
+            expect((evaluateConfig(source).context!.when as Date).getTime()).toBeNaN();
+        });
+
+        it("rejects a class instance with a TypeError naming the class and the path", () => {
+            class Point {
+                constructor(
+                    public x: number,
+                    public y: number,
+                ) {}
+            }
+            const definition = createMachine({
+                id: "m",
+                context: { position: new Point(1, 2) },
+                initial: "idle",
+                states: { idle: {} },
+            });
+            expect(() => toXStateSource(definition)).toThrow(TypeError);
+            expect(() => toXStateSource(definition)).toThrow(/Point.*context\.position/);
+        });
+
+        it("reports a cyclic value with its path instead of overflowing the stack", () => {
+            const root: { name: string; children: unknown[] } = { name: "root", children: [] };
+            root.children.push({ name: "leaf", parent: root });
+            const definition = createMachine({ id: "tree", context: { root }, initial: "idle", states: { idle: {} } });
+            expect(() => toXStateSource(definition)).toThrow(
+                "toXStateSource: cyclic reference at context.root.children[0].parent",
+            );
+        });
+
+        it("renders shared non-cyclic references twice (a DAG is not a cycle)", () => {
+            const shared = { weight: 10 };
+            const definition = createMachine({
+                id: "m",
+                context: { first: shared, second: { nested: shared } },
+                initial: "idle",
+                states: { idle: {} },
+            });
+            const evaluated = evaluateConfig(toXStateSource(definition));
+            expect(deepEqual(evaluated.context, { first: { weight: 10 }, second: { nested: { weight: 10 } } })).toBe(
+                true,
+            );
+        });
+    });
+
+    describe("identifiers and import collisions", () => {
+        /**
+         * Runs the generated module as JavaScript: the xstate import line becomes
+         * a destructuring of the real `xstate` exports, every other free
+         * identifier resolves through `userScope` (what the user pastes next to it).
+         */
+        function runModule(source: string, userScope: Record<string, unknown>): unknown {
+            const body = source
+                .replace(
+                    /^import \{ ([^}]*) \} from "xstate";\n/,
+                    // `name as alias` in an import becomes `name: alias` in destructuring.
+                    (_match, names: string) => `const { ${names.replace(/(\w+) as (\w+)/g, "$1: $2")} } = xstate;\n`,
+                )
+                .replace(/^import \{ ([^}]*) \} from "@fozy-labs\/rx-toolkit";\n/, "")
+                .replace(/^export const (\w+) = /m, "const $1 = ");
+            const name = /^const (\w+) = /m.exec(body)![1]!;
+            const scope = new Proxy(userScope, {
+                has: (_t, key) => key !== "xstate" && typeof key === "string" && key in userScope,
+            });
+            // eslint-disable-next-line @typescript-eslint/no-implied-eval -- test-only: runs the generated module
+            return new Function("xstate", "scope", `with (scope) { ${body} return ${name}; }`)(
+                xstate,
+                scope,
+            ) as unknown;
+        }
+
+        it("keeps Unicode implementation names as identifiers", () => {
+            function увеличить(): void {}
+            function уменьшить(): void {}
+            const definition = createMachine(
+                {
+                    id: "counter",
+                    initial: "idle",
+                    states: {
+                        idle: { on: { INC: { actions: "увеличить" }, DEC: { actions: "уменьшить" } } },
+                    },
+                },
+                { actions: { увеличить, уменьшить } },
+            );
+            const source = toXStateSource(definition, { includeImplementations: true });
+            expect(source).toContain("увеличить: увеличить");
+            expect(source).toContain("уменьшить: уменьшить");
+        });
+
+        it("an implementation named like a used builtin keeps pointing at the user's function", () => {
+            const logAction = { log: (_args: unknown) => undefined };
+            const definition = createMachine(
+                { id: "player", initial: "idle", states: { idle: { entry: [log("entered"), "log"] } } },
+                { actions: logAction },
+            );
+            const source = toXStateSource(definition, { includeImplementations: true });
+            // The xstate import is aliased; the user's `log` stays bare.
+            expect(source).toContain("log as log_");
+            expect(source).toContain("log: log,");
+            const machine = runModule(source, { log: logAction.log }) as {
+                implementations: { actions: Record<string, unknown> };
+            };
+            expect(machine.implementations.actions.log).toBe(logAction.log);
+            expect(machine.implementations.actions.log).not.toBe(xstate.log);
+        });
+
+        it("aliases a library import (mutate) colliding with a user identifier", () => {
+            const mutateAction = { mutate: (_args: unknown) => undefined };
+            const definition = createMachine(
+                {
+                    id: "doc",
+                    initial: "idle",
+                    states: {
+                        idle: { entry: [mutate(({ context }) => context), "mutate"] },
+                    },
+                },
+                { actions: mutateAction },
+            );
+            const source = toXStateSource(definition, { includeImplementations: true });
+            // The @fozy-labs/rx-toolkit import is aliased; the user's `mutate` stays bare.
+            expect(source).toContain('import { mutate as mutate_ } from "@fozy-labs/rx-toolkit";');
+            expect(source).toContain("mutate_(");
+            expect(source).toContain("mutate: mutate,");
+        });
+
+        it("a machine id equal to a used builtin yields a module that parses", () => {
+            const definition = createMachine({
+                id: "log",
+                initial: "idle",
+                states: { idle: { entry: log("entered") } },
+            });
+            const source = toXStateSource(definition);
+            expect(() => runModule(source, {})).not.toThrow();
+        });
+
+        it("includeImport: false applies no aliases — the caller's imports keep the original names", () => {
+            const definition = createMachine({
+                id: "log",
+                initial: "idle",
+                states: { idle: { entry: log("entered") } },
+            });
+            const source = toXStateSource(definition, { includeImport: false });
+            expect(source).toBe(
+                'export const log = createMachine({\n    id: "log",\n    initial: "idle",\n    states: {\n        idle: {\n            entry: log("entered"),\n        },\n    },\n});\n',
+            );
+            expect(source).not.toContain("log_");
         });
     });
 });

@@ -1,4 +1,5 @@
-import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
+import { Signal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody } from "@heroui/react";
 
 const counter$ = Signal.state(0);

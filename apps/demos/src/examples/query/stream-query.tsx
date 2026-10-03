@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Tab, Tabs } from '@heroui/react';
 import React from 'react';
 import { map, take, timer } from 'rxjs';

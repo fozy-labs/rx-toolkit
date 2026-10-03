@@ -87,6 +87,15 @@ export interface TPatchEntry {
     forward: Patch[];
     inverse: Patch[];
     status: "pending" | "committed" | "aborted";
+    /**
+     * The Immer recipe the patch was created with. Replays — a rebase over
+     * fresh server data, the fold of a settled stack — re-run it on the data at
+     * hand instead of re-applying the recorded positional patches: a recipe that
+     * finds its target (`findIndex` + a `-1` guard) still lands on it after the
+     * list shifted, where the recorded paths would hit a neighbour. Absent for
+     * manually constructed entries; those replay via `forward` as before.
+     */
+    recipe?: (draft: any) => void;
 }
 
 export interface TPatchState<TData> {

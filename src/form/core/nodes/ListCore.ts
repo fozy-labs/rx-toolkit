@@ -337,7 +337,7 @@ export class ListCore implements ParentCore {
      * during the flight stay a draft; rows removed during it are in the base again, detached.
      * Reinit data deferred before is older than this base and is dropped.
      */
-    commit(snapshot: ListSnapshot): void {
+    commit(snapshot: ListSnapshot, since: number): void {
         this._deferred = NOTHING;
         for (const [itemKey, item] of snapshot.items) {
             if (!this._registry.has(itemKey)) this._registry.set(itemKey, item.core);
@@ -350,7 +350,7 @@ export class ListCore implements ParentCore {
             this._structure$.set(keys === undefined ? { baseKeys } : { baseKeys, keys });
         }
         this._keepOnly(keys === undefined ? baseKeys : [...baseKeys, ...keys]);
-        for (const item of snapshot.items.values()) commitSnapshot(item);
+        for (const item of snapshot.items.values()) commitSnapshot(item, since);
     }
 
     /** Whether the row `key` is attached now. */

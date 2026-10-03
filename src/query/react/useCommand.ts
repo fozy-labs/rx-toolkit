@@ -1,5 +1,3 @@
-import React from "react";
-
 import { useConstant, useEventHandler } from "@/common/react";
 import type { ICommand, TCommandClutchState, TTriggerPromise } from "@/query/types";
 import { useSignal } from "@/signals/react";
@@ -15,13 +13,12 @@ export function useCommand<TArgs, TData, TError = unknown>(
     command: ICommand<TArgs, TData, TError>,
     entryKey?: string,
 ): [trigger: (args: TArgs) => TTriggerPromise<TData, TError>, state: TCommandClutchState<TArgs, TData, TError>] {
-    const clutch = useConstant(() => command.createClutch(entryKey), [command]);
-
-    React.useEffect(() => {
-        if (entryKey !== undefined) {
-            clutch.setEntryKey(entryKey);
-        }
-    }, [clutch, entryKey]);
+    // The clutch is keyed by entryKey during render — a key change rebuilds
+    // it (useConstant re-creates on dep change), so the first commit under a
+    // new key already observes that key's entry, and `undefined` binds a
+    // fresh clutch that triggers under a generated key rather than reusing
+    // the previous one.
+    const clutch = useConstant(() => command.createClutch(entryKey), [command, entryKey]);
 
     const state = useSignal(clutch.state$);
 

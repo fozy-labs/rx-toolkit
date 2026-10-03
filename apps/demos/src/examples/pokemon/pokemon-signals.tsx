@@ -1,5 +1,6 @@
 import React from "react";
-import { createApi, reactHooksPlugin, SKIP, Signal, useSignal } from "@fozy-labs/rx-toolkit";
+import { createApi, SKIP, Signal } from "@fozy-labs/rx-toolkit";
+import { reactHooksPlugin, useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Input } from "@heroui/react";
 
 // ── Types ──────────────────────────────────────────────

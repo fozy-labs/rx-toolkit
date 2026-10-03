@@ -95,7 +95,12 @@ export class FromSignal<T> {
 
     // === static ===
 
-    static create<T>(source: Observable<T>, options?: SignalFromOptions<T>): DisposableSignal<T> {
+    static create<T, D extends T | undefined>(
+        source: Observable<T>,
+        options: Omit<SignalFromOptions<T>, "default"> & { default: D },
+    ): DisposableSignal<T | (undefined extends D ? undefined : never)>;
+    static create<T>(source: Observable<T>, options?: SignalFromOptions<T>): DisposableSignal<T>;
+    static create(source: Observable<unknown>, options?: SignalFromOptions<unknown>): DisposableSignal<unknown> {
         const fs = new FromSignalNode(source, options);
 
         function fromSignalFn() {

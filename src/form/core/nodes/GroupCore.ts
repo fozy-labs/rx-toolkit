@@ -76,6 +76,8 @@ export class GroupCore implements ParentCore {
     private readonly _excluded: Readonly<Record<string, ReadonlySignal<Outcome<boolean>>>>;
     private readonly _submit: SubmitController | null;
     private readonly _context$: StateSignal<unknown> | null;
+    /** The `scope.bases.generation` this group's `initialize()` last wrote, or `0`. */
+    private _basesWrittenAt = 0;
 
     constructor(
         record: GroupRecord,
@@ -415,9 +417,14 @@ export class GroupCore implements ParentCore {
         return { kind: "group", core: this, children };
     }
 
-    /** `_commit()` of the sent children. */
-    commit(snapshot: GroupSnapshot): void {
-        for (const child of snapshot.children.values()) commitSnapshot(child);
+    /**
+     * `_commit()` of the sent children — skipped entirely when this group's own `initialize()` wrote
+     * bases after `since` (the submit's captured generation): those bases are newer than what was
+     * sent.
+     */
+    commit(snapshot: GroupSnapshot, since: number): void {
+        if (this._basesWrittenAt > since) return;
+        for (const child of snapshot.children.values()) commitSnapshot(child, since);
     }
 
     addServerIssues(issues: readonly Issue[]): void {
@@ -442,7 +449,7 @@ export class GroupCore implements ParentCore {
         const hasContext = this._context$ !== null && isProvided(data, "context");
         if (hasContext) this._context$!.set((data as { context: unknown }).context);
         if (!hasState && hasContext) return;
-        this.scope.bases.generation++;
+        this._basesWrittenAt = ++this.scope.bases.generation;
         this.reinit(hasState ? (data as { state: unknown }).state : DEFAULTS, { keepDirtyValues, keepDirtyLists });
         if (!keepDirtyValues) this._submit?.reset();
     }

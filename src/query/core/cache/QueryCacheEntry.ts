@@ -140,6 +140,14 @@ export class QueryCacheEntry<TArgs, TData>
     /** Backing field of {@link _invalidationRunPolicy}. */
     private _runPolicy: TInFlightPolicy | null = null;
 
+    /**
+     * Callbacks deferred while a run is in flight (see {@link _afterRunInFlight}),
+     * keyed by that run's controller so a superseding run never inherits them.
+     * Emptied as the run leaves flight — its settle written into the state, or
+     * its abort.
+     */
+    private _deferredRunCallbacks: Map<AbortController, (() => void)[]> | null = null;
+
     constructor(options: IQueryCacheEntryOptions<TArgs, TData>, internals: TQueryCacheEntryInternals<TData> = {}) {
         const initialState = options.initialState ?? pendingEntryState<TArgs>(options.keyedArgs.value);
 
@@ -205,6 +213,61 @@ export class QueryCacheEntry<TArgs, TData>
     /** @internal Whether a query run is in flight: a promise not yet settled, or a stream still open. */
     get _isInFlight(): boolean {
         return this._runController !== null;
+    }
+
+    /**
+     * @internal Run `cb` once the run currently in flight leaves flight —
+     * immediately when nothing is in flight, or when the in-flight run is an
+     * open stream (its emissions keep coming; a deferred commit would never
+     * land). Otherwise `cb` is held against the current run's controller and
+     * invoked after that run's settle is written into the state — right before
+     * {@link _onRunLeftFlight} — or when the run is aborted. A run superseded
+     * or aborted takes its callbacks with it; a later run does not inherit
+     * them.
+     *
+     * A throwing callback does not take down the rest, nor the run leaving
+     * flight.
+     */
+    _afterRunInFlight(cb: () => void): void {
+        const controller = this._runController;
+        if (!controller || this._isStreamOpen) {
+            cb();
+            return;
+        }
+
+        let queue = this._deferredRunCallbacks?.get(controller);
+        if (!queue) {
+            queue = [];
+            (this._deferredRunCallbacks ??= new Map()).set(controller, queue);
+            // An aborted run never reaches a settle handler — flush it here.
+            // Deferred to a microtask: a synchronous flush would run the commit
+            // inside `_abortRun()` → `_execute()` / `invalidate()`, and a commit
+            // hitting a consistency violation starts a nested run whose
+            // controller the outer `_execute()` then overwrites — a leaked run.
+            // The microtask still lands before any response of the replacing run.
+            controller.signal.addEventListener(
+                "abort",
+                () => queueMicrotask(() => this._flushDeferredRunCallbacks(controller)),
+                {
+                    once: true,
+                },
+            );
+        }
+        queue.push(cb);
+    }
+
+    /** Run the callbacks the run of `controller` had deferred; no-op for a run that deferred none. */
+    private _flushDeferredRunCallbacks(controller: AbortController): void {
+        const queue = this._deferredRunCallbacks?.get(controller);
+        if (!queue?.length) return;
+        this._deferredRunCallbacks?.delete(controller);
+        for (const cb of queue) {
+            try {
+                cb();
+            } catch (error) {
+                console.error("[QueryCacheEntry] a callback deferred by _afterRunInFlight threw; continuing.", error);
+            }
+        }
     }
 
     /**
@@ -872,6 +935,7 @@ export class QueryCacheEntry<TArgs, TData>
                 } else {
                     console.warn(`[QueryCacheEntry] received cold-load data in unexpected state: ${machine.status}`);
                 }
+                this._flushDeferredRunCallbacks(controller);
                 this._onRunLeftFlight();
             },
             () => {
@@ -921,6 +985,10 @@ export class QueryCacheEntry<TArgs, TData>
                 }
                 this._onPromiseRunSettled?.(controller.signal, { status: "fulfilled", value: data });
 
+                // Deferred callbacks (e.g. link patch commits) run on the
+                // settled state, before a trailing mark turns into a re-fetch.
+                this._flushDeferredRunCallbacks(controller);
+
                 // Settled with nothing in flight: a mark set while this run was
                 // trailing turns into the re-fetch now (if the entry is held).
                 this._onRunLeftFlight();
@@ -934,6 +1002,7 @@ export class QueryCacheEntry<TArgs, TData>
                 if (machine.status !== "pending" && machine.status !== "invalidating") {
                     console.warn(`[QueryCacheEntry] received error in unexpected state: ${machine.status}`);
                     this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
+                    this._flushDeferredRunCallbacks(controller);
                     this._onRunLeftFlight();
                     return;
                 }
@@ -952,6 +1021,7 @@ export class QueryCacheEntry<TArgs, TData>
 
                 this._recordFailure(machine, error, failedAction);
                 this._onPromiseRunSettled?.(controller.signal, { status: "rejected", reason: error });
+                this._flushDeferredRunCallbacks(controller);
                 this._onRunLeftFlight();
             },
         );
@@ -1004,6 +1074,7 @@ export class QueryCacheEntry<TArgs, TData>
                 markClosed();
                 if (controller.signal.aborted) return;
                 this._failStreamRun(error);
+                this._flushDeferredRunCallbacks(controller);
                 this._onRunLeftFlight();
             },
             complete: () => {
@@ -1017,6 +1088,7 @@ export class QueryCacheEntry<TArgs, TData>
                 // Unless that data never landed (a discarded rebase the stream
                 // did not follow up, an in-place revalidation it did not
                 // answer): the entry then owes the run it is waiting for.
+                this._flushDeferredRunCallbacks(controller);
                 this._onRunLeftFlight();
             },
         });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { z } from 'zod';
-import { createApi, reactHooksPlugin, unstable_FormSignal as FormSignal, unstable_formsReactPlugin, useSignal, type FieldNode } from '@fozy-labs/rx-toolkit';
+import { createApi, unstable_FormSignal as FormSignal, type FieldNode } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin, unstable_formsReactPlugin, useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardFooter, CardHeader, Chip, Divider, Input, Spinner, Tab, Tabs } from '@heroui/react';
 
 interface Profile {

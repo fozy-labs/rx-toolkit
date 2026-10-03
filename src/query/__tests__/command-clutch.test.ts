@@ -655,6 +655,26 @@ describe("CommandClutch repeated trigger", () => {
         await flushMicrotasks();
         expect(s.get().status).toBe("success");
     });
+
+    // A second trigger under the same entry key replaces the cache entry. The
+    // replacement is one batch — the entry-less state between `complete()` and
+    // `set()` is never published.
+    it("a re-trigger under the same entry key goes success → pending, never publishing idle", async () => {
+        const command = makeCommand<number, number>(async (n) => n);
+        // useCommand("draft") / createClutch("draft") — a Save button pressed twice.
+        const clutch = command.createClutch("draft");
+
+        const seen: string[] = [];
+        const sub = clutch.state$.obs.subscribe((state) => seen.push(state.status));
+
+        await clutch.trigger(1);
+        await flushMicrotasks();
+        await clutch.trigger(2);
+        await flushMicrotasks();
+        sub.unsubscribe();
+
+        expect(seen).toEqual(["idle", "pending", "success", "pending", "success"]);
+    });
 });
 
 // ==================== 10. retry over a real Command (K4 ↔ K5) ====================

@@ -36,7 +36,8 @@ const usersResource = api.createResource({
 Для работы в React подключите `reactHooksPlugin()` при создании API:
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
   plugins: [reactHooksPlugin()],

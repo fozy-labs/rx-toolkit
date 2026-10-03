@@ -8,8 +8,8 @@ import { expectTypeOf } from "vitest";
 import { z } from "zod";
 
 import type { TResourceClutchState } from "@/query";
+import { useSignal } from "@/react";
 import type { ReadonlySignal } from "@/signals";
-import { useSignal } from "@/signals";
 
 import {
     unstable_FormSignal as FormSignal,

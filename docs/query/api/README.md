@@ -6,7 +6,8 @@ API — центральный объект, управляющий ресурс
 ## Создание API
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
     keyPrefix: 'my-app', // (опционально) префикс для всех ключей ресурсов

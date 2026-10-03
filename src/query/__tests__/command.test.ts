@@ -1,3 +1,4 @@
+import { Subject } from "rxjs";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -1485,6 +1486,10 @@ describe("onQueryStarted lifecycle", () => {
  * in the stack behind the first, still pending one. Server data fetched after
  * the confirmation already contains the change, so the confirmed patch must
  * not be replayed onto it a second time.
+ *
+ * The pending patch is replayed by re-running its recipe on the fresh base —
+ * `push` appends after the confirmed item, not at the index it was recorded
+ * at.
  */
 describe("Link scenarios — a confirmed patch behind a pending one", () => {
     function setup(options: { invalidate: boolean }) {
@@ -1528,9 +1533,9 @@ describe("Link scenarios — a confirmed patch behind a pending one", () => {
         await second;
         await flush();
 
-        // Server data ["a", "c"] plus the still pending "b" (replayed at the
-        // index it was recorded at).
-        expect(todos.getEntry(1)!.peek().data).toEqual(["a", "b", "c"]);
+        // Server data ["a", "c"] plus the still pending "b" — its recipe
+        // re-runs and appends at the new end.
+        expect(todos.getEntry(1)!.peek().data).toEqual(["a", "c", "b"]);
 
         confirm("b");
         await first;
@@ -1551,13 +1556,14 @@ describe("Link scenarios — a confirmed patch behind a pending one", () => {
 
         entry.invalidate();
         await flush();
-        expect(entry.peek().data).toEqual(["a", "b", "c"]);
+        // The pending recipe re-runs on the fresh base and appends at the end.
+        expect(entry.peek().data).toEqual(["a", "c", "b"]);
 
         confirm("b");
         await first;
         await flush();
         // Nothing re-queries: "b" is folded in locally, once.
-        expect(entry.peek()).toMatchObject({ status: "success", data: ["a", "b", "c"], patchState: null });
+        expect(entry.peek()).toMatchObject({ status: "success", data: ["a", "c", "b"], patchState: null });
     });
 });
 
@@ -2790,5 +2796,527 @@ describe("Command — onQueryStarted milestones follow the entry", () => {
         await flushMicrotasks();
 
         expect(reasons).toEqual(["AbortError", "AbortError", "AbortError"]);
+    });
+});
+
+// ==================== Optimistic patch replay re-runs the recipe ====================
+
+function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+}
+
+const flushTimers = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/**
+ * Optimistic patches are rebased onto whatever the server answers. A rebase
+ * re-runs the recipe (`createPatches`), never the recorded positional patches:
+ * the recipe was written against the data it finds (`findIndex` + a `-1`
+ * guard), so it still lands on the element it targeted after the list shifted.
+ */
+describe("links — a rebase re-runs the optimistic recipe on the new base", () => {
+    it("two concurrent optimistic deletes: aborting the first keeps the second deleting the right item", async () => {
+        type Item = { id: number; title: string };
+
+        const listResource = new Resource<void, Item[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: async () => [
+                { id: 1, title: "a" },
+                { id: 2, title: "b" },
+                { id: 3, title: "c" },
+            ],
+        });
+
+        const calls = new Map<number, ReturnType<typeof deferred<void>>>();
+        // The docs/query/usage/links.md "deleteProjectCommand" recipe.
+        const deleteCommand = new Command<{ id: number }, void>({
+            retentionTime: false,
+            queryFn: (args) => {
+                const d = deferred<void>();
+                calls.set(args.id, d);
+                return d.promise;
+            },
+            links: [
+                {
+                    resource: listResource,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, args) => {
+                        const idx = draft.findIndex((p: Item) => p.id === args.id);
+                        if (idx !== -1) draft.splice(idx, 1);
+                    },
+                },
+            ],
+        });
+
+        const entry = listResource.getEntry(undefined, true);
+        entry.hold();
+        await listResource.ensure();
+        expect(entry.state$.peek().data!.map((i) => i.id)).toEqual([1, 2, 3]);
+
+        const p1 = deleteCommand.execute({ id: 1 }).catch(() => "failed");
+        const p2 = deleteCommand.execute({ id: 3 });
+        expect(entry.state$.peek().data!.map((i) => i.id)).toEqual([2]);
+
+        // Deleting item 1 fails on the server -> its optimistic patch rolls back.
+        calls.get(1)!.reject(new Error("forbidden"));
+        await p1;
+        await flushTimers();
+
+        // Item 1 comes back; item 3 must stay deleted (its delete is still
+        // pending). Replaying its recorded positional patch ("remove [1]")
+        // over [1, 2, 3] would drop item 2 instead — the recipe re-run removes
+        // the item it was written against.
+        expect(entry.state$.peek().data!.map((i) => i.id)).toEqual([1, 2]);
+
+        calls.get(3)!.resolve();
+        await p2;
+        await flushTimers();
+        // Server state after the two mutations is [1, 2].
+        expect(entry.state$.peek().data!.map((i) => i.id)).toEqual([1, 2]);
+    });
+
+    it("rebase onto a refetch that shifted indices keeps the optimistic toggle on the todo it targeted", async () => {
+        type Todo = { id: number; done: boolean };
+
+        let server: Todo[] = [
+            { id: 1, done: false },
+            { id: 2, done: false },
+        ];
+        const todosResource = new Resource<void, Todo[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: async () => structuredClone(server),
+        });
+
+        const mutation = deferred<void>();
+        // docs/query/usage/links.md "updateTodoCommand" recipe.
+        const toggleTodo = new Command<{ id: number; done: boolean }, void>({
+            retentionTime: false,
+            queryFn: () => mutation.promise,
+            links: [
+                {
+                    resource: todosResource,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, args) => {
+                        const todo = draft.find((t: Todo) => t.id === args.id);
+                        if (todo) todo.done = args.done;
+                    },
+                    invalidate: true,
+                },
+            ],
+        });
+
+        const entry = todosResource.getEntry(undefined, true);
+        entry.hold();
+        await todosResource.ensure();
+
+        const p = toggleTodo.execute({ id: 2, done: true });
+        expect(entry.state$.peek().data).toEqual([
+            { id: 1, done: false },
+            { id: 2, done: true },
+        ]);
+
+        // Meanwhile someone else added a todo at the top and the list
+        // revalidates (another command's invalidate link, focus refetch,
+        // polling...).
+        server = [{ id: 0, done: false }, ...server];
+        todosResource.invalidate();
+        await flushTimers();
+
+        // Mutation still pending: todo 2 should still show done, todo 0
+        // untouched. Positional replay would toggle index 1 — todo 1.
+        expect(entry.state$.peek().data).toEqual([
+            { id: 0, done: false },
+            { id: 1, done: false },
+            { id: 2, done: true },
+        ]);
+
+        mutation.resolve();
+        await p;
+    });
+});
+
+// ==================== Link patch commits wait for a run in flight ====================
+
+/**
+ * A link patch — `update` or `optimisticUpdate` — commits only after the
+ * entry's request that was in flight at commit time leaves flight: that
+ * response was sent before the mutation, so a rebase must see the patch still
+ * pending and replay it onto the answer instead of folding it into
+ * `originalData` and dropping it.
+ */
+describe("links — a patch commits once the run in flight leaves flight", () => {
+    type Todo = { id: number; title: string };
+
+    /** A resource whose first run resolves at once and later runs the test settles. */
+    function createSlowResource() {
+        let server: Todo[] = [{ id: 1, title: "a" }];
+        const slowFetch: Array<ReturnType<typeof deferred<void>>> = [];
+        const snapshots: Todo[][] = [];
+        let first = true;
+        const todos = new Resource<void, Todo[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: () => {
+                if (first) {
+                    first = false;
+                    return Promise.resolve(structuredClone(server));
+                }
+                // Slow revalidation: answers with the server state captured at
+                // request time.
+                const snapshot = structuredClone(server);
+                snapshots.push(snapshot);
+                const d = deferred<void>();
+                slowFetch.push(d);
+                return d.promise.then(() => snapshot);
+            },
+        });
+        return { todos, slowFetch, snapshots, addServer: (todo: Todo) => (server = [...server, todo]) };
+    }
+
+    it("a refetch that was sent before the mutation does not wipe the committed update", async () => {
+        const { todos, slowFetch, addServer } = createSlowResource();
+        const addTodo = new Command<{ title: string }, Todo>({
+            retentionTime: false,
+            queryFn: async (args) => {
+                const created = { id: 2, title: args.title };
+                addServer(created);
+                return created;
+            },
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    update: (draft, _args, result) => {
+                        draft.push(result);
+                    },
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        await todos.ensure();
+
+        // A revalidation goes out (focus refetch / another invalidate)...
+        todos.invalidate();
+        expect(slowFetch).toHaveLength(1);
+
+        // ...and while it is in flight the user adds a todo.
+        await addTodo.execute({ title: "b" });
+        expect(entry.state$.peek().data!.map((t) => t.id)).toEqual([1, 2]);
+
+        // The pre-mutation revalidation answers last.
+        slowFetch[0]!.resolve();
+        await flushTimers();
+
+        // The created todo must not disappear (the server has it).
+        expect(entry.state$.peek().data!.map((t) => t.id)).toEqual([1, 2]);
+    });
+
+    it("the same hold applies to an optimistic patch committed without an invalidation", async () => {
+        const { todos, slowFetch, addServer } = createSlowResource();
+        const addTodo = new Command<Todo, void>({
+            retentionTime: false,
+            queryFn: async (args) => {
+                addServer(args);
+            },
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, args) => {
+                        draft.push(args);
+                    },
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        await todos.ensure();
+
+        todos.invalidate();
+        expect(slowFetch).toHaveLength(1);
+
+        await addTodo.execute({ id: 2, title: "b" });
+        // The commit waits for the run in flight: the patch is still pending.
+        expect(entry.state$.peek().data!.map((t) => t.id)).toEqual([1, 2]);
+
+        slowFetch[0]!.resolve();
+        await flushTimers();
+
+        // The stale answer is rebased over the pending patch — replayed, not
+        // dropped — and the commit then folds it in.
+        expect(entry.state$.peek().data!.map((t) => t.id)).toEqual([1, 2]);
+        const state = entry.state$.peek();
+        expect(isDataState(state) && state.patchState).toBeNull();
+    });
+
+    it("with invalidate: true the commit lands as the cancelled run leaves flight, before the re-query settles", async () => {
+        const { todos, slowFetch, snapshots, addServer } = createSlowResource();
+        const addTodo = new Command<{ title: string }, Todo>({
+            retentionTime: false,
+            queryFn: async (args) => {
+                const created = { id: 2, title: args.title };
+                addServer(created);
+                return created;
+            },
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    update: (draft, _args, result) => {
+                        draft.push(result);
+                    },
+                    invalidate: true,
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        await todos.ensure();
+
+        todos.invalidate();
+        expect(slowFetch).toHaveLength(1);
+
+        // Mutation settles: the update patch's commit is deferred, then the
+        // link's invalidation cancels the run in flight — the abort flushes the
+        // commit — and starts the re-query.
+        await addTodo.execute({ title: "b" });
+        await flushTimers();
+        expect(slowFetch).toHaveLength(2);
+
+        // Between the abort and the re-query's answer the entry already shows
+        // the committed update, not the stale snapshot the aborted run carried.
+        expect(entry.state$.peek().data!.map((t) => t.id)).toEqual([1, 2]);
+        const midState = entry.state$.peek();
+        expect(isDataState(midState) && midState.patchState).toBeNull();
+
+        // The cancelled run's answer is dropped; the re-query answers with the
+        // post-mutation server state.
+        slowFetch[0]!.resolve();
+        slowFetch[1]!.resolve();
+        await flushTimers();
+
+        expect(snapshots).toHaveLength(2);
+        const state = entry.state$.peek();
+        expect(state.status).toBe("success");
+        expect(state.data!.map((t) => t.id)).toEqual([1, 2]);
+    });
+
+    it("a commit hitting a consistency violation during the abort flush starts no leaked run", async () => {
+        const { todos, slowFetch, addServer } = createSlowResource();
+        // The recipe applies once — at optimistic-patch creation — and throws on
+        // the replay a commit does, standing in for a recipe that cannot be
+        // re-run on the base it finds.
+        let applications = 0;
+        const addTodo = new Command<{ title: string }, Todo>({
+            retentionTime: false,
+            queryFn: async (args) => {
+                const created = { id: 2, title: args.title };
+                addServer(created);
+                return created;
+            },
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, args) => {
+                        if (applications++ > 0) throw new Error("not re-entrant");
+                        draft.push({ id: 2, title: args.title });
+                    },
+                    invalidate: true,
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        await todos.ensure();
+
+        todos.invalidate();
+        expect(slowFetch).toHaveLength(1);
+
+        // The mutation settles: the optimistic commit is deferred on the run in
+        // flight, then the link's invalidation cancels it and starts a re-query.
+        // The abort flush runs the deferred commit in a microtask; its fold
+        // throws → consistency violation → a fresh re-query. Before the fix the
+        // flush ran synchronously inside _abortRun(), so the violating
+        // invalidate() started a nested run whose controller the outer
+        // _execute() then overwrote — that run leaked and still wrote state.
+        await addTodo.execute({ title: "b" });
+        await flushMicrotasks();
+        expect(slowFetch).toHaveLength(3);
+
+        // Exactly one run is live: the earlier ones were aborted, so their
+        // answers write nothing — whichever order they resolve in.
+        slowFetch[1]!.resolve();
+        slowFetch[0]!.resolve();
+        await flushTimers();
+        expect(entry.state$.peek().status).toBe("invalidating");
+
+        slowFetch[2]!.resolve();
+        await flushTimers();
+        const state = entry.state$.peek();
+        expect(state.status).toBe("success");
+        expect(state.data!.map((t) => t.id)).toEqual([1, 2]);
+        expect(isDataState(state) && state.patchState).toBeNull();
+    });
+
+    it("with nothing in flight an update patch still commits synchronously", async () => {
+        const { todos, addServer } = createSlowResource();
+        const addTodo = new Command<{ title: string }, Todo>({
+            retentionTime: false,
+            queryFn: async (args) => {
+                const created = { id: 2, title: args.title };
+                addServer(created);
+                return created;
+            },
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    update: (draft, _args, result) => {
+                        draft.push(result);
+                    },
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        await todos.ensure();
+
+        await addTodo.execute({ title: "b" });
+
+        const state = entry.state$.peek();
+        expect(state.data!.map((t) => t.id)).toEqual([1, 2]);
+        expect(isDataState(state) && state.patchState).toBeNull();
+    });
+
+    it("a stream resource's open run does not defer the commit", async () => {
+        const emissions = new Subject<Todo[]>();
+        const todos = new Resource<void, Todo[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: () => emissions.asObservable(),
+            allowStreamPatches: true,
+        });
+        const addTodo = new Command<Todo, Todo>({
+            retentionTime: false,
+            queryFn: async (args) => args,
+            links: [
+                {
+                    resource: todos,
+                    forwardArgs: () => undefined,
+                    update: (draft, _args, result) => {
+                        draft.push(result);
+                    },
+                },
+            ],
+        });
+
+        const entry = todos.getEntry(undefined, true);
+        entry.hold();
+        emissions.next([{ id: 1, title: "a" }]);
+
+        // The stream is still open — the run counts as in flight for as long
+        // as it lives, yet the commit must not wait for it: it would never
+        // land.
+        await addTodo.execute({ id: 2, title: "b" });
+
+        const state = entry.state$.peek();
+        expect(state.data!.map((t) => t.id)).toEqual([1, 2]);
+        expect(isDataState(state) && state.patchState).toBeNull();
+    });
+});
+
+// ==================== Links on an entry without data ====================
+
+/**
+ * A linked entry still loading — or holding an error — has no data to patch:
+ * the link's optimistic/update step is skipped silently (the invalid-state
+ * warning is `createPatch`'s public contract, not the link's to trigger). The
+ * invalidation part of the link still runs.
+ */
+describe("links on a linked entry without data", () => {
+    it("a pending entry is skipped silently — no `createPatch() called in invalid state` warning", async () => {
+        const listResource = new Resource<void, number[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: () => new Promise<number[]>(() => {}), // first load still in flight
+        });
+        const addItem = new Command<number, number>({
+            retentionTime: false,
+            queryFn: async (n) => n,
+            links: [
+                {
+                    resource: listResource,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, n) => void draft.push(n),
+                    update: (draft, _n, result) => void draft.push(result),
+                    invalidate: true,
+                },
+            ],
+        });
+
+        // A mounted list (useResource) whose first load has not landed yet.
+        listResource.getEntry(undefined, true).hold();
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await addItem.execute(5);
+
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    it("an entry in error is skipped silently too, and the invalidation still fires", async () => {
+        let calls = 0;
+        const listResource = new Resource<void, number[]>({
+            retentionTime: false,
+            serializeArgs: stableStringify,
+            queryFn: async () => {
+                calls += 1;
+                if (calls === 1) throw new Error("first load failed");
+                return [calls];
+            },
+        });
+        const addItem = new Command<number, number>({
+            retentionTime: false,
+            queryFn: async (n) => n,
+            links: [
+                {
+                    resource: listResource,
+                    forwardArgs: () => undefined,
+                    optimisticUpdate: (draft, n) => void draft.push(n),
+                    update: (draft, _n, result) => void draft.push(result),
+                    invalidate: true,
+                },
+            ],
+        });
+
+        const entry = listResource.getEntry(undefined, true);
+        entry.hold();
+        await flushMicrotasks();
+        expect(entry.peek().status).toBe("error");
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await addItem.execute(5);
+        await flushMicrotasks();
+
+        expect(warn).not.toHaveBeenCalled();
+        // The invalidation part of the link still ran — the failed entry
+        // re-queried and landed in success.
+        expect(calls).toBe(2);
+        expect(entry.peek()).toMatchObject({ status: "success", data: [2] });
+        warn.mockRestore();
     });
 });

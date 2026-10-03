@@ -232,4 +232,101 @@ describe("useCommand", () => {
         expect(c.state.status).toBe("success");
         expect(c.state.data).toBe("SECOND");
     });
+
+    // A second trigger under the same entry key replaces the cache entry; the
+    // replacement is batched, so the render sequence never contains the
+    // entry-less `idle` between `success` and `pending`. (React may collapse
+    // the second trigger's `pending` → `success` into one commit — the pinned
+    // contract is that `idle` is never rendered again, see the clutch-level
+    // sequence in command-clutch.test.ts.)
+    it("a re-trigger under the same entry key never renders idle again", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const command = api.createCommand<number, number>({ queryFn: async (n) => n });
+
+        let trigger!: Trigger<number, number>;
+        const statuses: string[] = [];
+        function Probe() {
+            const [t, state] = command.useCommand("draft");
+            trigger = t;
+            if (statuses.at(-1) !== state.status) statuses.push(state.status);
+            return null;
+        }
+        render(h(Probe));
+
+        await act(async () => {
+            await trigger(1);
+            await flushMicrotasks();
+        });
+        await act(async () => {
+            await trigger(2);
+            await flushMicrotasks();
+        });
+
+        expect(statuses[0]).toBe("idle");
+        expect(statuses.slice(1)).not.toContain("idle");
+        expect(statuses.at(-1)).toBe("success");
+        expect(statuses).toContain("pending");
+    });
+
+    // The clutch is bound to entryKey during render — a commit under the new
+    // key must never draw the previous key's state, and a trigger fired before
+    // passive effects already goes to the new key.
+    it("switching entryKey commits the new key's state, never the previous one", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const saveRow = api.createCommand<number, number>({
+            queryFn: async (n) => n,
+            retentionTime: false,
+        });
+
+        await saveRow.execute(1, "row-a");
+        await saveRow.execute(2, "row-b");
+
+        const commits: Array<[string, unknown]> = [];
+        function Row({ rowId }: { rowId: string }) {
+            const [, state] = saveRow.useCommand(rowId);
+            React.useLayoutEffect(() => {
+                commits.push([rowId, state.data]);
+            });
+            return null;
+        }
+
+        const view = render(h(Row, { rowId: "row-a" }));
+        await act(async () => {});
+        view.rerender(h(Row, { rowId: "row-b" }));
+        await act(async () => {});
+
+        const committedForB = commits.filter(([id]) => id === "row-b").map(([, data]) => data);
+        expect(committedForB).not.toContain(1);
+        expect(committedForB.at(-1)).toBe(2);
+    });
+
+    it("switching entryKey to undefined triggers under a fresh generated key", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const usedKeys: Array<string | undefined> = [];
+        const save = api.createCommand<number, number>({ queryFn: async (n) => n, retentionTime: false });
+        const execute = save.execute.bind(save);
+        save.execute = (args, entryKey) => {
+            usedKeys.push(entryKey);
+            return execute(args, entryKey);
+        };
+
+        let trigger!: (n: number) => PromiseLike<unknown>;
+        function Editor({ draftId }: { draftId?: string }) {
+            [trigger] = save.useCommand(draftId);
+            return null;
+        }
+
+        const view = render(h(Editor, { draftId: "draft-1" }));
+        await act(async () => {});
+        view.rerender(h(Editor, { draftId: undefined }));
+        await act(async () => {});
+
+        await act(async () => {
+            await trigger(42);
+        });
+
+        expect(usedKeys).toHaveLength(1);
+        expect(usedKeys[0]).not.toBe("draft-1");
+        // ...and the previous draft's entry is not overwritten by the new run.
+    });
 });

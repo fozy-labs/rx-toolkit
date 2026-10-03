@@ -102,24 +102,22 @@ const PUBLIC_TYPES = [
     "QueryState",
     "QueryView",
     "QueryViews",
-    // react
+];
+
+const REACT_PUBLIC_TYPES = [
+    // react (exported from the ./react entry, not the root)
     "FormReactInstanceMembers",
     "FormReactMembers",
     "FormsReactPluginHKT",
     "UseFormOptions",
 ];
 
-const RUNTIME = [
-    "FormConfigError",
-    "unstable_FormSignal",
-    "unstable_FormsPlugin",
-    "unstable_formsPlugin",
-    "unstable_FormsReactPlugin",
-    "unstable_formsReactPlugin",
-];
+const RUNTIME = ["FormConfigError", "unstable_FormSignal", "unstable_FormsPlugin", "unstable_formsPlugin"];
 
-/** The names the package root exports from `src/form`. */
-function formExports(): string[] {
+const REACT_RUNTIME = ["unstable_FormsReactPlugin", "unstable_formsReactPlugin"];
+
+/** The names a package entry exports from under `scope` (a `src/` path). */
+function entryExports(entry: string, scope: string): string[] {
     const config = ts.getParsedCommandLineOfConfigFile(
         join(ROOT, "tsconfig.json"),
         {},
@@ -130,17 +128,17 @@ function formExports(): string[] {
             },
         },
     )!;
-    const entry = join(ROOT, "src/index.ts");
-    const program = ts.createProgram([entry], config.options);
+    const program = ts.createProgram([join(ROOT, entry)], config.options);
     const checker = program.getTypeChecker();
-    const module = checker.getSymbolAtLocation(program.getSourceFile(entry)!)!;
+    const module = checker.getSymbolAtLocation(program.getSourceFile(join(ROOT, entry))!)!;
+    const prefix = join(ROOT, scope) + sep;
 
     return checker
         .getExportsOfModule(module)
         .filter((symbol) => {
             const target = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
             return target.declarations?.some((declaration) =>
-                resolve(declaration.getSourceFile().fileName).startsWith(FORM),
+                resolve(declaration.getSourceFile().fileName).startsWith(prefix),
             );
         })
         .map((symbol) => symbol.name)
@@ -149,6 +147,10 @@ function formExports(): string[] {
 
 describe("forms module exports (@/index)", () => {
     it("exports the forms vocabulary and no type-level machinery", { timeout: 60_000 }, () => {
-        expect(formExports()).toEqual([...PUBLIC_TYPES, ...RUNTIME].sort());
+        expect(entryExports("src/index.ts", "src/form")).toEqual([...PUBLIC_TYPES, ...RUNTIME].sort());
+    });
+
+    it("exports the React forms members from the ./react entry", { timeout: 60_000 }, () => {
+        expect(entryExports("src/react.ts", "src/form")).toEqual([...REACT_PUBLIC_TYPES, ...REACT_RUNTIME].sort());
     });
 });

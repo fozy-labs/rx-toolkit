@@ -44,7 +44,8 @@ const addTodoCommand = api.createCommand({
 Для работы в React подключите `reactHooksPlugin()` при создании API:
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
   plugins: [reactHooksPlugin()],
@@ -80,6 +81,7 @@ function AddTodoForm() {
 1. Хук не запускает запрос при монтировании — мутация выполняется только при вызове `trigger`.
 2. `trigger(args)` запускает `queryFn` и возвращает `TTriggerPromise<TData>` — [конверт результата](#результат-trigger); промис не реджектится.
 3. Состояние (`isPending`, `hasData`, `hasError`) обновляется реактивно.
+4. `entryKey` привязывает хук к кэш-записи во время рендера: при смене ключа первый же коммит уже наблюдает за новой записью (никогда — за прежней), а `trigger` до срабатывания эффектов уже идёт под новым ключом. `useCommand(undefined)` запускает мутации под свежим сгенерированным ключом, не переиспользуя прежний — в полёте под ним оставшаяся мутация не трогается.
 
 
 ## Результат trigger

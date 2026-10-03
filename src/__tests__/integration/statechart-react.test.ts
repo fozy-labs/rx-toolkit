@@ -2,13 +2,9 @@
 import { act, render } from "@testing-library/react";
 import React from "react";
 
-import {
-    unstable_createMachine as createMachine,
-    unstable_MachineSignal as MachineSignal,
-    useSignal,
-    type MachineClock,
-    type MachineStateSignal,
-} from "@/index";
+import { unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal } from "@/index";
+import type { MachineClock, MachineStateSignal } from "@/index";
+import { useSignal } from "@/react";
 
 const h = React.createElement;
 

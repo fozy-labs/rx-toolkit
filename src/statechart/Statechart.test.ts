@@ -864,6 +864,114 @@ describe("Statechart lifecycle", () => {
         engine.dispose();
     });
 
+    it("start() from the entry action of the completing state restarts the engine after the burst", () => {
+        let engine: Statechart<{ round: number }, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({ round: 0 }),
+            states: {
+                editing: { on: { SUBMIT: "submitted" } },
+                // "loop forever": when the wizard finishes, start a fresh run.
+                // The engine is still `running` while entry actions execute —
+                // `_halt()` flips it only after `step()` returns.
+                submitted: { type: "final", entry: () => engine!.start() },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "editing" });
+        engine.dispose();
+    });
+
+    it("start() in the actions of a transition into a final state restarts the engine after the burst", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({}),
+            states: {
+                editing: { on: { SUBMIT: { target: "submitted", actions: () => engine!.start() } } },
+                submitted: { type: "final" },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "editing" });
+        engine.dispose();
+    });
+
+    it("start() from an action of a step that keeps running does nothing — no restart, no extra snapshot", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "m",
+            initial: "a",
+            context: () => ({}),
+            states: {
+                a: { on: { PING: { actions: () => engine!.start() } } },
+            },
+        });
+        engine = new Statechart(definition);
+        const seen: string[] = [];
+        const subscription = engine.state.obs.subscribe((s) => seen.push(`${s.status}`));
+
+        engine.send({ type: "PING" });
+
+        expect(engine.status).toBe("running");
+        expect(engine.state.peek()).toMatchObject({ status: "active", value: "a" });
+        expect(seen).toEqual(["active"]);
+        subscription.unsubscribe();
+        engine.dispose();
+    });
+
+    it("start() from the entry action of a machine done at initialization throws SignalCycleError, not a hang", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "loop",
+            initial: "done-state",
+            context: () => ({}),
+            states: { "done-state": { type: "final", entry: () => engine!.start() } },
+        });
+        // Manual start: with autoStart the constructor would run the entry
+        // before `engine` is assigned.
+        engine = new Statechart(definition, { autoStart: false });
+
+        expect(() => engine.start()).toThrow(SignalCycleError);
+        engine.dispose();
+    });
+
+    it("a stop() after start() in the same completing step cancels the restart", () => {
+        let engine: Statechart<MachineContext, AnyEventObject> | undefined;
+        const definition = createMachine({
+            id: "wizard",
+            initial: "editing",
+            context: () => ({}),
+            states: {
+                editing: { on: { SUBMIT: "submitted" } },
+                submitted: {
+                    type: "final",
+                    entry: () => {
+                        engine!.start();
+                        engine!.stop();
+                    },
+                },
+            },
+        });
+        engine = new Statechart(definition);
+
+        engine.send({ type: "SUBMIT" });
+
+        expect(engine.status).toBe("stopped");
+        expect(engine.state.peek().status).toBe("done");
+        engine.dispose();
+    });
+
     it("dispose() is idempotent, completes the observable and makes start() throw", () => {
         const definition = createMachine({ id: "m", initial: "a", states: { a: {} } });
         const engine = new Statechart(definition);

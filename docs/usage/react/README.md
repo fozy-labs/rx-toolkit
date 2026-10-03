@@ -9,7 +9,8 @@ RxToolkit предоставляет набор React хуков для эффе
 Подписывается на изменения сигнала и возвращает текущее значение.
 
 ```tsx
-import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 
 const counter$ = Signal.state(0);
 const doubled$ = Signal.compute(() => counter$() * 2);
@@ -44,7 +45,8 @@ function Counter() {
 Подписывается на состояние ресурса и автоматически инициирует запрос при монтировании или изменении аргументов.
 
 ```tsx
-import { useResource, SKIP } from '@fozy-labs/rx-toolkit';
+import { SKIP } from '@fozy-labs/rx-toolkit';
+import { useResource } from '@fozy-labs/rx-toolkit/react';
 import { userResource } from '../api/userResource';
 
 function UserProfile({ userId }: { userId: string | null }) {
@@ -161,7 +163,7 @@ function Page({ userId }: { userId: string }) {
 Создаёт сцепление команды и возвращает кортеж `[trigger, state]`.
 
 ```tsx
-import { useCommand } from '@fozy-labs/rx-toolkit';
+import { useCommand } from '@fozy-labs/rx-toolkit/react';
 import { updateUserCommand } from '../api/updateUserCommand';
 
 function EditUserForm({ user }: { user: User }) {
@@ -238,7 +240,8 @@ function EditUserForm({ user }: { user: User }) {
 ### Store класс
 
 ```tsx
-import { Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { Signal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 
 class CounterStore {
     count$ = Signal.state(0, 'counter');

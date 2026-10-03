@@ -6,7 +6,8 @@
 ## Быстрый старт
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({ plugins: [reactHooksPlugin()] });
 

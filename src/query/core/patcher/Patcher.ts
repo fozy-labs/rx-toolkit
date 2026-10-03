@@ -27,6 +27,24 @@ export function rebasePatches<T>(base: T, forwardPatches: Patch[]): [T, Patch[],
 // ==================== High-level Patch Operations ====================
 
 /**
+ * Re-apply a patch entry onto `base`. An entry recorded with a recipe re-runs
+ * it through Immer — the recipe was written against the data it finds (a
+ * `findIndex` + a `-1` guard, not a fixed position), so it still lands on the
+ * element it targeted where the recorded positional patches would hit a
+ * neighbour. An entry without a recipe replays its recorded forward patches.
+ * Either way the re-derived `forward` / `inverse` replace the recorded pair,
+ * so a later abort undoes what was actually applied.
+ */
+function replayEntry<T>(base: T, entry: TPatchEntry): T {
+    const [next, forward, inverse] = entry.recipe
+        ? createPatches(base, entry.recipe)
+        : rebasePatches(base, entry.forward);
+    entry.forward = forward;
+    entry.inverse = inverse;
+    return next as T;
+}
+
+/**
  * Replay a list of patch entries onto new base data.
  * Pure data operation — no machine-state knowledge.
  */
@@ -41,10 +59,7 @@ export function replayPatchEntries<TData>(baseData: TData, patches: TPatchEntry[
         }
 
         try {
-            const [nextData, forward, inverse] = rebasePatches(currentData, p.forward);
-            currentData = nextData as TData;
-            p.forward = forward;
-            p.inverse = inverse;
+            currentData = replayEntry(currentData, p);
             replayedPatches.push(p);
         } catch {
             return { ok: false };
@@ -54,17 +69,10 @@ export function replayPatchEntries<TData>(baseData: TData, patches: TPatchEntry[
     const hasPending = replayedPatches.some((p) => p.status === "pending");
 
     if (!hasPending) {
-        let finalData = baseData;
-        for (const p of replayedPatches) {
-            if (p.status === "committed") {
-                try {
-                    finalData = applyForwardPatches(finalData, p.forward);
-                } catch {
-                    return { ok: false };
-                }
-            }
-        }
-        return { ok: true, data: finalData, patchState: null };
+        // Nothing pending: aborted entries were skipped in the pass above and
+        // the committed ones were already replayed in order on the same base —
+        // `currentData` is the final data, no second replay needed.
+        return { ok: true, data: currentData, patchState: null };
     }
 
     return {
@@ -95,7 +103,7 @@ export function processPatchState<TData>(patchState: TPatchState<TData>): TPatch
         for (const p of independentPatches) {
             if (p.status === "committed") {
                 try {
-                    originalData = applyForwardPatches(originalData, p.forward);
+                    originalData = replayEntry(originalData, p);
                 } catch {
                     return { ok: false };
                 }
@@ -126,8 +134,7 @@ export function processAllSettledPatches<TData>(patchState: TPatchState<TData>):
 
         if (p.status === "committed") {
             try {
-                const [nextData] = rebasePatches(committedData, p.forward);
-                committedData = nextData as TData;
+                committedData = replayEntry(committedData, p);
             } catch {
                 return { ok: false };
             }

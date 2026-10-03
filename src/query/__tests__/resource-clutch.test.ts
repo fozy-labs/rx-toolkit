@@ -1610,6 +1610,118 @@ describe("ResourceClutch — creates entries only while observed", () => {
     });
 });
 
+// ==================== Started but unobserved: entries still expire ====================
+//
+// start() / switch() on a started clutch create the entry even with nobody
+// subscribed — but an entry nobody ever held never arms its retention timer,
+// so it would live forever. `_initiate` gives a brand-new entry a bridging
+// hold released on the next macrotask: it gets one retention cycle, while the
+// subscription a committed render is about to make still finds it alive under
+// `retentionTime: 0` (React posts the passive-effect task before that timer).
+
+describe("ResourceClutch — a started unobserved clutch lets its entries expire", () => {
+    function expiringResource() {
+        const queryFn = vi.fn(async (n: number) => `d-${n}`);
+        const resource = new Resource<number, string>({
+            retentionTime: 1_000,
+            serializeArgs: stableStringify as (args: number) => string,
+            queryFn,
+        });
+        return { resource, queryFn };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("switch() leaves entries that expire by retentionTime", async () => {
+        const { resource } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.start();
+
+        for (let id = 1; id <= 3; id++) clutch.switch(id);
+        clutch.switch(4);
+
+        // Right after start the latest entry is alive — the bridging hold
+        // covers the gap until a real consumer can subscribe.
+        expect(resource.getState(4).status).toBe("pending");
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        // Entries 1..3 were never held by anyone: the bridge started their
+        // retention cycle, and it ran out.
+        expect(resource.getState(1).status).toBe("idle");
+        expect(resource.getState(2).status).toBe("idle");
+        expect(resource.getState(3).status).toBe("idle");
+        expect(resource.getState(4).status).toBe("idle");
+    });
+
+    it("start() leaves an entry that expires by retentionTime", async () => {
+        const { resource } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.switch(7);
+        clutch.start();
+        clutch.switch(8);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(resource.getState(7).status).toBe("idle");
+        expect(resource.getState(8).status).toBe("idle");
+    });
+
+    it("an observed clutch keeps its entry beyond retentionTime", async () => {
+        const { resource } = expiringResource();
+        const clutch = resource.createClutch();
+        const state = observe(clutch);
+
+        clutch.switch(1);
+        clutch.start();
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(state().status).toBe("success");
+        expect(resource.getState(1).status).toBe("success");
+        expect(resource.getEntry(1)!.isMelting).toBe(false);
+    });
+
+    it("switch() to other args releases the previous bridging hold at once", async () => {
+        const { resource } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.start();
+        clutch.switch(1);
+
+        const entry1 = resource.getEntry(1)!;
+        // The bridging hold keeps the new entry active until the next macrotask.
+        expect(entry1.isMelting).toBe(false);
+
+        clutch.switch(2);
+
+        // Initiating the next entry ended the first bridge immediately: the
+        // entry's retention cycle is already armed.
+        expect(entry1.isMelting).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(resource.getState(1).status).toBe("idle");
+    });
+
+    it("switch(SKIP) releases the bridging hold", async () => {
+        const { resource } = expiringResource();
+        const clutch = resource.createClutch();
+        clutch.start();
+        clutch.switch(1);
+
+        const entry1 = resource.getEntry(1)!;
+        expect(entry1.isMelting).toBe(false);
+
+        clutch.switch(SKIP);
+        expect(entry1.isMelting).toBe(true);
+    });
+});
+
 // ==================== Deprecated aliases ====================
 
 describe("ResourceClutch — deprecated aliases", () => {

@@ -19,7 +19,8 @@ function deepEqualImpl(a: unknown, b: unknown, seen: SeenPairs): boolean {
     }
 
     if (a instanceof Date || b instanceof Date) {
-        return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+        // Object.is: two Invalid Dates (NaN time) are equal, like two NaNs.
+        return a instanceof Date && b instanceof Date && Object.is(a.getTime(), b.getTime());
     }
 
     if (a instanceof RegExp || b instanceof RegExp) {
@@ -113,18 +114,40 @@ function objectsEqual(a: object, b: object, seen: SeenPairs): boolean {
     return true;
 }
 
+function isStructural(value: unknown): boolean {
+    return value !== null && (typeof value === "object" || typeof value === "function");
+}
+
 function mapsEqual(a: Map<unknown, unknown>, b: Map<unknown, unknown>, seen: SeenPairs): boolean {
     if (a.size !== b.size) {
         return false;
     }
 
-    // Жадный перебор с пометкой использованных записей: каждая запись из b
-    // может быть сопоставлена только одной записи из a, иначе две разные
-    // записи из a могли бы «схлопнуться» в одну запись из b.
-    const entriesB = [...b];
-    const used = new Array<boolean>(entriesB.length).fill(false);
+    // Primitive keys compare through has/get — SameValueZero is what deepEqual
+    // gives for them (incl. NaN and ±0), so the O(n²) structural search is left
+    // to object keys only, over the object-keyed entries of b alone.
+    let entriesB: [unknown, unknown][] | null = null;
+    let used: boolean[] = [];
 
     outer: for (const [keyA, valueA] of a) {
+        if (!isStructural(keyA)) {
+            if (!b.has(keyA) || !deepEqualImpl(valueA, b.get(keyA), seen)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (entriesB === null) {
+            entriesB = [];
+            for (const entry of b) {
+                if (isStructural(entry[0])) entriesB.push(entry);
+            }
+            used = new Array<boolean>(entriesB.length).fill(false);
+        }
+
+        // Жадный перебор с пометкой использованных записей: каждая запись из b
+        // может быть сопоставлена только одной записи из a, иначе две разные
+        // записи из a могли бы «схлопнуться» в одну запись из b.
         for (let i = 0; i < entriesB.length; i++) {
             if (used[i]) {
                 continue;
@@ -149,10 +172,33 @@ function setsEqual(a: Set<unknown>, b: Set<unknown>, seen: SeenPairs): boolean {
         return false;
     }
 
-    const valuesB = [...b];
-    const used = new Array<boolean>(valuesB.length).fill(false);
+    let valuesB: unknown[] | null = null;
+    let used: boolean[] = [];
 
     outer: for (const valueA of a) {
+        if (!isStructural(valueA)) {
+            if (!b.has(valueA)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (valuesB === null) {
+            valuesB = [];
+            for (const valueB of b) {
+                if (isStructural(valueB)) valuesB.push(valueB);
+            }
+            used = new Array<boolean>(valuesB.length).fill(false);
+        }
+
+        // The identical element wins without a structural walk; otherwise the
+        // greedy match over the unused elements of b, as in mapsEqual.
+        for (let i = 0; i < valuesB.length; i++) {
+            if (!used[i] && valuesB[i] === valueA) {
+                used[i] = true;
+                continue outer;
+            }
+        }
         for (let i = 0; i < valuesB.length; i++) {
             if (used[i]) {
                 continue;

@@ -1,5 +1,6 @@
 import React from 'react';
-import { and, assign, not, stateIn, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal, useSignal } from '@fozy-labs/rx-toolkit';
+import { and, assign, not, stateIn, unstable_createMachine as createMachine, unstable_MachineSignal as MachineSignal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardFooter, CardHeader, Chip, Divider, Input, Spinner } from '@heroui/react';
 
 type FormContext = {

@@ -1,5 +1,6 @@
 import React from 'react';
-import { createApi, reactHooksPlugin, Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { createApi, Signal } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin, useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Divider, Input, Spinner } from '@heroui/react';
 
 interface TodoItem {

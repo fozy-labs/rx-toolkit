@@ -5,7 +5,8 @@
 Плагины передаются при создании API через опцию `plugins`:
 
 ```typescript
-import { createApi, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
   plugins: [reactHooksPlugin()],
@@ -72,8 +73,8 @@ const loggingPlugin: IPlugin = {
   install() {},
   augmentResource(resource) {
     return {
-      logState(args: unknown) {
-        // Упрощённый пример — getEntry$ принимает аргументы для идентификации кэш-записи
+      logState(args: Parameters<typeof resource.getEntry>[0]) {
+        // Упрощённый пример — getEntry принимает аргументы для идентификации кэш-записи
         console.log(resource.getEntry(args));
       },
     };

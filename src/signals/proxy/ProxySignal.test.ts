@@ -341,6 +341,24 @@ describe("unstable_ProxySignal", () => {
             });
             expect(s$.peek().items).toBe(originalItems);
         });
+
+        it("keeps an own `__proto__` key of a JSON.parse dictionary across mutates", () => {
+            // A server response or a persisted cache: "__proto__" is an own data key.
+            const s$ = ProxySignal.state<{ tags: Record<string, { count: number }> }>(
+                JSON.parse('{"tags":{"__proto__":{"count":3},"js":{"count":1}}}'),
+            );
+            s$.mutate((d) => {
+                d.tags.js.count = 2;
+            });
+            // A second mutate on the same subtree.
+            s$.mutate((d) => {
+                d.tags.js.count = 3;
+            });
+
+            expect(Object.keys(s$.peek().tags)).toEqual(["__proto__", "js"]);
+            expect(Object.getPrototypeOf(s$.peek().tags)).toBe(Object.prototype);
+            expect(s$.peek().tags.js.count).toBe(3);
+        });
     });
 
     describe("granular reactivity", () => {

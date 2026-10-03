@@ -1101,5 +1101,109 @@ describe("engine guards", () => {
             expect(second).toBe(-1);
             expect(runsA).toBe(2);
         });
+
+        it("cold: keeps the cached value and its identity after an unrelated write", () => {
+            const list = Signal.state([1, 2, 3]);
+            const other = Signal.state(0);
+            const compute = vi.fn(() => list().filter((x) => x > 1));
+            const filtered = Signal.compute(compute);
+
+            const before = filtered();
+            let inside: number[] | undefined;
+            Batcher.run(() => {
+                other.set(1);
+                inside = filtered();
+            });
+            expect(inside).toBe(before);
+            expect(compute).toHaveBeenCalledTimes(1);
+        });
+
+        it("cold: keeps the cached value after an unrelated write, when read in a State.obs subscriber", () => {
+            const list = Signal.state([1, 2, 3]);
+            const other = Signal.state(0);
+            const compute = vi.fn(() => list().filter((x) => x > 1));
+            const filtered = Signal.compute(compute);
+
+            const before = filtered();
+            const seen: number[][] = [];
+            const sub = other.obs.subscribe(() => seen.push(filtered()));
+            other.set(1);
+            sub.unsubscribe();
+            expect(seen.every((v) => v === before)).toBe(true);
+            expect(compute).toHaveBeenCalledTimes(1);
+        });
+
+        it("cold: recomputes only the changed branch of an unobserved tree", () => {
+            const leaves = Array.from({ length: 100 }, (_, i) => Signal.state(i));
+            const fns = leaves.map((leaf) => vi.fn(() => leaf() * 2));
+            const mids = fns.map((fn) => Signal.compute(fn));
+            const total = Signal.compute(() => mids.reduce((sum, mid) => sum + mid(), 0));
+
+            total();
+            fns.forEach((fn) => fn.mockClear());
+            Batcher.run(() => {
+                leaves[1].set(1000);
+                total();
+            });
+            const calls = fns.reduce((sum, fn) => sum + fn.mock.calls.length, 0);
+            expect(calls).toBe(1);
+        });
+
+        it("cold: recomputes when a dependency changed inside the batch, and stays consistent after it", () => {
+            const list = Signal.state([1, 2, 3]);
+            const compute = vi.fn(() => list().filter((x) => x > 1));
+            const filtered = Signal.compute(compute);
+
+            const before = filtered();
+            let inside: number[] | undefined;
+            Batcher.run(() => {
+                list.set([1, 2, 3, 4]);
+                inside = filtered();
+            });
+            expect(inside).toEqual([2, 3, 4]);
+            expect(inside).not.toBe(before);
+            expect(compute).toHaveBeenCalledTimes(2);
+
+            // The in-batch read settled nothing: a normal read sees the same
+            // committed value as the batch left behind.
+            expect(filtered()).toEqual([2, 3, 4]);
+            expect(compute).toHaveBeenCalledTimes(3);
+        });
+
+        it("cold: a source that recomputes to an equal value does not recompute its dependent", () => {
+            const leaf = Signal.state(0);
+            const midFn = vi.fn(() => Math.floor(leaf() / 2));
+            const mid = Signal.compute(midFn);
+            const topFn = vi.fn(() => mid() + 1);
+            const top = Signal.compute(topFn);
+
+            expect(top()).toBe(1);
+            midFn.mockClear();
+            topFn.mockClear();
+            Batcher.run(() => {
+                leaf.set(1); // mid recomputes to the same 0
+                expect(top()).toBe(1);
+            });
+            expect(midFn).toHaveBeenCalledTimes(1);
+            expect(topFn).not.toHaveBeenCalled();
+        });
+
+        it("cold: an erroring source inside the batch fails the read with its error", () => {
+            const s = Signal.state(0);
+            const mid = Signal.compute(() => {
+                const v = s();
+                if (v < 0) throw new Error(`bad ${v}`);
+                return v;
+            });
+            const top = Signal.compute(() => mid() + 1);
+
+            expect(top()).toBe(1);
+            Batcher.run(() => {
+                s.set(-1);
+                expect(() => top()).toThrow("bad -1");
+            });
+            // Nothing kept from the in-batch read: a normal read fails again.
+            expect(() => top()).toThrow("bad -1");
+        });
     });
 });

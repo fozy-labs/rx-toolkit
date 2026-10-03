@@ -19,14 +19,14 @@ describe("Root module exports (@/index)", () => {
     });
 
     describe("common/react re-exports", () => {
-        it("exports useConstant", async () => {
+        it("does NOT export useConstant (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.useConstant).toBeDefined();
+            expect((mod as any).useConstant).toBeUndefined();
         });
 
-        it("exports useEventHandler", async () => {
+        it("does NOT export useEventHandler (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.useEventHandler).toBeDefined();
+            expect((mod as any).useEventHandler).toBeUndefined();
         });
     });
 
@@ -68,9 +68,9 @@ describe("Root module exports (@/index)", () => {
             expect("signalize" in mod).toBe(false);
         });
 
-        it("exports useSignal", async () => {
+        it("does NOT export useSignal (moved to ./react)", async () => {
             const mod = await import("@/index");
-            expect(mod.useSignal).toBeDefined();
+            expect((mod as any).useSignal).toBeUndefined();
         });
 
         it("exports State", async () => {

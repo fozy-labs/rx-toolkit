@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
+import { createApi, CURRENT_SNAPSHOT_VERSION, type TApiSnapshot } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Card, CardBody, CardHeader, Divider } from '@heroui/react';
 
 
