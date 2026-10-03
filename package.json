@@ -49,6 +49,11 @@
     "react": "^19.0.0",
     "rxjs": "^7.0.0"
   },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "description": "Набор инструментов для реактивного управления состоянием, построенный поверх RxJS.",
   "author": "Vladimir Panev <vova6255@gmail.com>",
   "homepage": "https://github.com/fozy-labs/rx-toolkit",
@@ -76,6 +81,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "types": "./dist/react.d.ts"
     }
   },
   "sideEffects": false,

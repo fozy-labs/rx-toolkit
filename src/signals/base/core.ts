@@ -365,6 +365,54 @@ function needsToRecompute(target: Consumer): boolean {
     return false;
 }
 
+/**
+ * A read-only `needsToRecompute` for a cold computed read inside a batch:
+ * true when every source is exactly as the last committed computation left
+ * it. A computed source is unchanged when its committed version stands and
+ * its own in-batch read still yields the committed value (a batch change
+ * that recomputes to an equal value is no change); any other producer is
+ * checked the way `needsToRecompute` checks it. The node is marked RUNNING
+ * like `_refresh` does, so a dependency cycle reads it back as still
+ * computing instead of recursing.
+ */
+function unchangedInBatch<T>(target: ComputedNode<T>): boolean {
+    target._flags |= RUNNING;
+    runningDepth++;
+    let unchanged = true;
+    try {
+        for (let link = target._sources; link !== undefined; link = link._nextSource) {
+            const source = link._source;
+            if (source._kind === KIND_COMPUTED) {
+                const node = source as ComputedNode<unknown>;
+                if (node._version !== link._version) {
+                    unchanged = false;
+                    break;
+                }
+                let value: unknown;
+                let failed = false;
+                try {
+                    value = node.peek();
+                } catch {
+                    // An erroring or cycling source counts as changed.
+                    failed = true;
+                }
+                if (failed || (node._flags & HAS_ERROR) !== 0 || !Object.is(value, node._value)) {
+                    unchanged = false;
+                    break;
+                }
+            } else if (source._version !== link._version || !source._refresh() || source._version !== link._version) {
+                unchanged = false;
+                break;
+            }
+        }
+    } finally {
+        runningDepth--;
+        target._flags &= ~RUNNING;
+    }
+    if (settlePending && runningDepth === 0) afterRead();
+    return unchanged;
+}
+
 /** Starts tracking the reads of an evaluation. */
 function beginTracking(target: Evaluator): void {
     target._depsTail = undefined;
@@ -1003,8 +1051,17 @@ export class ComputedNode<T> extends Producer implements Evaluator, ObsSource<T>
             if ((flags & TRACKING) === 0 && !flushing && !draining) {
                 // Still valid: nothing was written since it computed (an error or
                 // a RETRY mark is recomputed, as a real read would retry it).
-                if ((flags & (OUTDATED | RETRY | HAS_ERROR)) === 0 && this._globalVersion === globalVersion) {
-                    return this._value as T;
+                if ((flags & (OUTDATED | RETRY | HAS_ERROR)) === 0) {
+                    if (this._globalVersion === globalVersion) {
+                        return this._value as T;
+                    }
+                    // A write that did not mark this node still bumped the
+                    // global version: validate the committed sources before
+                    // recomputing, and stamp the read as a validation.
+                    if (this._version !== 0 && unchangedInBatch(this)) {
+                        this._globalVersion = globalVersion;
+                        return this._value as T;
+                    }
                 }
                 if (this._batchStamp !== globalVersion) this._computeInBatch();
                 if (this._batchError !== NONE) throw this._batchError;

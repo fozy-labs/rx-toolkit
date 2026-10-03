@@ -18,7 +18,8 @@ export interface InstanceScope {
     readonly context$: ReadonlySignal<unknown>;
     /**
      * Counts the `initialize()` calls that wrote bases. A submit captures it when the command
-     * starts and skips its `_commit()` if it changed: the new base wins over what was sent.
+     * starts; on success each group skips its subtree's commit if its own `initialize()` wrote
+     * after that: the new base wins over what was sent.
      */
     readonly bases: { generation: number };
 }

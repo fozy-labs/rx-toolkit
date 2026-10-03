@@ -413,7 +413,8 @@ ps.dispose(); // освобождение (после этого чтения б
 Реактивная keyed-коллекция: чтение со скоростью `Map`, запись за O(1) и точечная реактивность **по каждому ключу**. Заполняет нишу нормализованного стора/кэша, где нужны одновременно быстрая запись и точечная инвалидация — в отличие от одного общего сигнала-версии (будит всех читателей на любое add/remove) или `unstable_ProxySignal` в роли кэша (иммутабельная копия корня — O(N) на запись). Создаётся фабрикой `unstable_KeyedSignal.state()` (конвенция сигналов) и, как любой сигнал, вызывается для реактивного чтения.
 
 ```typescript
-import { unstable_KeyedSignal, Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { unstable_KeyedSignal, Signal } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 
 const users = unstable_KeyedSignal.state<{ name: string; online: boolean }>();
 

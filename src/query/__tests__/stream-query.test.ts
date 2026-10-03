@@ -438,10 +438,10 @@ describe("stream queryFn — optimistic patches", () => {
 
         subject.next({ likes: 5, title: "v2" });
 
-        // Pending patch replayed on the new base. Immer patches are absolute
-        // replacements: the recorded `likes = 2` wins over the emitted 5,
-        // while untouched fields take the new base's values.
-        expect(entry.state$.peek().data).toEqual({ likes: 2, title: "v2" });
+        // Pending patch replayed on the new base: its recipe re-runs, so
+        // `likes += 1` applies to the emitted 5, while untouched fields
+        // take the new base's values.
+        expect(entry.state$.peek().data).toEqual({ likes: 6, title: "v2" });
     });
 
     it("committing a patch during a stream folds it into the data", () => {

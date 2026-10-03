@@ -1,3 +1,5 @@
+// react
+import { useSignal } from "@/react";
 import {
     // base
     Batcher,
@@ -16,8 +18,6 @@ import {
     // signals
     State,
     unstable_ProxySignal,
-    // react
-    useSignal,
 } from "@/signals";
 import type { SignalLifecycleHook, SignalOptions, SignalOptionsOrKey } from "@/signals";
 

@@ -226,13 +226,13 @@ export class unstable_Statechart<
     start(): void {
         if (this._status === "disposed") throw new Error("Statechart has been disposed");
         if (this._processing) {
-            // A restart matters once the burst stopped the engine or will stop
-            // it (a `stop()` queued earlier in the burst); `_runGuarded`
-            // performs it after the batch (and after the error report, if the
-            // burst failed).
-            if (this._status !== "running" || this._queue.some(({ event }) => event.type === XSTATE_STOP)) {
-                this._restartRequested = true;
-            }
+            // Record the restart unconditionally: the actions of a completing
+            // step still see `_status === "running"` — `_halt()` flips it only
+            // after `step()` has run them — and `_runGuarded` performs the
+            // restart after the batch (and after the error report, if the
+            // burst failed) when the engine ended `stopped`. A `stop()` later
+            // in the burst still cancels it.
+            this._restartRequested = true;
             return;
         }
         if (this._status === "running") return;

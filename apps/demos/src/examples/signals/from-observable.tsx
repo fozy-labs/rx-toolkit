@@ -1,4 +1,5 @@
-import { Signal, useSignal } from "@fozy-labs/rx-toolkit";
+import { Signal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardHeader, Chip, Input } from "@heroui/react";
 import { debounceTime, scan, startWith, Subject } from "rxjs";
 

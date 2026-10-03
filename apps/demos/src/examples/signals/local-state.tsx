@@ -1,4 +1,5 @@
-import { LocalSignal, useSignal } from "@fozy-labs/rx-toolkit";
+import { LocalSignal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardFooter, CardHeader, Slider } from "@heroui/react";
 
 const volume$ = LocalSignal.state({

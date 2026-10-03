@@ -31,15 +31,19 @@ export interface ListSnapshot {
 
 export type AttemptSnapshot = FieldSnapshot | GroupSnapshot | ListSnapshot;
 
-/** `_commit()`: what was sent becomes the base of every node in the snapshot. */
-export function commitSnapshot(snapshot: AttemptSnapshot): void {
+/**
+ * `_commit()`: what was sent becomes the base of every node in the snapshot — except the subtree of
+ * a group whose `initialize()` wrote bases after `since` (the generation the flight captured): an
+ * initialize wins over what was sent for the bases it writes.
+ */
+export function commitSnapshot(snapshot: AttemptSnapshot, since: number): void {
     switch (snapshot.kind) {
         case "field":
             return snapshot.core.commit(snapshot);
         case "group":
-            return snapshot.core.commit(snapshot);
+            return snapshot.core.commit(snapshot, since);
         case "list":
-            return snapshot.core.commit(snapshot);
+            return snapshot.core.commit(snapshot, since);
     }
 }
 

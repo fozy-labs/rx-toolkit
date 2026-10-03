@@ -144,7 +144,8 @@ const getProfile = api.createResource({
     ресурс и команду со связями — и поведение на двух вкладках.
 
 ```typescript
-import { createApi, broadcastSyncDriver, reactHooksPlugin } from '@fozy-labs/rx-toolkit';
+import { createApi, broadcastSyncDriver } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
   keyPrefix: 'main-api',

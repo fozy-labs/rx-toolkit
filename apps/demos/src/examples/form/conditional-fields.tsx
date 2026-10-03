@@ -1,6 +1,7 @@
 import React from 'react';
 import { z } from 'zod';
-import { unstable_FormSignal as FormSignal, useSignal, type FieldNode } from '@fozy-labs/rx-toolkit';
+import { unstable_FormSignal as FormSignal, type FieldNode } from '@fozy-labs/rx-toolkit';
+import { useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardFooter, CardHeader, Chip, Divider, Input, Tab, Tabs } from '@heroui/react';
 
 const f = FormSignal.field;

@@ -249,6 +249,10 @@ export class MachineBase<TArgs, TData> {
             forward,
             inverse,
             status: "pending",
+            // Kept for replays: a rebase re-runs the recipe on the new base
+            // rather than re-applying the recorded positional patches (see
+            // `TPatchEntry.recipe`).
+            recipe: patchFn,
         };
 
         const existingPatches = this.state.patchState?.patches ?? [];

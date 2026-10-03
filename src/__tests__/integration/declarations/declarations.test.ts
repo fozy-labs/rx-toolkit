@@ -150,10 +150,9 @@ describe("declaration emit of a consumer", () => {
 
         mkdirSync(CONSUMER, { recursive: true });
         for (const name of CONSUMERS) {
-            const source = readFileSync(join(HERE, `${name}.ts`), "utf8").replace(
-                /from "@\/index"/g,
-                'from "@fozy-labs/rx-toolkit"',
-            );
+            const source = readFileSync(join(HERE, `${name}.ts`), "utf8")
+                .replace(/from "@\/react"/g, 'from "@fozy-labs/rx-toolkit/react"')
+                .replace(/from "@\/index"/g, 'from "@fozy-labs/rx-toolkit"');
             writeFileSync(join(CONSUMER, `${name}.ts`), source);
         }
         // Its own package scope: inside the repository the package name would resolve to the repository itself.
@@ -186,7 +185,12 @@ describe("declaration emit of a consumer", () => {
     it.each(CONSUMERS)("%s: refers only to the package", (name) => {
         const declaration = readFileSync(join(CONSUMER, `out/${name}.d.ts`), "utf8");
         expect(declaration).toContain("export declare const");
-        expect(specifiers(declaration)).toEqual(["@fozy-labs/rx-toolkit"]);
+        // A consumer of `@/react` may refer to the `/react` subpath in its declaration.
+        const expected =
+            name === "query" || name === "form"
+                ? ["@fozy-labs/rx-toolkit", "@fozy-labs/rx-toolkit/react"]
+                : ["@fozy-labs/rx-toolkit"];
+        expect(specifiers(declaration).sort()).toEqual(expected);
     });
 
     it.each(NAMED_MODULES)("%s: every type its published declarations refer to can be named", (module) => {

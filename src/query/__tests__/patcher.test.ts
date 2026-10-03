@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyForwardPatches, createPatches, rebasePatches } from "@/query/core/patcher/Patcher";
+import { applyForwardPatches, createPatches, rebasePatches, replayPatchEntries } from "@/query/core/patcher/Patcher";
 
 describe("createPatches", () => {
     it("produces next state and forward/inverse patches", () => {
@@ -123,5 +123,71 @@ describe("rebasePatches", () => {
 
         const undone = applyForwardPatches(rebased, inversePatches);
         expect(undone).toEqual(base);
+    });
+});
+
+/**
+ * Replays (`replayPatchEntries`, the settled-fold paths) apply each entry over
+ * the base at hand. An entry created through `createPatch` carries its recipe
+ * and re-runs it — a recipe written against the data it finds still lands on
+ * the element it targeted after a shift. An entry without a recipe (built by
+ * hand, e.g. a restored snapshot) falls back to its recorded forward patches.
+ */
+describe("replayPatchEntries", () => {
+    it("re-runs the recipe on the new base and refreshes the recorded patches", () => {
+        const base = { items: [1, 2, 3] };
+        const [patched, forward, inverse] = createPatches(base, (draft: typeof base) => {
+            draft.items.splice(0, 1);
+        });
+        expect(patched.items).toEqual([2, 3]);
+
+        const entry = {
+            forward,
+            inverse,
+            status: "pending" as const,
+            recipe: (draft: typeof base) => {
+                draft.items.splice(0, 1);
+            },
+        };
+
+        // The recorded `remove [0]` would drop item 1 again; the recipe re-run
+        // removes the head of the *new* base.
+        const result = replayPatchEntries({ items: [10, 20] }, [entry]);
+        expect(result).toEqual({
+            ok: true,
+            data: { items: [20] },
+            patchState: expect.objectContaining({ patches: [entry] }),
+        });
+        expect(entry.forward).not.toBe(forward);
+        expect(entry.inverse).not.toBe(inverse);
+    });
+
+    it("a throwing recipe reports a consistency violation", () => {
+        const entry = {
+            forward: [],
+            inverse: [],
+            status: "pending" as const,
+            recipe: (draft: { items: number[] }) => {
+                draft.items[5]!.toFixed();
+            },
+        };
+
+        expect(replayPatchEntries({ items: [1] }, [entry])).toEqual({ ok: false });
+    });
+
+    it("an entry without a recipe still replays its recorded forward patches", () => {
+        const [patched, forward, inverse] = createPatches({ count: 0 }, (draft: { count: number }) => {
+            draft.count = 5;
+        });
+        expect(patched.count).toBe(5);
+
+        const entry = { forward, inverse, status: "pending" as const };
+        const result = replayPatchEntries({ count: 10 }, [entry]);
+
+        expect(result).toEqual({
+            ok: true,
+            data: { count: 5 },
+            patchState: expect.objectContaining({ patches: [entry] }),
+        });
     });
 });

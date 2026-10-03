@@ -12,7 +12,8 @@ import {
 import { createApi } from "@/query/api/createApi";
 import { reactHooksPlugin } from "@/query/react/ReactHooksPlugin";
 import type { TSuspenseResourceState } from "@/query/types";
-import { Signal, useSignal } from "@/signals";
+import { useSignal } from "@/react";
+import { Signal } from "@/signals";
 
 import { flushMicrotasks } from "../../__tests__/helpers/async-helpers";
 

@@ -39,7 +39,12 @@ export class Signal {
      * the replay cache); `options.keepAlive` controls how long the subscription
      * survives after the last consumer.
      */
-    static from<T>(source: Observable<T>, options?: SignalFromOptions<T>): DisposableSignal<T> {
+    static from<T, D extends T | undefined>(
+        source: Observable<T>,
+        options: Omit<SignalFromOptions<T>, "default"> & { default: D },
+    ): DisposableSignal<T | (undefined extends D ? undefined : never)>;
+    static from<T>(source: Observable<T>, options?: SignalFromOptions<T>): DisposableSignal<T>;
+    static from(source: Observable<unknown>, options?: SignalFromOptions<unknown>): DisposableSignal<unknown> {
         return FromSignal.create(source, options);
     }
 }

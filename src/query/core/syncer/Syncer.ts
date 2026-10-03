@@ -101,7 +101,10 @@ export class Syncer {
             if (pending) {
                 clearTimeout(pending.timer);
                 this.pendingRequests.delete(msg.reqId);
-                pending.resolve(msg.data !== undefined ? { data: msg.data } : null);
+                // A RES is only ever sent for a cache hit — including a hit
+                // whose data is `undefined` — so the message is always an
+                // answer, never a miss.
+                pending.resolve({ data: msg.data });
             }
         }
     };

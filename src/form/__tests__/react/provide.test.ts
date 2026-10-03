@@ -10,13 +10,11 @@ import {
     unstable_FormSignal as FormSignal,
     unstable_FormsPlugin,
     unstable_formsPlugin,
-    unstable_FormsReactPlugin,
-    unstable_formsReactPlugin,
     type FormInit,
     type FormInitial,
     type FormInstance,
-    type FormReactInstanceMembers,
 } from "../../index";
+import { unstable_FormsReactPlugin, unstable_formsReactPlugin, type FormReactInstanceMembers } from "../../react";
 
 const h = React.createElement;
 const f = FormSignal.field;

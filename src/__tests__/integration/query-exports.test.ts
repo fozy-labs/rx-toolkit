@@ -47,33 +47,33 @@ describe("Query module exports (@/index)", () => {
         });
     });
 
-    describe("react re-exports", () => {
+    describe("react re-exports (@/react)", () => {
         it("exports ReactHooksPlugin", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.ReactHooksPlugin).toBeDefined();
             expect(typeof mod.ReactHooksPlugin).toBe("function");
         });
 
         it("exports reactHooksPlugin factory", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.reactHooksPlugin).toBeDefined();
             expect(typeof mod.reactHooksPlugin).toBe("function");
         });
 
         it("exports useResource", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useResource).toBeDefined();
             expect(typeof mod.useResource).toBe("function");
         });
 
         it("exports useSuspenseResource", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useSuspenseResource).toBeDefined();
             expect(typeof mod.useSuspenseResource).toBe("function");
         });
 
         it("exports useCommand", async () => {
-            const mod = await import("@/index");
+            const mod = await import("@/react");
             expect(mod.useCommand).toBeDefined();
             expect(typeof mod.useCommand).toBe("function");
         });

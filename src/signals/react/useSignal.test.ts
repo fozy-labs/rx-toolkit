@@ -1,6 +1,7 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import React from "react";
 import { flushSync } from "react-dom";
+import { concat, defer, map, of, timer } from "rxjs";
 
 import { Batcher } from "@/signals/base/Batcher";
 import { Signal } from "@/signals/signals/Signal";
@@ -496,6 +497,159 @@ describe("useSignal", () => {
                 await flushMicrotasks();
             });
             expect(screen.getByTestId("value").textContent).toBe("30");
+        });
+    });
+
+    describe("over Signal.from", () => {
+        class Boundary extends React.Component<{ children?: React.ReactNode }, { error: unknown }> {
+            state = { error: null as unknown };
+            static getDerivedStateFromError(error: unknown) {
+                return { error };
+            }
+            render() {
+                if (this.state.error) {
+                    return React.createElement("div", { "data-testid": "error" }, (this.state.error as Error).message);
+                }
+                return this.props.children;
+            }
+        }
+
+        describe("an async source error", () => {
+            let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+            beforeEach(() => {
+                vi.useFakeTimers();
+                consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+            });
+            afterEach(() => {
+                consoleErrorSpy.mockRestore();
+                vi.useRealTimers();
+            });
+
+            // A request-like source: every subscription is a new request that fails after 10 ms.
+            function failingRequest() {
+                let requests = 0;
+                const source = defer(() => {
+                    requests++;
+                    return timer(10).pipe(
+                        map((): string => {
+                            throw new Error("500 Internal Server Error");
+                        }),
+                    );
+                });
+                return { source, requests: () => requests };
+            }
+
+            it("with a default: shows the error in the ErrorBoundary and does not re-request in a loop", async () => {
+                const { source, requests } = failingRequest();
+                const user$ = Signal.from(source, { default: "loading" });
+                function Display() {
+                    return React.createElement("div", { "data-testid": "value" }, useSignal(user$));
+                }
+                render(React.createElement(Boundary, null, React.createElement(Display)));
+                expect(requests()).toBe(1);
+
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(100);
+                });
+
+                expect(requests(), "requests made in 100 ms").toBeLessThanOrEqual(2);
+                expect(screen.queryByTestId("error")?.textContent ?? null).toBe("500 Internal Server Error");
+            });
+
+            it("without a default: the ErrorBoundary gets the source error, not 'No value emitted'", async () => {
+                // A live feed: the first subscription emits, then fails after 10 ms;
+                // a new subscription is a new request that fails the same way.
+                let requests = 0;
+                const fail = () =>
+                    timer(10).pipe(
+                        map((): string => {
+                            throw new Error("connection lost");
+                        }),
+                    );
+                const feed$ = Signal.from(defer(() => (requests++ === 0 ? concat(of("ok"), fail()) : fail())));
+                function Display() {
+                    return React.createElement("div", { "data-testid": "value" }, useSignal(feed$));
+                }
+                render(React.createElement(Boundary, null, React.createElement(Display)));
+                expect(screen.getByTestId("value").textContent).toBe("ok");
+
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(10);
+                });
+
+                expect(screen.queryByTestId("error")?.textContent ?? null).toBe("connection lost");
+            });
+        });
+
+        it("getSnapshot returns a stable value for an unchanged store (keepAlive 'none')", () => {
+            const messages: string[] = [];
+            const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+                messages.push(String(args[0]));
+            });
+            try {
+                // A cold source that builds a fresh object per subscription (a map to
+                // a view model, `of({...})` behind `defer`, an HTTP mock).
+                const settings$ = Signal.from(
+                    defer(() => of({ theme: "dark" })),
+                    { keepAlive: "none" },
+                );
+                function Theme() {
+                    return React.createElement("div", { "data-testid": "theme" }, useSignal(settings$).theme);
+                }
+                render(React.createElement(Theme));
+                expect(screen.getByTestId("theme").textContent).toBe("dark");
+                expect(messages.filter((m) => m.includes("getSnapshot should be cached"))).toEqual([]);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("picks up a change between the render and the subscription", () => {
+            const signal = Signal.state(0);
+            let capturedSubscribe: ((cb: () => void) => () => void) | null = null;
+            let capturedGetSnapshot: (() => number) | null = null;
+
+            // A render that never commits (a discarded transition render)
+            // reads the snapshot but never subscribes; here that is modeled
+            // by replacing useSyncExternalStore with a snapshot read only.
+            const spy = vi.spyOn(React, "useSyncExternalStore").mockImplementation((subscribe, getSnapshot) => {
+                capturedSubscribe = subscribe as typeof capturedSubscribe;
+                capturedGetSnapshot = getSnapshot as typeof capturedGetSnapshot;
+                return (getSnapshot as () => number)();
+            });
+
+            try {
+                const { unmount } = renderHook(() => useSignal(signal));
+                expect(capturedSubscribe).not.toBeNull();
+                expect(capturedGetSnapshot!()).toBe(0);
+
+                // The store moved between the render's snapshot read and the
+                // subscription — the first effect run must close the gap.
+                signal.set(1);
+                const listener = vi.fn();
+                const unsubscribe = capturedSubscribe!(listener);
+
+                expect(listener).toHaveBeenCalled();
+                expect(capturedGetSnapshot!()).toBe(1);
+
+                unsubscribe();
+                unmount();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it("shows the new signal's value when the signal$ prop changes", () => {
+            const a = Signal.from(of("a"));
+            const b = Signal.from(of("b"));
+            function Display({ s }: { s: typeof a }) {
+                return React.createElement("div", { "data-testid": "value" }, useSignal(s));
+            }
+            const view = render(React.createElement(Display, { s: a }));
+            expect(screen.getByTestId("value").textContent).toBe("a");
+
+            view.rerender(React.createElement(Display, { s: b }));
+            expect(screen.getByTestId("value").textContent).toBe("b");
         });
     });
 });

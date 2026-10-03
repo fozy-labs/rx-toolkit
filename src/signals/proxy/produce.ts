@@ -57,6 +57,12 @@ function shallowCopy(base: any): any {
     if (Array.isArray(base)) return base.slice();
     if (base instanceof Map) return new Map(base);
     if (base instanceof Set) return new Set(base);
+    // An own "__proto__" key (a JSON.parse dictionary key) is a data property
+    // of the base; Object.assign would write it through the inherited setter
+    // and change the prototype of the copy instead.
+    if (Object.prototype.hasOwnProperty.call(base, "__proto__")) {
+        return Object.create(Object.getPrototypeOf(base), Object.getOwnPropertyDescriptors(base));
+    }
     return Object.assign(Object.create(Object.getPrototypeOf(base)), base);
 }
 
@@ -69,8 +75,15 @@ function readAt(container: any, key: unknown): unknown {
 }
 
 function writeAt(container: any, key: unknown, value: unknown): void {
-    if (container instanceof Map) container.set(key, value);
-    else container[key as any] = value;
+    if (container instanceof Map) {
+        container.set(key, value);
+    } else if (key === "__proto__") {
+        // A [[Set]] would hit the inherited setter and change the prototype;
+        // an own "__proto__" is an ordinary data key.
+        Object.defineProperty(container, key, { value, writable: true, enumerable: true, configurable: true });
+    } else {
+        container[key as any] = value;
+    }
 }
 
 /** Records a write to `key` of the node; the caller then changes the copy. */
@@ -167,7 +180,7 @@ function createObjectDraft(state: DraftState, touch: () => void): any {
             // base value back drops the edits made through the draft.
             if (prop in latest(state) && Object.is(current(state, prop), value)) return true;
             write(state, touch, prop);
-            state.copy[prop] = value;
+            writeAt(state.copy, prop, value);
             return true;
         },
         deleteProperty(_target, prop) {
@@ -414,7 +427,7 @@ function resolveEntries(container: any, resolve: Resolve): any {
         const next = resolve(value);
         if (next === value) return;
         if (result === container) result = shallowCopy(container);
-        result[key] = next;
+        writeAt(result, key, next);
     });
     return result;
 }

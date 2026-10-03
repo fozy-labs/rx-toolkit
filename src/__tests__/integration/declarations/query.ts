@@ -1,13 +1,8 @@
 // A consumer of the query module: every export is left to inference, so its declaration names
 // the clutch and entry states — whole and narrowed. `declarations.test.ts` compiles it against
 // the built package, with `@/index` replaced by the package name.
-import {
-    createApi,
-    reactHooksPlugin,
-    type TCommandClutchState,
-    type TResourceClutchState,
-    type TResourceEntryState,
-} from "@/index";
+import { createApi, type TCommandClutchState, type TResourceClutchState, type TResourceEntryState } from "@/index";
+import { reactHooksPlugin } from "@/react";
 
 type Args = number;
 type Data = { name: string };

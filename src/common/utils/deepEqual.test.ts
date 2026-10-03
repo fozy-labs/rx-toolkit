@@ -159,6 +159,16 @@ describe("deepEqual", () => {
             expect(deepEqual({ d: new Date(100) }, { d: new Date(100) })).toBe(true);
             expect(deepEqual({ d: new Date(100) }, { d: new Date(200) })).toBe(false);
         });
+
+        it("two Invalid Dates are equal, like two NaNs", () => {
+            expect(deepEqual(new Date(""), new Date(""))).toBe(true);
+            expect(deepEqual({ at: new Date("") }, { at: new Date("") })).toBe(true);
+        });
+
+        it("a valid Date is not equal to an Invalid Date", () => {
+            expect(deepEqual(new Date(0), new Date(""))).toBe(false);
+            expect(deepEqual(new Date(""), new Date(0))).toBe(false);
+        });
     });
 
     describe("regexps", () => {
@@ -211,6 +221,57 @@ describe("deepEqual", () => {
             expect(deepEqual(new Map([[{ id: 1 }, { v: "a" }]]), new Map([[{ id: 1 }, { v: "b" }]]))).toBe(false);
         });
 
+        it("mixed primitive and object keys", () => {
+            const a = new Map<unknown, unknown>([
+                ["k", 1],
+                [{ id: 1 }, { v: "a" }],
+                [7, "seven"],
+            ]);
+            const equal = new Map<unknown, unknown>([
+                [7, "seven"],
+                [{ id: 1 }, { v: "a" }],
+                ["k", 1],
+            ]);
+            expect(deepEqual(a, equal)).toBe(true);
+            const wrongObjectValue = new Map<unknown, unknown>([
+                [7, "seven"],
+                [{ id: 1 }, { v: "b" }],
+                ["k", 1],
+            ]);
+            expect(deepEqual(a, wrongObjectValue)).toBe(false);
+            const wrongPrimitiveValue = new Map<unknown, unknown>([
+                [7, "seven"],
+                [{ id: 1 }, { v: "a" }],
+                ["k", 2],
+            ]);
+            expect(deepEqual(a, wrongPrimitiveValue)).toBe(false);
+            const wrongPrimitiveKey = new Map<unknown, unknown>([
+                [7, "seven"],
+                [{ id: 1 }, { v: "a" }],
+                ["z", 1],
+            ]);
+            expect(deepEqual(a, wrongPrimitiveKey)).toBe(false);
+        });
+
+        it("NaN keys", () => {
+            expect(deepEqual(new Map([[NaN, 1]]), new Map([[NaN, 1]]))).toBe(true);
+            expect(deepEqual(new Map([[NaN, 1]]), new Map([[NaN, 2]]))).toBe(false);
+        });
+
+        it("a primitive key never collapses with a deep-equal-shaped object key", () => {
+            // "1" and { toString: ... } are different entries; size equality
+            // means the primitive must match by SameValueZero.
+            const a = new Map<unknown, unknown>([
+                [1, "one"],
+                [{ n: 1 }, "obj"],
+            ]);
+            const b = new Map<unknown, unknown>([
+                [{ n: 1 }, "obj"],
+                [2, "one"],
+            ]);
+            expect(deepEqual(a, b)).toBe(false);
+        });
+
         it("map vs plain object", () => {
             expect(deepEqual(new Map(), {})).toBe(false);
             expect(deepEqual({}, new Map())).toBe(false);
@@ -242,6 +303,21 @@ describe("deepEqual", () => {
         it("deep-equal duplicates are not matched twice", () => {
             // two distinct objects with the same shape stay in a Set (dedup is by reference)
             expect(deepEqual(new Set([{ x: 1 }, { x: 1 }]), new Set([{ x: 1 }, { x: 2 }]))).toBe(false);
+            expect(deepEqual(new Set([{ x: 1 }, { x: 1 }]), new Set([{ x: 1 }, { x: 1 }]))).toBe(true);
+        });
+
+        it("mixed primitive and object elements", () => {
+            const a = new Set<unknown>([1, "two", { x: 1 }, NaN]);
+            expect(deepEqual(a, new Set<unknown>([NaN, { x: 1 }, "two", 1]))).toBe(true);
+            expect(deepEqual(a, new Set<unknown>([NaN, { x: 2 }, "two", 1]))).toBe(false);
+            expect(deepEqual(a, new Set<unknown>([NaN, { x: 1 }, "two", 3]))).toBe(false);
+        });
+
+        it("identical elements match before the structural search", () => {
+            const shared = { x: 1 };
+            const a = new Set<unknown>([shared, { y: 2 }]);
+            const b = new Set<unknown>([{ y: 2 }, shared]);
+            expect(deepEqual(a, b)).toBe(true);
         });
 
         it("set vs plain object", () => {
@@ -331,6 +407,41 @@ describe("deepEqual", () => {
             a.self = a;
             const b: any = { x: 1, self: { x: 2, self: null } };
             expect(deepEqual(a, b)).toBe(false);
+        });
+    });
+
+    describe("performance", () => {
+        // deepEqual compared Map and Set by a nested linear scan: O(n²) even
+        // for primitive keys. Primitive entries go through has/get instead.
+        const N = 20_000;
+        const ids = Array.from({ length: N }, (_, i) => `id-${i}`);
+
+        function time(fn: () => void): number {
+            const start = performance.now();
+            fn();
+            return performance.now() - start;
+        }
+
+        it("compares a 20k Set of strings in roughly linear time", () => {
+            const a = new Set(ids);
+            const b = new Set([...ids].reverse());
+            let result = false;
+            const setTime = time(() => {
+                result = deepEqual(a, b);
+            });
+            expect(result).toBe(true);
+            expect(setTime).toBeLessThan(100);
+        });
+
+        it("compares a 20k Map with string keys in roughly linear time", () => {
+            const a = new Map(ids.map((id) => [id, { id }]));
+            const b = new Map([...ids].reverse().map((id) => [id, { id }]));
+            let result = false;
+            const mapTime = time(() => {
+                result = deepEqual(a, b);
+            });
+            expect(result).toBe(true);
+            expect(mapTime).toBeLessThan(100);
         });
     });
 });

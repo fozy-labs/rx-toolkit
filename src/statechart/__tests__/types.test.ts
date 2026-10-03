@@ -15,6 +15,7 @@ import { and, not, or, stateIn } from "../guards";
 import type { MachineDefinition } from "../MachineDefinition";
 import type {
     ActionArgs,
+    AfterEvent,
     AssignAction,
     DoneStateEvent,
     ExtractEvent,
@@ -46,6 +47,54 @@ describe("statechart types", () => {
             { type: "user.login"; name: string } | { type: "user.logout" }
         >();
         expectTypeOf<ExtractEvent<Ev, "*">>().toEqualTypeOf<Ev>();
+    });
+
+    it("system event descriptors are valid `on` keys with declared types.events and narrow `event`", () => {
+        const config: MachineConfig<Ctx, Ev> = {
+            id: "uploader",
+            context: { count: 0, ready: false },
+            initial: "active",
+            states: {
+                active: {
+                    on: {
+                        "xstate.done.state.uploader.active.upload": {
+                            actions: ({ event }) => {
+                                expectTypeOf(event).toEqualTypeOf<DoneStateEvent>();
+                            },
+                        },
+                        "xstate.after.1000.m.a": {
+                            actions: ({ event }) => {
+                                expectTypeOf(event).toEqualTypeOf<AfterEvent>();
+                            },
+                        },
+                        "xstate.*": {
+                            actions: ({ event }) => {
+                                expectTypeOf(event).toEqualTypeOf<DoneStateEvent | AfterEvent>();
+                            },
+                        },
+                        // @ts-expect-error unknown event type
+                        NOPE: "active",
+                    },
+                },
+            },
+        };
+        expect(config).toBeDefined();
+        expectTypeOf<ExtractEvent<Ev, "xstate.done.state.uploader.active.upload">>().toEqualTypeOf<DoneStateEvent>();
+        expectTypeOf<ExtractEvent<Ev, "xstate.*">>().toEqualTypeOf<DoneStateEvent | AfterEvent>();
+
+        // TS2353 reports one excess key per object literal — separate `on` blocks.
+        const noInit: MachineConfig<Ctx, Ev> = {
+            initial: "a",
+            // @ts-expect-error xstate.init is not a transition key
+            states: { a: { on: { "xstate.init": "a" } } },
+        };
+        const noStop: MachineConfig<Ctx, Ev> = {
+            initial: "a",
+            // @ts-expect-error xstate.stop is not a transition key
+            states: { a: { on: { "xstate.stop": "a" } } },
+        };
+        expect(noInit).toBeDefined();
+        expect(noStop).toBeDefined();
     });
 
     it("typed config: narrowed events, contextual builtins, rejected unknown keys", () => {

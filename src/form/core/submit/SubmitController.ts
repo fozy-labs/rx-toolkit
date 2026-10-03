@@ -368,9 +368,9 @@ export class SubmitController {
     }
 
     /**
-     * Applies the settle. A success commits the snapshot unless an `initialize()` wrote the bases
-     * since the command started, and rotates the key; an error lays the server issues out. A
-     * superseded attempt applies neither its issues nor its outcome.
+     * Applies the settle. A success commits the snapshot — skipping only the subtree of a group
+     * whose `initialize()` re-based it since the command started — and rotates the key; an error
+     * lays the server issues out. A superseded attempt applies neither its issues nor its outcome.
      */
     private _settle(attempt: Attempt, settled: Settled, flight: Flight, snapshot: GroupSnapshot): boolean {
         const configError = flight.configError();
@@ -379,7 +379,7 @@ export class SubmitController {
             case "aborted":
                 return false;
             case "success":
-                if (this._root.scope.bases.generation === flight.generation) commitSnapshot(snapshot);
+                commitSnapshot(snapshot, flight.generation);
                 this._defaultKey = undefined;
                 return this._finish(attempt, "success", true);
             case "error":

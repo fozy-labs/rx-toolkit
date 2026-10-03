@@ -1,4 +1,5 @@
-import { createApi, reactHooksPlugin, Signal, useSignal } from '@fozy-labs/rx-toolkit';
+import { createApi, Signal } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin, useSignal } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, Checkbox, Chip, Divider } from '@heroui/react';
 import React from 'react';
 import { fetches } from "../../utils/fetches";

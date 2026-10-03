@@ -5,9 +5,9 @@ import { renderToString } from "react-dom/server";
 import { z } from "zod";
 
 import { createApi } from "@/query";
-import { useSignal } from "@/signals";
+import { unstable_formsReactPlugin, useSignal } from "@/react";
 
-import { unstable_FormSignal as FormSignal, unstable_formsReactPlugin } from "../../index";
+import { unstable_FormSignal as FormSignal } from "../../index";
 
 const h = React.createElement;
 

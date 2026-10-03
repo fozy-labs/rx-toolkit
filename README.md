@@ -11,6 +11,9 @@
 npm install @fozy-labs/rx-toolkit rxjs
 ```
 
+`react` — опциональный peer: он нужен только для React-интеграции (`@fozy-labs/rx-toolkit/react`).
+Для других фреймворков и Node.js достаточно `rxjs`.
+
 ## 🎯 Цель
 
 RxJS действительно мощный инструмент реактивного программирования,
@@ -103,10 +106,8 @@ sub.unsubscribe();
 
 ###### Query (Корзина покупок)
 ```tsx
-import {
-    createApi,
-    reactHooksPlugin,
-} from '@fozy-labs/rx-toolkit';
+import { createApi } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 
 const api = createApi({
     plugins: [reactHooksPlugin()],

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createApi } from "../api/createApi";
 import { Resource } from "../core/resource/Resource";
 import { Syncer, type ISyncerConfig } from "../core/syncer/Syncer";
 import { stableStringify } from "../lib/stableStringify";
@@ -421,6 +422,54 @@ describe("Syncer", () => {
 
             await expect(promise).resolves.toEqual({ data: { id: 7, name: "loaded" } });
         });
+
+        it("a cached undefined syncs too: the cold tab does not call its queryFn", async () => {
+            // In-memory BroadcastChannel stand-in: structured-clones every
+            // message and delivers it to the other connected peers.
+            const peers = new Set<(m: ISyncMessage) => void>();
+            const createDriver = (): ISyncDriver => {
+                let mine: ((m: ISyncMessage) => void) | null = null;
+                return {
+                    connect(onMessage) {
+                        mine = (m) => onMessage(structuredClone(m));
+                        peers.add(mine);
+                    },
+                    disconnect() {
+                        if (mine) peers.delete(mine);
+                        mine = null;
+                    },
+                    send(message) {
+                        const self = mine;
+                        for (const peer of [...peers]) {
+                            if (peer !== self) queueMicrotask(() => peer(message));
+                        }
+                    },
+                };
+            };
+
+            const tabA = createApi({ keyPrefix: "app", syncDriver: createDriver(), defaultSync: "resources" });
+            const settingsA = tabA.createResource({
+                key: "optionalSettings",
+                queryFn: async (_id: string): Promise<{ theme: string } | undefined> => undefined,
+            });
+            // Tab A is alone: its own cold load waits out the sync timeout,
+            // then runs queryFn.
+            const seeded = settingsA.ensure("user-1");
+            await vi.advanceTimersByTimeAsync(1000);
+            await seeded;
+
+            const tabB = createApi({ keyPrefix: "app", syncDriver: createDriver(), defaultSync: "resources" });
+            const queryFnB = vi.fn(async (_id: string): Promise<{ theme: string } | undefined> => undefined);
+            const settingsB = tabB.createResource({ key: "optionalSettings", queryFn: queryFnB });
+
+            const result = settingsB.ensure("user-1");
+            await vi.advanceTimersByTimeAsync(1000);
+            await expect(result).resolves.toBeUndefined();
+
+            // Tab A answered with RES { data: undefined }, so tab B must not
+            // hit the network.
+            expect(queryFnB).not.toHaveBeenCalled();
+        });
     });
 
     // ── RES handling (incoming) ────────────────────────────────────
@@ -441,7 +490,9 @@ describe("Syncer", () => {
         expect(result).toEqual({ data: { id: 42 } });
     });
 
-    it("resolves with null when RES has no data", async () => {
+    it("resolves a RES without a data field as a hit carrying undefined", async () => {
+        // A RES is only ever sent for a cache hit — including a hit whose data
+        // is `undefined` — so the receiver always resolves { data }.
         const { syncer, driver } = createSyncer({ keyPrefix: "ns" });
         syncer.connect();
 
@@ -453,7 +504,7 @@ describe("Syncer", () => {
         });
 
         const result = await promise;
-        expect(result).toBeNull();
+        expect(result).toEqual({ data: undefined });
     });
 
     it("resolves with null on timeout (150ms)", async () => {

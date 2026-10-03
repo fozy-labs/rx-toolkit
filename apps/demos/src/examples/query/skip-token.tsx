@@ -1,5 +1,6 @@
 import React from 'react';
-import { createApi, reactHooksPlugin, SKIP } from '@fozy-labs/rx-toolkit';
+import { createApi, SKIP } from '@fozy-labs/rx-toolkit';
+import { reactHooksPlugin } from '@fozy-labs/rx-toolkit/react';
 import { Button, Card, CardBody, CardHeader, cn, Divider } from '@heroui/react';
 import { fetches } from "../../utils/fetches";
 

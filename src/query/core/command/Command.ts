@@ -3,7 +3,6 @@ import type {
     ICommand,
     ICommandClutch,
     ICommandConfig,
-    IPatchHandle,
     IQueryCacheEntryOptions,
     TArgsOrKeyed,
     TBoundCommand,
@@ -12,7 +11,7 @@ import type {
     TMapError,
     TQueryStartedContext,
 } from "@/query/types";
-import { Signal, unstable_KeyedSignal } from "@/signals";
+import { Batcher, Signal, unstable_KeyedSignal } from "@/signals";
 import { untracked } from "@/signals/base/untracked";
 
 import { KEYED_BRAND } from "../../constants";
@@ -23,7 +22,7 @@ import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "../
 
 import { CommandClutch } from "./CommandClutch";
 import { buildCommandEntryState } from "./entry-state";
-import { LinkManager } from "./LinkManager";
+import { LinkManager, type TLinkedPatch } from "./LinkManager";
 
 // ==================== Command ====================
 
@@ -114,7 +113,7 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // observers (clutch / useCommand) see it, and mapError normalizes it at
         // the single fail() boundary. The handles belong to the first run: the
         // run that settles first takes them, any later one settles none.
-        let patchHandles: IPatchHandle[] = [];
+        let patchHandles: TLinkedPatch[] = [];
         let optimisticApplied = false;
 
         const settleLinks = (outcome: PromiseSettledResult<TData>): void => {
@@ -123,13 +122,11 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
             linkManager.settle(args, handles, outcome);
         };
 
-        // Clean up existing entry for the same entry key, if any
+        // Clean up existing entry for the same entry key, if any — it is
+        // completed where the new entry is registered, inside one batch below.
         const existing = this._cache.get(resolvedEntryKey);
-        if (existing) {
-            existing.complete();
-        }
 
-        // eslint-disable-next-line prefer-const -- assigned after constructor; closure reads it
+        // eslint-disable-next-line prefer-const -- read during the constructor below via wrappedQueryFn
         let entry!: QueryCacheEntry<TArgs, TData>;
         let initialRunLifecycle: TQueryRunLifecycle<TData> | null = null;
 
@@ -284,8 +281,15 @@ export class Command<TArgs, TData, TError = unknown> implements ICommand<TArgs, 
         // replaces the current execution) so it reflects only the first attempt.
         const firstResult = holdUntilSettled();
 
-        // Register in cache
-        this._cache.set(resolvedEntryKey, entry);
+        // Re-triggering under an entry key replaces its entry: the old one
+        // completes (removing the key through its own completed$ subscription)
+        // and the new one is set — inside one batch the entry-less state in
+        // between is never published. An `idle` would otherwise flash between
+        // `success` and `pending` on every repeat save.
+        Batcher.run(() => {
+            existing?.complete();
+            this._cache.set(resolvedEntryKey, entry);
+        });
 
         // Cleanup: remove entry from cache when it completes
         entry.completed$.subscribe(() => {

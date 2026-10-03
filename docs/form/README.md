@@ -32,12 +32,8 @@
 
 ```tsx
 import { z } from "zod";
-import {
-    createApi,
-    unstable_FormSignal as FormSignal,
-    unstable_formsReactPlugin,
-    useSignal,
-} from "@fozy-labs/rx-toolkit";
+import { createApi, unstable_FormSignal as FormSignal } from "@fozy-labs/rx-toolkit";
+import { unstable_formsReactPlugin, useSignal } from "@fozy-labs/rx-toolkit/react";
 
 const f = FormSignal.field;
 

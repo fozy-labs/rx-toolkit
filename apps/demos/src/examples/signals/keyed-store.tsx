@@ -1,5 +1,6 @@
 import React from "react";
-import { Signal, unstable_KeyedSignal, useSignal } from "@fozy-labs/rx-toolkit";
+import { Signal, unstable_KeyedSignal } from "@fozy-labs/rx-toolkit";
+import { useSignal } from "@fozy-labs/rx-toolkit/react";
 import { Button, Card, CardBody, CardHeader, Chip } from "@heroui/react";
 
 type Item = { id: string; name: string; qty: number };

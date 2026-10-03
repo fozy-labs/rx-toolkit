@@ -8,11 +8,11 @@ import { z } from "zod";
 import { flushUnhandledRejections, trackUnhandledRejections } from "@/__tests__/helpers/unhandled-rejections";
 import { reduxDevtools } from "@/common/devtools";
 import { SharedOptions } from "@/common/options/SharedOptions";
-import { createApi, reactHooksPlugin, SKIP } from "@/query";
-import { useSignal } from "@/signals";
+import { createApi, SKIP } from "@/query";
+import { reactHooksPlugin, unstable_formsReactPlugin, useSignal } from "@/react";
 
 import { GroupCore } from "../../core/nodes/GroupCore";
-import { unstable_FormSignal as FormSignal, unstable_formsReactPlugin, type FormInstance } from "../../index";
+import { unstable_FormSignal as FormSignal, type FormInstance } from "../../index";
 
 import { isMelting, manualRuns, settle } from "./helpers";
 
@@ -365,6 +365,48 @@ describe("useForm: the init sync", () => {
         expect(warn).toHaveBeenCalledTimes(2);
         expect(warn.mock.calls[1][0]).toMatch(/the definition changed/);
         expect(forms.size).toBe(1);
+    });
+
+    describe("a Date built in render", () => {
+        // An `init.state` date created during render (e.g. `new Date(user.birthday)`
+        // from server data) is a new object every render: the init sync applies it
+        // again unless deepEqual treats the values as equal.
+        function birthdaySetup() {
+            const api = createApi({ plugins: [unstable_formsReactPlugin()] });
+            return api.defineForm({
+                name: "profile-birthday",
+                fields: { birthday: f({ schema: z.date(), defaultValue: new Date(0) }) },
+            });
+        }
+
+        function renderEditor(makeBirthday: () => Date) {
+            const Profile = birthdaySetup();
+            const seen: Date[] = [];
+            let rerender!: () => void;
+            function Editor() {
+                const [, setTick] = React.useState(0);
+                rerender = () => setTick((n) => n + 1);
+                const form = Profile.useForm({ state: { birthday: makeBirthday() } });
+                seen.push(useSignal(form.fields.birthday.value$));
+                return null;
+            }
+            render(h(Editor));
+            for (let i = 0; i < 3; i++) act(() => rerender());
+            return seen;
+        }
+
+        it("a valid Date is synced once", () => {
+            const seen = renderEditor(() => new Date("2000-01-01"));
+            expect(new Set(seen.slice(1)).size).toBe(1);
+        });
+
+        it("an Invalid Date is synced once too, not re-applied on every render", () => {
+            // The server sent an empty birthday: new Date("") is an Invalid
+            // Date. Re-applying it every render looped into "Maximum update
+            // depth exceeded".
+            const seen = renderEditor(() => new Date(""));
+            expect(new Set(seen.slice(1)).size).toBe(1);
+        });
     });
 });
 

@@ -54,10 +54,19 @@ type PartialEventDescriptor<TEventType extends string> = TEventType extends `${i
     : never;
 
 /**
- * Keys accepted by `on`: an exact event type, a partial wildcard (`"foo.*"`)
- * or the catch-all `"*"`. Mirrors XState's `EventDescriptor`.
+ * Descriptors of runtime-produced events: `xstate.done.state.<id>`,
+ * `xstate.after.<delay>.<id>` and the `xstate.*` wildcard covering both.
+ * Accepted by `on` even when `types.events` is declared.
  */
-export type EventDescriptor<TEvent extends EventObject> = TEvent["type"] | PartialEventDescriptor<TEvent["type"]> | "*";
+export type SystemEventDescriptor = `xstate.done.state.${string}` | `xstate.after.${string}` | "xstate.*";
+
+/**
+ * Keys accepted by `on`: an exact event type, a partial wildcard (`"foo.*"`),
+ * a system-event descriptor (`xstate.done.state.*`, `xstate.after.*`,
+ * `xstate.*`) or the catch-all `"*"`. Mirrors XState's `EventDescriptor`.
+ */
+export type EventDescriptor<TEvent extends EventObject> =
+    TEvent["type"] | PartialEventDescriptor<TEvent["type"]> | SystemEventDescriptor | "*";
 
 type NormalizeDescriptor<TDescriptor extends string> = TDescriptor extends "*"
     ? string
@@ -72,12 +81,18 @@ type NormalizeDescriptor<TDescriptor extends string> = TDescriptor extends "*"
 export type ExtractEvent<
     TEvent extends EventObject,
     TDescriptor extends EventDescriptor<TEvent>,
-> = string extends TEvent["type"]
-    ? TEvent
-    : NormalizeDescriptor<TDescriptor> extends infer TNormalized
-      ? TEvent extends any
-          ? TEvent["type"] extends TNormalized
-              ? TEvent
-              : never
-          : never
-      : never;
+> = TDescriptor extends `xstate.done.state.${string}`
+    ? DoneStateEvent
+    : TDescriptor extends `xstate.after.${string}`
+      ? AfterEvent
+      : TDescriptor extends "xstate.*"
+        ? DoneStateEvent | AfterEvent
+        : string extends TEvent["type"]
+          ? TEvent
+          : NormalizeDescriptor<TDescriptor> extends infer TNormalized
+            ? TEvent extends any
+                ? TEvent["type"] extends TNormalized
+                    ? TEvent
+                    : never
+                : never
+            : never;

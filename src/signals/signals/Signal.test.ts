@@ -1,3 +1,7 @@
+import { Observable, Subject } from "rxjs";
+
+import type { DisposableSignal } from "@/signals/types";
+
 import { Signal } from "./Signal";
 
 describe("Signal (facade)", () => {
@@ -55,6 +59,47 @@ describe("Signal (facade)", () => {
             });
             expect(value).toBe(6);
             eff.unsubscribe();
+        });
+    });
+
+    describe("Signal.from()", () => {
+        type User = { name: string };
+
+        it("an explicit `undefined` default widens the read type to `T | undefined`", () => {
+            const user$ = new Subject<User>() as Observable<User>;
+            // docs/signals/README.md: "Явный `undefined` — валидный default".
+            const current$ = Signal.from(user$, { default: undefined });
+            expectTypeOf(current$).toEqualTypeOf<DisposableSignal<User | undefined>>();
+
+            const value = current$();
+            expect(value).toBeUndefined();
+            expectTypeOf(value).toEqualTypeOf<User | undefined>();
+            // Before the fix `.name` compiled against `User` and crashed here.
+            expect(() => (current$() as User).name).toThrow(TypeError);
+        });
+
+        it("a default of type `T | undefined` keeps `T | undefined`", () => {
+            const user$ = new Subject<User>() as Observable<User>;
+            const maybeUser: User | undefined = undefined;
+            expectTypeOf(Signal.from(user$, { default: maybeUser })).toEqualTypeOf<
+                DisposableSignal<User | undefined>
+            >();
+        });
+
+        it("a defined default keeps the read type `T`", () => {
+            const source$ = new Subject<string>() as Observable<string>;
+            expectTypeOf(Signal.from(source$, { default: "loading" })).toEqualTypeOf<DisposableSignal<string>>();
+        });
+
+        it("a `[]` default is `User[]` exactly, not `never[]` or `undefined`", () => {
+            const users$ = new Subject<User[]>() as Observable<User[]>;
+            expectTypeOf(Signal.from(users$, { default: [] })).toEqualTypeOf<DisposableSignal<User[]>>();
+        });
+
+        it("no options, or options without a default, stays `T`", () => {
+            const user$ = new Subject<User>() as Observable<User>;
+            expectTypeOf(Signal.from(user$)).toEqualTypeOf<DisposableSignal<User>>();
+            expectTypeOf(Signal.from(user$, { keepAlive: "none" })).toEqualTypeOf<DisposableSignal<User>>();
         });
     });
 
