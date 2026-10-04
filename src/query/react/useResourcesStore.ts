@@ -42,15 +42,15 @@ export interface TResourcesSpec {
     key: string;
 }
 
-const resourceIds = new WeakMap<object, number>();
-let lastResourceId = 0;
+const objectIds = new WeakMap<object, number>();
+let lastObjectId = 0;
 
-/** A stable number per resource object, for the slot set identity. */
-function resourceIdOf(resource: object): number {
-    let id = resourceIds.get(resource);
+/** A stable number per object (resource, clutch), for identity keys. */
+function idOf(object: object): number {
+    let id = objectIds.get(object);
     if (id === undefined) {
-        id = ++lastResourceId;
-        resourceIds.set(resource, id);
+        id = ++lastObjectId;
+        objectIds.set(object, id);
     }
     return id;
 }
@@ -68,7 +68,7 @@ export function parseResources(input: unknown, hookName: string, allowSkip: bool
 
     const isArray = Array.isArray(input);
     const entries: [string, unknown][] = isArray
-        ? (input as unknown[]).map((value, index) => [String(index), value])
+        ? Array.from(input as unknown[], (value, index): [string, unknown] => [String(index), value])
         : Object.entries(input);
     const identity: unknown[] = [isArray];
 
@@ -90,7 +90,7 @@ export function parseResources(input: unknown, hookName: string, allowSkip: bool
         }
 
         const keyed = value.resource.toKeyed(value.args);
-        identity.push(name, resourceIdOf(value.resource), keyed.key);
+        identity.push(name, idOf(value.resource), keyed.key);
         return { name, resource: value.resource, keyed };
     });
 
@@ -149,6 +149,8 @@ export class ResourcesStore {
     private readonly _slots: readonly TSlot[];
     /** The distinct clutches, in first-slot order. */
     private readonly _clutches: readonly TAnyClutch[];
+    /** One clutch per `(resource, args key)`: the target of `retry` / `invalidate`. */
+    private readonly _clutchPerKey: ReadonlyMap<string, TAnyClutch>;
 
     private _whenSettled: Promise<void> | null = null;
     /** Per-slot data of the last {@link buildState} call that had data. */
@@ -159,27 +161,38 @@ export class ResourcesStore {
     constructor(spec: TResourcesSpec, committed: ResourcesStore | null) {
         this.isArray = spec.isArray;
 
+        const committedByName = new Map<string, TSlot>();
         const reusable = new Map<string, TAnyClutch>();
         for (const slot of committed?._slots ?? []) {
-            if (slot.clutch !== null) reusable.set(slot.clutchKey!, slot.clutch);
+            if (committed!.isArray === spec.isArray) committedByName.set(slot.name, slot);
+            if (slot.clutch !== null && !reusable.has(slot.clutchKey!)) reusable.set(slot.clutchKey!, slot.clutch);
         }
 
-        const clutches = new Map<string, TAnyClutch>();
+        // A new clutch is shared only by the slots that adopt the same stale
+        // data: a clutch holds one SWR fallback, and named slots converging on
+        // one query each keep their own. Their clutches share the cache entry.
+        const created = new Map<string, TAnyClutch>();
+        const clutchPerKey = new Map<string, TAnyClutch>();
         this._slots = spec.slots.map((slot): TSlot => {
             if (slot.resource === null || slot.keyed === null) {
                 return { name: slot.name, resource: null, clutchKey: null, clutch: null };
             }
 
-            const clutchKey = `${resourceIdOf(slot.resource)}:${slot.keyed.key}`;
-            let clutch = clutches.get(clutchKey);
+            const clutchKey = `${idOf(slot.resource)}:${slot.keyed.key}`;
+            const sameName = committedByName.get(slot.name);
+            let clutch = sameName?.clutchKey === clutchKey ? sameName.clutch! : reusable.get(clutchKey);
             if (clutch === undefined) {
-                clutch = reusable.get(clutchKey) ?? this._createClutch(slot, committed);
-                clutches.set(clutchKey, clutch);
+                const previous = this._previousOf(slot, sameName);
+                const createdKey = previous === null ? clutchKey : `${clutchKey}:${idOf(previous)}`;
+                clutch = created.get(createdKey) ?? this._createClutch(slot, previous);
+                created.set(createdKey, clutch);
             }
+            if (!clutchPerKey.has(clutchKey)) clutchPerKey.set(clutchKey, clutch);
 
             return { name: slot.name, resource: slot.resource, clutchKey, clutch };
         });
-        this._clutches = [...clutches.values()];
+        this._clutches = [...new Set(this._slots.flatMap((slot) => (slot.clutch === null ? [] : [slot.clutch])))];
+        this._clutchPerKey = clutchPerKey;
 
         this.state$ = Signal.compute(
             () => this._slots.map((slot) => (slot.clutch === null ? SKIPPED_SLOT_STATE : slot.clutch.state$())),
@@ -202,7 +215,7 @@ export class ResourcesStore {
 
     /** See {@link TResourcesStateMethods.invalidate}. */
     invalidate = (opts?: TInvalidateOptions): void => {
-        for (const clutch of this._clutches) {
+        for (const clutch of this._clutchPerKey.values()) {
             const state = clutch.state$.peek();
 
             if (state.status === "idle") continue;
@@ -220,7 +233,7 @@ export class ResourcesStore {
 
     /** See {@link TResourcesStateMethods.retry}. */
     retry = (): void => {
-        for (const clutch of this._clutches) {
+        for (const clutch of this._clutchPerKey.values()) {
             if (clutch.state$.peek().status === "error") clutch.retry();
         }
     };
@@ -258,9 +271,12 @@ export class ResourcesStore {
     /** The slots that failed with nothing to show, in slot order. */
     failures(states: readonly TAnyState[]): { clutch: TAnyClutch; error: unknown }[] {
         const failures: { clutch: TAnyClutch; error: unknown }[] = [];
+        const seen = new Set<string>();
         states.forEach((state, index) => {
-            const clutch = this._slots[index].clutch;
-            if (clutch !== null && isFailedWithNothingToShow(state)) failures.push({ clutch, error: state.error });
+            const { clutch, clutchKey } = this._slots[index];
+            if (clutch === null || seen.has(clutchKey!) || !isFailedWithNothingToShow(state)) return;
+            seen.add(clutchKey!);
+            failures.push({ clutch, error: state.error });
         });
         return failures;
     }
@@ -339,23 +355,20 @@ export class ResourcesStore {
         return this._lastData;
     }
 
+    /** `Object.fromEntries` defines every slot as an own property, `__proto__` included. */
     private _toRecord<T>(values: readonly T[]): Record<string, T> {
-        const record: Record<string, T> = {};
-        this._slots.forEach((slot, index) => {
-            record[slot.name] = values[index];
-        });
-        return record;
+        return Object.fromEntries(this._slots.map((slot, index) => [slot.name, values[index]]));
     }
 
-    private _createClutch(slot: TSlotSpec, committed: ResourcesStore | null): TAnyClutch {
-        const clutch = slot.resource!.createClutch();
+    /** The committed clutch whose data a new clutch of a named slot adopts (SWR); never for an array. */
+    private _previousOf(slot: TSlotSpec, sameName: TSlot | undefined): TAnyClutch | null {
+        if (this.isArray || sameName === undefined || sameName.clutch === null) return null;
+        return sameName.resource === slot.resource ? sameName.clutch : null;
+    }
 
-        if (committed !== null && !this.isArray && !committed.isArray) {
-            const previous = committed._slots.find((candidate) => candidate.name === slot.name);
-            if (previous?.clutch && previous.resource === slot.resource) {
-                clutch.adoptPrevious(previous.clutch);
-            }
-        }
+    private _createClutch(slot: TSlotSpec, previous: TAnyClutch | null): TAnyClutch {
+        const clutch = slot.resource!.createClutch();
+        if (previous !== null) clutch.adoptPrevious(previous);
 
         // `markPending` reports `pending` instead of `idle` while the clutch
         // waits for its start (see `useResourceClutch`).

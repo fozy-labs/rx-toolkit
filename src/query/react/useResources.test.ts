@@ -161,6 +161,30 @@ describe("useResources — record", () => {
         expect(result.current.data!.user).toEqual({ id: 2, name: "Grace" });
     });
 
+    it("named slots that converge on one uncached query each keep their own stale data", async () => {
+        const { users } = setup();
+        const { result, rerender } = renderHook(
+            ({ left, right }) =>
+                useResources({ left: users.resource.bind({ id: left }), right: users.resource.bind({ id: right }) }),
+            { initialProps: { left: 1, right: 2 } },
+        );
+        await flush(() => {
+            users.last(1).resolve({ id: 1, name: "Ada" });
+            users.last(2).resolve({ id: 2, name: "Bob" });
+        });
+
+        rerender({ left: 3, right: 3 });
+        await flush();
+
+        expect(users.calls.filter((call) => call.id === 3)).toHaveLength(1);
+        expect(result.current.states.left).toMatchObject({ isSwitching: true, data: { id: 1, name: "Ada" } });
+        expect(result.current.states.right).toMatchObject({ isSwitching: true, data: { id: 2, name: "Bob" } });
+
+        await flush(() => users.last(3).resolve({ id: 3, name: "Cy" }));
+
+        expect(result.current.data).toEqual({ left: { id: 3, name: "Cy" }, right: { id: 3, name: "Cy" } });
+    });
+
     it("an inline record literal is the same slot set every render", async () => {
         const { users } = setup();
         const { result, rerender } = renderHook(() => useResources({ user: users.resource.bind({ id: 1 }) }));
@@ -321,6 +345,25 @@ describe("useResources — empty input and SKIP", () => {
         expect(() => renderHook(() => useResources({ user: users.resource as never }))).toThrow(
             /slot "user" is neither a bound resource/,
         );
+    });
+
+    it("throws a TypeError on a hole of a sparse array", () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const { users } = setup();
+        const slots = new Array<ReturnType<typeof users.resource.bind>>(2);
+        slots[1] = users.resource.bind({ id: 1 });
+
+        expect(() => renderHook(() => useResources(slots))).toThrow(/slot "0" is neither a bound resource/);
+    });
+
+    it("a `__proto__` slot is an own slot of states and data", async () => {
+        const { users } = setup();
+        const { result } = renderHook(() => useResources({ ["__proto__"]: users.resource.bind({ id: 1 }) }));
+        await flush(() => users.last(1).resolve({ id: 1, name: "Ada" }));
+
+        expect(Object.keys(result.current.states)).toEqual(["__proto__"]);
+        expect(Object.keys(result.current.data!)).toEqual(["__proto__"]);
+        expect(Object.getPrototypeOf(result.current.data)).toBe(Object.prototype);
     });
 });
 
