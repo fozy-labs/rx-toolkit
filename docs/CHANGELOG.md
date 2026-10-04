@@ -3,6 +3,13 @@
 
 ## [Unreleased]
 
+### Added
+- **`useDebouncedValue`** — откладывает применение часто меняющегося значения в React. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
+- **`useDebouncedArgs`** — задерживает изменение аргументов запроса, сравнивая их по ключу. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
+- **`useDelayedFlag`** — предотвращает мигание индикаторов, задерживая включение булевого флага и удерживая его показанным. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
+
+## [0.13.0] - 2026-10-03
+
 [Гайд по миграции с 0.12.x](./migrations/0.13.0.md)
 
 Breaking-релиз: новый словарь и форма состояния в Query, новое ядро сигналов, модуль форм.
@@ -495,7 +502,8 @@ Breaking-релиз: новый словарь и форма состояния 
 - **Breaking:** удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.0...develop
+[0.13.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1
