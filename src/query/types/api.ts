@@ -1,6 +1,7 @@
 import type { TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { ICommand, TCommandEntryIdleState, TCommandEntryState, TCommandOptions } from "./command";
 import type { TRetentionTime } from "./common";
+import type { IEnvironmentDriver, TInvalidateOnOptions } from "./invalidate-on";
 import type {
     IPluginHKT,
     TCombinePluginCommandAugments,
@@ -132,6 +133,17 @@ export interface TCreateApiOptions<TPlugins extends readonly IPlugin[] = readonl
      */
     defaultSync?: "none" | "resources" | "all";
     syncDriver?: ISyncDriver;
+    /**
+     * Default automatic revalidation policy for resources. Resource-level
+     * `invalidateOn` values replace matching keys and inherit the rest.
+     */
+    invalidateOn?: TInvalidateOnOptions<unknown, unknown>;
+    /**
+     * Source of visibility, focus and connectivity changes. The browser driver
+     * is used by default; `null` disables environment events while leaving
+     * interval revalidation available.
+     */
+    environmentDriver?: IEnvironmentDriver | null;
     /**
      * Normalizes raw query/command errors into a typed error. When provided, the
      * `error` on every resource/command state (and the mutation result envelope)
