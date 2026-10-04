@@ -30,9 +30,9 @@ export interface TInvalidateOnOptions<TArgs, TData> {
           ) => boolean | number);
     /**
      * Revalidate periodically while the entry is active, visible and online.
-     * A positive finite number up to `MAX_TIMEOUT_DELAY` is the period in
-     * milliseconds; a function decides the period per entry, or returns
-     * `false` to stop polling. Invalid values disable polling.
+     * A positive finite number up to 2^31−1 ms (~24.8 days) is the period; a
+     * function decides the period per entry, or returns `false` to stop
+     * polling. Invalid values disable polling.
      */
     interval?:
         | number

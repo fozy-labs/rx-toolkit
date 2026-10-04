@@ -17,7 +17,7 @@ const users = api.createResource({
 
 `focus` реагирует на переход `focused: false → true`, `reconnect` — на `online: false → true`. `true` эквивалентно порогу `0`; число задаёт минимальное время (мс), которое приложение должно провести без фокуса или сети. Отрицательное число нормализуется в `0`, `Infinity` никогда не проходит порог, а `false`, `undefined`, `NaN` и неподходящее значение отключают правило. Функция с исключением записывает `console.error("[Resource] invalidateOn.<key> threw", error)` и пропускает только эту запись.
 
-`interval` задаёт положительный период в миллисекундах (не больше `MAX_TIMEOUT_DELAY`) или функцию, возвращающую период либо `false`. Некорректные значения выключают таймер без предупреждения; исключение функции записывается через `console.error("[Resource] invalidateOn.interval threw", error)` и выключает данное вычисление.
+`interval` задаёт положительный период в миллисекундах (не больше 2 147 483 647 мс (~24,8 суток)) или функцию, возвращающую период либо `false`. Некорректные значения выключают таймер без предупреждения; исключение функции записывается через `console.error("[Resource] invalidateOn.interval threw", error)` и выключает данное вычисление.
 
 Функциональные значения получают `(args, state)` отдельно для каждой записи. `state` совпадает с состоянием записи, которое возвращает `getState`, и включает `updatedAt`:
 
@@ -50,16 +50,26 @@ const users = api.createResource({
 Можно передать собственный источник состояния, например адаптер для React Native:
 
 ```typescript
+import type { IEnvironmentDriver, TEnvironmentState } from '@fozy-labs/rx-toolkit';
+import { AppState } from 'react-native';
+
 let subscription: { remove(): void } | undefined;
-const environmentDriver = {
+const read = (): TEnvironmentState => {
+    const active = AppState.currentState === 'active';
+    return { visible: active, focused: active, online: true };
+};
+
+const environmentDriver: IEnvironmentDriver = {
     connect(onChange) {
-        const report = () => onChange(readAppState());
+        const report = () => onChange(read());
         subscription = AppState.addEventListener("change", report);
-        return readAppState();
+        return read();
     },
     disconnect() { subscription?.remove(); },
 };
 ```
+
+Состояние `online` можно подключить из NetInfo тем же способом.
 
 В приложении используйте корректные подписки на фокус и сеть, а `disconnect()` оставьте для собственного teardown или тестов: ядро подключает монитор один раз и не вызывает `disconnect()`.
 
