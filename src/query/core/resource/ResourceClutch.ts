@@ -309,6 +309,16 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
+     * @internal Keep the tracked entry for 5 s, as a settle of
+     * {@link whenSettled} on data does — for `useSuspenseResources`, whose
+     * wait settles only once every slot has data: it holds each entry until
+     * then, and the render it wakes holds them only once committed.
+     */
+    _keepSettled = (): void => {
+        this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
+    };
+
+    /**
      * Promise resolving once the clutch has something to render, or with
      * `waitForDone` once no query is in flight (see
      * {@link IResourceClutch.whenSettled}).
@@ -350,7 +360,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             this._whenSettled[mode] = null;
         };
         const keep = (state: TResourceClutchState<unknown, unknown, unknown>): void => {
-            if (state.hasData) this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
+            if (state.hasData) this._keepSettled();
         };
         const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(keep))).then(settle, settle);
 

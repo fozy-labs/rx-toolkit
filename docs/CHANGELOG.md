@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+### Added
+- **`useResources`** — несколько ресурсов в одном хуке: именованные слоты `{ user: userApi.getUser.bind({ id }) }` или массив (`ids.map(...)`; литерал-кортеж остаётся кортежем), слот может быть `SKIP`. Возвращает состояние каждого слота (`states`) и сводное: `status`, `hasData` / `data`, флаги загрузки, первую ошибку, `retry` и `invalidate` на все слоты. См. [docs/usage/react](./usage/react/README.md#useresources).
+- **`useSuspenseResources`** — Suspense-вариант: все слоты стартуют в одном приостановленном рендере, без водопада из нескольких `useSuspenseResource`; `SKIP` не принимается. См. [docs/usage/react](./usage/react/README.md#usesuspenseresources).
+
+## [0.13.0] - 2026-10-03
+
 [Гайд по миграции с 0.12.x](./migrations/0.13.0.md)
 
 Breaking-релиз: новый словарь и форма состояния в Query, новое ядро сигналов, модуль форм.
@@ -495,7 +501,8 @@ Breaking-релиз: новый словарь и форма состояния 
 - **Breaking:** удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.0...develop
+[0.13.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1

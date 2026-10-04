@@ -30,6 +30,7 @@ describe("entry points", () => {
         const mod = await import("@/index");
         expect((mod as Record<string, unknown>).useSignal).toBeUndefined();
         expect((mod as Record<string, unknown>).useResource).toBeUndefined();
+        expect((mod as Record<string, unknown>).useResources).toBeUndefined();
         expect((mod as Record<string, unknown>).unstable_formsReactPlugin).toBeUndefined();
     });
 
@@ -45,6 +46,8 @@ describe("entry points", () => {
             expect(mod.useSignal).toBeDefined();
             expect(mod.ReactHooksPlugin).toBeDefined();
             expect(mod.useResource).toBeDefined();
+            expect(mod.useResources).toBeDefined();
+            expect(mod.useSuspenseResources).toBeDefined();
             expect(mod.unstable_formsReactPlugin).toBeDefined();
             expect(mod.useConstant).toBeDefined();
         });

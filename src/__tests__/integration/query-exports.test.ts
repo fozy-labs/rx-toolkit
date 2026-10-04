@@ -72,6 +72,18 @@ describe("Query module exports (@/index)", () => {
             expect(typeof mod.useSuspenseResource).toBe("function");
         });
 
+        it("exports useResources", async () => {
+            const mod = await import("@/react");
+            expect(mod.useResources).toBeDefined();
+            expect(typeof mod.useResources).toBe("function");
+        });
+
+        it("exports useSuspenseResources", async () => {
+            const mod = await import("@/react");
+            expect(mod.useSuspenseResources).toBeDefined();
+            expect(typeof mod.useSuspenseResources).toBe("function");
+        });
+
         it("exports useCommand", async () => {
             const mod = await import("@/react");
             expect(mod.useCommand).toBeDefined();
