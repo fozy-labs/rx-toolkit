@@ -4,6 +4,9 @@
 ## [Unreleased]
 
 ### Added
+- **`useDebouncedValue`** — откладывает применение часто меняющегося значения в React. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
+- **`useDebouncedArgs`** — задерживает изменение аргументов запроса, сравнивая их по ключу. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
+- **`useDelayedFlag`** — предотвращает мигание индикаторов, задерживая включение булевого флага и удерживая его показанным. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
 - **`useResources`** — несколько ресурсов в одном хуке: именованные слоты `{ user: userApi.getUser.bind({ id }) }` или массив (`ids.map(...)`; литерал-кортеж остаётся кортежем), слот может быть `SKIP`. Возвращает состояние каждого слота (`states`) и сводное: `status`, `hasData` / `data`, флаги загрузки, первую ошибку, `retry` и `invalidate` на все слоты. См. [docs/usage/react](./usage/react/README.md#useresources).
 - **`useSuspenseResources`** — Suspense-вариант: все слоты стартуют в одном приостановленном рендере, без водопада из нескольких `useSuspenseResource`; `SKIP` не принимается. См. [docs/usage/react](./usage/react/README.md#usesuspenseresources).
 

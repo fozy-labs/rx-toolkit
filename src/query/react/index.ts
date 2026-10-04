@@ -1,4 +1,5 @@
 export * from "./useResource";
+export * from "./useDebouncedArgs";
 export * from "./useSuspenseResource";
 export * from "./useResources";
 export * from "./useSuspenseResources";
