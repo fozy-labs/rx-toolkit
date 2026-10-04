@@ -86,7 +86,8 @@ export function useDebouncedValue<T>(value: T, options: UseDebouncedValueOptions
         }
 
         clearTimer();
-        setApplied(() => latestInput.current);
+        const target = latestInput.current;
+        setApplied(() => target);
     }, [clearTimer]);
 
     return [applied, !equals(value, applied), flush];

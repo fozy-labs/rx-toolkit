@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import React from "react";
+import React, { startTransition, useState } from "react";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { useDebouncedValue } from "./useDebouncedValue";
@@ -113,6 +113,31 @@ describe("useDebouncedValue", () => {
         expect(vi.getTimerCount()).toBe(0);
         act(() => vi.advanceTimersByTime(200));
         expect(result.current[0]).toBe("b");
+    });
+
+    it("flushes the value captured before pending transition work and a later input commit", () => {
+        vi.useFakeTimers();
+        const { result } = renderHook(() => {
+            const [value, setValue] = useState("a");
+            const [, setOther] = useState(0);
+            const debounced = useDebouncedValue(value, { delay: 300 });
+            return { debounced, setValue, setOther };
+        });
+
+        act(() => result.current.setValue("b"));
+        expect(result.current.debounced.slice(0, 2)).toEqual(["a", true]);
+
+        act(() => {
+            startTransition(() => {
+                result.current.setOther(1);
+                result.current.debounced[2]();
+            });
+            result.current.setValue("c");
+        });
+
+        expect(result.current.debounced.slice(0, 2)).toEqual(["b", true]);
+        act(() => vi.advanceTimersByTime(300));
+        expect(result.current.debounced.slice(0, 2)).toEqual(["c", false]);
     });
 
     it("does not restart a running timer when delay changes", () => {
