@@ -34,6 +34,7 @@ function UsersList({ page }: { page: number }) {
 - **Проекционные ресурсы** — загрузка коллекций по id с кэшем на уровне отдельных элементов: догружаются только недостающие id
 - **Стриминговые запросы** — `queryFn` ресурса может вернуть `Observable`: запись обновляется с каждой эмиссией (WebSocket, SSE, live-данные)
 - **Stale-While-Revalidate** — показ устаревших данных во время фонового обновления
+- **[Автоматическая ревалидация](usage/auto-revalidation.md)** — обновление при возврате фокуса, сети и по интервалу
 - **Оптимистичные обновления** — Immer-патчи с автоматическим ребейсом при ответе сервера
 - **SSR / гидрация** — снимки кеша для серверного рендеринга
 - **Кросс-табовая синхронизация** — новая запись ресурса берёт данные из кэша другой вкладки через BroadcastChannel вместо сетевого запроса
@@ -45,6 +46,7 @@ function UsersList({ page }: { page: number }) {
 | Цель | Рекомендуемый порядок |
 |------|-----------------------|
 | **Быстрый старт** | [usage/resource.md][resource] → [usage/command.md][command] |
+| **Автоматическая ревалидация** | [usage/auto-revalidation.md][auto-revalidation] |
 | **Коллекции по id** | [usage/projection-resource.md][projection-resource] — кэш на уровне элементов |
 | **Написание queryFn** | [usage/query-fn.md][query-fn] — fetcher, отличия ресурса и команды, request id |
 | **Живые данные (WebSocket, SSE)** | [usage/stream-query.md][stream-query] — `Observable` в queryFn ресурса |
@@ -58,6 +60,7 @@ function UsersList({ page }: { page: number }) {
 
 [signals]: ../signals/README.md
 [resource]: usage/resource.md
+[auto-revalidation]: usage/auto-revalidation.md
 [projection-resource]: usage/projection-resource.md
 [stream-query]: usage/stream-query.md
 [command]: usage/command.md

@@ -501,6 +501,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                         dataSource: "placeholder",
                         data: placeholder.data,
                         dataArgs: null,
+                        updatedAt: null,
                         hasData: true,
                         args: keyed.value,
                         ...errorSlot,
@@ -517,6 +518,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                         dataSource: "previous",
                         data: previous.data,
                         dataArgs: previous.args,
+                        updatedAt: previous.updatedAt,
                         hasData: true,
                         args: keyed.value,
                         ...errorSlot,
@@ -548,7 +550,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * data. Reads the previous entry's state signal, subscribing the deriving
      * computed to its changes.
      */
-    private _previous(): { data: TData; args: TArgs } | null {
+    private _previous(): { data: TData; args: TArgs; updatedAt: number } | null {
         const previousEntry = this._previous$?.();
         if (!previousEntry) return null;
 
@@ -556,7 +558,9 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         // that resolved `null` holds data, and dropping it here would silently
         // turn row 4 into row 2 and row 8 into row 7.
         const state = previousEntry.state$();
-        return isDataState(state) ? { data: state.data, args: previousEntry.keyedArgs.value } : null;
+        return isDataState(state)
+            ? { data: state.data, args: previousEntry.keyedArgs.value, updatedAt: state.updatedAt }
+            : null;
     }
 
     /**
@@ -574,7 +578,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const memo = this._placeholder;
         if (memo && memo.key === keyed.key) return memo.result;
 
-        const result = placeholderData(keyed.value, this._previous());
+        const previous = this._previous();
+        const result = placeholderData(keyed.value, previous ? { data: previous.data, args: previous.args } : null);
         this._placeholder = { key: keyed.key, result };
         return result;
     }
@@ -600,6 +605,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 dataSource: "placeholder",
                 data: placeholder.data,
                 dataArgs: null,
+                updatedAt: null,
                 hasData: true,
                 args: keyed.value,
                 ...errorSlotOf<TError>(error),
@@ -619,6 +625,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 dataSource: "previous",
                 data: previous.data,
                 dataArgs: previous.args,
+                updatedAt: previous.updatedAt,
                 hasData: true,
                 args: keyed.value,
                 ...errorSlotOf<TError>(error),

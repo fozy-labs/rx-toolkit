@@ -147,6 +147,8 @@ export class QueryCacheEntry<TArgs, TData>
      * its abort.
      */
     private _deferredRunCallbacks: Map<AbortController, (() => void)[]> | null = null;
+    private _activityListener: (() => void) | null = null;
+    private _notifyingActivity = false;
 
     constructor(options: IQueryCacheEntryOptions<TArgs, TData>, internals: TQueryCacheEntryInternals<TData> = {}) {
         const initialState = options.initialState ?? pendingEntryState<TArgs>(options.keyedArgs.value);
@@ -213,6 +215,11 @@ export class QueryCacheEntry<TArgs, TData>
     /** @internal Whether a query run is in flight: a promise not yet settled, or a stream still open. */
     get _isInFlight(): boolean {
         return this._runController !== null;
+    }
+
+    /** @internal Resource-owned activity hook for non-retaining timers. */
+    _setActivityListener(listener: (() => void) | null): void {
+        this._activityListener = listener;
     }
 
     /**
@@ -558,6 +565,7 @@ export class QueryCacheEntry<TArgs, TData>
         this._abortRun();
         // Completing the state stream rejects all pending waiters with CacheEntryRemovedError.
         super.complete();
+        this._notifyActivity();
     }
 
     // ==================== Internal ====================
@@ -605,6 +613,11 @@ export class QueryCacheEntry<TArgs, TData>
      */
     protected override onActive(): void {
         this._maybeRevalidate();
+        this._notifyActivity();
+    }
+
+    protected override onMelting(): void {
+        this._notifyActivity();
     }
 
     // ==================== Private ====================
@@ -696,6 +709,7 @@ export class QueryCacheEntry<TArgs, TData>
         const controller = this._runController;
         if (!controller) return;
         this._runController = null;
+        this._notifyActivity();
         controller.abort();
     }
 
@@ -717,12 +731,26 @@ export class QueryCacheEntry<TArgs, TData>
             this._markPolicy = this._runPolicy;
         }
         this._maybeRevalidate();
+        this._notifyActivity();
     }
 
     /** A run reports itself settled: it stops being the run in flight, if it still is. */
     private _settleRun(controller: AbortController): void {
         if (this._runController === controller) {
             this._runController = null;
+            this._notifyActivity();
+        }
+    }
+
+    private _notifyActivity(): void {
+        if (!this._activityListener || this._notifyingActivity) return;
+        this._notifyingActivity = true;
+        try {
+            this._activityListener();
+        } catch (error) {
+            console.error("[QueryCacheEntry] activity listener threw", error);
+        } finally {
+            this._notifyingActivity = false;
         }
     }
 
@@ -895,6 +923,7 @@ export class QueryCacheEntry<TArgs, TData>
 
         const controller = new AbortController();
         this._runController = controller;
+        this._notifyActivity();
 
         const coldLoad = this._coldLoad;
         this._coldLoad = undefined;

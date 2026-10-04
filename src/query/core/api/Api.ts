@@ -1,13 +1,17 @@
+import { MAX_TIMEOUT_DELAY } from "@/common/utils";
+import { browserEnvironmentDriver } from "@/query/lib/browserEnvironmentDriver";
 import { stableStringify } from "@/query/lib/stableStringify";
 import type {
     IApi,
     ICommand,
     ICommandConfig,
+    IEnvironmentDriver,
     IResource,
     IResourceConfig,
     TApiSnapshot,
     TCommandOptions,
     TCreateApiOptions,
+    TInvalidateOnOptions,
     TMapError,
     TProjectionResourceOptions,
     TResourceOptions,
@@ -17,6 +21,7 @@ import type { TQueryCacheEntryInternals } from "../cache/QueryCacheEntry";
 import { Command } from "../command/Command";
 import { ProjectionRuntime } from "../projection-resource/ProjectionRuntime";
 import { Resource } from "../resource/Resource";
+import { EnvironmentMonitor } from "../revalidator";
 import { Snapshotter } from "../snapshotter";
 import { Syncer } from "../syncer";
 
@@ -49,6 +54,18 @@ function composeMapError(userMapError: TMapError | undefined): TMapError {
     };
 }
 
+function hasRevalidation<TArgs, TData>(options: TInvalidateOnOptions<TArgs, TData>): boolean {
+    const canResolve = (value: unknown): boolean =>
+        typeof value === "function" || value === true || (typeof value === "number" && Number.isFinite(value));
+    const interval = options.interval;
+    return (
+        canResolve(options.focus) ||
+        canResolve(options.reconnect) ||
+        typeof interval === "function" ||
+        (typeof interval === "number" && Number.isFinite(interval) && interval > 0 && interval <= MAX_TIMEOUT_DELAY)
+    );
+}
+
 export class Api implements IApi {
     private readonly resources: Resource<any, any>[] = [];
     private readonly commands: Command<any, any>[] = [];
@@ -64,6 +81,8 @@ export class Api implements IApi {
     private readonly apiOnQueryStarted: TCreateApiOptions["onQueryStarted"];
     private readonly apiMapError: TMapError;
     private readonly syncer: Syncer | null;
+    private readonly environment: EnvironmentMonitor;
+    private readonly apiInvalidateOn: TCreateApiOptions["invalidateOn"];
 
     constructor(options?: TCreateApiOptions) {
         this.keyPrefix = options?.keyPrefix ?? null;
@@ -79,6 +98,10 @@ export class Api implements IApi {
         this.apiOnCacheEntryAdded = options?.onCacheEntryAdded;
         this.apiOnQueryStarted = options?.onQueryStarted;
         this.apiMapError = composeMapError(options?.mapError);
+        this.apiInvalidateOn = options?.invalidateOn;
+        const environmentDriver: IEnvironmentDriver | null =
+            options?.environmentDriver === undefined ? browserEnvironmentDriver() : options.environmentDriver;
+        this.environment = new EnvironmentMonitor(environmentDriver);
 
         const syncDriver = options?.syncDriver;
         const defaultSync = options?.defaultSync ?? "none";
@@ -141,6 +164,26 @@ export class Api implements IApi {
         opts: TResourceOptions<TArgs, TData>,
         entryInternals: TQueryCacheEntryInternals = {},
     ): IResource<TArgs, TData> {
+        const invalidateOn =
+            opts.invalidateOn === false
+                ? null
+                : {
+                      focus:
+                          opts.invalidateOn?.focus !== undefined
+                              ? opts.invalidateOn.focus
+                              : (this.apiInvalidateOn?.focus as TInvalidateOnOptions<TArgs, TData>["focus"]),
+                      reconnect:
+                          opts.invalidateOn?.reconnect !== undefined
+                              ? opts.invalidateOn.reconnect
+                              : (this.apiInvalidateOn?.reconnect as TInvalidateOnOptions<TArgs, TData>["reconnect"]),
+                      interval:
+                          opts.invalidateOn?.interval !== undefined
+                              ? opts.invalidateOn.interval
+                              : (this.apiInvalidateOn?.interval as TInvalidateOnOptions<TArgs, TData>["interval"]),
+                  };
+        const revalidation =
+            invalidateOn && hasRevalidation(invalidateOn) ? { invalidateOn, environment: this.environment } : undefined;
+
         const effectiveRetentionTime =
             opts.retentionTime !== undefined ? opts.retentionTime : this.apiResourceRetentionTime;
 
@@ -178,7 +221,7 @@ export class Api implements IApi {
                 : undefined,
         };
 
-        const resource = new Resource<TArgs, TData>(config, entryInternals);
+        const resource = new Resource<TArgs, TData>(config, entryInternals, revalidation);
 
         // Track for resetAll / getSnapshot
         this.resources.push(resource);
@@ -223,7 +266,10 @@ export class Api implements IApi {
         // its own, more precise set-local patch warning instead. An id-set
         // entry never restarts its run to revalidate: the live run re-fetches
         // its ids through the wrapped resource under the in-flight policy
-        // (`revalidateInRun`), and re-emits once the fresh items land.
+        // (`revalidateInRun`), and re-emits once the fresh items land. Automatic
+        // revalidation is disabled here because id-set entries are open streams,
+        // so their interval clocks could never arm. Refetching the wrapped
+        // resource also does not reach live projections, as with manual invalidate.
         const resource = this._createResource<TArgs, TItem[]>(
             {
                 queryFn: runtime.queryFn,
@@ -238,6 +284,7 @@ export class Api implements IApi {
                 snapshotable: false,
                 sync: false,
                 allowStreamPatches: true,
+                invalidateOn: false,
             },
             { revalidateInRun: runtime.revalidateInRun },
         );
