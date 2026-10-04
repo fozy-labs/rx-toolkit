@@ -1,4 +1,4 @@
-import { Observable } from "rxjs";
+import { Observable, of } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { flushMicrotasks } from "@/__tests__/helpers/async-helpers";
@@ -143,6 +143,75 @@ describe("automatic resource revalidation", () => {
         second.resolve("fresh");
         await flushMicrotasks();
         expect(resource.getState(undefined as void)).toMatchObject({ data: "fresh", status: "success" });
+        release();
+        api.resetAll();
+    });
+
+    it("coalesces simultaneous focus and reconnect for synchronous query functions", async () => {
+        const env = environment({ focused: false, online: false });
+        const queryFn = vi.fn(() => of("data"));
+        const api = createApi({
+            environmentDriver: env.driver,
+            invalidateOn: { focus: true, reconnect: true },
+        });
+        const resource = api.createResource({ queryFn, retentionTime: false });
+        const { release } = await loadAndHold(resource, undefined);
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
+        env.set({ focused: true, online: true });
+        await flushMicrotasks();
+
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        release();
+        api.resetAll();
+    });
+
+    it("fires once when only reconnect meets its threshold in a combined report", async () => {
+        const env = environment({ online: false });
+        const queryFn = vi.fn(() => of("data"));
+        const api = createApi({
+            environmentDriver: env.driver,
+            invalidateOn: { focus: true, reconnect: true },
+        });
+        const resource = api.createResource({
+            queryFn,
+            invalidateOn: { focus: 100, reconnect: 100 },
+            retentionTime: false,
+        });
+        const { release } = await loadAndHold(resource, undefined);
+
+        await vi.advanceTimersByTimeAsync(25);
+        env.set({ focused: false });
+        await vi.advanceTimersByTimeAsync(75);
+        env.set({ focused: true, online: true });
+        await flushMicrotasks();
+
+        expect(queryFn).toHaveBeenCalledTimes(2);
+        release();
+        api.resetAll();
+    });
+
+    it("does not fire when neither threshold matches a combined report", async () => {
+        const env = environment({ online: false });
+        const queryFn = vi.fn(() => of("data"));
+        const api = createApi({
+            environmentDriver: env.driver,
+            invalidateOn: { focus: true, reconnect: true },
+        });
+        const resource = api.createResource({
+            queryFn,
+            invalidateOn: { focus: 100, reconnect: 100 },
+            retentionTime: false,
+        });
+        const { release } = await loadAndHold(resource, undefined);
+
+        await vi.advanceTimersByTimeAsync(25);
+        env.set({ focused: false });
+        await vi.advanceTimersByTimeAsync(50);
+        env.set({ focused: true, online: true });
+        await flushMicrotasks();
+
+        expect(queryFn).toHaveBeenCalledTimes(1);
         release();
         api.resetAll();
     });

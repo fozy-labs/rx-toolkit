@@ -20,8 +20,10 @@ export function browserEnvironmentDriver(): IEnvironmentDriver {
     return {
         connect(callback) {
             onChange = callback;
-            if (typeof window !== "undefined") {
+            if (typeof document !== "undefined") {
                 document.addEventListener("visibilitychange", update);
+            }
+            if (typeof window !== "undefined") {
                 window.addEventListener("focus", update);
                 window.addEventListener("blur", update);
                 window.addEventListener("online", update);
@@ -30,8 +32,10 @@ export function browserEnvironmentDriver(): IEnvironmentDriver {
             return read();
         },
         disconnect() {
-            if (typeof window !== "undefined") {
+            if (typeof document !== "undefined") {
                 document.removeEventListener("visibilitychange", update);
+            }
+            if (typeof window !== "undefined") {
                 window.removeEventListener("focus", update);
                 window.removeEventListener("blur", update);
                 window.removeEventListener("online", update);

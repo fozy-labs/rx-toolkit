@@ -665,18 +665,19 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     }
 
     private _onEnvironmentEvent(event: TEnvironmentEvent): void {
-        if (event.type === "change") {
-            for (const clock of this._intervalClocks.values()) clock.update();
-            return;
-        }
-
-        const key = event.type;
-        const configured = this._revalidation?.invalidateOn[key];
-        if (configured === undefined || configured === false) return;
+        if (event.availabilityChanged) for (const clock of this._intervalClocks.values()) clock.update();
 
         for (const entry of [...this._cache.values()]) {
-            const threshold = this._resolveAwayThreshold(configured, entry, key);
-            if (threshold !== null && event.awayMs >= threshold) this._autoRevalidate(entry);
+            const matches = (key: "focus" | "reconnect", awayMs: number | null): boolean => {
+                if (awayMs === null) return false;
+                const configured = this._revalidation?.invalidateOn[key];
+                if (configured === undefined || configured === false) return false;
+                const threshold = this._resolveAwayThreshold(configured, entry, key);
+                return threshold !== null && awayMs >= threshold;
+            };
+            if (matches("focus", event.focusAwayMs) || matches("reconnect", event.reconnectAwayMs)) {
+                this._autoRevalidate(entry);
+            }
         }
     }
 

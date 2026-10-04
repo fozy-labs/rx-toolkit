@@ -60,7 +60,7 @@ describe("EnvironmentMonitor", () => {
     });
 
     it("ignores synchronous connect callbacks and deduplicates identical states", () => {
-        const events: string[] = [];
+        const events: unknown[] = [];
         const reports: Array<(state: TEnvironmentState) => void> = [];
         const driver: IEnvironmentDriver = {
             connect: vi.fn((onChange) => {
@@ -72,7 +72,7 @@ describe("EnvironmentMonitor", () => {
         };
         const monitor = new EnvironmentMonitor(driver);
 
-        monitor.subscribe(({ type }) => events.push(type));
+        monitor.subscribe((event) => events.push(event));
         expect(events).toEqual([]);
 
         reports[0]?.({
@@ -83,7 +83,7 @@ describe("EnvironmentMonitor", () => {
         expect(events).toEqual([]);
     });
 
-    it("emits change, focus and reconnect in order with away durations", () => {
+    it("emits one event per changed report with availability and away durations", () => {
         vi.setSystemTime(100);
         const source = createDriver({ visible: true, focused: false, online: false });
         const monitor = new EnvironmentMonitor(source.driver);
@@ -93,25 +93,27 @@ describe("EnvironmentMonitor", () => {
         vi.setSystemTime(175);
         source.report({ visible: false, focused: true, online: true });
 
-        expect(events).toEqual([{ type: "change" }, { type: "focus", awayMs: 75 }, { type: "reconnect", awayMs: 75 }]);
+        expect(events).toEqual([{ availabilityChanged: true, focusAwayMs: 75, reconnectAwayMs: 75 }]);
         expect(monitor.state).toEqual({ visible: false, focused: true, online: true });
+        source.report({ visible: false, focused: true, online: true });
+        expect(events).toHaveLength(1);
     });
 
     it("deduplicates full state reports and isolates throwing listeners", () => {
         const source = createDriver({ visible: true, focused: false, online: true });
         const monitor = new EnvironmentMonitor(source.driver);
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
-        const events: string[] = [];
+        const events: unknown[] = [];
         monitor.subscribe(() => {
             throw new Error("listener failed");
         });
-        monitor.subscribe(({ type }) => events.push(type));
+        monitor.subscribe((event) => events.push(event));
 
         source.report({ visible: true, focused: false, online: true });
         source.report({ visible: true, focused: true, online: true });
         source.report({ visible: true, focused: true, online: true });
 
-        expect(events).toEqual(["focus"]);
+        expect(events).toEqual([{ availabilityChanged: false, focusAwayMs: 0, reconnectAwayMs: null }]);
         expect(error).toHaveBeenCalledTimes(1);
         expect(error).toHaveBeenCalledWith("[EnvironmentMonitor] listener threw", expect.any(Error));
     });

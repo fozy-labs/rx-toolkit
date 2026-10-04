@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { browserEnvironmentDriver } from "./browserEnvironmentDriver";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
 
 describe("browserEnvironmentDriver", () => {
     it("reads initial visibility, focus and connectivity", () => {
@@ -51,5 +54,25 @@ describe("browserEnvironmentDriver", () => {
         window.dispatchEvent(new Event("focus"));
         document.dispatchEvent(new Event("visibilitychange"));
         expect(onChange).toHaveBeenCalledTimes(calls);
+    });
+
+    it("guards document listeners when only window is available", () => {
+        vi.stubGlobal("document", undefined);
+        const addEventListener = vi.spyOn(window, "addEventListener");
+        const removeEventListener = vi.spyOn(window, "removeEventListener");
+        const driver = browserEnvironmentDriver();
+        const onChange = vi.fn();
+
+        const initial = driver.connect(onChange);
+        expect(initial).toEqual({
+            visible: false,
+            focused: false,
+            online: typeof navigator === "undefined" || navigator.onLine !== false,
+        });
+        expect(onChange).not.toHaveBeenCalled();
+        expect(addEventListener.mock.calls.map(([type]) => type)).toEqual(["focus", "blur", "online", "offline"]);
+
+        expect(() => driver.disconnect()).not.toThrow();
+        expect(removeEventListener.mock.calls.map(([type]) => type)).toEqual(["focus", "blur", "online", "offline"]);
     });
 });

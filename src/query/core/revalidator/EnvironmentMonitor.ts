@@ -1,8 +1,14 @@
 import type { IEnvironmentDriver, TEnvironmentState } from "@/query/types";
 import { Batcher } from "@/signals";
 
-export type TEnvironmentEvent =
-    { type: "change" } | { type: "focus"; awayMs: number } | { type: "reconnect"; awayMs: number };
+export interface TEnvironmentEvent {
+    /** visible or online changed — interval clocks must re-check eligibility */
+    availabilityChanged: boolean;
+    /** ms spent unfocused, set when this report is a focus transition */
+    focusAwayMs: number | null;
+    /** ms spent offline, set when this report is a reconnect transition */
+    reconnectAwayMs: number | null;
+}
 
 const ALWAYS_AVAILABLE: TEnvironmentState = { visible: true, focused: true, online: true };
 
@@ -62,27 +68,26 @@ export class EnvironmentMonitor {
         if (previous.focused && !next.focused) this._blurredAt = now;
         if (previous.online && !next.online) this._offlineAt = now;
 
-        const events: TEnvironmentEvent[] = [];
-        if (previous.visible !== next.visible || previous.online !== next.online) {
-            events.push({ type: "change" });
-        }
+        const event: TEnvironmentEvent = {
+            availabilityChanged: previous.visible !== next.visible || previous.online !== next.online,
+            focusAwayMs: null,
+            reconnectAwayMs: null,
+        };
         if (!previous.focused && next.focused) {
-            events.push({ type: "focus", awayMs: now - (this._blurredAt ?? now) });
+            event.focusAwayMs = now - (this._blurredAt ?? now);
             this._blurredAt = null;
         }
         if (!previous.online && next.online) {
-            events.push({ type: "reconnect", awayMs: now - (this._offlineAt ?? now) });
+            event.reconnectAwayMs = now - (this._offlineAt ?? now);
             this._offlineAt = null;
         }
 
         Batcher.run(() => {
-            for (const event of events) {
-                for (const listener of this._listeners) {
-                    try {
-                        listener(event);
-                    } catch (error) {
-                        console.error("[EnvironmentMonitor] listener threw", error);
-                    }
+            for (const listener of this._listeners) {
+                try {
+                    listener(event);
+                } catch (error) {
+                    console.error("[EnvironmentMonitor] listener threw", error);
                 }
             }
         });
