@@ -3,6 +3,8 @@
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-04
+
 ### Added
 - **`useDebouncedValue`** — откладывает применение часто меняющегося значения в React. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
 - **`useDebouncedArgs`** — задерживает изменение аргументов запроса, сравнивая их по ключу. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
@@ -509,7 +511,8 @@ Breaking-релиз: новый словарь и форма состояния 
 - **Breaking:** удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.0...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.1...develop
+[0.13.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
