@@ -2,6 +2,7 @@ export * from "./common";
 export * from "./cache";
 export * from "./state";
 export * from "./snapshot";
+export * from "./invalidate-on";
 export * from "./resource";
 export * from "./projection-resource";
 export * from "./command";
