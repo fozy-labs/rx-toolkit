@@ -36,15 +36,19 @@ export class EnvironmentMonitor {
     private _connect(): void {
         if (this._connected || this._connecting || this._driver === null) return;
         this._connecting = true;
-        const initial = this._driver.connect((next) => {
-            if (!this._connecting) this._onChange(next);
-        });
+        let initial: TEnvironmentState;
+        try {
+            initial = this._driver.connect((next) => {
+                if (!this._connecting) this._onChange(next);
+            });
+        } finally {
+            this._connecting = false;
+        }
         this._state = { ...initial };
         const now = Date.now();
         this._blurredAt = initial.focused ? null : now;
         this._offlineAt = initial.online ? null : now;
         this._connected = true;
-        this._connecting = false;
     }
 
     private _onChange(next: TEnvironmentState): void {

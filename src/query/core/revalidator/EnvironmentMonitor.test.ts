@@ -42,6 +42,23 @@ describe("EnvironmentMonitor", () => {
         expect(driver.disconnect).not.toHaveBeenCalled();
     });
 
+    it("retries the connection after the driver throws", () => {
+        const state = { visible: true, focused: true, online: true };
+        const error = new Error("connect failed");
+        let attempts = 0;
+        const connect = vi.fn((_onChange: (state: TEnvironmentState) => void) => {
+            attempts += 1;
+            if (attempts === 1) throw error;
+            return state;
+        });
+        const driver: IEnvironmentDriver = { connect, disconnect: vi.fn() };
+        const monitor = new EnvironmentMonitor(driver);
+
+        expect(() => monitor.state).toThrow(error);
+        expect(monitor.state).toEqual(state);
+        expect(connect).toHaveBeenCalledTimes(2);
+    });
+
     it("ignores synchronous connect callbacks and deduplicates identical states", () => {
         const events: string[] = [];
         const reports: Array<(state: TEnvironmentState) => void> = [];
