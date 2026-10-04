@@ -39,7 +39,7 @@ type TRow = keyof typeof MATRIX;
 const ROWS_WITH_ERROR: TRow[] = [7, 8, 9, 10, 11, 12, 13, 14];
 
 /**
- * Assert the full state shape against a matrix row: the six data fields plus
+ * Assert the full state shape against a matrix row: the seven data fields plus
  * all six flags, the flags recomputed from the row per the formula table.
  */
 function expectRow(
@@ -60,6 +60,7 @@ function expectRow(
         dataSource: state.dataSource,
         data: state.data,
         dataArgs: state.dataArgs,
+        updatedAt: state.updatedAt,
         args: state.args,
         isPending: state.isPending,
         isInitialLoading: state.isInitialLoading,
@@ -72,6 +73,7 @@ function expectRow(
         dataSource,
         data: fields.data ?? null,
         dataArgs: fields.dataArgs ?? null,
+        updatedAt: dataSource === "previous" || dataSource === "current" ? expect.any(Number) : null,
         args: fields.args ?? null,
         isPending: status === "pending",
         isInitialLoading: status === "pending" && (dataSource === "none" || dataSource === "placeholder"),

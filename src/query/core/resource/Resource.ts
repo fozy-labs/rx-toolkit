@@ -10,6 +10,7 @@ import type {
     TBoundResource,
     TCacheEntryAddedContext,
     TInFlightPolicy,
+    TInvalidateOnOptions,
     TInvalidateOptions,
     TKeyed,
     TMapError,
@@ -28,10 +29,16 @@ import { abortReason } from "../../lib/abortReason";
 import { toKeyed as toKeyedUtil } from "../../lib/toKeyed";
 import { QueryCacheEntry, type TQueryCacheEntryInternals } from "../cache/QueryCacheEntry";
 import { snapshotEntryState } from "../machine/machine-helpers";
+import { EnvironmentMonitor, IntervalClock, type TEnvironmentEvent } from "../revalidator";
 
 import { buildEntryState, IDLE_ENTRY_STATE } from "./entry-state";
 import { instrumentQueryRun, settleQueryRun, type TQueryRunLifecycle } from "./instrumentQueryRun";
 import { ResourceClutch } from "./ResourceClutch";
+
+interface IResourceRevalidation<TArgs, TData> {
+    invalidateOn: TInvalidateOnOptions<TArgs, TData>;
+    environment: EnvironmentMonitor;
+}
 
 // ==================== Resource ====================
 
@@ -61,6 +68,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
     private readonly _invalidateInFlight: TInFlightPolicy | undefined;
     /** Core-only wiring handed to every entry (see {@link TQueryCacheEntryInternals}). */
     private readonly _entryInternals: TQueryCacheEntryInternals<TData>;
+    private readonly _revalidation?: IResourceRevalidation<TArgs, TData>;
+    private readonly _intervalClocks = new Map<QueryCacheEntry<TArgs, TData>, IntervalClock<TArgs, TData>>();
     private _streamPatchWarned = false;
     /**
      * @internal Read by {@link ResourceClutch} to build its placeholder state.
@@ -74,8 +83,14 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
      *   (the projection resource's in-place revalidation), handed to every
      *   entry along with the resource's own lifecycle wiring. Not part of the
      *   public {@link IResourceConfig}.
+     * @param revalidation - Api-owned automatic revalidation wiring. Not part
+     *   of the public resource configuration.
      */
-    constructor(config: IResourceConfig<TArgs, TData>, entryInternals: TQueryCacheEntryInternals = {}) {
+    constructor(
+        config: IResourceConfig<TArgs, TData>,
+        entryInternals: TQueryCacheEntryInternals = {},
+        revalidation?: IResourceRevalidation<TArgs, TData>,
+    ) {
         this._queryFn = config.queryFn;
         this._key = config.key;
         this._snapshotable = config.snapshotable ?? true;
@@ -89,6 +104,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         this._invalidateInFlight = config.invalidateInFlight;
         this._entryInternals = { ...entryInternals, onPromiseRunSettled: settleQueryRun };
         this._placeholderData = config.placeholderData;
+        this._revalidation = revalidation;
 
         if (config.snapshot) {
             for (const [key, snap] of Object.entries(config.snapshot.entries)) {
@@ -100,6 +116,8 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
                 });
             }
         }
+
+        this._revalidation?.environment.subscribe((event) => this._onEnvironmentEvent(event));
     }
 
     // ==================== Public API ====================
@@ -533,6 +551,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             },
             this._entryInternals,
         );
+        this._attachIntervalClock(entry, keyed);
 
         // Register in cache
         this._cache.set(keyed.key, entry);
@@ -589,6 +608,7 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
             },
             { ...this._entryInternals, coldLoad: () => beforeQuery(resourceKey, keyed.key) },
         );
+        this._attachIntervalClock(entry, keyed);
 
         // Register in cache immediately (UI sees pending state)
         this._cache.set(keyed.key, entry);
@@ -621,6 +641,78 @@ export class Resource<TArgs, TData, TError = unknown> implements IResource<TArgs
         }
 
         this._createEntry(keyed, initialState, meta.isStale);
+    }
+
+    private _attachIntervalClock(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {
+        const revalidation = this._revalidation;
+        if (!revalidation) return;
+
+        const clock = new IntervalClock({
+            args: keyed.value,
+            entry,
+            interval: revalidation.invalidateOn.interval,
+            environment: revalidation.environment,
+            onFire: () => this._autoRevalidate(entry),
+        });
+        this._intervalClocks.set(entry, clock);
+        entry._setActivityListener(() => clock.update());
+        entry.completed$.subscribe(() => {
+            clock.dispose();
+            entry._setActivityListener(null);
+            this._intervalClocks.delete(entry);
+        });
+        clock.update();
+    }
+
+    private _onEnvironmentEvent(event: TEnvironmentEvent): void {
+        if (event.availabilityChanged) for (const clock of this._intervalClocks.values()) clock.update();
+
+        for (const entry of [...this._cache.values()]) {
+            const matches = (key: "focus" | "reconnect", awayMs: number | null): boolean => {
+                if (awayMs === null) return false;
+                const configured = this._revalidation?.invalidateOn[key];
+                if (configured === undefined || configured === false) return false;
+                const threshold = this._resolveAwayThreshold(configured, entry, key);
+                return threshold !== null && awayMs >= threshold;
+            };
+            if (matches("focus", event.focusAwayMs) || matches("reconnect", event.reconnectAwayMs)) {
+                this._autoRevalidate(entry);
+            }
+        }
+    }
+
+    private _resolveAwayThreshold(
+        configured: NonNullable<TInvalidateOnOptions<TArgs, TData>["focus" | "reconnect"]>,
+        entry: QueryCacheEntry<TArgs, TData>,
+        key: "focus" | "reconnect",
+    ): number | null {
+        let value: unknown = configured;
+        if (typeof configured === "function") {
+            try {
+                value = configured(
+                    entry.keyedArgs.value,
+                    buildEntryState<TArgs, TData, unknown>(entry.keyedArgs.value, entry.peek()),
+                );
+            } catch (error) {
+                console.error(`[Resource] invalidateOn.${key} threw`, error);
+                return null;
+            }
+        }
+
+        if (value === true) return 0;
+        if (typeof value !== "number" || Number.isNaN(value)) return null;
+        return value < 0 ? 0 : value;
+    }
+
+    private _autoRevalidate(entry: QueryCacheEntry<TArgs, TData>): void {
+        if (entry.isCompleted) return;
+
+        const status = entry.peek().status;
+        if (!entry.isMelting && !entry._isInFlight && (status === "error" || status === "invalidate-error")) {
+            entry.retry();
+        } else {
+            entry.invalidate({ inFlight: "join" });
+        }
     }
 
     private _fireOnCacheEntryAdded(entry: QueryCacheEntry<TArgs, TData>, keyed: TKeyed<TArgs>): void {
