@@ -185,6 +185,32 @@ describe("useResources — record", () => {
         expect(result.current.data).toEqual({ left: { id: 3, name: "Cy" }, right: { id: 3, name: "Cy" } });
     });
 
+    it("a custom serializeArgs key never merges a new slot into another slot's new clutch", async () => {
+        const api = createApi({ plugins: [reactHooksPlugin()] });
+        const resource = api.createResource<{ k: string }, string>({
+            queryFn: ({ k }) => Promise.resolve(k),
+            serializeArgs: ({ k }) => k,
+        });
+        // Keys `x:<n>` look like `<key>:<object id>`; the range covers the object ids of this file.
+        const others = Array.from({ length: 2000 }, (_, n) => `x:${n}`);
+        const { result, rerender } = renderHook(
+            ({ k, rest }) =>
+                useResources({
+                    a: resource.bind({ k }),
+                    ...Object.fromEntries(rest.map((key) => [key, resource.bind({ k: key })])),
+                }),
+            { initialProps: { k: "old", rest: [] as string[] } },
+        );
+        await flush();
+
+        rerender({ k: "x", rest: others });
+        await flush();
+
+        const data = result.current.data as Record<string, string>;
+        expect(data.a).toBe("x");
+        expect(others.filter((key) => data[key] !== key)).toEqual([]);
+    });
+
     it("an inline record literal is the same slot set every render", async () => {
         const { users } = setup();
         const { result, rerender } = renderHook(() => useResources({ user: users.resource.bind({ id: 1 }) }));

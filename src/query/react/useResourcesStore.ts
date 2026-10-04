@@ -171,7 +171,7 @@ export class ResourcesStore {
         // A new clutch is shared only by the slots that adopt the same stale
         // data: a clutch holds one SWR fallback, and named slots converging on
         // one query each keep their own. Their clutches share the cache entry.
-        const created = new Map<string, TAnyClutch>();
+        const created = new Map<string, Map<TAnyClutch | null, TAnyClutch>>();
         const clutchPerKey = new Map<string, TAnyClutch>();
         this._slots = spec.slots.map((slot): TSlot => {
             if (slot.resource === null || slot.keyed === null) {
@@ -183,9 +183,10 @@ export class ResourcesStore {
             let clutch = sameName?.clutchKey === clutchKey ? sameName.clutch! : reusable.get(clutchKey);
             if (clutch === undefined) {
                 const previous = this._previousOf(slot, sameName);
-                const createdKey = previous === null ? clutchKey : `${clutchKey}:${idOf(previous)}`;
-                clutch = created.get(createdKey) ?? this._createClutch(slot, previous);
-                created.set(createdKey, clutch);
+                let byPrevious = created.get(clutchKey);
+                if (byPrevious === undefined) created.set(clutchKey, (byPrevious = new Map()));
+                clutch = byPrevious.get(previous) ?? this._createClutch(slot, previous);
+                byPrevious.set(previous, clutch);
             }
             if (!clutchPerKey.has(clutchKey)) clutchPerKey.set(clutchKey, clutch);
 
