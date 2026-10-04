@@ -48,7 +48,8 @@ describe("entry points", () => {
             expect(mod.unstable_formsReactPlugin).toBeDefined();
             expect(mod.useConstant).toBeDefined();
             expect(mod.useDebouncedValue).toBeDefined();
-            expect(mod.useDelayedValue).toBeDefined();
+            expect(mod.useDelayedFlag).toBeDefined();
+            expect(mod.useDebouncedArgs).toBeDefined();
         });
     });
 });
