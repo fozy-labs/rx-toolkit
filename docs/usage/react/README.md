@@ -158,6 +158,94 @@ function Page({ userId }: { userId: string }) {
 - Приостановившийся рендер запускает запрос сразу после себя, а не в эффекте: приостановленный рендер эффекты не выполняет, и fallback завис бы навсегда. Сам рендер запись кэша не создаёт и `queryFn` не вызывает.
 - `SKIP` намеренно **не поддерживается**: компонент, который может приостановиться, всегда должен иметь аргументы. Для условных запросов используйте `useResource`.
 
+### useResources
+
+Несколько ресурсов в одном хуке: именованные слоты (объект) или массив привязанных ресурсов (`resource.bind(args)`). Слот может быть `SKIP`. Хук подписывается один раз при любом числе слотов, поэтому подходит и для массива динамической длины, где `useResource` в цикле вызвать нельзя.
+
+```tsx
+import { SKIP } from '@fozy-labs/rx-toolkit';
+import { useResources } from '@fozy-labs/rx-toolkit/react';
+
+function UserCard({ id, withStats }: { id: string; withStats: boolean }) {
+    // объект — именованные слоты
+    const card = useResources({
+        user: userApi.getUser.bind({ id }),
+        stats: withStats ? statsApi.getStats.bind({ id }) : SKIP,
+    });
+
+    card.states.user; // TResourceClutchState — состояние слота, как у useResource
+
+    if (card.status === 'error') return <Error error={card.error} onRetry={card.retry} />;
+    if (!card.hasData) return <Loader />;
+
+    // card.data: { user: TUser; stats: TStats | null } — у SKIP-слота null
+    return <Card user={card.data.user} stats={card.data.stats} />;
+}
+
+function Orders({ ids }: { ids: string[] }) {
+    // массив — длина динамическая; литерал-кортеж [a, b] типизируется как кортеж
+    const rows = useResources(ids.map((id) => orderApi.getOrder.bind({ id })));
+
+    return rows.states.map((row, i) => <OrderRow key={ids[i]} state={row} />);
+}
+```
+
+**Возвращаемое значение (`TResourcesState`):**
+
+| Поле | Значение |
+|------|----------|
+| `states` | Состояние каждого слота в форме входа (объект или массив) — `TResourceClutchState`, как у `useResource`; у `SKIP`-слота — `idle` |
+| `status` | Первое подходящее: `idle` — все слоты `SKIP`; `pending` — у какого-то слота запрос в полёте; `error` — какой-то слот упал; иначе `success` |
+| `hasData` / `data` | Данные есть у каждого задействованного слота. `data` — в форме входа, у `SKIP`-слота `null`; иначе `data = null` |
+| `isIdle` | Все слоты `SKIP` |
+| `isPending`, `isInitialLoading`, `isSwitching`, `isInvalidating` | «Какой-то слот такой» — истинными могут быть несколько сразу |
+| `hasError` / `error` | Первая ошибка в порядке слотов (ключи объекта, индексы массива) |
+| `retry()` | Повторяет упавшие слоты |
+| `invalidate(opts?)` | Инвалидирует каждый задействованный слот; слот, упавший без данных, перезапускается |
+
+- `pending` проверяется раньше `error`: упавший слот рядом с загружающимся даёт `status = 'pending'` при `hasError = true` — как повтор запроса у одного ресурса.
+- `[]` и `{}` сразу дают `status = 'success'`, `hasData = true`. Вход из одних `SKIP` — `idle`, как `useResource(resource, SKIP)`.
+- `SKIP`-слот данные не блокирует: `hasData` смотрит только на задействованные слоты.
+- `data` сохраняет ссылку, пока не изменились данные слотов, — `useMemo` поверх неё не пересчитывается зря. Опции `combine` нет: преобразуйте `data` сами.
+- Именованный слот при смене args показывает данные прежних args, пока грузятся новые (SWR), как `useResource`. Слот массива — нет: индекс не идентичность, и строка `i` не должна показать данные другой строки. Слот, чьи ресурс и args уже были в наборе, переиспользуется без нового запроса — и при сдвиге индекса.
+- Слоты с одинаковыми ресурсом и args делят одно сцепление и один запрос.
+
+**`useResources` или проекционный ресурс.** Пересекаются, только когда все слоты читают один ресурс:
+
+| | Проекционный ресурс | `useResources` |
+|---|---|---|
+| Когда | Есть batch-эндпоинт | Есть только эндпоинт на элемент, или слоты из разных ресурсов |
+| Запросы | Один запрос только за недостающими id, общий кэш элементов | Запрос на слот |
+| Состояние | Одно на весь набор: упал — упал весь набор | Своё у каждого слота: одна упавшая строка не убирает остальные |
+| SWR при смене набора | Прежний набор целиком | Только у именованных слотов |
+
+Проекционный ресурс — обычный `IResource`, поэтому `projection.bind(ids)` может быть одним слотом `useResources` рядом с другими ресурсами. См. [проекционные ресурсы](../../query/usage/projection-resource.md).
+
+### useSuspenseResources
+
+Suspense-вариант `useResources`. Все слоты стартуют в одном приостановленном рендере — без водопада: при нескольких `useSuspenseResource` подряд первый приостановившийся хук не даёт следующим даже начать запрос. Решение принимается по порядку:
+
+1. у каждого слота есть что показать — возвращает состояние, `data` **гарантированно не `null`**;
+2. какой-то слот упал и показать ему нечего — бросает первую такую ошибку в порядке слотов → `ErrorBoundary`, не дожидаясь остальных. Каждый такой слот помечается на ревалидацию, поэтому ремонт после сброса `ErrorBoundary` перезапрашивает его;
+3. иначе приостанавливает рендер → `<Suspense fallback>`, пока не выполнится 1 или 2.
+
+```tsx
+function UserCard({ id }: { id: string }) {
+    const { data } = useSuspenseResources({
+        user: userApi.getUser.bind({ id }),
+        stats: statsApi.getStats.bind({ id }),
+    });
+
+    return <Card user={data.user} stats={data.stats} />;
+}
+```
+
+- `SKIP` **не принимается** — ни в типах, ни в рантайме (`TypeError`). Для условных слотов используйте `useResources`.
+- Ожидание удерживает записи всех слотов, пока не дождётся последнего, — быстрый слот не вытесняется короткой `retentionTime`, пока грузится медленный.
+- Как и у `useSuspenseResource`, фоновая инвалидация и ошибка за показанными данными рендер не приостанавливают: они приходят в состоянии.
+
+**Возвращаемое значение (`TSuspenseResourcesState`):** `TResourcesState`, суженное до `hasData = true`; состояния слотов — `TSuspenseResourceState`.
+
 ### useCommand
 
 Создаёт сцепление команды и возвращает кортеж `[trigger, state]`.
@@ -349,20 +437,21 @@ function UserStats({ userId, showStats }) {
 
 ```tsx
 function Dashboard() {
-    const userQuery = useResource(userResource, { id: currentUserId });
-    const settingsQuery = useResource(settingsResource, undefined);
-    
-    const hasData = userQuery.hasData && settingsQuery.hasData;
-    const hasError = userQuery.hasError || settingsQuery.hasError;
-    
-    if (hasError) return <Error />;
-    if (!hasData) return <Loader />;
-    
+    const dashboard = useResources({
+        user: userResource.bind({ id: currentUserId }),
+        settings: settingsResource.bind(),
+    });
+
+    if (dashboard.status === 'error') return <Error />;
+    if (!dashboard.hasData) return <Loader />;
+
     return (
         <div>
-            <UserInfo user={userQuery.data} />
-            <Settings settings={settingsQuery.data} />
+            <UserInfo user={dashboard.data.user} />
+            <Settings settings={dashboard.data.settings} />
         </div>
     );
 }
 ```
+
+См. [useResources](#useresources).

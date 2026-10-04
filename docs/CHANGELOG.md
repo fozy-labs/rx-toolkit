@@ -9,6 +9,8 @@
 - **`useDelayedFlag`** — предотвращает мигание индикаторов, задерживая включение булевого флага и удерживая его показанным. См. [хуки времени в React](./usage/react/README.md#хуки-времени).
 - **Автоматическая ревалидация `invalidateOn`**: фокус, восстановление сети и интервальные запросы; драйвер `browserEnvironmentDriver()` и настройка `environmentDriver`. См. [руководство](./query/usage/auto-revalidation.md).
 - **`updatedAt` в состояниях ресурса** — время загрузки данных, которые сейчас показываются.
+- **`useResources`** — несколько ресурсов в одном хуке: именованные слоты `{ user: userApi.getUser.bind({ id }) }` или массив (`ids.map(...)`; литерал-кортеж остаётся кортежем), слот может быть `SKIP`. Возвращает состояние каждого слота (`states`) и сводное: `status`, `hasData` / `data`, флаги загрузки, первую ошибку, `retry` и `invalidate` на все слоты. См. [docs/usage/react](./usage/react/README.md#useresources).
+- **`useSuspenseResources`** — Suspense-вариант: все слоты стартуют в одном приостановленном рендере, без водопада из нескольких `useSuspenseResource`; `SKIP` не принимается. См. [docs/usage/react](./usage/react/README.md#usesuspenseresources).
 
 ### Changed
 - **Состояния ресурса получили поле `updatedAt`**: вручную собранные объекты состояния и тестовые моки должны его задавать.
@@ -507,7 +509,8 @@ Breaking-релиз: новый словарь и форма состояния 
 - **Breaking:** удалены `.value`, `.getValue()`, `.next()` — заменены на `signal()`, `.get()`, `.set()`
 
 
-[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...develop
+[Unreleased]: https://github.com/fozy-labs/rx-toolkit/compare/v0.13.0...develop
+[0.13.0]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/fozy-labs/rx-toolkit/compare/v0.12.0...v0.12.1

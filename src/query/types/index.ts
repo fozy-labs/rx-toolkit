@@ -4,6 +4,7 @@ export * from "./state";
 export * from "./snapshot";
 export * from "./invalidate-on";
 export * from "./resource";
+export * from "./resources";
 export * from "./projection-resource";
 export * from "./command";
 export * from "./api";

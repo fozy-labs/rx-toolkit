@@ -3,6 +3,7 @@
 // the built package, with `@/index` replaced by the package name.
 import {
     createApi,
+    SKIP,
     type IEnvironmentDriver,
     type TCommandClutchState,
     type TEnvironmentState,
@@ -11,7 +12,7 @@ import {
     type TResourceClutchState,
     type TResourceEntryState,
 } from "@/index";
-import { reactHooksPlugin } from "@/react";
+import { reactHooksPlugin, useResources, useSuspenseResources } from "@/react";
 
 type Args = number;
 type Data = { name: string };
@@ -61,6 +62,23 @@ export function useUser(id: Args) {
 
 export function useSuspenseUser(id: Args) {
     return user.useSuspenseResource(id);
+}
+
+export function useCard(id: Args, withSave: boolean) {
+    return useResources({ user: user.bind(id), other: withSave ? user.bind(id + 1) : SKIP });
+}
+
+export function usePair(id: Args) {
+    return useResources([user.bind(id), user.bind(id + 1)]);
+}
+
+export function useSuspenseRows(ids: Args[]) {
+    return useSuspenseResources(ids.map((id) => user.bind(id)));
+}
+
+export function shownCard(id: Args, withSave: boolean) {
+    const card = useCard(id, withSave);
+    return card.hasData ? card : null;
 }
 
 export function useSave() {
