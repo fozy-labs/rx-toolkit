@@ -45,6 +45,12 @@ describe("Query module exports (@/index)", () => {
             expect(mod.toKeyed).toBeDefined();
             expect(typeof mod.toKeyed).toBe("function");
         });
+
+        it("exports browserEnvironmentDriver", async () => {
+            const mod = await import("@/index");
+            expect(mod.browserEnvironmentDriver).toBeDefined();
+            expect(typeof mod.browserEnvironmentDriver).toBe("function");
+        });
     });
 
     describe("react re-exports (@/react)", () => {
@@ -70,6 +76,18 @@ describe("Query module exports (@/index)", () => {
             const mod = await import("@/react");
             expect(mod.useSuspenseResource).toBeDefined();
             expect(typeof mod.useSuspenseResource).toBe("function");
+        });
+
+        it("exports useResources", async () => {
+            const mod = await import("@/react");
+            expect(mod.useResources).toBeDefined();
+            expect(typeof mod.useResources).toBe("function");
+        });
+
+        it("exports useSuspenseResources", async () => {
+            const mod = await import("@/react");
+            expect(mod.useSuspenseResources).toBeDefined();
+            expect(typeof mod.useSuspenseResources).toBe("function");
         });
 
         it("exports useCommand", async () => {

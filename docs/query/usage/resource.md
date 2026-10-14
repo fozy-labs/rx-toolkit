@@ -109,6 +109,7 @@ function UserProfile({ userId }: { userId: string | null }) {
 | `isInvalidating` | `boolean` | Запрос в полёте поверх данных текущих аргументов. |
 | `args` | `TArgs \| null` | Аргументы текущего наблюдения. |
 | `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. Отличаются от `args` при SWR-fallback; `null` у плейсхолдера. |
+| `updatedAt` | `number \| null` | Время загрузки показанных данных: `null` для `none` и `placeholder`, timestamp соответствующей записи для `current` и `previous`. |
 | `retry` / `invalidate` | `() => void` | Повторить упавший запрос / перезапросить показанное. |
 
 Состояние — **дискриминированное объединение**: проверка `status`, `dataSource` или любого флага сужает типы остальных полей. `hasData` гарантирует `data: TData` (без `| null`), `hasError` — `error: TError` (без `| null`). Полная таблица вариантов — в [API сцепления ресурса][api-res-clutch].

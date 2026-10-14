@@ -48,6 +48,7 @@ if (state.hasError) {
 | `dataSource` | `'none' \| 'placeholder' \| 'previous' \| 'current'` | Откуда взяты `data`. См. [ниже](#datasource). |
 | `data` | `TData \| null` | Данные, которые сцепление показывает. Есть они или нет, говорит `dataSource`, а не сравнение с `null`. |
 | `dataArgs` | `TArgs \| null` | Аргументы, для которых загружены `data`. `null` у `none` и `placeholder` — плейсхолдер не загружался. |
+| `updatedAt` | `number \| null` | Время загрузки показанных данных: `null` у `none` и `placeholder`, timestamp текущей или предыдущей записи для соответствующих данных. |
 | `args` | `TArgs \| null` | Аргументы, за которыми следит сцепление. `null` только в `idle`. |
 | `error` | `TError \| null` | Ошибка последнего settle текущих `args`; живёт до следующего settle, поэтому переживает повтор. По умолчанию `unknown`; типизируется опцией API [`mapError`](./README.md#типизация-ошибок-maperror). |
 | `isPending` | `boolean` | Запрос в полёте. |

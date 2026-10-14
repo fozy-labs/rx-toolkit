@@ -309,6 +309,16 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
     };
 
     /**
+     * @internal Keep the tracked entry for 5 s, as a settle of
+     * {@link whenSettled} on data does — for `useSuspenseResources`, whose
+     * wait settles only once every slot has data: it holds each entry until
+     * then, and the render it wakes holds them only once committed.
+     */
+    _keepSettled = (): void => {
+        this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
+    };
+
+    /**
      * Promise resolving once the clutch has something to render, or with
      * `waitForDone` once no query is in flight (see
      * {@link IResourceClutch.whenSettled}).
@@ -350,7 +360,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
             this._whenSettled[mode] = null;
         };
         const keep = (state: TResourceClutchState<unknown, unknown, unknown>): void => {
-            if (state.hasData) this._tracking$.peek()?.current$.peek()?._keepFor(SETTLED_KEEP_MS);
+            if (state.hasData) this._keepSettled();
         };
         const promise = firstValueFrom(this.state$.obs.pipe(first(isReady), tap(keep))).then(settle, settle);
 
@@ -491,6 +501,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                         dataSource: "placeholder",
                         data: placeholder.data,
                         dataArgs: null,
+                        updatedAt: null,
                         hasData: true,
                         args: keyed.value,
                         ...errorSlot,
@@ -507,6 +518,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                         dataSource: "previous",
                         data: previous.data,
                         dataArgs: previous.args,
+                        updatedAt: previous.updatedAt,
                         hasData: true,
                         args: keyed.value,
                         ...errorSlot,
@@ -538,7 +550,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
      * data. Reads the previous entry's state signal, subscribing the deriving
      * computed to its changes.
      */
-    private _previous(): { data: TData; args: TArgs } | null {
+    private _previous(): { data: TData; args: TArgs; updatedAt: number } | null {
         const previousEntry = this._previous$?.();
         if (!previousEntry) return null;
 
@@ -546,7 +558,9 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         // that resolved `null` holds data, and dropping it here would silently
         // turn row 4 into row 2 and row 8 into row 7.
         const state = previousEntry.state$();
-        return isDataState(state) ? { data: state.data, args: previousEntry.keyedArgs.value } : null;
+        return isDataState(state)
+            ? { data: state.data, args: previousEntry.keyedArgs.value, updatedAt: state.updatedAt }
+            : null;
     }
 
     /**
@@ -564,7 +578,8 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
         const memo = this._placeholder;
         if (memo && memo.key === keyed.key) return memo.result;
 
-        const result = placeholderData(keyed.value, this._previous());
+        const previous = this._previous();
+        const result = placeholderData(keyed.value, previous ? { data: previous.data, args: previous.args } : null);
         this._placeholder = { key: keyed.key, result };
         return result;
     }
@@ -590,6 +605,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 dataSource: "placeholder",
                 data: placeholder.data,
                 dataArgs: null,
+                updatedAt: null,
                 hasData: true,
                 args: keyed.value,
                 ...errorSlotOf<TError>(error),
@@ -609,6 +625,7 @@ export class ResourceClutch<TArgs, TData, TError = unknown> implements IResource
                 dataSource: "previous",
                 data: previous.data,
                 dataArgs: previous.args,
+                updatedAt: previous.updatedAt,
                 hasData: true,
                 args: keyed.value,
                 ...errorSlotOf<TError>(error),

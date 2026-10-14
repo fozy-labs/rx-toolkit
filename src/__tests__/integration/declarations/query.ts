@@ -1,15 +1,58 @@
 // A consumer of the query module: every export is left to inference, so its declaration names
 // the clutch and entry states — whole and narrowed. `declarations.test.ts` compiles it against
 // the built package, with `@/index` replaced by the package name.
-import { createApi, type TCommandClutchState, type TResourceClutchState, type TResourceEntryState } from "@/index";
-import { reactHooksPlugin } from "@/react";
+import {
+    createApi,
+    SKIP,
+    type IEnvironmentDriver,
+    type TCommandClutchState,
+    type TEnvironmentState,
+    type TInvalidateOnOptions,
+    type TProjectionResourceOptions,
+    type TResourceClutchState,
+    type TResourceEntryState,
+} from "@/index";
+import { reactHooksPlugin, useResources, useSuspenseResources } from "@/react";
 
 type Args = number;
 type Data = { name: string };
 
 export const api = createApi({ plugins: [reactHooksPlugin()] });
 
-export const user = api.createResource({ queryFn: async (id: Args): Promise<Data> => ({ name: String(id) }) });
+export const environmentDriver: IEnvironmentDriver = {
+    connect: (_onChange: (state: TEnvironmentState) => void) => ({ visible: true, focused: true, online: true }),
+    disconnect: () => {},
+};
+
+export const revalidatingApi = createApi({
+    environmentDriver,
+    invalidateOn: { focus: true, reconnect: 1_000, interval: 5_000 },
+});
+
+export const user = api.createResource({
+    queryFn: async (id: Args): Promise<Data> => ({ name: String(id) }),
+});
+
+export const revalidatingUser = revalidatingApi.createResource({
+    queryFn: async (id: Args): Promise<Data> => ({ name: String(id) }),
+    invalidateOn: { focus: (_args, state) => state.updatedAt === null },
+});
+
+export const invalidatePolicy: TInvalidateOnOptions<Args, Data> = {
+    reconnect: (_args, state) => state.hasData && state.updatedAt > 0,
+};
+
+type TProjectionHasInvalidateOn = "invalidateOn" extends keyof TProjectionResourceOptions<
+    number[],
+    number,
+    Data,
+    Args,
+    Data
+>
+    ? true
+    : false;
+
+export const projectionHasNoInvalidateOn: TProjectionHasInvalidateOn = false;
 
 export const save = api.createCommand({ queryFn: async (id: Args): Promise<Data> => ({ name: String(id) }) });
 
@@ -19,6 +62,23 @@ export function useUser(id: Args) {
 
 export function useSuspenseUser(id: Args) {
     return user.useSuspenseResource(id);
+}
+
+export function useCard(id: Args, withSave: boolean) {
+    return useResources({ user: user.bind(id), other: withSave ? user.bind(id + 1) : SKIP });
+}
+
+export function usePair(id: Args) {
+    return useResources([user.bind(id), user.bind(id + 1)]);
+}
+
+export function useSuspenseRows(ids: Args[]) {
+    return useSuspenseResources(ids.map((id) => user.bind(id)));
+}
+
+export function shownCard(id: Args, withSave: boolean) {
+    const card = useCard(id, withSave);
+    return card.hasData ? card : null;
 }
 
 export function useSave() {

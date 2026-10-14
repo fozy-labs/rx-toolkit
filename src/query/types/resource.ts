@@ -6,6 +6,7 @@ import type { ReadonlySignal } from "@/signals/types";
 import type { TLifecycleHookOption, TMapError } from "./api";
 import type { IQueryCacheEntry, TCacheEntryAddedContext, TQueryStartedContext } from "./cache";
 import type { TArgsOrKeyed, TArgsOrVoid, TInFlightPolicy, TInvalidateOptions, TKeyed, TRetentionTime } from "./common";
+import type { TInvalidateOnOptions } from "./invalidate-on";
 import type { TDataSlotCurrent, TDataSlotNone, TErrorSlot, TResourceClutchState } from "./state";
 
 // ==================== Resource Interface ====================
@@ -305,6 +306,12 @@ export interface TResourceOptions<TArgs, TData> {
      * so the `idle` row is excluded.
      */
     retentionTime?: TRetentionTime<TArgs, Exclude<TResourceEntryState<TArgs, TData>, TResourceEntryIdleState>>;
+    /**
+     * Revalidate this resource when the environment changes or on an interval.
+     * Each supplied key replaces the api default for that key; `false` disables
+     * all automatic revalidation for this resource.
+     */
+    invalidateOn?: TInvalidateOnOptions<TArgs, TData> | false;
     serializeArgs?: (args: TArgs) => string;
     /** See {@link TLifecycleHookOption} for the array form. */
     onCacheEntryAdded?: TLifecycleHookOption<(args: TArgs, ctx: TCacheEntryAddedContext<TArgs, TData>) => void>;

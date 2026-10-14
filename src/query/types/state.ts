@@ -38,6 +38,7 @@ export interface TDataSlotNone {
     dataSource: "none";
     data: null;
     dataArgs: null;
+    updatedAt: null;
     hasData: false;
 }
 
@@ -46,6 +47,7 @@ export interface TDataSlotPlaceholder<TData> {
     dataSource: "placeholder";
     data: TData;
     dataArgs: null;
+    updatedAt: null;
     hasData: true;
 }
 
@@ -54,6 +56,7 @@ export interface TDataSlotPrevious<TArgs, TData> {
     dataSource: "previous";
     data: TData;
     dataArgs: TArgs;
+    updatedAt: number;
     hasData: true;
 }
 
@@ -62,6 +65,7 @@ export interface TDataSlotCurrent<TArgs, TData> {
     dataSource: "current";
     data: TData;
     dataArgs: TArgs;
+    updatedAt: number;
     hasData: true;
 }
 
