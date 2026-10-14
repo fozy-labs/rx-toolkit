@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: docs
-astp-version: 1.3.0
-astp-hash: 466b73f4eacf7ffb28b561f4f59f796df5b2cac21fc805cbc5b51ff119b34587
----
 # Mermaid craft
 
 Applies to every Mermaid diagram you write or edit.
@@ -60,8 +54,8 @@ Review invariant: walk every request — it has a response; every response eithe
 ## 5. Diagrams in specs — placement
 
 Document-level placement rules — diagram-first for flows, one home per fact, the
-complement test — live in the parent skill:
-[SKILL.md § One home per fact](../SKILL.md#1-one-home-per-fact). This file governs the
+complement test — live in the parent skill's
+[One home per fact](../SKILL.md#1-one-home-per-fact). This file governs the
 diagram itself; that section governs where a diagram sits in a document and what the
 surrounding prose may repeat.
 

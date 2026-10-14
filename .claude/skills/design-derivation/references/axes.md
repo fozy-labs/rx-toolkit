@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 7a061c2f857ad973990fa9bafdbb129b0e9bdcf62f71b35fdabcc1be9262494d
----
 # Axes
 
 > Loaded when: a Ledger slot needs the axis behind it; a reading is contested; an axis is invoked by name, by you or by someone arguing with you; or the standing of an axis — confirmed, narrowed, or retracted — decides whether a claim may be made at all.

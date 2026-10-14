@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 7ec8061362d8310248b814a76cf33aa8924a76cad3f312a6d9caf3753aae0995
----
 # Sign-load and the Atemporal Reading
 
 > Loaded when: Filling the sign column — always, in the same pass as `references/charges.md`; and for any brief where impression is the deliverable, or the complaint is "it looks bland" or "it looks generic".

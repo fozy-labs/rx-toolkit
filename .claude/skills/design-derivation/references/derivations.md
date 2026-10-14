@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 281a41e94037919c9ea443642f54661941b4d06ab07d938df78ffd7d6f9a8799
----
 # Worked Examples
 
 > Loaded when: a Ledger line is contested; you cannot see how a gate produces a structural difference; a verdict needs the inference that would justify it; or you are early in using this skill and need to watch a derivation run end to end.

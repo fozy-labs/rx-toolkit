@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 0dc16f0867ac0b056a60ac52fe9c035d02fe076105c61f8322edc8a15b01aefb
----
 # Glossary
 
 > Loaded when: A term is used or encountered; a reference file's RU: line needs unpacking; or a word from the corpus may be a homonym trap.

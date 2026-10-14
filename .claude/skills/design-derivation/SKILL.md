@@ -14,10 +14,7 @@ description: >-
   decision is traceable to this brief rather than to a remembered look. Not for writing markup
   or component code against a settled spec, choosing frameworks or component libraries,
   copywriting, data-chart and visualisation specification, or accessibility conformance audits.
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 9fde154b8175a06bb454ce8cb1e0f3032a235a2d5c98c21691235c53fd2a759c
+license: MIT
 ---
 
 # design-derivation

@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 2a1f7082c23a621b5e3c77e5766a22779d11815f93d014f151360f0949eb245b
----
 # Sequence and Accent
 
 > Loaded when: Filling the charge column; or the complaint is "nothing stands out", "everything shouts", "it feels flat", "it's noisy"; or a block was added or removed.

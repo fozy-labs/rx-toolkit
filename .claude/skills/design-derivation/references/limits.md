@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: e6b4107fec55b6e23a5605b77982e379a003bb6c3d3b083c933bc6a331c0df96
----
 # Limits and Forks
 
 > Loaded when: About to state a number, cite this model as authority against a user or a stakeholder, attribute a formulation to the author, close one of the open tensions, or answer a question about where this comes from.

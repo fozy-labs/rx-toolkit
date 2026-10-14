@@ -3,10 +3,7 @@ name: statechart-craft
 description: >
     Authoring a state machine as a Mermaid schema — the stateDiagram-v2 subset with `%% @…` directives,
     the statechart-convert CLI and the typed *.generated.ts it emits.
-astp-source: fozy-labs/astp
-astp-bundle: docs
-astp-version: 1.3.0
-astp-hash: e617d5037753154f4614a9a0cc9d409b2226531fb509fc8e125443ef5c692ee0
+license: MIT
 ---
 
 # Statechart craft
@@ -60,7 +57,7 @@ Above the `stateDiagram-v2` header only blank lines and `%%` lines are allowed.
 | `[*] --> A` | initial state of the enclosing scope; **exactly one per scope** |
 | `A --> [*]` | transition into the synthetic `$final` of the scope the line is written in |
 | `A --> B` | eventless transition (`always`) |
-| `A --> B: label` | see [§3](#3-transition-labels) |
+| `A --> B: label` | [Transition labels](#3-transition-labels) |
 | `A --> B: done` | `onDone` of compound/parallel `A` |
 | `A --> B: after 3000` / `after name` | delayed transition; a named delay needs `@delay` |
 | `state X {` … `}` | compound state; `{` ends its line, `}` sits alone |
@@ -178,7 +175,7 @@ Markdown helpers (`findStatechartBlocks`, `convertMarkdown`, …); every failure
 - ✅ Declare every event / guard / action / delay name you use in a label — the parser rejects undeclared names.
 - ✅ Keep state ids globally unique across the machine — the visualizer cannot highlight duplicated keys.
 - ✅ Regenerate after every schema edit; never hand-edit `*.generated.ts`.
-- ❌ Don't use Mermaid features outside [§2](#2-diagram-statements) — the converter rejects them even when Mermaid
+- ❌ Don't use Mermaid features outside [Diagram statements](#2-diagram-statements) — the converter rejects them even when Mermaid
   renders them.
 - ❌ Don't put `;` in labels or rely on `%%` mid-line — Mermaid truncates silently; the converter forbids both.
 
