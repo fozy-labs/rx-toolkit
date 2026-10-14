@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: docs
-astp-version: 1.3.0
-astp-hash: 5056df7168402b7048acae2fc90205acefdb5ee1682f4889c0f3a10626a19a9e
----
 # Hard spec
 
 What the general rules do not cover: where derivation lives once it leaves the document, what

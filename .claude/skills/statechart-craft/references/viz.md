@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: docs
-astp-version: 1.3.0
-astp-hash: 0a186e38ada477c8f92f086752b50ca8d0d5cb750b2025be549289533a4d61e0
----
 # StatechartViz — the live visualizer
 
 `@fozy-labs/statechart-viz` runs a statechart on top of its own Mermaid diagram: active states are highlighted from

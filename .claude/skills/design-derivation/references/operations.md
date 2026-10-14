@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 2a6e27f34f8af98ac354844169ffe7101f301d39b5bfe119b65a4dc34d19ac11
----
 # Operations — and why none of them has a sign
 
 > Loaded when: About to add, remove, duplicate, stylise, iconify, divide, hide, de-energise, or substitute anything; or an edit is being defended; or a client's proposed change needs its sign checked.

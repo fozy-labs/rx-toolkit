@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 5225429d6b949b52609b823504606a34ce16d6b58b379f19e63f210d1f258e90
----
 # Block Interior and Surface
 
 > Loaded when: Spacing, grouping, dividers, substrates, nesting, alignment, type sizing, polish; or a critique is about to be phrased as "cleaner" or "more convenient".

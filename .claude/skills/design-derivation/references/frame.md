@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: 257b375f7fc86198c979d568ca29ed1ebfd1a4d34a4003f068b86d4a23ae9e25
----
 # Value and Modus — what the thing is measured by
 
 > Loaded when: Filling Ledger slots 1–3 and 5–6; the brief is fresh or the frame is contested; a lower gate forces the frame to be re-opened.

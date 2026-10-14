@@ -1,10 +1,14 @@
 ---
 name: markdown-craft
-description: Rules for authoring and maintaining Markdown documents
-astp-source: fozy-labs/astp
-astp-bundle: docs
-astp-version: 1.3.0
-astp-hash: 65f574eeb6f475d13bc65fa5e6f39c23423fd73566f4a8dc472d6c8469c4af03
+description: >-
+    Authoring and maintenance rules for Markdown: documentation, specs, reports,
+    READMEs, changelogs, CLAUDE.md and skill files, issue and PR bodies and comments,
+    multi-section chat replies, and large comment blocks in code. Covers one home per
+    fact, document bloat, qualifiers, cross-references as Markdown links instead of §N,
+    Mermaid diagrams, hard specs and changelogs. Use when writing, editing,
+    restructuring or reviewing any such text. Not for one-line replies or short
+    inline code comments.
+license: MIT
 ---
 
 # Markdown craft
@@ -97,7 +101,8 @@ limits, "only in dev builds" stay.
 - Every link target must exist at write time — the file AND the `#anchor`. Anchors
   derive from heading text, so a heading rename is an API break: 
   found inbound links and fix referrers.
-- "see above/below" — must be links.
+- **Link the words, not a pointer to them.** A link on a term or phrase is the light default;
+  a sentence that only points somewhere adds weight, so it must earn it.
 
 ## 6. Maintenance
 

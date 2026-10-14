@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: c196f1c41f8007736cb5c78a0444691db4b918593fe0da64da94b357043eaf7c
----
 # Carriers — what a block, an ordering, a renewal event and an advance become here
 
 > Loaded when: The carrier is known and before the block ordering is fixed — mandatory when the carrier is not a plain screen (banner, identity, print, HUD).

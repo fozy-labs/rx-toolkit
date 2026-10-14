@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: ef7c18c0f066b5abb806554ba0a718746e9e424b7d654bf024f4c8704f6e5a81
----
 # Anti-patterns — the failures this model names, and why
 
 > Loaded when: a decision or an edit is about to be defended by a habit; a move you remember working is about to be repeated; something reads as wrong and you need the mechanism rather than the impression; or a critique of yours or someone else's work needs a name that is not taste.

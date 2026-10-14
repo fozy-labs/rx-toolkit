@@ -347,7 +347,11 @@ export class ResourcesStore {
         const slotsData = states.map((state) => state.data);
         const prev = this._lastSlotsData;
 
-        if (prev !== null && prev.length === slotsData.length && slotsData.every((data, i) => Object.is(data, prev[i]))) {
+        if (
+            prev !== null &&
+            prev.length === slotsData.length &&
+            slotsData.every((data, i) => Object.is(data, prev[i]))
+        ) {
             return this._lastData;
         }
 

@@ -1,9 +1,3 @@
----
-astp-source: fozy-labs/astp
-astp-bundle: design
-astp-version: 1.0.0
-astp-hash: fc8ef2da3affef2beeb219859f0b88342f928554bb9733a4c412d69a7aa7ab18
----
 # Layer 0 — what counts as an argument, and how a decision is defended
 
 > Loaded when: A claim is made, defended, or received — yours, the client's, or a critic's; or a metric, an authority, a borrowed law, or a soft word appears; or a decision must be defended to a stakeholder.
