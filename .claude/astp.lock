@@ -7,7 +7,7 @@
         "rules/working-agreement.md": {
           "hash": "fd269b1b93b718a2ffb4d583db4085007af5219111cf2e2c7a7ef2cc50e42b36",
           "kind": "file",
-          "version": "1.2.0",
+          "version": "1.4.4",
           "blocks": {
             "rules/working-agreement.md#claude_md_files": "592f63df",
             "rules/working-agreement.md#decisions": "fd324b02",
@@ -22,12 +22,36 @@
         "skills/communication": {
           "hash": "dff5a3062e7bca3eaee99549ba7729210a679025c842d0aa6450d0fddc0f7cbb",
           "kind": "skill",
-          "version": "1.2.0"
+          "version": "1.4.4"
+        },
+        "skills/git": {
+          "hash": "18d9bf641e11ede5063264a584b03036df025b3b83dd2eca4e29a9adb74da7bf",
+          "kind": "skill",
+          "version": "1.4.4",
+          "blocks": {
+            "skills/git/SKILL.md#commands": "e138955d"
+          },
+          "declinedBlocks": [
+            "skills/git/SKILL.md#project_overrides"
+          ]
         },
         "skills/retro": {
           "hash": "4894c2ede04cc61215a1ca8de5b68c1c39f89daa5df369941c49f842d7e3b500",
           "kind": "skill",
-          "version": "1.2.0"
+          "version": "1.4.4"
+        },
+        "skills/tracker": {
+          "hash": "836d3f38381c5dcecdb515718cc7b80f996742dbfd722a54ec8effe79dd361b2",
+          "kind": "skill",
+          "version": "1.4.4",
+          "blocks": {
+            "skills/tracker/SKILL.md#metadata": "037c2376",
+            "skills/tracker/SKILL.md#methodology": "4c7cee37",
+            "skills/tracker/SKILL.md#posting": "f6a63c09",
+            "skills/tracker/SKILL.md#project": "eda5718a",
+            "skills/tracker/SKILL.md#pull_requests": "19ad0c95"
+          },
+          "declinedBlocks": []
         }
       }
     },
@@ -36,20 +60,9 @@
       "source": "gh:fozy-labs/astp",
       "units": {
         "skills/astp": {
-          "hash": "0244c0b17030280868d13e548bfe0e4d5bf8d8c725ad84e0523d22aa4212d7a1",
+          "hash": "4b6a175259e51378c0eaf2662cb9846399b441fbcb99e43010dc97c30ee10401",
           "kind": "skill",
-          "version": "1.0.4"
-        }
-      }
-    },
-    "design": {
-      "declined": [],
-      "source": "gh:fozy-labs/astp",
-      "units": {
-        "skills/design-derivation": {
-          "hash": "0e86e774a6837009ab7ddf07554d852414ee84858627c20905e9a44c6561970c",
-          "kind": "skill",
-          "version": "1.0.1"
+          "version": "1.0.5"
         }
       }
     },
@@ -60,12 +73,27 @@
         "skills/markdown-craft": {
           "hash": "fc96d72d75c03cf02bc01deae66ed99fc13e7e4669a8b614f5617e58e4305dac",
           "kind": "skill",
-          "version": "1.3.3"
+          "version": "1.3.4"
         },
         "skills/statechart-craft": {
           "hash": "0a571dd6727f704cc3c7b923c2825b6f169c440914bc02b6bb5947e017cd3c18",
           "kind": "skill",
-          "version": "1.3.3"
+          "version": "1.3.4"
+        }
+      }
+    },
+    "thinking": {
+      "declined": [
+        "skills/analysis",
+        "skills/software-architecture",
+        "skills/testing"
+      ],
+      "source": "gh:fozy-labs/astp",
+      "units": {
+        "skills/design-derivation": {
+          "hash": "60facc7e42a357ceaee89b755adeb7bf82c9e29bd072f7b0ace0e4d72ae4a396",
+          "kind": "skill",
+          "version": "2.0.0"
         }
       }
     }
