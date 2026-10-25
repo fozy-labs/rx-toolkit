@@ -23,7 +23,7 @@ GitHub, `fozy-labs/rx-toolkit`. Run `gh-bot`: it takes `gh` commands and flags a
 |------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | Find issues / PRs      | `gh-bot issue list --repo fozy-labs/rx-toolkit --state all --search "<words>"`, same with `pr list`                             |
 | Open an issue          | `gh-bot issue create --repo fozy-labs/rx-toolkit --title "<title>" --body-file <file> --type <type> --label <label>`            |
-| Open a PR              | `gh-bot pr create --repo fozy-labs/rx-toolkit --base develop --head <branch> --draft --title "<title>" --body-file <file>`      |
+| Open a PR              | `gh-bot pr create --repo fozy-labs/rx-toolkit --base <base> --head <branch> --draft --title "<title>" --body-file <file>`      |
 | Reply to review thread | `gh-bot api repos/fozy-labs/rx-toolkit/pulls/<number>/comments/<comment_id>/replies -F body=@<file>`                            |
 | Mark a PR ready        | `gh-bot pr ready <number> --repo fozy-labs/rx-toolkit`                                                                          |
 | Labels                 | `gh-bot label list --repo fozy-labs/rx-toolkit`; set with `gh-bot issue edit <number> --repo fozy-labs/rx-toolkit --add-label <label>`, `pr edit` alike |
@@ -31,7 +31,7 @@ GitHub, `fozy-labs/rx-toolkit`. Run `gh-bot`: it takes `gh` commands and flags a
 
 The repository has no milestones or projects. Issues are written in Russian.
 
-`main` is the default branch and gets only release merges; PRs target `develop`. PRs are squash-merged: the squash commit takes the PR title (the commit subject for a one-commit PR) and lists the branch's commit messages as its body, so every commit message lands in `develop`.
+`main` is the default branch and gets only release merges; PRs target `develop` unless the task names another base. PRs are squash-merged: the squash commit takes the PR title (the commit subject for a one-commit PR) and lists the branch's commit messages as its body, so every commit message lands in `develop`.
 
 CI (`.github/workflows/ci.yml`) runs `ts-check`, `format:check`, `lint` and `test` on PRs to `main` and `develop`.
 </project>
