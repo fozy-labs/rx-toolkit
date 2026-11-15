@@ -192,13 +192,6 @@ DefaultOptions.update({
     // Внешний инспектор стейт-машин
     MACHINE_DEVTOOLS: statelyInspector(),
     
-    // Глобальный обработчик ошибок запросов
-    onQueryError: (error) => {
-        console.error('Query error:', error);
-        // Можно отправить в систему мониторинга
-        errorTracker.capture(error);
-    },
-    
     // Функция для получения имени текущего scope (полезно для SSR)
     getScopeName: () => {
         return currentRequestId ?? null;
@@ -212,7 +205,6 @@ DefaultOptions.update({
 |----------|-----|----------|
 | `DEVTOOLS` | `DevtoolsLike \| null` | Интеграция с devtools |
 | `MACHINE_DEVTOOLS` | `MachineDevtoolsLike \| null` | [Инспектор стейт-машин](#инспектор-стейт-машин) |
-| `onQueryError` | `(error: unknown) => void` | Глобальный обработчик ошибок запросов |
 | `getScopeName` | `() => string \| null` | Получение имени текущего scope |
 
 ---

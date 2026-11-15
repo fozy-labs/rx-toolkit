@@ -1,6 +1,5 @@
 import { isObservable, type Observable, type Subscription } from "rxjs";
 
-import { SharedOptions } from "@/common/options/SharedOptions";
 import { reportUnhandledError } from "@/common/utils";
 import type {
     IPatchHandle,
@@ -850,17 +849,7 @@ export class QueryCacheEntry<TArgs, TData>
         return this._mapError(error, this._errorContext());
     }
 
-    /**
-     * Record a run's failure in the entry's state, then report it to the
-     * global `onQueryError` — in that order on purpose: the handler is user
-     * code, and it must find the entry already showing the failure. Called the
-     * other way around, a handler that re-queries this very entry (an
-     * `invalidate()` on an auth failure) starts its run and then has the
-     * in-flight state overwritten by this fail transition: the run's result is
-     * dropped and the entry is left showing a failure it already recovered
-     * from. A failure in a {@link PreMappedError} envelope was reported at the
-     * entry it came from.
-     */
+    /** Record a run's normalized failure in the entry's state. */
     private _recordFailure(
         machine: Machine<TArgs, TData>,
         error: unknown,
@@ -868,7 +857,6 @@ export class QueryCacheEntry<TArgs, TData>
     ): void {
         const mappedError = this._normalizeError(error);
         this._setMachine(machine.fail(mappedError), failedAction);
-        if (!(error instanceof PreMappedError)) reportQueryError(mappedError);
     }
 
     /** Settle matcher for a query run's outcome: fresh data or a failed run. */
@@ -1211,21 +1199,6 @@ export class QueryCacheEntry<TArgs, TData>
 }
 
 // ==================== Helpers ====================
-
-/**
- * Hand a failure to the global `onQueryError` handler. A throwing handler is a
- * bug in the consumer's reporting code: it is logged, never allowed to break
- * the entry's transition.
- */
-function reportQueryError(error: unknown): void {
-    const onQueryError = SharedOptions.onQueryError;
-    if (!onQueryError) return;
-    try {
-        untracked(() => onQueryError(error));
-    } catch (handlerError) {
-        console.error("[rx-toolkit] onQueryError threw while reporting a query error.", handlerError);
-    }
-}
 
 /** How far each policy goes in distrusting a run in flight. */
 const POLICY_STRENGTH: Record<TInFlightPolicy, number> = { join: 0, trail: 1, cancel: 2 };

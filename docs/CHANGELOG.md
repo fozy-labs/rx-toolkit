@@ -3,6 +3,9 @@
 
 ## [Unreleased]
 
+### Removed
+- **Breaking:** удалён глобальный обработчик `DefaultOptions.onQueryError`.
+
 ## [0.13.1] - 2026-10-04
 
 ### Added

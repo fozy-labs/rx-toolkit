@@ -14,7 +14,6 @@ import { DefaultOptions } from '@fozy-labs/rx-toolkit';
 DefaultOptions.update({
     DEVTOOLS: reduxDevtools(),
     MACHINE_DEVTOOLS: statelyInspector(),
-    onQueryError: (error) => console.error(error),
     getScopeName: () => MyScopeLibarary.getCurrentScopeName(),
 });
 ```
@@ -62,45 +61,6 @@ const light$ = MachineSignal.state(trafficLight, { inspector: null });
 ```
 
 **См.** [Инспектор стейт-машин](../devtools/README.md#инспектор-стейт-машин)
-
----
-
-### onQueryError
-
-**Тип:** `(error: unknown) => void | null`  
-**По умолчанию:** `null`
-
-Глобальный обработчик ошибок для всех запросов (Resources и Commands). Вызывается при каждой ошибке запроса,
-включая повторы, с ошибкой уже после `mapError` — тем же экземпляром, что попадает в состояние записи.
-Вызывается после того, как запись зафиксировала ошибку: обработчик уже видит её в состоянии записи и может
-сразу перезапросить (`invalidate()` / `retry()`).
-Прерванный запуск и удаление записи ошибкой запроса не считаются. Исключение из обработчика логируется и не ломает запись.
-
-> **Note:** Старое имя `Operations` является deprecated-алиасом для `Commands` и будет удалено в v0.6.0.
-
-```typescript
-import { DefaultOptions } from '@fozy-labs/rx-toolkit';
-import * as Sentry from '@sentry/browser';
-
-DefaultOptions.update({
-    onQueryError: (error) => {
-        // Логирование
-        console.error('[RxToolkit Query Error]', error);
-        
-        // Отправка в абстакную систему мониторинга
-        Sentry.captureException(error, {
-            tags: { source: 'rx-toolkit-query' }
-        });
-        
-        // Уведомление пользователя
-        if (error instanceof NetworkError) {
-            toast.error('Проблема с сетью. Попробуйте позже.');
-        } else if (error instanceof AuthError) {
-            redirectToLogin();
-        }
-    }
-});
-```
 
 ---
 

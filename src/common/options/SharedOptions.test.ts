@@ -10,10 +10,6 @@ describe("SharedOptions", () => {
             expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
         });
 
-        it("onQueryError defaults to null", () => {
-            expect(SharedOptions.onQueryError).toBe(null);
-        });
-
         it("getScopeName defaults to null", () => {
             expect(SharedOptions.getScopeName).toBe(null);
         });
@@ -25,26 +21,18 @@ describe("SharedOptions", () => {
             SharedOptions.DEVTOOLS = mockDevtools;
             expect(SharedOptions.DEVTOOLS).toBe(mockDevtools);
         });
-
-        it("onQueryError can be set", () => {
-            const handler = () => {};
-            SharedOptions.onQueryError = handler;
-            expect(SharedOptions.onQueryError).toBe(handler);
-        });
     });
 
     describe("reset()", () => {
         it("restores all defaults", () => {
             SharedOptions.DEVTOOLS = { state: () => () => {} } as any;
             SharedOptions.MACHINE_DEVTOOLS = { actor: () => ({ event() {}, snapshot() {}, stop() {} }) };
-            SharedOptions.onQueryError = () => {};
             SharedOptions.getScopeName = () => "scope";
 
             SharedOptions.reset();
 
             expect(SharedOptions.DEVTOOLS).toBe(null);
             expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
-            expect(SharedOptions.onQueryError).toBe(null);
             expect(SharedOptions.getScopeName).toBe(null);
         });
 

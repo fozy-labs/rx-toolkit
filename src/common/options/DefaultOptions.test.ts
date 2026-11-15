@@ -24,12 +24,6 @@ describe("DefaultOptions", () => {
             expect(SharedOptions.MACHINE_DEVTOOLS).toBe(null);
         });
 
-        it("updates onQueryError on SharedOptions", () => {
-            const handler = (err: unknown) => {};
-            DefaultOptions.update({ onQueryError: handler });
-            expect(SharedOptions.onQueryError).toBe(handler);
-        });
-
         it("updates getScopeName on SharedOptions", () => {
             const fn = () => "my-scope";
             DefaultOptions.update({ getScopeName: fn });
@@ -38,17 +32,17 @@ describe("DefaultOptions", () => {
 
         it("updates multiple fields at once", () => {
             const mockDevtools = { state: () => () => {} } as any;
-            const handler = (err: unknown) => {};
-            DefaultOptions.update({ DEVTOOLS: mockDevtools, onQueryError: handler });
+            const getScopeName = () => "my-scope";
+            DefaultOptions.update({ DEVTOOLS: mockDevtools, getScopeName });
             expect(SharedOptions.DEVTOOLS).toBe(mockDevtools);
-            expect(SharedOptions.onQueryError).toBe(handler);
+            expect(SharedOptions.getScopeName).toBe(getScopeName);
         });
 
         it("does not overwrite fields not included in the partial", () => {
-            const handler = (err: unknown) => {};
-            SharedOptions.onQueryError = handler;
+            const getScopeName = () => "my-scope";
+            SharedOptions.getScopeName = getScopeName;
             DefaultOptions.update({ DEVTOOLS: null });
-            expect(SharedOptions.onQueryError).toBe(handler);
+            expect(SharedOptions.getScopeName).toBe(getScopeName);
         });
     });
 });
